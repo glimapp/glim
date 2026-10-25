@@ -18,21 +18,33 @@ fn quick_action(
     icon: IconName,
     cx: &App,
 ) -> Button {
+    let primary = id == "welcome-open-file";
+    let accent = super::accent(cx);
+    let surface = if primary {
+        cx.theme().background.blend(accent.opacity(0.08))
+    } else {
+        cx.theme().background
+    };
     Button::new(id)
         .custom(
             ButtonCustomVariant::new(cx)
-                .color(cx.theme().secondary.opacity(0.25))
-                .hover(cx.theme().secondary)
-                .active(cx.theme().secondary.opacity(0.8)),
+                .color(surface)
+                .hover(surface.blend(accent.opacity(0.08)))
+                .active(surface.blend(accent.opacity(0.14))),
         )
+        .bg(surface)
         .flex_1()
         .flex_basis(px(300.))
         .min_w_0()
-        .h(px(88.))
+        .h(px(84.))
         .px_4()
         .rounded(px(12.))
         .border_1()
-        .border_color(cx.theme().border)
+        .border_color(if primary {
+            accent.opacity(0.35)
+        } else {
+            cx.theme().border
+        })
         .accessibility_label(glim_services::locale::tr(label))
         .child(
             h_flex()
@@ -44,11 +56,11 @@ fn quick_action(
                         .size(px(36.))
                         .flex_shrink_0()
                         .rounded(px(10.))
-                        .bg(cx.theme().primary.opacity(0.08))
+                        .bg(accent.opacity(if primary { 0.14 } else { 0.07 }))
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(Icon::new(icon).size(px(19.)).text_color(cx.theme().primary)),
+                        .child(Icon::new(icon).size(px(19.)).text_color(accent)),
                 )
                 .child(
                     v_flex()
@@ -73,6 +85,10 @@ fn quick_action(
                                 .child(
                                     div()
                                         .flex_shrink_0()
+                                        .px_1()
+                                        .py(px(2.))
+                                        .rounded(px(4.))
+                                        .bg(cx.theme().background)
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
                                         .child(shortcut),
@@ -119,7 +135,7 @@ pub fn welcome(
             v_flex()
                 .w_full()
                 .min_w_0()
-                .gap_5()
+                .gap_6()
                 .child(
                     h_flex()
                         .items_center()
@@ -135,7 +151,7 @@ pub fn welcome(
                                 .gap_1()
                                 .child(
                                     div()
-                                        .text_size(px(30.))
+                                        .text_size(px(36.))
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .child("Glim"),
                                 )
@@ -238,6 +254,9 @@ pub fn welcome(
                     .child(
                         h_flex()
                             .px_2()
+                            .pb_2()
+                            .border_b_1()
+                            .border_color(cx.theme().border)
                             .gap_2()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
@@ -327,9 +346,7 @@ pub fn welcome(
                                                                     },
                                                                 )
                                                                 .size(px(17.))
-                                                                .text_color(
-                                                                    cx.theme().muted_foreground,
-                                                                ),
+                                                                .text_color(super::accent(cx)),
                                                             ),
                                                     )
                                                     .child(
@@ -391,7 +408,62 @@ pub fn welcome(
         .overflow_y_scroll()
         .items_center()
         .px_6()
-        .pt(px(48.))
+        .pt(px(56.))
         .pb_8()
         .child(content)
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::{
+        AppContext, Bounds, Pixels, Point, TestAppContext, WindowBounds, WindowOptions, px, size,
+        test::TestWindowExt,
+    };
+
+    #[gpui_kit::test]
+    fn quick_actions_reflow_at_minimum_window_width(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for (width, height) in [(800., 480.), (1100., 760.), (1470., 855.)] {
+            let (handle, _) = cx.update(|cx| {
+                gpui_kit::open_window(
+                    WindowOptions {
+                        window_bounds: Some(WindowBounds::Windowed(Bounds {
+                            origin: Point::default(),
+                            size: size(px(width), px(height)),
+                        })),
+                        ..Default::default()
+                    },
+                    cx,
+                    |window, cx| {
+                        cx.new(|cx| super::super::workspace::Workspace::new(None, window, cx))
+                    },
+                )
+                .unwrap()
+            });
+            cx.update_window(handle, |_, window, cx| {
+                window.render_frame(cx);
+                let mut previous: Option<Bounds<Pixels>> = None;
+                for id in [
+                    "welcome-open-file",
+                    "welcome-new-file",
+                    "welcome-open-folder",
+                    "welcome-new-workspace",
+                ] {
+                    let bounds = window.find(id).bounds();
+                    assert!(bounds.size.width >= px(250.), "{id} too narrow at {width}");
+                    assert!(bounds.origin.x >= px(0.));
+                    assert!(bounds.origin.x + bounds.size.width <= px(width));
+                    if let Some(previous) = previous {
+                        assert!(
+                            bounds.origin.y >= previous.origin.y + previous.size.height
+                                || bounds.origin.x >= previous.origin.x + previous.size.width,
+                            "quick actions overlap at {width}"
+                        );
+                    }
+                    previous = Some(bounds);
+                }
+            })
+            .unwrap();
+        }
+    }
 }

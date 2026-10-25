@@ -330,6 +330,19 @@ impl Workspace {
 
                 h_flex()
                     .id(("document-tab", index))
+                    .role(Role::Tab)
+                    .aria_label(label.clone())
+                    .aria_description(hint_path.clone())
+                    .aria_selected(active)
+                    .tab_index(0)
+                    .focus_visible(|style| style.border_color(crate::views::accent(cx)))
+                    .on_key_down(cx.listener(move |view, event: &KeyDownEvent, window, cx| {
+                        if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                            view.activate_tab(index, window, cx);
+                            view.tabs[index].reveal_native(cx);
+                            cx.stop_propagation();
+                        }
+                    }))
                     .relative()
                     .child(
                         canvas(
@@ -354,13 +367,26 @@ impl Workspace {
                             view.path_hint.hide_for(&hint_path, hint_bounds.get());
                         }
                     }))
-                    .h(px(28.))
+                    .h(px(30.))
+                    .border_1()
+                    .border_color(if active {
+                        crate::views::accent(cx).opacity(0.4)
+                    } else {
+                        gpui_kit::transparent_black()
+                    })
+                    .font_weight(if active {
+                        FontWeight::MEDIUM
+                    } else {
+                        FontWeight::NORMAL
+                    })
                     .flex_shrink_0()
                     .gap_2()
                     .px_3()
                     .rounded(px(7.))
                     .bg(if active {
-                        cx.theme().secondary
+                        cx.theme()
+                            .background
+                            .blend(crate::views::accent(cx).opacity(0.09))
                     } else {
                         cx.theme().background
                     })
@@ -436,7 +462,7 @@ impl Workspace {
             })
             .collect::<Vec<_>>();
         h_flex()
-            .h(px(36.))
+            .h(px(40.))
             .w_full()
             .flex_shrink_0()
             .px_1()
@@ -446,6 +472,7 @@ impl Workspace {
             .child(
                 h_flex()
                     .id("document-tabs")
+                    .role(Role::TabList)
                     .gap_1()
                     .track_scroll(&self.tab_scroll)
                     .flex_1()

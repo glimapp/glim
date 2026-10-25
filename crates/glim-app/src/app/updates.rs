@@ -491,19 +491,6 @@ pub(crate) fn install(cx: &mut App) {
         state.update(cx, |s, cx| s.prepare_exit(true, cx));
     }
 }
-pub(crate) fn save_all(cx: &mut App) {
-    cx.defer(save_all_after_dispatch);
-}
-fn save_all_after_dispatch(cx: &mut App) {
-    if busy(cx) {
-        return;
-    }
-    for (view, window) in super::OpenWorkspaces::windows(cx) {
-        let _ = window.update(cx, |_, window, cx| {
-            let _ = view.update(cx, |v, cx| v.save_all_for_update(window, cx));
-        });
-    }
-}
 pub(crate) fn has_pending_install(cx: &App) -> bool {
     state(cx).is_some_and(|s| {
         let s = s.read(cx);

@@ -47,18 +47,6 @@ impl Workspace {
                 }),
         }
     }
-    pub(crate) fn save_all_for_update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let ids = self
-            .tabs
-            .iter()
-            .filter(|r| r.is_dirty())
-            .filter_map(|r| r.editor())
-            .map(|e| e.entity_id())
-            .collect::<Vec<_>>();
-        for id in ids {
-            self.save_editor(id, window, cx);
-        }
-    }
     pub(crate) fn take_book_writes(&mut self, cx: &mut App) -> Vec<Task<()>> {
         self.tabs
             .iter_mut()
