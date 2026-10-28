@@ -244,3 +244,5 @@ services 提供强类型、有界 Aptabase 事件队列，app 管理开关和后
 遥测资源采样由 app 持有可取消的 30 秒任务；`native/Telemetry.swift` 通过现有 Rust 原生边界返回 Mach/getrusage/Metal 数字指标，不跨线程移动视图。GPUI 观察已解析命令并聚合文档滚动，原生滚动和快捷键复用共享阅读器路由。关闭/重新开启遥测轮换聚合代次。详见[指标单位和覆盖边界](telemetry.zh-CN.md)。
 
 更新会话恢复会跳过已移除的 Git 专用标签，同时保留普通文件与播放列表，并重新映射活动标签索引。
+
+XMind 容器和解压读取使用既有取消令牌；JSON 接受 UTF-8 BOM，旧 XML 仅接受不带 DTD/实体定义的根声明。交互导图解析或工作预算失败后，由 workspace/loading 回退完整 content.json/content.xml 分页，并发送固定阶段的 reader_fallback。损坏容器、缺少内容成员和取消继续返回错误；不把源码回退称为导图渲染成功。

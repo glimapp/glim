@@ -36,8 +36,29 @@ pub fn supports(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("xmind"))
 }
 pub fn read(path: &Path) -> Result<MindMap> {
-    let mut archive =
-        zip::ZipArchive::new(std::fs::File::open(path)?).context("Invalid XMind ZIP container")?;
+    read_cancellable(path, &crate::work::Cancellation::default())
+}
+
+#[derive(Debug)]
+struct ReadStage(&'static str);
+impl std::fmt::Display for ReadStage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Invalid XMind {} content", self.0)
+    }
+}
+impl std::error::Error for ReadStage {}
+
+pub fn failure_stage(error: &anyhow::Error) -> &'static str {
+    error.downcast_ref::<ReadStage>().map_or("unknown", |s| s.0)
+}
+
+pub fn read_cancellable(path: &Path, cancel: &crate::work::Cancellation) -> Result<MindMap> {
+    cancel.check()?;
+    let mut archive = zip::ZipArchive::new(crate::work::Reader {
+        inner: std::fs::File::open(path)?,
+        cancel: cancel.clone(),
+    })
+    .context(ReadStage("container"))?;
     let modern = archive.file_names().any(|name| name == "content.json");
     let mut entry = archive
         .by_name(if modern {
@@ -45,36 +66,40 @@ pub fn read(path: &Path) -> Result<MindMap> {
         } else {
             "content.xml"
         })
-        .context("XMind content is missing, encrypted or damaged")?;
+        .context(ReadStage("content_entry"))?;
     reader_limits::preview_budget(
         entry.size() <= CONTENT_LIMIT,
         "XMind content exceeds the preview size limit",
     )?;
     let mut bytes = Vec::new();
-    (&mut entry)
-        .take(CONTENT_LIMIT + 1)
-        .read_to_end(&mut bytes)?;
+    cancel
+        .copy((&mut entry).take(CONTENT_LIMIT + 1), &mut bytes)
+        .context(ReadStage("decompression"))?;
     reader_limits::preview_budget(
         bytes.len() as u64 <= CONTENT_LIMIT,
         "XMind content exceeds the preview size limit",
     )?;
+    cancel.check()?;
+    // A UTF-8 BOM is permitted by producers but rejected by serde_json.
+    let content = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
     let value = if modern {
-        serde_json::from_slice(&bytes).map_err(|error| {
+        serde_json::from_slice(content).map_err(|error| {
             if error.to_string().contains("recursion limit exceeded") {
                 anyhow::Error::new(reader_limits::PreviewBudgetExceeded(
                     "XMind JSON parser stack budget exceeded",
                 ))
             } else {
-                anyhow::Error::new(error).context("Invalid XMind JSON content")
+                anyhow::Error::new(error).context(ReadStage("json"))
             }
         })?
     } else {
-        legacy_content(&bytes)?
+        legacy_content(content, cancel).context(ReadStage("xml"))?
     };
+    cancel.check()?;
     Ok(MindMap {
         path: std::path::absolute(path)?,
         fingerprint: format!("{:x}", Sha256::digest(&bytes)),
-        sheets: sheets(value)?,
+        sheets: sheets(value).context(ReadStage("structure"))?,
     })
 }
 fn text(value: &Value, key: &str) -> String {
@@ -221,12 +246,14 @@ struct XmlNode {
     text: String,
     children: Vec<usize>,
 }
-fn legacy_content(bytes: &[u8]) -> Result<Value> {
+fn legacy_content(bytes: &[u8], cancel: &crate::work::Cancellation) -> Result<Value> {
     use quick_xml::events::Event;
     let mut reader = quick_xml::Reader::from_reader(bytes);
     let mut nodes: Vec<XmlNode> = Vec::new();
     let mut stack: Vec<usize> = Vec::new();
+    let mut doctype_seen = false;
     loop {
+        cancel.check()?;
         match reader.read_event()? {
             event @ (Event::Start(_) | Event::Empty(_)) => {
                 let empty = matches!(event, Event::Empty(_));
@@ -289,8 +316,13 @@ fn legacy_content(bytes: &[u8]) -> Result<Value> {
                         .push_str(&quick_xml::escape::unescape(&escaped)?);
                 }
             }
-            Event::DocType(_) => {
-                anyhow::bail!("XMind XML with document type declarations is unsupported")
+            Event::DocType(e) => {
+                // Accept only the root declaration, never a DTD or entity definitions.
+                ensure!(
+                    !doctype_seen && nodes.is_empty() && e.decode()?.trim() == "xmap-content",
+                    "XMind XML with external or internal DTD declarations is unsupported"
+                );
+                doctype_seen = true;
             }
             Event::Eof => break,
             _ => {}
@@ -383,12 +415,16 @@ fn xml_topic(nodes: &[XmlNode], index: usize, depth: usize) -> Result<Value> {
     )
 }
 
-/// Complete source fallback when the interactive mind-map exceeds its working budget.
+/// Complete source fallback for unsupported structure or exhausted map working budgets.
 pub fn read_source(
     path: &Path,
     cancel: &crate::work::Cancellation,
 ) -> Result<crate::paged::TextPage> {
-    let archive = zip::ZipArchive::new(std::fs::File::open(path)?)?;
+    cancel.check()?;
+    let archive = zip::ZipArchive::new(crate::work::Reader {
+        inner: std::fs::File::open(path)?,
+        cancel: cancel.clone(),
+    })?;
     let modern = archive.file_names().any(|name| name == "content.json");
     drop(archive);
     crate::paged::zip_member(
@@ -440,6 +476,34 @@ mod tests {
         let before = std::fs::read(&path).unwrap();
         let _ = read(&path).unwrap();
         assert_eq!(before, std::fs::read(&path).unwrap());
+    }
+    #[test]
+    fn accepts_utf8_bom_and_legacy_root_declaration() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(
+            dir.path(),
+            "content.json",
+            b"\xef\xbb\xbf[{\"rootTopic\":{\"title\":\"Plan\"}}]",
+        );
+        assert_eq!(read(&path).unwrap().sheets[0].topics[0].title, "Plan");
+        let path = fixture(
+            dir.path(),
+            "content.xml",
+            br#"<?xml version="1.0"?><!DOCTYPE xmap-content><xmap-content><sheet><topic><title>Legacy</title></topic></sheet></xmap-content>"#,
+        );
+        assert_eq!(read(&path).unwrap().sheets[0].topics[0].title, "Legacy");
+    }
+    #[test]
+    fn malformed_map_keeps_paged_source_and_read_can_be_cancelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path(), "content.json", b"not json");
+        assert_eq!(failure_stage(&read(&path).err().unwrap()), "json");
+        let cancel = crate::work::Cancellation::default();
+        assert!(read_source(&path, &cancel).is_ok());
+        let (cancel, guard) = crate::work::Cancellation::task();
+        drop(guard);
+        assert!(read_cancellable(&path, &cancel).is_err());
+        assert!(read_source(&path, &cancel).is_err());
     }
     #[test]
     fn legacy_namespaces_empty_elements_entities_and_floating_topics() {

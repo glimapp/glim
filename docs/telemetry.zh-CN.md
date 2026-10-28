@@ -111,3 +111,11 @@ python3 scripts/telemetry-detail-report.py events.json --output-dir report
 ```
 
 生成 `timeline.csv`（逐条事件及完整安全属性）、`actions.csv`（事件/格式/阅读器/动作/来源/结果分组）、`shortcuts.csv`（命令与组合键排行）、`resources.csv`（活动格式下主进程指标的样本数、P50/P95/最大值）。支持与格式榜相同的 JSON/JSONL/CSV 输入；相同会话与序号的导出重复行只算一次。时间线保留导出顺序，可按会话与事件序号查看链路；不是可靠的全局因果排序。先在导出中筛选版本与时间范围，再比较报表。安装数缺失时不会伪造人数。
+
+## 命令行过滤与有效使用口径
+
+两个报表脚本支持 ClickHouse JSONEachRow/CSV 的 string_props、numeric_props、os_version、app_version 列，以及 .jsonl.gz 流式读取。用 --app-id 选择生产应用，避免混入其他产品和 DEBUG；用 --exclude-installations-file 读取本地 UTF-8 安装 ID 清单（每行一个，允许 # 注释），也可重复传 --exclude-installation-id。个人 ID 清单放在仓库之外；缺少身份的事件保持未归属。
+
+格式报表增加成功打开安装数、在导出范围内跨 UTC+8 自然日成功打开的安装数，以及源码回退次数。跨日观察不等于 cohort 留存率。详细报表新增 activity.csv，按安装与 UTC+8 日期统计打开次数、成功次数、有打开的会话数和文档前台片段秒数；resource-peaks.csv 保留每个安装各指标峰值对应的时间、版本、格式和窗口/标签数。Aptabase 会话时长含后台驻留，总事件量含大量资源采样，不用它们替代有效使用；前台片段仍包含空闲，不能证明阅读完成。
+
+XMind 解析或工作预算失败但源码分页成功时上报 reader_fallback，固定 reason 区分 container/content_entry/decompression/json/xml/structure/unknown，preview_budget 标识工作预算回退。file_open 成功不保证思维导图渲染成功，需同时查看回退事件。operation_failed 新增 reader_stage 并纳入错误签名，均不上传文档或错误原文。telemetry_health 补齐可用的安装 ID、schema、架构、系统构建和独立序号；error_repeated 聚合使用新序号。历史缺失 ID 无法由本次更新补回。

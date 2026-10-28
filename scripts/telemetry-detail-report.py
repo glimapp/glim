@@ -8,7 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 
 helpers = runpy.run_path(str(Path(__file__).with_name('telemetry-format-report.py')))
-records = helpers['records']
+filtered_records = helpers['filtered_records']
 percentile = helpers['percentile']
 
 
@@ -16,16 +16,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('export', type=Path)
     parser.add_argument('--output-dir', type=Path, required=True)
+    helpers['add_filters'](parser)
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     groups = defaultdict(lambda: {'events': 0, 'people': set(), 'sessions': set(), 'duration': []})
     shortcuts = defaultdict(lambda: {'events': 0, 'people': set()})
     resources = defaultdict(lambda: defaultdict(list))
-    seen = set()
+    activity = defaultdict(lambda: {'opens': 0, 'successful': 0, 'open_sessions': set(), 'foreground_ms': 0})
+    peaks = {}
     with (args.output_dir / 'timeline.csv').open('w', newline='', encoding='utf-8-sig') as output:
         timeline = csv.writer(output)
-        timeline.writerow(['timestamp', 'installation_id', 'session_id', 'event_sequence', 'event', 'format', 'reader', 'action', 'source', 'result', 'duration_ms', 'os_version', 'app_version', 'properties_json'])
-        for event in records(args.export):
+        timeline.writerow(['timestamp', 'installation_id', 'session_id', 'event_sequence', 'event', 'format', 'reader', 'action', 'source', 'result', 'duration_ms', 'os_version', 'app_version', 'properties_json', 'app_id'])
+        for event in filtered_records(args):
             props = event.get('props', event.get('properties', {})) or {}
             if isinstance(props, str):
                 props = json.loads(props)
@@ -36,17 +38,22 @@ def main():
             session = str(event.get('sessionId', event.get('session_id', '')))
             identity = props.get('installation_id', '')
             sequence = props.get('event_sequence')
-            if sequence is not None and session:
-                key = (identity, session, str(sequence))
-                if key in seen:
-                    continue
-                seen.add(key)
             extension = props.get('file_extension', '')
             reader = props.get('reader_kind', '')
             action = props.get('action', '')
             source = props.get('input_source', '')
             result = props.get('result', '')
-            timeline.writerow([event.get('timestamp', ''), identity, session, sequence, name, extension, reader, action, source, result, props.get('duration_ms', ''), system.get('osVersion', ''), system.get('appVersion', ''), json.dumps(props, ensure_ascii=False, separators=(',', ':'))])
+            timeline.writerow([event.get('timestamp', ''), identity, session, sequence, name, extension, reader, action, source, result, props.get('duration_ms', ''), system.get('osVersion', ''), system.get('appVersion', ''), json.dumps(props, ensure_ascii=False, separators=(',', ':')), event['appId']])
+            if name == 'file_open' or (name == 'foreground_segment' and props.get('page') == 'document'):
+                day = helpers['local_day'](event)
+                usage = activity[(event['appId'], identity, day)]
+                if name == 'file_open':
+                    usage['opens'] += 1
+                    usage['successful'] += result == 'success'
+                    if session:
+                        usage['open_sessions'].add(session)
+                else:
+                    usage['foreground_ms'] += props.get('duration_ms', 0)
             row = groups[(name, extension, reader, action, source, result)]
             row['events'] += 1
             if identity:
@@ -57,7 +64,7 @@ def main():
             if isinstance(duration, (int, float)) and duration >= 0:
                 row['duration'].append(duration)
             if name in {'shortcut_used', 'native_shortcut_used'}:
-                modifiers = '+'.join(key for key in ['command', 'control', 'option', 'shift'] if props.get(key))
+                modifiers = '+'.join(key for key in ['command', 'control', 'option', 'shift'] if props.get(key) in (True, 1, 'true', '1'))
                 key = props.get('key_token', 'keycode:' + str(props.get('key_code', 'unknown')))
                 shortcut = shortcuts[(name, extension, reader, action, modifiers, key)]
                 shortcut['events'] += 1
@@ -68,6 +75,9 @@ def main():
                     value = props.get(metric)
                     if isinstance(value, (int, float)):
                         resources[(extension, reader, props.get('scope', 'unknown'))][metric].append(value)
+                        key = (event['appId'], identity, metric)
+                        if key not in peaks or value > peaks[key][0]:
+                            peaks[key] = (value, event.get('timestamp', ''), system.get('appVersion', ''), extension, reader, props.get('workspace_active', ''), props.get('open_tabs', ''), props.get('workspace_windows', ''))
     with (args.output_dir / 'actions.csv').open('w', newline='', encoding='utf-8-sig') as output:
         writer = csv.writer(output)
         writer.writerow(['event', 'format', 'reader', 'action', 'source', 'result', 'events', 'unique_installations', 'sessions', 'duration_p50_ms', 'duration_p95_ms'])
@@ -84,7 +94,17 @@ def main():
         for key, metrics in sorted(resources.items()):
             for metric, values in sorted(metrics.items()):
                 writer.writerow([*key, metric, len(values), percentile(values, .5), percentile(values, .95), max(values)])
-    print('Created timeline.csv, actions.csv, shortcuts.csv, resources.csv in', args.output_dir)
+    with (args.output_dir / 'activity.csv').open('w', newline='', encoding='utf-8-sig') as output:
+        writer = csv.writer(output)
+        writer.writerow(['app_id', 'installation_id', 'day_utc8', 'open_attempts', 'successful_opens', 'sessions_with_open_attempts', 'document_foreground_seconds'])
+        for key, usage in sorted(activity.items()):
+            writer.writerow([*key, usage['opens'], usage['successful'], len(usage['open_sessions']), round(usage['foreground_ms'] / 1000, 1)])
+    with (args.output_dir / 'resource-peaks.csv').open('w', newline='', encoding='utf-8-sig') as output:
+        writer = csv.writer(output)
+        writer.writerow(['app_id', 'installation_id', 'metric', 'value', 'timestamp', 'app_version', 'active_format', 'active_reader', 'workspace_active', 'open_tabs', 'workspace_windows'])
+        for key, values in sorted(peaks.items()):
+            writer.writerow([*key, *values])
+    print('Created timeline.csv, actions.csv, shortcuts.csv, resources.csv, activity.csv, resource-peaks.csv in', args.output_dir)
 
 
 if __name__ == '__main__':

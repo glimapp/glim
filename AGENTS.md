@@ -23,3 +23,5 @@
 - Keep documentation focused on current behavior, architecture and unfinished work. Put release notes in GitHub Releases; do not accumulate per-session operation logs, historical verification reports or personal filesystem inventories in the repository.
 
 - Every GitHub Release must include equivalent English and Chinese release notes, including changes, support limitations, validation and installation requirements.
+
+- Unless the user specifies otherwise, release requests increment the patch version (for example, 0.2.12 → 0.2.13).

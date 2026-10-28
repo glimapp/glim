@@ -488,15 +488,18 @@ pub fn operation_failed(operation: &'static str, path: Option<&Path>, error: &an
         location.line()
     );
     let kind = error_kind(&format!("{error:#}"));
+    let stage = crate::xmind::failure_stage(error);
     let mut props = vec![
         ("operation", text(operation)),
         ("error_kind", text(kind)),
+        ("reader_stage", text(stage)),
         ("code_site", identifier(&site)),
         (
             "error_signature",
             signature(&[
                 operation,
                 kind,
+                stage,
                 &site,
                 &path
                     .map(file_properties)
@@ -765,6 +768,10 @@ impl Worker {
                     .map(|count| {
                         let mut props = count.props.clone();
                         props.insert("occurrences", count.suppressed.into());
+                        props.insert(
+                            "event_sequence",
+                            self.session.sequence.fetch_add(1, Ordering::Relaxed).into(),
+                        );
                         count.suppressed = 0;
                         count.at = Instant::now();
                         Event {
@@ -797,9 +804,18 @@ impl Worker {
             let health_included =
                 (dropped > 0 || suppressed > 0 || failures > 0) && payload.len() < BATCH_SIZE;
             if health_included {
+                let mut props = serde_json::json!({
+                    "events_dropped": dropped, "errors_suppressed": suppressed,
+                    "upload_failures": failures, "schema_version": 3,
+                    "architecture": std::env::consts::ARCH, "os_build": os_build,
+                    "event_sequence": self.session.sequence.fetch_add(1, Ordering::Relaxed),
+                });
+                if let Some(id) = &installation {
+                    props["installation_id"] = id.clone().into();
+                }
                 payload.push(serde_json::json!({"timestamp": chrono::Utc::now().to_rfc3339(), "sessionId": session_id,
                     "eventName": "telemetry_health", "systemProps": system,
-                    "props": {"events_dropped": dropped, "errors_suppressed": suppressed, "upload_failures": failures}}));
+                    "props": props}));
             } else {
                 self.session.dropped.fetch_add(dropped, Ordering::Relaxed);
                 self.session

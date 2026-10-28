@@ -640,12 +640,33 @@ fn read_content_inner(
         return glim_services::books::read_cancellable(path, cancel).map(Content::Book);
     }
     if glim_services::xmind::supports(path) {
-        return match glim_services::xmind::read(path) {
+        return match glim_services::xmind::read_cancellable(path, cancel) {
             Ok(map) => Ok(Content::XMind(map)),
-            Err(error) if error.is::<reader_limits::PreviewBudgetExceeded>() => {
-                glim_services::xmind::read_source(path, cancel).map(Content::Page)
+            Err(error) => {
+                cancel.check()?;
+                match glim_services::xmind::read_source(path, cancel) {
+                    Ok(page) => {
+                        use glim_services::telemetry::{file_event, flag, text};
+                        file_event(
+                            "reader_fallback",
+                            path,
+                            [
+                                ("reader_kind", text("xmind")),
+                                ("reason", text(glim_services::xmind::failure_stage(&error))),
+                                (
+                                    "preview_budget",
+                                    flag(error.is::<reader_limits::PreviewBudgetExceeded>()),
+                                ),
+                            ],
+                        );
+                        Ok(Content::Page(page))
+                    }
+                    Err(_) => {
+                        cancel.check()?;
+                        Err(error)
+                    }
+                }
             }
-            Err(error) => Err(error),
         };
     }
     if glim_services::vector_formats::supports(path) {
