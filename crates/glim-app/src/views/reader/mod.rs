@@ -582,7 +582,7 @@ impl Reader {
             ..
         } = &self.renderer
         {
-            view.read(cx).hide();
+            view.update(cx, |view, _| view.hide());
         }
         if let Renderer::Markup(view) = &self.renderer {
             view.set_images_active(false, cx);
@@ -591,7 +591,7 @@ impl Reader {
             view.update(cx, |view, cx| view.set_active(false, cx));
         }
         if let Renderer::Native(view) = &self.renderer {
-            view.read(cx).hide();
+            view.update(cx, |view, _| view.hide());
         }
     }
 
@@ -839,7 +839,7 @@ impl Reader {
             if preview {
                 browser.update(cx, |browser, cx| browser.open(cx));
             } else {
-                browser.read(cx).hide();
+                browser.update(cx, |browser, _| browser.hide());
             }
         }
         if self.csv.is_some() {

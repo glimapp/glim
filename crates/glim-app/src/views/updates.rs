@@ -21,8 +21,30 @@ pub(crate) struct Updates {
     _subscription: Subscription,
 }
 impl Updates {
+    fn recovery_hint(snapshot: &glim_core::update::UpdateSnapshot) -> &'static str {
+        if snapshot.phase != "error" {
+            return "";
+        }
+        match snapshot.error_kind.as_str() {
+            "network" => "Check your connection or proxy, then retry the update.",
+            "permission" => {
+                "Move Glim to Applications and make sure you can modify it, then retry."
+            }
+            "verification" | "archive" => {
+                "The downloaded update could not be verified or unpacked. Retry to download a fresh copy."
+            }
+            "installation" => {
+                "Quit other copies of Glim, then retry. You can also install the latest release manually."
+            }
+            _ => "Retry the update. If it still fails, install the latest release manually.",
+        }
+    }
     fn content_height(state: &UpdateState) -> f32 {
-        270. + if state.snapshot.notes.is_empty() {
+        270. + if state.snapshot.phase == "error" {
+            72.
+        } else {
+            0.
+        } + if state.snapshot.notes.is_empty() {
             0.
         } else {
             240.
@@ -109,6 +131,7 @@ impl Render for Updates {
                 )
             )
             .when(!message.is_empty(), |v| v.child(div().text_sm().whitespace_normal().text_color(cx.theme().muted_foreground).child(tr(&message))))
+            .when(snapshot.phase == "error", |v| v.child(div().text_sm().whitespace_normal().child(tr(Self::recovery_hint(&snapshot)))))
             .when(!snapshot.notes.is_empty(), |v| v.child(
                 div().id("update-release-notes").w_full().h(px(240.)).min_h_0().rounded_lg().border_1().border_color(cx.theme().border).overflow_y_scroll().text_sm().whitespace_normal()
                     .child(TextView::markdown("update-release-notes-text", snapshot.notes.clone()).scrollable(false).p_3()
@@ -135,9 +158,9 @@ impl Render for Updates {
                 .when(snapshot.phase == "available", |v| v.child(Button::new("update-later").h(px(36.)).flex_shrink_0().rounded_full().label(tr("Remind Me Later")).disabled(busy).on_click(|_, window, cx| {
                     updates::command("later", cx); window.remove_window();
                 })))
-                .when(snapshot.enabled && !snapshot.can_download && !snapshot.can_install && !working, |v| v.child(Button::new("update-check").primary().h(px(36.)).flex_shrink_0().rounded_full().label(tr("Check for Updates…"))
+                .when(snapshot.enabled && !snapshot.can_download && !snapshot.can_install && !working, |v| v.child(Button::new("update-check").primary().h(px(36.)).flex_shrink_0().rounded_full().label(tr(if snapshot.phase == "error" { "Retry Update" } else { "Check for Updates…" })).disabled(!snapshot.can_check)
                     .on_click(|_, _, cx| updates::command("check", cx))))
-                .when(!snapshot.enabled, |v| v.child(Button::new("update-download-manual").primary().h(px(36.)).flex_shrink_0().rounded_full().label(tr("Download Latest Version")).on_click(|_, _, cx| cx.open_url("https://github.com/glimapp/glim/releases/latest"))))
+                .when(!snapshot.enabled || snapshot.phase == "error", |v| v.child(Button::new("update-download-manual").primary().h(px(36.)).flex_shrink_0().rounded_full().label(tr("Download Latest Version")).on_click(|_, _, cx| cx.open_url("https://github.com/glimapp/glim/releases/latest"))))
                 .when(snapshot.can_download, |v| v.child(Button::new("update-download").primary().h(px(36.)).flex_shrink_0().rounded_full().label(tr("Download Update")).disabled(busy)
                     .on_click(|_, _, cx| updates::command("download", cx))))
                 .when(snapshot.can_install, |v| v

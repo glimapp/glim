@@ -16,6 +16,7 @@ pub(super) struct MarkupReader {
     pub(super) state: Entity<TextViewState>,
     pub scroll: ScrollHandle,
     pending_scroll: Option<ListOffset>,
+    pending_scroll_source: Option<String>,
     base: url::Url,
     headings: HashMap<String, Range<usize>>,
     pending_anchor: Option<String>,
@@ -119,6 +120,7 @@ impl MarkupReader {
             state,
             scroll,
             pending_scroll: None,
+            pending_scroll_source: None,
             preview,
             html,
             base,
@@ -160,6 +162,9 @@ impl MarkupReader {
         } else {
             glim_services::markdown_preview::normalize_tables(&text).into_owned()
         };
+        self.pending_scroll
+            .get_or_insert_with(|| self.state.read(cx).list_state().logical_scroll_top());
+        self.pending_scroll_source = Some(text.clone());
         self.headings = headings(&text);
         self.state.update(cx, |s, cx| s.set_text(&text, cx));
         self.pictures.update(cx, |pictures, cx| {
@@ -241,6 +246,7 @@ impl MarkupReader {
             browser.update(cx, |browser, _| browser.reveal_html_anchor(anchor));
             return;
         }
+        self.pending_scroll = None;
         self.pending_anchor = Some(anchor.to_owned());
         self.reveal_pending.set(true);
     }
@@ -249,7 +255,7 @@ impl MarkupReader {
             if active {
                 browser.update(cx, |browser, cx| browser.open(cx));
             } else {
-                browser.read(cx).hide();
+                browser.update(cx, |browser, _| browser.hide());
             }
         }
         self.pictures
@@ -279,6 +285,10 @@ impl MarkupReader {
                 }
             });
         }
+        let preview_ready = self
+            .pending_scroll_source
+            .as_ref()
+            .is_none_or(|expected| self.state.read(cx).rendered_text().source() == expected);
         if self
             .pending_anchor
             .as_ref()
@@ -287,7 +297,9 @@ impl MarkupReader {
             self.pending_anchor = None;
             self.reveal_pending.set(false);
         }
-        if let Some(anchor) = &self.pending_anchor {
+        if let Some(anchor) = &self.pending_anchor
+            && preview_ready
+        {
             let range = self.headings.get(anchor).and_then(|r| {
                 self.state
                     .read(cx)
@@ -305,12 +317,16 @@ impl MarkupReader {
         let list = self.state.read(cx).list_state().clone();
         list.measure_visible(px(42.));
         if !self.state.read(cx).rendered_text().source().is_empty()
+            && preview_ready
             && let Some(offset) = self.pending_scroll.take()
         {
+            self.pending_scroll_source = None;
             let list = list.clone();
+            let generation = self.preview_generation.clone();
+            let revision = generation.get();
             // Apply after the newly parsed document has reset its block list.
             cx.defer(move |cx| {
-                if list.item_count() > 0 {
+                if generation.get() == revision && list.item_count() > 0 {
                     list.scroll_to(ListOffset {
                         item_ix: offset.item_ix.min(list.item_count() - 1),
                         offset_in_item: offset.offset_in_item,
@@ -320,6 +336,9 @@ impl MarkupReader {
             });
         }
 
+        if preview_ready {
+            self.pending_scroll_source = None;
+        }
         self.source.minimap.update(cx, |map, cx| {
             map.set_preview_list(list.clone(), cx);
             map.set_preview(true, cx);

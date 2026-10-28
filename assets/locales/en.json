@@ -485,5 +485,15 @@
   "Read documents, images, and data": "Read documents, images, and data",
   "Keep related files together": "Keep related files together",
   "Reports feature actions, system/resource metrics and sanitized errors with a random installation ID; excludes document contents and paths.": "Reports feature actions, system/resource metrics and sanitized errors with a random installation ID; excludes document contents and paths.",
-  "Search all rows and columns…": "Search all rows and columns…"
+  "Search all rows and columns…": "Search all rows and columns…",
+  "Retry Update": "Retry Update",
+  "Check your connection or proxy, then retry the update.": "Check your connection or proxy, then retry the update.",
+  "Move Glim to Applications and make sure you can modify it, then retry.": "Move Glim to Applications and make sure you can modify it, then retry.",
+  "The downloaded update could not be verified or unpacked. Retry to download a fresh copy.": "The downloaded update could not be verified or unpacked. Retry to download a fresh copy.",
+  "Quit other copies of Glim, then retry. You can also install the latest release manually.": "Quit other copies of Glim, then retry. You can also install the latest release manually.",
+  "Retry the update. If it still fails, install the latest release manually.": "Retry the update. If it still fails, install the latest release manually.",
+  "Keep Tab Open": "Keep Tab Open",
+  "CSV and TSV files can be viewed as a table using the toolbar. Your viewing mode is remembered.": "CSV and TSV files can be viewed as a table using the toolbar. Your viewing mode is remembered.",
+  "View as Table": "View as Table",
+  "Dismiss": "Dismiss"
 }

@@ -53,9 +53,9 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 
 ## 细粒度操作与资源指标（schema 3）
 
-普通事件带 `schema_version=3`、架构、操作系统 build，Aptabase 系统字段带 macOS 版本、应用版本/build、语言和 SDK 版本。`system_profile` 每次开启采集时报告一次：物理内存字节数、逻辑/活跃处理器数量、Metal 设备数、统一内存、系统运行秒数、调试构建，以及系统支持查询时的 Rosetta 翻译状态。不采集硬件序列号、用户名、设备名称或其他应用的使用情况。
+普通事件带 `schema_version=3`、架构、操作系统 build，Aptabase 系统字段带 macOS 版本、应用版本/build、语言和 SDK 版本。`system_profile` 每次开启采集后的首个资源样本报告一次：物理内存字节数、逻辑/活跃处理器数量、Metal 设备数、统一内存、系统运行秒数、调试构建，以及系统支持查询时的 Rosetta 翻译状态。不采集硬件序列号、用户名、设备名称或其他应用的使用情况。
 
-`resource_sample` 启用时立即采一次，此后每 30 秒采样；关闭开关或退出取消任务。指标均来自 Glim 主进程：
+`resource_sample` 在启用采集且存在工作区窗口时立即采一次，此后每两分钟采样；关闭最后一个工作区窗口、关闭开关或退出时取消任务。重新打开工作区会恢复采样并重置 CPU 区间基线，同一次开启采集期间不重复报告系统配置。指标均来自 Glim 主进程：
 
 | 属性 | 单位与解释 |
 | --- | --- |
@@ -119,3 +119,7 @@ python3 scripts/telemetry-detail-report.py events.json --output-dir report
 格式报表增加成功打开安装数、在导出范围内跨 UTC+8 自然日成功打开的安装数，以及源码回退次数。跨日观察不等于 cohort 留存率。详细报表新增 activity.csv，按安装与 UTC+8 日期统计打开次数、成功次数、有打开的会话数和文档前台片段秒数；resource-peaks.csv 保留每个安装各指标峰值对应的时间、版本、格式和窗口/标签数。Aptabase 会话时长含后台驻留，总事件量含大量资源采样，不用它们替代有效使用；前台片段仍包含空闲，不能证明阅读完成。
 
 XMind 解析或工作预算失败但源码分页成功时上报 reader_fallback，固定 reason 区分 container/content_entry/decompression/json/xml/structure/unknown，preview_budget 标识工作预算回退。file_open 成功不保证思维导图渲染成功，需同时查看回退事件。operation_failed 新增 reader_stage 并纳入错误签名，均不上传文档或错误原文。telemetry_health 补齐可用的安装 ID、schema、架构、系统构建和独立序号；error_repeated 聚合使用新序号。历史缺失 ID 无法由本次更新补回。
+
+`process_session_id` 在 Aptabase 满 24 小时轮换 `sessionId` 后仍保留本次启用遥测的会话标识，`session_uptime_s` 记录事件采集时的单调运行时长；遥测重启或关闭后重新开启都会重置。它们用于关联同一进程的持续使用，不能代表人数或证明主动回访。`foreground_segment` 和当前阅读器上下文增加 `untitled`，区分草稿与文件阅读。统计有效使用安装时需包含草稿创建、编辑与保存，仅依赖成功 `file_open` 会漏掉纯记事本使用。
+
+资源样本增加 `pdf_tabs`、`fullscreen_windows`、窗口设备像素总量 `viewport_pixels` 与当前阅读器的 `file_fullscreen`。像素数描述窗口尺寸，不代表纹理分配或 GPU 使用量。`tab_closed.reason=preview_replaced` 区分连续浏览替换与主动关闭；`update_phase_changed` 包含固定 `error_stage`、固定 `error_kind` 和有符号数字 `error_code`，不上传原生错误消息、网址或路径。错误码仅提供诊断线索，不能完整解释失败原因。

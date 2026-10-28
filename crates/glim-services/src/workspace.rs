@@ -11,15 +11,31 @@ pub struct FolderSnapshot {
 }
 
 pub fn open_folder(path: &Path) -> Result<FolderSnapshot> {
+    open_folder_cancellable(path, &crate::work::Cancellation::default())
+}
+
+pub fn open_folder_cancellable(
+    path: &Path,
+    cancel: &crate::work::Cancellation,
+) -> Result<FolderSnapshot> {
+    cancel.check()?;
     let root = path
         .canonicalize()
         .with_context(|| format!("Cannot open {}", path.display()))?;
-    let entries = list_directory(&root)?;
+    let entries = list_directory_cancellable(&root, cancel)?;
     Ok(FolderSnapshot { root, entries })
 }
 
 /// Read only immediate children; do not follow directory symlinks or scan the whole tree.
 pub fn list_directory(path: &Path) -> Result<Vec<DirectoryEntry>> {
+    list_directory_cancellable(path, &crate::work::Cancellation::default())
+}
+
+pub fn list_directory_cancellable(
+    path: &Path,
+    cancel: &crate::work::Cancellation,
+) -> Result<Vec<DirectoryEntry>> {
+    cancel.check()?;
     ensure!(path.is_dir(), "Not a directory: {}", path.display());
     let mut entries = Vec::new();
     for entry in WalkBuilder::new(path)
@@ -30,6 +46,7 @@ pub fn list_directory(path: &Path) -> Result<Vec<DirectoryEntry>> {
         .filter_entry(|entry| entry.file_name() != ".git")
         .build()
     {
+        cancel.check()?;
         let entry = entry.with_context(|| format!("Cannot read {}", path.display()))?;
         if entry.depth() == 0 {
             continue;
@@ -44,6 +61,7 @@ pub fn list_directory(path: &Path) -> Result<Vec<DirectoryEntry>> {
             is_symlink: kind.is_symlink(),
         });
     }
+    cancel.check()?;
     entries.sort_by(|a, b| {
         b.is_dir
             .cmp(&a.is_dir)

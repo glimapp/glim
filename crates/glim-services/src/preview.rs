@@ -22,7 +22,15 @@ pub fn is_media(path: &Path) -> bool {
     })
 }
 pub fn folder_has_media(path: &Path) -> Result<bool> {
+    folder_has_media_cancellable(path, &crate::work::Cancellation::default())
+}
+pub fn folder_has_media_cancellable(
+    path: &Path,
+    cancel: &crate::work::Cancellation,
+) -> Result<bool> {
+    cancel.check()?;
     for entry in std::fs::read_dir(path)? {
+        cancel.check()?;
         let entry = entry?;
         if is_media(&entry.path()) && entry.file_type()?.is_file() {
             return Ok(true);

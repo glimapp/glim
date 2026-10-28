@@ -14,20 +14,35 @@ impl Workspace {
     pub(crate) fn telemetry_tab_count(&self) -> usize {
         self.tabs.len()
     }
+    pub(crate) fn telemetry_pdf_tab_count(&self) -> usize {
+        self.tabs
+            .iter()
+            .filter(|reader| {
+                reader
+                    .path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+            })
+            .count()
+    }
     pub(crate) fn usage_context(&self) -> Vec<(&'static str, Property)> {
-        let mut props = vec![(
-            "page",
-            text(match self.page {
-                Page::Document => "document",
-                Page::Start => "start",
-                Page::Settings => "settings",
-            }),
-        )];
+        let mut props = vec![
+            ("file_fullscreen", flag(self.file_fullscreen)),
+            (
+                "page",
+                text(match self.page {
+                    Page::Document => "document",
+                    Page::Start => "start",
+                    Page::Settings => "settings",
+                }),
+            ),
+        ];
         if self.page == Page::Document
             && let Some(reader) = self.active_reader()
         {
             props.extend(telemetry::file_properties(&reader.path));
             props.push(("reader_kind", text(reader.telemetry_kind())));
+            props.push(("untitled", flag(reader.draft_directory.is_some())));
             props.push(("preview", flag(reader.toggle_label() == "Source")));
         }
         props
@@ -84,6 +99,7 @@ impl Workspace {
         if let Some(reader) = reader {
             props.extend(telemetry::file_properties(&reader.path));
             props.push(("reader_kind", text(reader.telemetry_kind())));
+            props.push(("untitled", flag(reader.draft_directory.is_some())));
         }
         self.flush_usage();
         self.usage = Some(Segment {

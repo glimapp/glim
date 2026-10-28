@@ -66,6 +66,8 @@ pub struct Workspace {
     explorer: Option<Entity<Explorer>>,
     subscriptions: Vec<Subscription>,
     tabs: Vec<Reader>,
+    preview_tab: Option<PathBuf>,
+    csv_hint_dismissed: bool,
     active: Option<usize>,
     tab_scroll: ScrollHandle,
     error: Option<SharedString>,
@@ -157,7 +159,7 @@ impl Workspace {
     }
 
     pub fn new(path: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.on_release(|view, _| {
+        cx.on_release(|view, cx| {
             view.flush_usage();
             glim_services::telemetry::track(
                 "window_closed",
@@ -172,6 +174,7 @@ impl Workspace {
                     ),
                 ],
             );
+            cx.defer(crate::app::telemetry::refresh_resource_sampling);
         })
         .detach();
         let focus = cx.focus_handle();
@@ -250,6 +253,8 @@ impl Workspace {
             explorer: None,
             subscriptions: Vec::new(),
             tabs: Vec::new(),
+            preview_tab: None,
+            csv_hint_dismissed: false,
             active: None,
             tab_scroll: ScrollHandle::new(),
             error: None,

@@ -37,6 +37,9 @@ pub fn text(value: &'static str) -> Property {
 pub fn number(value: u64) -> Property {
     Property(value.into())
 }
+pub fn integer(value: i64) -> Property {
+    Property(value.into())
+}
 pub fn flag(value: bool) -> Property {
     Property(value.into())
 }
@@ -72,6 +75,7 @@ struct Session {
     sequence: AtomicU64,
     id: String,
     build_number: &'static str,
+    started: Instant,
 }
 pub struct Worker {
     session: Arc<Session>,
@@ -84,6 +88,7 @@ pub fn start(build_number: &'static str) -> Worker {
     let session = Arc::new(Session {
         queue: Mutex::new(Queue::default()),
         build_number,
+        started: Instant::now(),
         wake: tx,
         accepting: AtomicBool::new(true),
         closing: AtomicBool::new(false),
@@ -140,6 +145,11 @@ pub fn track(name: &'static str, props: impl IntoIterator<Item = (&'static str, 
         .into_iter()
         .map(|(key, value)| (key, value.0))
         .collect::<BTreeMap<_, _>>();
+    props.insert("process_session_id", session.id.clone().into());
+    props.insert(
+        "session_uptime_s",
+        session.started.elapsed().as_secs().into(),
+    );
     props.insert("architecture", std::env::consts::ARCH.into());
     props.insert("schema_version", 3.into());
     let urgent = matches!(

@@ -485,5 +485,15 @@
   "Read documents, images, and data": "阅读文档、图片和数据",
   "Keep related files together": "将相关文件放在一起阅读",
   "Reports feature actions, system/resource metrics and sanitized errors with a random installation ID; excludes document contents and paths.": "使用随机安装标识统计功能操作、系统与资源指标、脱敏错误，不上传文档内容和路径。",
-  "Search all rows and columns…": "搜索全部记录的所有字段…"
+  "Search all rows and columns…": "搜索全部记录的所有字段…",
+  "Retry Update": "重试更新",
+  "Check your connection or proxy, then retry the update.": "请检查网络连接或代理，然后重试更新。",
+  "Move Glim to Applications and make sure you can modify it, then retry.": "请将 Glim 移到“应用程序”，确认有修改权限后重试。",
+  "The downloaded update could not be verified or unpacked. Retry to download a fresh copy.": "下载的更新无法验证或解压，请重试以重新下载。",
+  "Quit other copies of Glim, then retry. You can also install the latest release manually.": "请退出其他运行中的 Glim 后重试，也可以手动安装最新版本。",
+  "Retry the update. If it still fails, install the latest release manually.": "请重试更新；如果仍然失败，可以手动安装最新版本。",
+  "Keep Tab Open": "保留标签",
+  "CSV and TSV files can be viewed as a table using the toolbar. Your viewing mode is remembered.": "使用工具栏可将 CSV 和 TSV 文件切换为表格，Glim 会记住所选模式。",
+  "View as Table": "切换为表格",
+  "Dismiss": "关闭提示"
 }

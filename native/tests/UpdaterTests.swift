@@ -42,6 +42,21 @@ struct UpdaterTests {
         precondition(replies == [.install], "Each native continuation may only be consumed once")
         let snapshot = updater.snapshot()
         precondition(JSONSerialization.isValidJSONObject(snapshot))
+        updater.phase = "downloading"
+        let network = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
+        let failed = NSError(domain: SUSparkleErrorDomain, code: 2001, userInfo: [NSUnderlyingErrorKey: network])
+        updater.showUpdaterError(failed, acknowledgement: {})
+        precondition(updater.errorStage == "downloading" && updater.errorKind == "network")
+        updater.showUpdaterError(failed, acknowledgement: {})
+        precondition(updater.errorStage == "downloading", "Duplicate callbacks preserve the failure stage")
+        precondition(updater.snapshot()["error_code"] as? Int == 2001)
+        updater.showUserInitiatedUpdateCheck(cancellation: {})
+        precondition(updater.lastError == nil && updater.errorKind.isEmpty && updater.errorStage.isEmpty)
+        updater.phase = "extracting"
+        updater.showUpdaterError(NSError(domain: SUSparkleErrorDomain, code: 3001), acknowledgement: {})
+        precondition(updater.errorKind == "verification")
+        updater.showUpdateNotFoundWithError(NSError(domain: SUSparkleErrorDomain, code: 1001), acknowledgement: {})
+        precondition(updater.lastError == nil && updater.errorKind.isEmpty)
         print("Updater: disabled builds, feed allowlist, cancel semantics and install approval passed")
     }
 }

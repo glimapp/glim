@@ -556,7 +556,10 @@ final class ReaderPDFView: PDFView {
         let available = viewport - margins
         guard pageWidth > 0, available > 0 else { return }
         let target = available / pageWidth
-        guard target.isFinite, target > 0, target != scaleFactor else { return }
+        guard target.isFinite, target > 0 else { return }
+        let backingScale = window?.backingScaleFactor ?? 1
+        // PDFKit can quantize scaleFactor; subpixel differences must not start another layout.
+        guard (target * pageWidth * backingScale).rounded() != (scaleFactor * pageWidth * backingScale).rounded() else { return }
         applyingWidth = true; defer { applyingWidth = false }
         // Fit the viewport naturally, including unusually small/large pages.
         minScaleFactor = min(minScaleFactor, target)
@@ -1374,6 +1377,8 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
             host.updateAccessibility()
         }
         host.removeFromSuperview()
+        pdfView.clearSelection()
+        pdfView.document = nil
         telemetryVolumeWork?.cancel(); telemetryVolumeWork = nil
         telemetryVolumeObserver = nil; telemetryMuteObserver = nil
         metadataAsset?.cancelLoading(); artworkSnapshot = nil; token = nil; playbackStateObserver = nil

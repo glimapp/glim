@@ -8,6 +8,7 @@ pub(crate) struct Telemetry {
     save: Option<Task<()>>,
     started: Option<std::time::Instant>,
     resources: Option<Task<()>>,
+    profiled: bool,
 }
 impl Global for Telemetry {}
 
@@ -37,9 +38,10 @@ fn start(event: &'static str, cx: &mut App) {
     });
     let state = cx.global_mut::<Telemetry>();
     state.started = Some(std::time::Instant::now());
+    state.profiled = false;
     state.cancel = Some(guard);
     state.report = Some(task);
-    start_resource_sampling(cx);
+    refresh_resource_sampling(cx);
 }
 pub(crate) fn set_enabled(enabled: bool, cx: &mut App) {
     let state = cx.global_mut::<Telemetry>();
@@ -110,11 +112,24 @@ pub(crate) fn shutdown(cx: &mut App) -> Option<Task<()>> {
     }))
 }
 
+pub(crate) fn refresh_resource_sampling(cx: &mut App) {
+    let has_windows = !super::OpenWorkspaces::windows(cx).is_empty();
+    if cx.try_global::<Telemetry>().is_none() {
+        return;
+    }
+    let state = cx.global_mut::<Telemetry>();
+    if !state.enabled || !has_windows {
+        state.resources.take();
+    } else if state.resources.is_none() {
+        start_resource_sampling(cx);
+    }
+}
+
 fn start_resource_sampling(cx: &mut App) {
     use glim_services::telemetry::{flag, number, text, track};
+    let mut initial = !cx.global::<Telemetry>().profiled;
     let task = cx.spawn(async move |cx| {
         let mut previous: Option<(std::time::Instant, u64)> = None;
-        let mut initial = true;
         loop {
             let (available, values) = cx
                 .background_executor()
@@ -178,6 +193,9 @@ fn start_resource_sampling(cx: &mut App) {
                 let workspaces = super::OpenWorkspaces::windows(cx);
                 let mut props = vec![("workspace_windows", number(workspaces.len() as u64))];
                 let mut tabs = 0;
+                let mut pdf_tabs = 0;
+                let mut fullscreen_windows = 0;
+                let mut viewport_pixels = 0_u64;
                 let mut active = false;
                 for (view, window) in workspaces {
                     let _ = window.update(cx, |_, window, cx| {
@@ -185,6 +203,16 @@ fn start_resource_sampling(cx: &mut App) {
                             return;
                         };
                         tabs += view.read(cx).telemetry_tab_count();
+                        pdf_tabs += view.read(cx).telemetry_pdf_tab_count();
+                        fullscreen_windows += usize::from(window.is_fullscreen());
+                        let size = window.viewport_size();
+                        let scale = f64::from(window.scale_factor());
+                        viewport_pixels = viewport_pixels.saturating_add(
+                            (f64::from(f32::from(size.width))
+                                * f64::from(f32::from(size.height))
+                                * scale
+                                * scale) as u64,
+                        );
                         if window.is_window_active() {
                             active = true;
                             props.extend(view.read(cx).usage_context());
@@ -192,6 +220,9 @@ fn start_resource_sampling(cx: &mut App) {
                     });
                 }
                 props.push(("open_tabs", number(tabs as u64)));
+                props.push(("pdf_tabs", number(pdf_tabs as u64)));
+                props.push(("fullscreen_windows", number(fullscreen_windows as u64)));
+                props.push(("viewport_pixels", number(viewport_pixels)));
                 props.push(("workspace_active", flag(active)));
                 props
             });
@@ -213,11 +244,12 @@ fn start_resource_sampling(cx: &mut App) {
                 }
                 profile.push(("debug_build", flag(cfg!(debug_assertions))));
                 track("system_profile", profile);
+                cx.update(|cx| cx.global_mut::<Telemetry>().profiled = true);
                 initial = false;
             }
             track("resource_sample", props);
             cx.background_executor()
-                .timer(std::time::Duration::from_secs(30))
+                .timer(std::time::Duration::from_secs(120))
                 .await;
         }
     });

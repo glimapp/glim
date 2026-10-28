@@ -170,6 +170,9 @@ impl Workspace {
         if !preview {
             self.tabs[index].focus_source(window, cx);
         }
+        if preference == Some("csv") {
+            self.csv_hint_dismissed = true;
+        }
         if let Some(kind) = preference {
             let prefs = cx.global_mut::<crate::app::ReaderPreferences>();
             match kind {

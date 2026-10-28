@@ -4,7 +4,7 @@ use std::{
 };
 
 use glim_core::DirectoryEntry;
-use glim_services::workspace::list_directory;
+use glim_services::workspace::list_directory_cancellable;
 use gpui_kit::{
     base::TestSupportExt,
     component::{
@@ -18,6 +18,7 @@ use gpui_kit::{
 pub enum ExplorerEvent {
     SelectionChanged,
     OpenFile(PathBuf),
+    PreviewFile(PathBuf),
     NewFile(PathBuf),
     RemoveFolder(u64),
     TrashEntry(PathBuf),
@@ -260,11 +261,13 @@ impl Explorer {
             return;
         }
         let read_path = path.clone();
+        let (cancel, guard) = glim_services::work::Cancellation::task();
         let read = cx
             .background_executor()
-            .spawn(async move { list_directory(&read_path) });
+            .spawn(async move { list_directory_cancellable(&read_path, &cancel) });
         let key = path.clone();
         let task = cx.spawn(async move |view, cx| {
+            let _guard = guard;
             let result = read.await;
             let _ = view.update(cx, |view, cx| {
                 view.tasks.remove(&path);
@@ -438,11 +441,13 @@ impl Explorer {
         paths.dedup();
         for path in paths {
             let read_path = path.clone();
+            let (cancel, guard) = glim_services::work::Cancellation::task();
             let read = cx
                 .background_executor()
-                .spawn(async move { list_directory(&read_path) });
+                .spawn(async move { list_directory_cancellable(&read_path, &cancel) });
             let key = path.clone();
             let task = cx.spawn(async move |view, cx| {
+                let _guard = guard;
                 let result = read.await;
                 let _ = view.update(cx, |view, cx| {
                     if let Ok(entries) = result {
@@ -522,11 +527,14 @@ impl Explorer {
             return;
         }
         let read_path = path.clone();
+        let (cancel, guard) = glim_services::work::Cancellation::task();
         let read = cx.background_executor().spawn(async move {
-            glim_services::preview::folder_has_media(&read_path).unwrap_or(false)
+            glim_services::preview::folder_has_media_cancellable(&read_path, &cancel)
+                .unwrap_or(false)
         });
         let key = path.clone();
         let task = cx.spawn(async move |view, cx| {
+            let _guard = guard;
             let present = read.await;
             let _ = view.update(cx, |v, cx| {
                 v.media_tasks.remove(&path);
@@ -566,6 +574,7 @@ impl Explorer {
         &mut self,
         path: &std::path::Path,
         sticky: bool,
+        keep: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -573,7 +582,15 @@ impl Explorer {
             return;
         };
         let depth = self.rows[index].depth;
-        self.activate(index, window, cx);
+        if !keep && !self.rows[index].entry.is_dir {
+            self.selected = Some(index);
+            self.preserve_next_reveal = Some(path.to_path_buf());
+            window.focus(&self.focus, cx);
+            cx.emit(ExplorerEvent::PreviewFile(path.to_path_buf()));
+            cx.notify();
+        } else {
+            self.activate(index, window, cx);
+        }
         if sticky {
             self.scroll
                 .scroll_to_item_strict_with_offset(index, ScrollStrategy::Top, depth);
@@ -791,11 +808,17 @@ impl Explorer {
                     .w_full()
                     .h(px(row_height))
                     .justify_start()
-                    .on_click(cx.listener(move |view, _, window, cx| {
+                    .on_click(cx.listener(move |view, event, window, cx| {
                         view.clicked_path = Some(row_path.clone());
                         view.clicked_root = Some(root_index);
                         cx.emit(ExplorerEvent::SelectionChanged);
-                        view.activate_path(&row_path, sticky, window, cx);
+                        view.activate_path(
+                            &row_path,
+                            sticky,
+                            !matches!(event, ClickEvent::Mouse(_)) || event.click_count() > 1,
+                            window,
+                            cx,
+                        );
                     })),
             )
             .on_mouse_down(

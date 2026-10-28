@@ -10,6 +10,8 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
     var phase = "disabled"
     var message = "Updates are not configured for this build."
     var lastError: NSError?
+    var errorStage = ""
+    var errorKind = ""
     var item: SUAppcastItem?
     var received: UInt64 = 0
     var expected: UInt64 = 0
@@ -119,12 +121,44 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
         #endif
         return feeds.contains(url)
     }
+    func clearError() {
+        lastError = nil; errorStage = ""; errorKind = ""
+    }
+    func recordError(_ error: Error) {
+        // Sparkle may report the same failure through both delegate paths.
+        if phase != "error" { errorStage = phase }
+        let value = error as NSError
+        lastError = value
+        errorKind = "other"
+        var current: NSError? = value
+        var visited = Set<ObjectIdentifier>()
+        while let cause = current, visited.insert(ObjectIdentifier(cause)).inserted {
+            if cause.domain == NSURLErrorDomain { errorKind = "network"; break }
+            if cause.domain == NSCocoaErrorDomain && [NSFileWriteNoPermissionError, NSFileReadNoPermissionError].contains(cause.code) {
+                errorKind = "permission"; break
+            }
+            current = cause.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        if value.domain == SUSparkleErrorDomain {
+            switch value.code {
+            case 3001, 3002: errorKind = "verification"
+            case 4001, 4012: errorKind = "permission"
+            case 3000: errorKind = "archive"
+            case 4000...4012: if errorKind == "other" { errorKind = "installation" }
+            case 1...7: errorKind = "configuration"
+            default: break
+            }
+        }
+        phase = "error"; message = error.localizedDescription
+        approved = false; needsApproval = false
+    }
     func start() {
         guard configured, !started, let updater = updater else { return }
         do {
             try updater.start()
+            clearError()
             started = true; phase = "idle"; message = ""
-        } catch { phase = "error"; message = error.localizedDescription }
+        } catch { recordError(error) }
     }
     var mode: String {
         guard let updater = updater else { return "manual" }
@@ -139,6 +173,9 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
             "version": item?.displayVersionString ?? "", "build": item?.versionString ?? "",
             "notes": String((item?.itemDescription ?? "").prefix(65536)),
             "published": item?.dateString ?? "", "message": message,
+            "error_stage": errorStage, "error_kind": errorKind,
+            "error_code": lastError?.code ?? 0,
+            "can_check": !started || updater?.canCheckForUpdates == true,
             "received": received, "expected": expected, "progress_known": progressKnown,
             "can_cancel": cancel != nil || choice != nil || installOnQuit,
             "can_download": phase == "available" && choice != nil && !choiceInstalls && item?.isInformationOnlyUpdate != true,
@@ -160,7 +197,9 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
         case "check":
             if !started { start() }
             guard started else { return }
+            guard updater?.canCheckForUpdates == true else { return }
             attention &+= 1
+            clearError()
             phase = "checking"; message = ""
             updater?.checkForUpdates()
         case "manual", "notify", "automatic":
@@ -218,9 +257,11 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
         reply(SUUpdatePermissionResponse(automaticUpdateChecks: false, automaticUpdateDownloading: false, sendSystemProfile: false))
     }
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
+        clearError()
         cancel = cancellation; phase = "checking"; message = ""; attention &+= 1
     }
     func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState, reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        clearError()
         item = appcastItem; expected = appcastItem.contentLength; cancel = nil; message = ""
         choice = reply; choiceInstalls = state.stage == .installing
         phase = choiceInstalls ? "ready" : "available"
@@ -231,11 +272,11 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {}
     func showUpdateReleaseNotesFailedToDownloadWithError(_ error: Error) { message = error.localizedDescription }
     func showUpdateNotFoundWithError(_ error: Error, acknowledgement: @escaping () -> Void) {
+        clearError()
         cancel = nil; phase = "current"; item = nil; message = error.localizedDescription; acknowledgement()
     }
     func showUpdaterError(_ error: Error, acknowledgement: @escaping () -> Void) {
-        lastError = error as NSError
-        phase = "error"; message = error.localizedDescription; approved = false; needsApproval = false; acknowledgement()
+        recordError(error); acknowledgement()
     }
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
         cancel = cancellation; received = 0; phase = "downloading"; progressKnown = true
@@ -268,11 +309,11 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
     }
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
         let value = error as NSError
-        lastError = value
         if value.domain == SUSparkleErrorDomain && value.code == SUError.noUpdateError.rawValue {
+            clearError()
             phase = "current"; message = error.localizedDescription; return
         }
-        phase = "error"; message = error.localizedDescription; approved = false; needsApproval = false
+        recordError(error)
     }
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock: @escaping () -> Void) -> Bool {
         self.item = item; immediateInstall = immediateInstallationBlock

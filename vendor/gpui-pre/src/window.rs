@@ -1168,6 +1168,7 @@ pub struct Window {
     pub(crate) handle: AnyWindowHandle,
     pub(crate) invalidator: WindowInvalidator,
     pub(crate) removed: bool,
+    closed: Rc<Cell<bool>>,
     pub(crate) platform_window: Box<dyn PlatformWindow>,
     display_id: Option<DisplayId>,
     is_resizable: bool,
@@ -1697,10 +1698,13 @@ impl Window {
                 .detach();
         }
 
+        let closed = Rc::new(Cell::new(false));
         platform_window.on_close(Box::new({
+            let closed = closed.clone();
             let window_id = handle.window_id();
             let mut cx = cx.to_async();
             move || {
+                closed.set(true);
                 let _ = handle.update(&mut cx, |_, window, _| window.remove_window());
                 let _ = cx.update(|cx| {
                     SystemWindowTabController::remove_tab(cx, window_id);
@@ -1982,7 +1986,12 @@ impl Window {
         }));
         platform_window.on_input({
             let mut cx = cx.to_async();
+            let closed = closed.clone();
             Box::new(move |event| {
+                // AppKit may deliver queued input after removing this window.
+                if closed.get() {
+                    return DispatchEventResult::default();
+                }
                 handle
                     .update(&mut cx, |_, window, cx| window.dispatch_event(event, cx))
                     .log_err()
@@ -2067,6 +2076,7 @@ impl Window {
             handle,
             invalidator,
             removed: false,
+            closed,
             platform_window,
             display_id,
             is_resizable,
@@ -2330,6 +2340,7 @@ impl Window {
 
     /// Close this window.
     pub fn remove_window(&mut self) {
+        self.closed.set(true);
         self.removed = true;
     }
 

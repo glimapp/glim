@@ -506,9 +506,7 @@ pub(crate) fn reveal_existing_file(
     exclude: Option<EntityId>,
     cx: &mut App,
 ) -> bool {
-    let Some(windows) = cx.try_global::<OpenWorkspaces>().map(|v| v.0.clone()) else {
-        return false;
-    };
+    let windows = OpenWorkspaces::windows(cx);
     windows
         .into_iter()
         .filter(|(view, _)| Some(view.entity_id()) != exclude)
@@ -532,7 +530,7 @@ fn open_system_files(urls: Vec<String>, cx: &mut App) {
             if reveal_existing_file(&path, None, cx) {
                 continue;
             }
-            let windows = cx.global::<OpenWorkspaces>().0.clone();
+            let windows = OpenWorkspaces::windows(cx);
             let reused = windows.iter().rev().any(|(view, handle)| {
                 handle
                     .update(cx, |_, window, cx| {
@@ -576,8 +574,7 @@ fn open_workspace_with_session(
     };
     match gpui_kit::open_window(options, cx, |window, cx| {
         window.set_draw_panic_handler(glim_services::diagnostics::take_render_failure);
-        let restore =
-            session.is_none() && path.is_none() && cx.global::<OpenWorkspaces>().0.is_empty();
+        let restore = session.is_none() && path.is_none() && OpenWorkspaces::windows(cx).is_empty();
         let workspace = cx.new(|cx| Workspace::new(path, window, cx));
         if let Some(session) = session {
             workspace.update(cx, |view, cx| {
@@ -593,6 +590,7 @@ fn open_workspace_with_session(
     }) {
         Ok(_) => {
             glim_services::telemetry::track("window_opened", []);
+            telemetry::refresh_resource_sampling(cx);
             cx.activate(true);
         }
         Err(error) => log::error!("Cannot open Glim window: {error:#}"),
@@ -604,8 +602,14 @@ struct OpenWorkspaces(Vec<(WeakEntity<Workspace>, AnyWindowHandle)>);
 impl Global for OpenWorkspaces {}
 impl OpenWorkspaces {
     fn windows(cx: &App) -> Vec<(WeakEntity<Workspace>, AnyWindowHandle)> {
+        let windows = cx.windows();
         cx.try_global::<Self>()
-            .map(|v| v.0.clone())
+            .map(|v| {
+                v.0.iter()
+                    .filter(|(view, handle)| view.upgrade().is_some() && windows.contains(handle))
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }

@@ -43,7 +43,11 @@ impl UpdateState {
             && let Ok(snapshot) = native.snapshot()
             && self.snapshot != snapshot
         {
-            if self.snapshot.phase != snapshot.phase {
+            if self.snapshot.phase != snapshot.phase
+                || (snapshot.phase == "error"
+                    && (self.snapshot.error_kind != snapshot.error_kind
+                        || self.snapshot.error_code != snapshot.error_code))
+            {
                 let phase = match snapshot.phase.as_str() {
                     "checking" => "checking",
                     "available" => "available",
@@ -58,7 +62,39 @@ impl UpdateState {
                 };
                 glim_services::telemetry::track(
                     "update_phase_changed",
-                    [("phase", glim_services::telemetry::text(phase))],
+                    [
+                        ("phase", glim_services::telemetry::text(phase)),
+                        (
+                            "error_stage",
+                            glim_services::telemetry::text(match snapshot.error_stage.as_str() {
+                                "checking" => "checking",
+                                "downloading" => "downloading",
+                                "extracting" => "extracting",
+                                "ready" => "ready",
+                                "installing" => "installing",
+                                "preparing" => "preparing",
+                                "disabled" => "disabled",
+                                "idle" => "idle",
+                                _ => "other",
+                            }),
+                        ),
+                        (
+                            "error_kind",
+                            glim_services::telemetry::text(match snapshot.error_kind.as_str() {
+                                "network" => "network",
+                                "permission" => "permission",
+                                "verification" => "verification",
+                                "archive" => "archive",
+                                "installation" => "installation",
+                                "configuration" => "configuration",
+                                _ => "other",
+                            }),
+                        ),
+                        (
+                            "error_code",
+                            glim_services::telemetry::integer(snapshot.error_code),
+                        ),
+                    ],
                 );
             }
             let cancelled = snapshot.phase == "cancelled" && self.snapshot.phase != "cancelled";
@@ -337,9 +373,25 @@ pub(crate) fn init(cx: &mut App) {
         if state.snapshot.enabled {
             state._poll = Some(cx.spawn(async move |state, cx| {
                 loop {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(300))
-                        .await;
+                    let delay = match state.update(cx, |state, cx| {
+                        if cx.windows().is_empty()
+                            && !state.preparing
+                            && !state.exiting
+                            && !state.manual_check
+                            && !matches!(
+                                state.snapshot.phase.as_str(),
+                                "checking" | "downloading" | "extracting" | "installing"
+                            )
+                        {
+                            Duration::from_secs(5)
+                        } else {
+                            Duration::from_millis(300)
+                        }
+                    }) {
+                        Ok(delay) => delay,
+                        Err(_) => break,
+                    };
+                    cx.background_executor().timer(delay).await;
                     if state.update(cx, |state, cx| state.refresh(cx)).is_err() {
                         break;
                     }

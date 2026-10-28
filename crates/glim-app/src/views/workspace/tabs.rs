@@ -29,6 +29,7 @@ impl Render for DraggedTab {
 }
 
 enum TabMenuAction {
+    Keep,
     Close(Vec<super::header::Target>),
     Trash(std::path::PathBuf),
 }
@@ -158,6 +159,10 @@ impl Workspace {
         };
         let mut items = Vec::new();
         let mut actions = Vec::new();
+        if self.preview_tab.as_ref() == Some(&self.tabs[index].path) {
+            items.push((Some(glim_services::locale::tr("Keep Tab Open")), true));
+            actions.push(Some(TabMenuAction::Keep));
+        }
         for (label, mode) in [
             ("Close", 0),
             ("Close Tabs to the Right", 1),
@@ -190,6 +195,7 @@ impl Workspace {
         let Some(menu) = crate::views::native_menu_bridge::NativeMenu::new(&items, window) else {
             return;
         };
+        let keep_path = self.tabs[index].path.clone();
         self.context_menu_task = Some(cx.spawn_in(window, async move |view, cx| {
             let selected = menu.choose(cx).await;
             let _ = view.update_in(cx, |view, window, cx| {
@@ -198,6 +204,12 @@ impl Workspace {
                     .and_then(Option::take)
                 {
                     match action {
+                        TabMenuAction::Keep => {
+                            if view.preview_tab.as_ref() == Some(&keep_path) {
+                                view.preview_tab = None;
+                            }
+                            cx.notify();
+                        }
                         TabMenuAction::Close(targets) => view.close_tabs(targets, window, cx),
                         TabMenuAction::Trash(path) => view.confirm_trash(path, window, cx),
                     }
@@ -412,7 +424,12 @@ impl Workspace {
                         view.reorder_tab(&drag.target, &drop_target, after, cx);
                         cx.stop_propagation();
                     }))
-                    .on_click(cx.listener(move |view, _, window, cx| {
+                    .on_click(cx.listener(move |view, event: &ClickEvent, window, cx| {
+                        if event.click_count() > 1
+                            && view.preview_tab.as_ref() == Some(&view.tabs[index].path)
+                        {
+                            view.preview_tab = None;
+                        }
                         view.activate_tab(index, window, cx);
                         view.tabs[index].reveal_native(cx);
                     }))
@@ -420,7 +437,17 @@ impl Workspace {
                         h_flex()
                             .gap_2()
                             .child(crate::views::file_icons::file_icon(&reader.path, cx))
-                            .child(div().max_w(px(210.)).truncate().text_xs().child(label)),
+                            .child(
+                                div()
+                                    .max_w(px(210.))
+                                    .truncate()
+                                    .text_xs()
+                                    .when(
+                                        self.preview_tab.as_ref() == Some(&reader.path),
+                                        |label| label.italic(),
+                                    )
+                                    .child(label),
+                            ),
                     )
                     .child(
                         Button::new(("close-tab", index))

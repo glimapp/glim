@@ -190,6 +190,14 @@ impl Workspace {
                 let subscription =
                     cx.subscribe_in(&editor, window, move |view, _, event, window, cx| {
                         if matches!(event, gpui_kit::component::input::InputEvent::Change) {
+                            if view.tabs.iter().any(|reader| {
+                                view.preview_tab.as_ref() == Some(&reader.path)
+                                    && reader
+                                        .editor()
+                                        .is_some_and(|editor| editor.entity_id() == id)
+                            }) {
+                                view.preview_tab = None;
+                            }
                             if view.telemetry_edited.insert(id)
                                 && let Some(reader) = view.tabs.iter().find(|reader| {
                                     reader
@@ -668,6 +676,7 @@ impl Workspace {
     ) {
         self.discard_recovery(cx);
         self.tabs.clear();
+        self.preview_tab = None;
         self.autosave.clear();
         self.save_queue.clear();
         self.active = None;

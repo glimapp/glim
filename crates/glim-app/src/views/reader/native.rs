@@ -32,10 +32,11 @@ impl NativeReader {
     pub fn html(
         path: PathBuf,
         text: Option<String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
     ) -> Self {
-        let mut view = Self {
+        // WebKit and navigation polling start only when this preview is visible.
+        Self {
             path,
             folder: false,
             shuffle: false,
@@ -52,10 +53,13 @@ impl NativeReader {
             html_open: None,
             html_anchor: None,
             _html_navigation: None,
-        };
-        // Create WebKit only when the preview is actually shown. Reader creation
-        // may immediately switch to source mode and does not need an AppKit view.
-        view._html_navigation = Some(cx.spawn_in(window, async move |view, cx| {
+        }
+    }
+    fn start_html_navigation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self._html_navigation.is_some() || !(self.html_file || self.html.is_some()) {
+            return;
+        }
+        self._html_navigation = Some(cx.spawn_in(window, async move |view, cx| {
             loop {
                 cx.background_executor()
                     .timer(std::time::Duration::from_millis(100))
@@ -84,7 +88,6 @@ impl NativeReader {
                 }
             }
         }));
-        view
     }
     fn load_html(&mut self) {
         let configuration = serde_json::json!({
@@ -257,7 +260,8 @@ impl NativeReader {
         }));
         cx.notify();
     }
-    pub(super) fn hide(&self) {
+    pub(super) fn hide(&mut self) {
+        self._html_navigation = None;
         if let Some(preview) = &self.preview {
             preview.hide();
         }
@@ -301,6 +305,7 @@ impl Render for NativeReader {
             && !glim_services::preview::is_image(&self.path)
             && !glim_services::preview::is_iwork(&self.path);
         if self.preview.is_some() {
+            self.start_html_navigation(window, cx);
             let view = cx.entity();
             let surface = canvas(
                 move |bounds, window, cx| {
