@@ -1,6 +1,37 @@
 use crate::views::reader::Reader;
 use gpui_kit::assets::IconName;
 
+pub(super) fn preview_text_menu(
+    menu: gpui_kit::component::menu::PopupMenu,
+    state: gpui_kit::Entity<gpui_kit::base::TextViewState>,
+    cx: &gpui_kit::App,
+) -> gpui_kit::component::menu::PopupMenu {
+    use gpui_kit::{ClipboardItem, component::menu::PopupMenuItem};
+
+    // Capture before the popup takes focus away from the document.
+    let selected = state.read(cx).selected_text();
+    menu.item(
+        PopupMenuItem::new(glim_services::locale::tr("Copy"))
+            .disabled(selected.is_empty())
+            .on_click(move |_, _, cx| {
+                if !selected.is_empty() {
+                    cx.write_to_clipboard(ClipboardItem::new_string(selected.clone()));
+                }
+            }),
+    )
+    .item(
+        PopupMenuItem::new(glim_services::locale::tr("Select All")).on_click(
+            move |_, window, cx| {
+                state.update(cx, |state, cx| {
+                    state.focus_handle().focus(window, cx);
+                    state.select_all(cx);
+                });
+            },
+        ),
+    )
+    .separator()
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum ToolbarAction {
     Sidebar,

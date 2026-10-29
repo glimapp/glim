@@ -101,6 +101,15 @@ pub struct Reader {
     structured_controls: Option<Entity<json_format::JsonFormat>>,
 }
 impl Reader {
+    pub fn preview_text_state(&self) -> Option<Entity<gpui_kit::base::TextViewState>> {
+        match &self.renderer {
+            Renderer::Markup(markup) if markup.preview && !markup.html => {
+                Some(markup.state.clone())
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn refresh_dependencies(&mut self, cx: &mut App) {
         if let Renderer::Markup(markup) = &mut self.renderer {
             markup.refresh_dependencies(cx);

@@ -102,6 +102,13 @@ impl Render for Workspace {
                 .child(content)
                 .context_menu(move |mut menu, _, cx| {
                     if let Some(workspace) = workspace.upgrade() {
+                        if let Some(state) = workspace
+                            .read(cx)
+                            .active_reader()
+                            .and_then(|reader| reader.preview_text_state())
+                        {
+                            menu = super::reader_actions::preview_text_menu(menu, state, cx);
+                        }
                         for item in workspace.read(cx).reader_actions() {
                             let action = item.action;
                             let workspace = workspace.downgrade();
