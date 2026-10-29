@@ -436,6 +436,10 @@ impl Workspace {
                 view.watch_scan_task = None;
                 view.watch = watch;
                 view.start_watching(window, cx);
+                // Reconcile changes between the initial listing and watcher registration.
+                if let Some(explorer) = &view.explorer {
+                    explorer.update(cx, |v, cx| v.refresh(cx));
+                }
                 cx.notify();
             });
         }));

@@ -69,6 +69,7 @@ pub struct Explorer {
     directories: HashMap<PathBuf, Vec<DirectoryEntry>>,
     expanded: Vec<HashSet<PathBuf>>,
     tasks: HashMap<PathBuf, Task<()>>,
+    pending_refresh: HashSet<PathBuf>,
     media_presence: HashMap<PathBuf, bool>,
     media_tasks: HashMap<PathBuf, Task<()>>,
     rows: Vec<Row>,
@@ -106,6 +107,7 @@ impl Explorer {
             directories: HashMap::from([(root.clone(), entries)]),
             expanded: vec![HashSet::from([root])],
             tasks: HashMap::new(),
+            pending_refresh: HashSet::new(),
             media_presence: HashMap::new(),
             media_tasks: HashMap::new(),
             rows: Vec::new(),
@@ -168,6 +170,7 @@ impl Explorer {
         let retained = |path: &PathBuf| roots.iter().any(|root| path.starts_with(root));
         self.directories.retain(|path, _| retained(path));
         self.tasks.retain(|path, _| retained(path));
+        self.pending_refresh.retain(|path| retained(path));
         self.media_presence.retain(|path, _| retained(path));
         self.media_tasks.retain(|path, _| retained(path));
         self.rows.clear();
@@ -273,7 +276,7 @@ impl Explorer {
                 view.tasks.remove(&path);
                 match result {
                     Ok(entries) => {
-                        view.directories.insert(path, entries);
+                        view.directories.insert(path.clone(), entries);
                     }
                     Err(error) => {
                         for expanded in &mut view.expanded {
@@ -294,6 +297,9 @@ impl Explorer {
                 view.rebuild();
                 view.advance_reveal(cx);
                 view.load_expanded(cx);
+                if view.pending_refresh.remove(&path) {
+                    view.refresh_directory(path, cx);
+                }
                 cx.notify();
             });
         });
@@ -440,30 +446,42 @@ impl Explorer {
         paths.sort();
         paths.dedup();
         for path in paths {
-            let read_path = path.clone();
-            let (cancel, guard) = glim_services::work::Cancellation::task();
-            let read = cx
-                .background_executor()
-                .spawn(async move { list_directory_cancellable(&read_path, &cancel) });
-            let key = path.clone();
-            let task = cx.spawn(async move |view, cx| {
-                let _guard = guard;
-                let result = read.await;
-                let _ = view.update(cx, |view, cx| {
-                    if let Ok(entries) = result {
-                        view.directories.insert(path.clone(), entries);
-                    } else {
-                        view.directories.remove(&path);
-                    }
-                    view.tasks.remove(&path);
-                    view.rebuild();
-                    view.advance_reveal(cx);
-                    view.load_expanded(cx);
-                    cx.notify();
-                });
-            });
-            self.tasks.insert(key, task);
+            self.refresh_directory(path, cx);
         }
+    }
+
+    fn refresh_directory(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        // Finish the current scan before replaying changes received during it.
+        if self.tasks.contains_key(&path) {
+            self.pending_refresh.insert(path);
+            return;
+        }
+        let read_path = path.clone();
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        let read = cx
+            .background_executor()
+            .spawn(async move { list_directory_cancellable(&read_path, &cancel) });
+        let key = path.clone();
+        let task = cx.spawn(async move |view, cx| {
+            let _guard = guard;
+            let result = read.await;
+            let _ = view.update(cx, |view, cx| {
+                if let Ok(entries) = result {
+                    view.directories.insert(path.clone(), entries);
+                } else {
+                    view.directories.remove(&path);
+                }
+                view.tasks.remove(&path);
+                view.rebuild();
+                view.advance_reveal(cx);
+                view.load_expanded(cx);
+                if view.pending_refresh.remove(&path) {
+                    view.refresh_directory(path, cx);
+                }
+                cx.notify();
+            });
+        });
+        self.tasks.insert(key, task);
     }
 
     fn rebuild(&mut self) {

@@ -15,6 +15,7 @@
 - Keep editing minimal: typing, selection, undo/redo, automatic save and explicit save. Do not add LSP, plugins, speculative abstraction layers, or empty placeholder modules.
 - Pin GPUI Kit; retain Cargo.lock. Enable extra features only when used.
 - After requested code changes, build/package and install the updated local Glim.app by default, verify the installed bundle and launch it. Keep at most the two most recent installation backups. Do not automatically run tests or UI smoke tests; the user handles testing unless explicitly requested.
+- After completing requested changes, commit and push them to the remote by default, unless the user explicitly asks to keep them local. Include only task-related changes and preserve unrelated work.
 - When validation is requested, use cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings, cargo test --workspace --locked, and cargo build --locked.
 - When UI smoke testing is requested, use macOS when available and report unverified interactions.
 - Document changes to module boundaries in docs/architecture.md.

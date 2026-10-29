@@ -6,20 +6,31 @@ use std::time::Duration;
 impl Workspace {
     pub(super) fn start_watching(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.watch_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let mut pending_readers = false;
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(500))
                     .await;
                 if view
                     .update_in(cx, |view, window, cx| {
-                        if !view.loading
-                            && view.refresh_task.is_none()
-                            && view
-                                .watch
-                                .as_ref()
-                                .is_some_and(WorkspaceWatch::take_changed)
+                        if view
+                            .watch
+                            .as_ref()
+                            .is_some_and(WorkspaceWatch::take_changed)
                         {
-                            view.refresh_files(window, cx);
+                            if let Some(explorer) = &view.explorer {
+                                explorer.update(cx, |v, cx| v.refresh(cx));
+                            }
+                            pending_readers = true;
+                        }
+                        if pending_readers
+                            && !view.loading
+                            && view.refresh_task.is_none()
+                            && view.watch_scan_task.is_none()
+                            && !view.is_saving()
+                        {
+                            pending_readers = false;
+                            view.refresh_readers(window, cx);
                         }
                     })
                     .is_err()
@@ -62,6 +73,13 @@ impl Workspace {
     }
 
     fn refresh_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(explorer) = &self.explorer {
+            explorer.update(cx, |v, cx| v.refresh(cx));
+        }
+        self.refresh_readers(window, cx);
+    }
+
+    fn refresh_readers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.refresh_task.is_some() || self.watch_scan_task.is_some() || self.is_saving() {
             return;
         }
@@ -83,9 +101,6 @@ impl Workspace {
                 )
             })
             .collect::<Vec<_>>();
-        if let Some(explorer) = &self.explorer {
-            explorer.update(cx, |v, cx| v.refresh(cx));
-        }
         let (cancel, cancel_on_drop) = glim_services::work::Cancellation::task();
         let read = cx.background_executor().spawn(async move {
             targets

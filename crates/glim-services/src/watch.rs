@@ -17,22 +17,10 @@ impl WorkspaceWatch {
     pub fn new(root: &Path) -> Result<Self> {
         let dirty = Arc::new(AtomicBool::new(false));
         let flag = dirty.clone();
-        let watched_root = root.to_path_buf();
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
                 if let Ok(event) = event
                     && !matches!(event.kind, notify::EventKind::Access(_))
-                    && event.paths.iter().any(|p| {
-                        !p.strip_prefix(&watched_root)
-                            .unwrap_or(p)
-                            .components()
-                            .any(|c| {
-                                matches!(
-                                    c.as_os_str().to_str(),
-                                    Some("target" | "node_modules" | "dist")
-                                )
-                            })
-                    })
                 {
                     flag.store(true, Ordering::Release);
                 }
