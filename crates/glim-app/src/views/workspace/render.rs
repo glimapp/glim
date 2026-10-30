@@ -251,6 +251,10 @@ impl Render for Workspace {
             "Start",
             self.page == Page::Start,
         );
+        let workspace_action_style = ButtonCustomVariant::new(cx)
+            .foreground(cx.theme().muted_foreground)
+            .hover(cx.theme().foreground.opacity(0.04))
+            .active(cx.theme().foreground.opacity(0.08));
         let sidebar = v_flex()
             .size_full()
             .px_4()
@@ -281,7 +285,7 @@ impl Render for Workspace {
                     )
                     .child(
                         Button::new("workspace-new-file")
-                            .ghost()
+                            .custom(workspace_action_style)
                             .small()
                             .icon(gpui_kit::assets::IconName::FilePlus)
                             .tooltip(glim_services::locale::tr("New File"))
@@ -292,7 +296,7 @@ impl Render for Workspace {
                     )
                     .child(
                         Button::new("workspace-new-folder")
-                            .ghost()
+                            .custom(workspace_action_style)
                             .small()
                             .icon(gpui_kit::assets::IconName::FolderPlus)
                             .disabled(self.roots.is_empty())
@@ -304,7 +308,7 @@ impl Render for Workspace {
                     )
                     .child(
                         Button::new("workspace-add-folder")
-                            .ghost()
+                            .custom(workspace_action_style)
                             .small()
                             .icon(gpui_kit::assets::IconName::Folders)
                             .tooltip(glim_services::locale::tr("Add Folder to Workspace…"))

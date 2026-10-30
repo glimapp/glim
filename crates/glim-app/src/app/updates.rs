@@ -512,9 +512,6 @@ pub(crate) fn check_label(cx: &App) -> &'static str {
         _ => "Check…",
     }
 }
-pub(crate) fn checking(cx: &App) -> bool {
-    state(cx).is_some_and(|s| s.read(cx).manual_check || s.read(cx).snapshot.phase == "checking")
-}
 pub(crate) fn command(command: &str, cx: &mut App) {
     if command == "check" {
         cx.defer(open_updates_window);

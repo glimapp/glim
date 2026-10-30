@@ -111,7 +111,7 @@ impl Workspace {
             .on_click(|_, window, cx| window.dispatch_action(Box::new(DefaultApplications), cx))
             .into_any_element();
         let updates = action_button("settings-updates", crate::app::updates::check_label(cx))
-            .disabled(crate::app::updates::busy(cx) || crate::app::updates::checking(cx))
+            .disabled(crate::app::updates::busy(cx))
             .accessibility_label(glim_services::locale::tr("Check for Updates…"))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(CheckForUpdates), cx))
             .into_any_element();
