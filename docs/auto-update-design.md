@@ -10,13 +10,13 @@ This page describes implemented behavior and remaining boundaries, not a promise
 
 ## User behavior
 
-Open updates from the Glim menu, About or the workspace update indicator. All workspace windows share one `UpdateState`; reopening activates the existing centered update window.
+Open updates from the Glim menu, About or the workspace update indicator. All workspace windows share one `UpdateState`; reopening activates the existing centered update window. A user-initiated check opens this window immediately, including while preparing the backup, checking, reporting no update or reporting an error. Background checks do not open it.
 
 | Mode | Check | Download | Install |
 | --- | --- | --- | --- |
 | Manual | User action | User approval | Restart and Update or Install on Quit |
-| Notify — default | Approximately every 24 hours while the app runs | User approval | Same choices |
-| Automatic — opt-in | Same schedule | Background verified download | Normal quit, or an explicit restart |
+| Notify | At launch after backup preparation, then approximately hourly while running | User approval | Same choices |
+| Automatic — default | Same schedule | Background verified download | Normal quit, or an explicit restart |
 
 The UI shows version, release notes, status/progress, reminders, skip/cancel actions and recovery backup access as applicable. Modes are stored through Sparkle's preferences API. Automatic mode does not authorize interruption of editing, forced process termination or automatic entry of administrator credentials. No permanent updater daemon runs after the app quits.
 
@@ -38,8 +38,8 @@ Feed and update archive must pass Ed25519 verification. A public key is embedded
 | Bundle setting | Policy |
 | --- | --- |
 | `SUFeedURL` / `SUPublicEDKey` | Allowed production architecture feed and fixed update key |
-| `SUEnableAutomaticChecks` / `SUScheduledCheckInterval` | Enabled by default / 86400 seconds |
-| `SUAutomaticallyUpdate` | False by default; automatic mode is opt-in |
+| `SUEnableAutomaticChecks` / `SUScheduledCheckInterval` | Enabled by default / 3600 seconds |
+| `SUAutomaticallyUpdate` | True by default; existing user preferences are preserved |
 | `SUEnableSystemProfiling` | False |
 | `SUVerifyUpdateBeforeExtraction` | True |
 | `SURequireSignedFeed` | True |

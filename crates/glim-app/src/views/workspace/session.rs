@@ -265,11 +265,11 @@ mod tests {
             let view = view.read(cx);
             assert_eq!(
                 view.tabs.iter().map(|r| &r.path).collect::<Vec<_>>(),
-                vec![&text, &markdown, &missing, &incoming]
+                vec![&incoming, &text, &markdown, &missing]
             );
-            assert_eq!(view.active, Some(3));
-            assert_eq!(view.tabs[1].toggle_label(), "Preview");
-            assert!(view.tabs[2].is_unavailable());
+            assert_eq!(view.active, Some(0));
+            assert_eq!(view.tabs[2].toggle_label(), "Preview");
+            assert!(view.tabs[3].is_unavailable());
             assert!(!view.loading);
         });
     }

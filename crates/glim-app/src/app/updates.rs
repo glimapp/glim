@@ -106,9 +106,6 @@ impl UpdateState {
                 )
             {
                 self.manual_check = false;
-                if self.snapshot.has_update() {
-                    cx.defer(open_updates_window);
-                }
             }
             if self.snapshot.needs_quit_approval {
                 self.command("quit-request-received");
@@ -181,10 +178,11 @@ impl UpdateState {
                 match result {
                     Ok(path) => {
                         state.backup = Some(path);
-                        state.command("start");
                         if state.pending_check {
                             state.pending_check = false;
                             state.command("check");
+                        } else {
+                            state.command("start");
                         }
                         state.refresh(cx);
                     }
@@ -488,12 +486,11 @@ fn open_updates_window(cx: &mut App) {
 }
 pub(crate) fn show_from_menu(cx: &mut App) {
     cx.defer(|cx| {
+        open_updates_window(cx);
         if state(cx).is_some_and(|s| {
             let s = s.read(cx);
-            !s.snapshot.enabled || s.snapshot.has_update()
+            s.snapshot.enabled && !s.snapshot.has_update()
         }) {
-            open_updates_window(cx);
-        } else {
             command("check", cx);
         }
     });
@@ -519,6 +516,9 @@ pub(crate) fn checking(cx: &App) -> bool {
     state(cx).is_some_and(|s| s.read(cx).manual_check || s.read(cx).snapshot.phase == "checking")
 }
 pub(crate) fn command(command: &str, cx: &mut App) {
+    if command == "check" {
+        cx.defer(open_updates_window);
+    }
     let action = match command {
         "check" => "check",
         "download" => "download",

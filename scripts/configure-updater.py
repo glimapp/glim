@@ -36,7 +36,7 @@ if enabled:
         'SUFeedURL': f'https://github.com/glimapp/glim/releases/latest/download/appcast-macos-{arch}.xml',
         'SUPublicEDKey': public,
         'SUEnableAutomaticChecks': True,
-        'SUScheduledCheckInterval': 86400,
+        'SUScheduledCheckInterval': 3600,
         'SUAutomaticallyUpdate': True,
         'SUEnableSystemProfiling': False,
         'SUVerifyUpdateBeforeExtraction': True,

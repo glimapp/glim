@@ -101,12 +101,12 @@ impl Workspace {
         reader.restore_draft_text(draft.text, window, cx);
         glim_services::telemetry::track("draft_recovered", []);
         self.edit_revision = self.edit_revision.wrapping_add(1);
-        self.tabs.push(reader);
-        self.active = Some(self.tabs.len() - 1);
+        self.tabs.insert(0, reader);
+        self.active = Some(0);
         self.page = super::Page::Document;
         self.observe_autosave(window, cx);
-        self.tabs.last().unwrap().focus_source(window, cx);
-        self.tab_scroll.scroll_to_item(self.tabs.len() - 1);
+        self.tabs[0].focus_source(window, cx);
+        self.tab_scroll.scroll_to_item(0);
         cx.notify();
     }
     fn checkpoint_editor(&self, id: EntityId, cx: &App) {

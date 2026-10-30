@@ -10,13 +10,13 @@ macOS 发行构建使用 **GitHub Releases + Sparkle 2.10.0 + Glim 共用更新�
 
 ## 用户行为
 
-通过 Glim 菜单、关于页或工作台更新提示进入。所有工作空间共用一个 `UpdateState`，重复打开激活已有居中更新窗口。
+通过 Glim 菜单、关于页或工作台更新提示进入。所有工作空间共用一个 `UpdateState`，重复打开激活已有居中更新窗口。用户主动检查时立即打开该窗口，包含准备备份、检查中、没有更新及错误状态；后台检查不弹出此窗口。
 
 | 模式 | 检查 | 下载 | 安装 |
 | --- | --- | --- | --- |
 | 仅手动 | 用户操作 | 用户确认 | 重启并更新，或退出时安装 |
-| 检查提醒 — 默认 | 应用运行期间约每 24 小时 | 用户确认 | 同上 |
-| 自动更新 — 主动开启 | 同样周期 | 后台下载并验证 | 正常退出，或明确选择重启 |
+| 检查提醒 | 启动完成备份准备后检查，持续运行时约每小时 | 用户确认 | 同上 |
+| 自动更新 — 默认 | 同样周期 | 后台下载并验证 | 正常退出，或明确选择重启 |
 
 界面按状态展示版本、更新说明、进度、提醒／跳过／取消及恢复备份入口。模式通过 Sparkle 偏好 API 保存。自动更新不代表允许打断编辑、强制终止进程或自动输入管理员凭据；退出后不运行永久更新守护进程。
 
@@ -38,8 +38,8 @@ feed 与安装包都必须通过 Ed25519 验签。公钥内嵌于发行包，32 
 | 包配置 | 策略 |
 | --- | --- |
 | `SUFeedURL` / `SUPublicEDKey` | 允许的分架构正式 feed 与固定更新公钥 |
-| `SUEnableAutomaticChecks` / `SUScheduledCheckInterval` | 默认开启／86400 秒 |
-| `SUAutomaticallyUpdate` | 默认 false，自动更新需主动开启 |
+| `SUEnableAutomaticChecks` / `SUScheduledCheckInterval` | 默认开启／3600 秒 |
+| `SUAutomaticallyUpdate` | 默认 true，保留用户已有选择 |
 | `SUEnableSystemProfiling` | false |
 | `SUVerifyUpdateBeforeExtraction` | true |
 | `SURequireSignedFeed` | true |

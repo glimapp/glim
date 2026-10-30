@@ -152,12 +152,15 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
         phase = "error"; message = error.localizedDescription
         approved = false; needsApproval = false
     }
-    func start() {
+    func start(checkInBackground: Bool = true) {
         guard configured, !started, let updater = updater else { return }
         do {
             try updater.start()
             clearError()
             started = true; phase = "idle"; message = ""
+            if checkInBackground && updater.automaticallyChecksForUpdates {
+                updater.checkForUpdatesInBackground()
+            }
         } catch { recordError(error) }
     }
     var mode: String {
@@ -195,7 +198,7 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
         switch command {
         case "start": start()
         case "check":
-            if !started { start() }
+            if !started { start(checkInBackground: false) }
             guard started else { return }
             guard updater?.canCheckForUpdates == true else { return }
             attention &+= 1

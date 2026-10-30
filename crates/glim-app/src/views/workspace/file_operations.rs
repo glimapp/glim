@@ -72,11 +72,11 @@ impl Workspace {
         self.loading_preview = false;
         self.page = super::Page::Document;
         self.error = None;
-        self.tabs.push(reader);
-        self.active = Some(self.tabs.len() - 1);
-        self.tab_scroll.scroll_to_item(self.tabs.len() - 1);
+        self.tabs.insert(0, reader);
+        self.active = Some(0);
+        self.tab_scroll.scroll_to_item(0);
         self.observe_autosave(window, cx);
-        self.tabs.last().unwrap().focus_source(window, cx);
+        self.tabs[0].focus_source(window, cx);
         cx.notify();
     }
 

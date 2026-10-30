@@ -521,9 +521,9 @@ impl Workspace {
             self.tabs[i] = reader;
             self.active = Some(i);
         } else {
-            self.tabs.push(reader);
-            self.active = Some(self.tabs.len() - 1);
-            self.tab_scroll.scroll_to_item(self.tabs.len() - 1);
+            self.tabs.insert(0, reader);
+            self.active = Some(0);
+            self.tab_scroll.scroll_to_item(0);
         }
         if let Some((path, anchor)) = self.pending_anchor.take()
             && let Some(i) = self.active
@@ -897,21 +897,21 @@ mod incoming_file_tests {
         let editor = cx.update(|cx| {
             let view = view.read(cx);
             assert_eq!(view.tabs.len(), 4);
-            assert_eq!(view.tabs[0].path, first);
-            assert_eq!(view.tabs[1].path, second);
-            assert_eq!(view.tabs[2].path, image);
-            assert!(!view.tabs[2].is_unavailable());
-            assert_eq!(view.tabs[3].path, unsupported);
-            assert!(view.tabs[3].is_unavailable());
+            assert_eq!(view.tabs[3].path, first);
+            assert_eq!(view.tabs[2].path, second);
+            assert_eq!(view.tabs[1].path, image);
+            assert!(!view.tabs[1].is_unavailable());
+            assert_eq!(view.tabs[0].path, unsupported);
+            assert!(view.tabs[0].is_unavailable());
             assert!(view.incoming_files.is_empty());
             assert!(view.incoming_file_task.is_none());
-            view.tabs[0].editor().unwrap().entity_id()
+            view.tabs[3].editor().unwrap().entity_id()
         });
         cx.update_window(handle, |_, window, cx| {
             view.update(cx, |view, cx| {
                 assert!(view.open_system_file(first.clone(), window, cx));
-                assert_eq!(view.active, Some(0));
-                assert_eq!(view.tabs[0].editor().unwrap().entity_id(), editor);
+                assert_eq!(view.active, Some(3));
+                assert_eq!(view.tabs[3].editor().unwrap().entity_id(), editor);
                 assert!(view.incoming_file_task.is_none());
             });
         })
@@ -952,7 +952,7 @@ mod tests {
         cx.update(|cx| {
             let workspace = view.read(cx);
             assert_eq!(workspace.tabs.len(), 2);
-            assert_eq!(workspace.tabs[0].path, paths[0]);
+            assert_eq!(workspace.tabs[0].path, paths[1]);
             assert_eq!(workspace.active_reader().unwrap().path, paths[1]);
         });
         let editor = cx.update(|cx| view.read(cx).active_reader().unwrap().editor().unwrap());
@@ -964,7 +964,7 @@ mod tests {
         .unwrap();
         cx.run_until_parked();
         cx.update(|cx| {
-            assert!(view.read(cx).tabs[1].is_dirty());
+            assert!(view.read(cx).tabs[0].is_dirty());
         });
         for path in &paths[2..] {
             cx.update_window(handle, |_, window, cx| {
@@ -985,8 +985,9 @@ mod tests {
         cx.update(|cx| {
             let workspace = view.read(cx);
             assert_eq!(workspace.tabs.len(), 20);
-            assert_eq!(workspace.tabs[0].path, paths[0]);
-            assert!(workspace.tabs[1].is_dirty());
+            assert_eq!(workspace.tabs[0].path, paths[19]);
+            assert_eq!(workspace.tabs[19].path, paths[0]);
+            assert!(workspace.tabs[18].is_dirty());
         });
         assert_eq!(std::fs::read_to_string(&paths[1]).unwrap(), "original\n");
     }

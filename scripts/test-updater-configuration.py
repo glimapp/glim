@@ -34,4 +34,6 @@ with tempfile.TemporaryDirectory(prefix='glim-deployment-test-') as tmp:
         assert info['SUFeedURL'].endswith(f'appcast-macos-{arch}.xml')
         assert info['GlimUpdatesEnabled'] is True
         assert info['SURequireSignedFeed'] is True
+        assert info['SUEnableAutomaticChecks'] is True
+        assert info['SUScheduledCheckInterval'] == 3600
 print('Updater configuration: Intel legacy and Apple Silicon deployment commands passed.')
