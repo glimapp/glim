@@ -190,6 +190,8 @@ impl Workspace {
             .unwrap_or_default();
         let fade_scroll = scroll.clone();
         let edge_color = cx.theme().sidebar;
+        let indicator_color = cx.theme().muted_foreground.opacity(0.60);
+        let shadow_color = cx.theme().foreground.opacity(0.045);
         let list = v_flex()
             .id("workspace-navigation")
             .w_full()
@@ -316,7 +318,7 @@ impl Workspace {
                     move |bounds, _, window, _| {
                         let offset = -fade_scroll.offset().y;
                         let remaining = fade_scroll.max_offset().y - offset;
-                        let height = px(12.).min(bounds.size.height / 2.);
+                        let height = px(18.).min(bounds.size.height / 2.);
                         for (visible, top) in
                             [(offset > px(0.5), true), (remaining > px(0.5), false)]
                         {
@@ -336,6 +338,23 @@ impl Workspace {
                                     linear_color_stop(edge_color.opacity(0.), 1.),
                                 ),
                             ));
+                            window.paint_quad(fill(
+                                Bounds::new(origin, size(bounds.size.width, height)),
+                                linear_gradient(
+                                    if top { 180. } else { 0. },
+                                    linear_color_stop(shadow_color, 0.),
+                                    linear_color_stop(shadow_color.opacity(0.), 1.),
+                                ),
+                            ));
+                            let center = point(bounds.center().x, origin.y + height / 2.);
+                            let direction = if top { -1. } else { 1. };
+                            let mut arrow = PathBuilder::stroke(px(1.4));
+                            arrow.move_to(center + point(px(-4.), px(-2. * direction)));
+                            arrow.line_to(center + point(px(0.), px(2. * direction)));
+                            arrow.line_to(center + point(px(4.), px(-2. * direction)));
+                            if let Ok(arrow) = arrow.build() {
+                                window.paint_path(arrow, indicator_color);
+                            }
                         }
                     },
                 )
