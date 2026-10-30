@@ -1,3 +1,4 @@
+mod archive;
 mod books;
 mod boundary;
 mod controls;
@@ -68,6 +69,7 @@ pub type ToggleTask =
 /// No image/error tab allocates an unused editor. JSON shares the code editor's
 /// syntax-aware folding; Markdown owns preview state as well as a source editor.
 enum Renderer {
+    Archive(Entity<archive::ArchiveReader>),
     Source(SourceReader),
     Paged {
         view: Entity<paged::PagedReader>,
@@ -292,6 +294,7 @@ impl Reader {
 
     pub fn telemetry_kind(&self) -> &'static str {
         match &self.renderer {
+            Renderer::Archive(_) => "zip",
             Renderer::Source(_) => "source",
             Renderer::Markup(markup) => {
                 if markup.html {
@@ -321,6 +324,22 @@ impl Reader {
         false
     }
 
+    pub fn is_archive(&self) -> bool {
+        matches!(self.renderer, Renderer::Archive(_))
+    }
+    pub fn from_archive(document: glim_services::archive::Archive, cx: &mut App) -> Self {
+        Self {
+            snapshot: String::new(),
+            title: document.path.display().to_string().into(),
+            path: document.path.clone(),
+            structured_controls: None,
+            draft_directory: None,
+            recovery_key: None,
+            json: None,
+            csv: None,
+            renderer: Renderer::Archive(cx.new(|_| archive::ArchiveReader::new(document))),
+        }
+    }
     pub fn from_sqlite(path: PathBuf, window: &mut Window, cx: &mut App) -> Self {
         Self {
             snapshot: "sqlite-preview".into(),
@@ -1040,6 +1059,7 @@ impl Reader {
             }
             Renderer::XMind(v) => v.clone().into_any_element(),
             Renderer::Book(v, _) => v.clone().into_any_element(),
+            Renderer::Archive(view) => view.clone().into_any_element(),
             Renderer::Opml(view) => view.clone().into_any_element(),
             Renderer::Sqlite(view) => view.clone().into_any_element(),
             Renderer::Native(n) => n.clone().into_any_element(),

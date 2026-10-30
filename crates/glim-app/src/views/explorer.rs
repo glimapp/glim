@@ -260,9 +260,9 @@ impl Explorer {
                         .parent()
                         .and_then(|parent| self.directories.get(parent))
                         .is_some_and(|entries| {
-                            entries.iter().any(|entry| {
-                                entry.path == **path && entry.is_dir && !entry.is_symlink
-                            })
+                            entries
+                                .iter()
+                                .any(|entry| entry.path == **path && entry.is_dir)
                         })
             })
             .cloned()
@@ -414,7 +414,7 @@ impl Explorer {
                 };
                 if !entries
                     .iter()
-                    .any(|entry| entry.path == path && entry.is_dir && !entry.is_symlink)
+                    .any(|entry| entry.path == path && entry.is_dir)
                 {
                     self.pending_reveal = None;
                     self.pending_reveal_root = None;

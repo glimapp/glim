@@ -1,5 +1,6 @@
 # Glim development
 
+- 修改代码前，必须先检查当前分支、工作区改动和上游关系，执行 `git fetch`，并将当前分支同步到最新上游代码后再开始修改；不能只检查本地缓存的远端分支。保留所有已有本地改动，不得通过 reset、覆盖或丢弃改动完成同步。存在分叉或冲突时先核对并处理，无法安全同步时明确说明阻塞，不得默默在旧代码上继续修改。连续任务中开始新的代码修改前也须重新核对上游状态。
 - Product scope: a macOS file viewer (Apple Silicon and Intel) for documents, data, images and source code in one workspace. Ordinary UTF-8 files support basic notepad-style editing, automatic saving and explicit saving; images, document previews and unsupported files remain read-only.
 - Platform strategy: maintain and release only macOS Apple Silicon and Intel. The repository is macOS-only: do not add non-macOS backends, platform branches, dependencies or release jobs without explicit user direction. Keep existing public release assets intact.
 - Keep crate dependencies one-way: glim-app -> glim-services -> glim-core;
@@ -15,7 +16,7 @@
 - Keep editing minimal: typing, selection, undo/redo, automatic save and explicit save. Do not add LSP, plugins, speculative abstraction layers, or empty placeholder modules.
 - Pin GPUI Kit; retain Cargo.lock. Enable extra features only when used.
 - After requested code changes, build/package and install the updated local Glim.app by default, verify the installed bundle and launch it. Keep at most the two most recent installation backups. Do not automatically run tests or UI smoke tests; the user handles testing unless explicitly requested.
-- After completing requested changes, commit and push them to the remote by default, unless the user explicitly asks to keep them local. Include only task-related changes and preserve unrelated work.
+- 每次完成修改并完成适当验证后，自动提交并推送到当前分支对应的远端，不再另行询问；仅当用户明确要求保留在本地时跳过。只提交当前任务相关改动，保留无关工作，不强制推送。推送后核对远端提交与本地一致；若提交或推送失败，明确说明未完成的步骤与原因，不将本地提交视为已推送。
 - When validation is requested, use cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings, cargo test --workspace --locked, and cargo build --locked.
 - When UI smoke testing is requested, use macOS when available and report unverified interactions.
 - Document changes to module boundaries in docs/architecture.md.

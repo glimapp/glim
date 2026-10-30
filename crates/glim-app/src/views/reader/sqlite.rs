@@ -4,6 +4,7 @@ use glim_services::{
     sqlite::browser::{self, Database, Query},
     work::Cancellation,
 };
+use gpui_kit::base::Selectable;
 use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Sizable,
@@ -145,6 +146,8 @@ struct Detail {
     editor: super::source::SourceReader,
 }
 pub(super) struct SqliteReader {
+    path: PathBuf,
+    error_details: bool,
     database: Option<Arc<Database>>,
     query: Query,
     grid: Entity<TableState<Grid>>,
@@ -228,9 +231,10 @@ impl SqliteReader {
         }));
         let (cancel, guard) = Cancellation::task();
         let telemetry_started = std::time::Instant::now();
+        let source = path.clone();
         let work = cx
             .background_executor()
-            .spawn(async move { browser::open(&path, &cancel) });
+            .spawn(async move { browser::open(&source, &cancel) });
         let task = cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -255,6 +259,8 @@ impl SqliteReader {
             });
         });
         let mut reader = Self {
+            path,
+            error_details: false,
             database: None,
             query: Query::default(),
             grid,
@@ -284,6 +290,7 @@ impl SqliteReader {
         if self.refresh_task.is_some() {
             return;
         }
+        self.path = path.clone();
         let previous = self.query.clone();
         let mut query = previous.clone();
         let source = path.clone();
@@ -625,7 +632,7 @@ impl Render for SqliteReader {
             .as_ref()
             .map(|d| d.tables.clone())
             .unwrap_or_default();
-        let busy = self.task.is_some();
+        let busy = self.task.is_some() || self.refresh_task.is_some();
         let last = self.last_page();
         let rows = self.grid.read(cx).delegate().rows.len();
         let mut main = v_flex()
@@ -641,31 +648,37 @@ impl Render for SqliteReader {
                         .child(Input::new(&self.search).small()),
                 ),
             )
-            .when_some(self.error.clone(), |el, error| {
-                el.child(div().px_2().text_color(cx.theme().danger).child(error))
-            })
             .when(self.error.is_some() || self.count_error, |el| {
+                let details = self.error.clone().unwrap_or_else(||
+                    tr("Row count timed out. Retry with more time; available pages can still be browsed."));
                 el.child(
-                    Button::new("sqlite-retry")
-                        .label(tr("Retry with more time"))
-                        .disabled(self.database.is_none())
-                        .on_click(cx.listener(|v, _, _, cx| {
-                            glim_services::telemetry::reader_feature(
-                                "sqlite",
-                                "extend_query_timeout",
-                                [],
-                            );
-                            v.query.seconds = v
-                                .query
-                                .seconds
-                                .max(limits::SQLITE_QUERY_SECONDS)
-                                .saturating_mul(3);
-                            if v.query.columns.is_empty() {
-                                v.select_table(cx);
-                            } else {
-                                v.reload(cx);
-                            }
-                        })),
+                    v_flex().gap_2().px_2().pb_2()
+                        .child(h_flex().gap_2()
+                            .child(Button::new("sqlite-error-details").small()
+                                .label(tr(if self.error.is_some() { "Preview unavailable" } else { "Row count unavailable" }))
+                                .tooltip(tr("Show error details"))
+                                .selected(self.error_details)
+                                .on_click(cx.listener(|view, _, _, cx| {
+                                    view.error_details = !view.error_details;
+                                    cx.notify();
+                                })))
+                            .child(Button::new("sqlite-retry").small()
+                                .label(tr(if busy { "Retrying…" } else { "Retry" }))
+                                .disabled(busy)
+                                .on_click(cx.listener(|view, _, _, cx| {
+                                    glim_services::telemetry::reader_feature("sqlite", "retry_preview", []);
+                                    view.error_details = false;
+                                    view.query.seconds = view.query.seconds
+                                        .max(limits::SQLITE_QUERY_SECONDS).saturating_mul(3);
+                                    if view.error.is_some() || view.database.is_none() {
+                                        view.refresh(view.path.clone(), cx);
+                                    } else {
+                                        view.reload(cx);
+                                    }
+                                    cx.notify();
+                                }))))
+                        .when(self.error_details, |el| el.child(
+                            div().text_sm().text_color(cx.theme().muted_foreground).child(details))),
                 )
             })
             .child(

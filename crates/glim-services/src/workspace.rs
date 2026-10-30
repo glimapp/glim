@@ -30,7 +30,8 @@ pub fn open_folder_cancellable(
     Ok(FolderSnapshot { root, entries })
 }
 
-/// Read only immediate children; do not follow directory symlinks or scan the whole tree.
+/// Read only immediate children, including directory links for on-demand expansion.
+/// Recursive walks still do not follow links.
 pub fn list_directory(path: &Path) -> Result<Vec<DirectoryEntry>> {
     list_directory_cancellable(path, &crate::work::Cancellation::default())
 }
@@ -57,10 +58,13 @@ pub fn list_directory_cancellable(
         let Some(kind) = entry.file_type() else {
             continue;
         };
-        let is_document_package = kind.is_dir() && crate::preview::is_iwork(entry.path());
+        // Resolve only the entry type; retain the link path so expansion stays
+        // inside the current workspace instead of opening its target as a workspace.
+        let is_dir = kind.is_dir() || (kind.is_symlink() && entry.path().is_dir());
+        let is_document_package = is_dir && crate::preview::is_iwork(entry.path());
         entries.push(DirectoryEntry {
             path: entry.into_path(),
-            is_dir: kind.is_dir() && !is_document_package,
+            is_dir: is_dir && !is_document_package,
             is_symlink: kind.is_symlink(),
         });
     }
@@ -220,7 +224,11 @@ mod tests {
         let entries = list_directory(temp.path())?;
         assert_eq!(entries.len(), 1);
         assert!(entries[0].is_symlink);
-        assert!(!entries[0].is_dir);
+        assert!(entries[0].is_dir);
+        assert_eq!(entries[0].path, temp.path().join("loop"));
+        let children = list_directory(&entries[0].path)?;
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].path, temp.path().join("loop/loop"));
         Ok(())
     }
 }

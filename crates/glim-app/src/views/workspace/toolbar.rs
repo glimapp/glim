@@ -47,7 +47,7 @@ impl Workspace {
             }
             None => Icon::empty().path("navigation/wrap.svg"),
         };
-        Button::new(action.id())
+        let button = Button::new(action.id())
             .custom(
                 ButtonCustomVariant::new(cx)
                     .hover(cx.theme().foreground.opacity(0.05))
@@ -60,12 +60,20 @@ impl Workspace {
             .rounded(px(7.))
             .icon(icon.size(px(16.)))
             .tooltip(label.clone())
-            .accessibility_label(label)
+            .accessibility_label(label.clone())
             .selected(item.selected)
             .disabled(!item.enabled)
             .on_click(cx.listener(move |view, _, window, cx| {
                 view.run_toolbar_action(action, window, cx);
-            }))
+            }));
+        if matches!(
+            action,
+            ToolbarAction::Extract | ToolbarAction::CancelExtract
+        ) {
+            button.w_auto().label(label)
+        } else {
+            button
+        }
     }
 
     pub(super) fn navigation_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -94,6 +102,13 @@ impl Workspace {
         } else {
             Vec::new()
         };
+        if self.picking && self.active_reader().is_some_and(|r| r.is_archive()) {
+            for item in &mut document {
+                if matches!(item.action, ToolbarAction::Extract) {
+                    *item = ToolbarItem::new(ToolbarAction::CancelExtract);
+                }
+            }
+        }
         if self.page == Page::Document && self.active_reader().is_some() {
             let mut fullscreen = ToolbarItem::new(ToolbarAction::FileFullscreen);
             fullscreen.selected = self.file_fullscreen;
@@ -140,6 +155,12 @@ impl Workspace {
         props.push(("action", glim_services::telemetry::text(action.id())));
         glim_services::telemetry::track("reader_action", props);
         match action {
+            ToolbarAction::Extract => self.extract_archive(window, cx),
+            ToolbarAction::CancelExtract => {
+                self.picker_task = None;
+                self.picking = false;
+                cx.notify();
+            }
             ToolbarAction::Sidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
                 self.sidebar_window_width = 0.;

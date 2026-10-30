@@ -166,7 +166,7 @@ impl Workspace {
                         Content::XMind(d) => view.tabs[index].snapshot == d.fingerprint,
                         Content::Book(d) => view.tabs[index].snapshot == d.fingerprint,
                         Content::Page(d) => view.tabs[index].snapshot == d.fingerprint(),
-                        Content::Native(..) | Content::Sqlite(..) => false,
+                        Content::Archive(..) | Content::Native(..) | Content::Sqlite(..) => false,
                         Content::Unavailable(_, _) => false,
                     };
                     if unchanged && !view.tabs[index].is_unavailable() {

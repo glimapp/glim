@@ -507,5 +507,17 @@
   "Open folders as workspaces from the Finder context menu.": "在 Finder 中右键点击文件夹，用 Glim 打开为工作区。",
   "A file is being saved. Wait for it to finish before moving this item to Trash.": "文件正在保存，请稍后再将此项目移到废纸篓。",
   "An open file in this item has unsaved changes. Save it before moving this item to Trash.": "此项目中有打开的文件尚未保存，请先保存该文件，再将此项目移到废纸篓。",
-  "Another file operation is in progress": "另一个文件操作正在进行，请稍后重试。"
+  "Another file operation is in progress": "另一个文件操作正在进行，请稍后重试。",
+  "Archive entries": "个条目",
+  "Browse folders, then extract to a new workspace.": "浏览压缩包目录，解压后将创建新的工作空间。",
+  "Archive contents": "压缩包内容",
+  "Uncompressed size": "解压后大小",
+  "Extract…": "解压…",
+  "Choose extraction location": "选择解压位置",
+  "Extraction failed": "解压失败",
+  "Extracting… · Cancel": "正在解压… · 取消",
+  "Preview unavailable": "预览暂不可用",
+  "Row count unavailable": "行数统计暂不可用",
+  "Show error details": "查看错误详情",
+  "Retrying…": "正在重试…"
 }

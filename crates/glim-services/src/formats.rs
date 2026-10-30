@@ -55,7 +55,7 @@ pub fn read_preview_cancellable(path: &Path, cancel: &Cancellation) -> Result<Te
                     writeln!(
                         text,
                         "{} · {} bytes{}",
-                        entry.name(),
+                        crate::archive::name(&entry),
                         entry.size(),
                         if entry.enclosed_name().is_some() {
                             String::new()

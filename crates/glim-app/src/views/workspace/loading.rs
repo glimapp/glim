@@ -17,6 +17,7 @@ enum Opened {
     File(PathBuf, anyhow::Result<Box<Content>>),
 }
 pub(super) enum Content {
+    Archive(glim_services::archive::Archive),
     File(Document),
     Page(glim_services::paged::TextPage),
     Image(glim_services::media::ImageDocument),
@@ -446,6 +447,7 @@ impl Workspace {
     }
     pub(super) fn make_reader(content: Content, window: &mut Window, cx: &mut App) -> Reader {
         let path = match &content {
+            Content::Archive(d) => d.path.clone(),
             Content::File(d) => d.path.clone(),
             Content::Page(d) => d.path.clone(),
             Content::Image(d) => d.path.clone(),
@@ -473,6 +475,7 @@ impl Workspace {
     }
     fn make_reader_inner(content: Content, window: &mut Window, cx: &mut App) -> Reader {
         match content {
+            Content::Archive(d) => Reader::from_archive(d, cx),
             Content::File(d) => Reader::new(d, window, cx),
             Content::Page(d) => Reader::from_page(d, window, cx),
             Content::Image(d) => Reader::from_image(d, window, cx),
@@ -733,6 +736,12 @@ fn read_content_inner(
             Err(error) => Err(error),
         };
     }
+    if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+    {
+        return glim_services::archive::read(path, cancel).map(Content::Archive);
+    }
     if glim_services::formats::supports(path) {
         return glim_services::formats::read_preview_cancellable(path, cancel).map(Content::Page);
     }
@@ -790,12 +799,9 @@ fn read_content_inner(
             }
         })()
     };
-    if result.is_err()
-        && path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with('.'))
-    {
+    // Unknown binary files use the same bounded, read-only byte pages as
+    // hidden files. A filename prefix does not determine whether bytes are viewable.
+    if result.is_err() && !glim_services::media::supports(path) {
         glim_services::paged::read_binary_page(path, 0).map(Content::Page)
     } else {
         result

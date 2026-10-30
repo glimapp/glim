@@ -507,5 +507,17 @@
   "Open folders as workspaces from the Finder context menu.": "Open folders as workspaces from the Finder context menu.",
   "A file is being saved. Wait for it to finish before moving this item to Trash.": "A file is being saved. Wait for it to finish before moving this item to Trash.",
   "An open file in this item has unsaved changes. Save it before moving this item to Trash.": "An open file in this item has unsaved changes. Save it before moving this item to Trash.",
-  "Another file operation is in progress": "Another file operation is in progress"
+  "Another file operation is in progress": "Another file operation is in progress",
+  "Archive entries": "Archive entries",
+  "Browse folders, then extract to a new workspace.": "Browse folders, then extract to a new workspace.",
+  "Archive contents": "Archive contents",
+  "Uncompressed size": "Uncompressed size",
+  "Extract…": "Extract…",
+  "Choose extraction location": "Choose extraction location",
+  "Extraction failed": "Extraction failed",
+  "Extracting… · Cancel": "Extracting… · Cancel",
+  "Preview unavailable": "Preview unavailable",
+  "Row count unavailable": "Row count unavailable",
+  "Show error details": "Show error details",
+  "Retrying…": "Retrying…"
 }
