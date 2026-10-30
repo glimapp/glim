@@ -2,7 +2,7 @@ use super::{Page, Workspace};
 use glim_services::preferences::RecentWorkspace;
 use gpui_kit::{
     component::{
-        ActiveTheme, Icon,
+        ActiveTheme, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         input::{Input, InputEvent, InputState},
@@ -162,6 +162,7 @@ impl Workspace {
                 .and_then(|workspace| workspace.name.clone());
         }
         self.sync_workspace(cx);
+        self.remember_session(cx);
         crate::app::remember_named_workspace(self.workspace_descriptor(), cx);
     }
 
@@ -181,11 +182,20 @@ impl Workspace {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        v_flex()
+        let scroll = self
+            .workspace_window
+            .as_ref()
+            .and_then(|host| host.upgrade())
+            .map(|host| host.read(cx).navigation_scroll.clone())
+            .unwrap_or_default();
+        let fade_scroll = scroll.clone();
+        let edge_color = cx.theme().sidebar;
+        let list = v_flex()
             .id("workspace-navigation")
             .w_full()
-            .max_h(relative(0.4))
+            .min_h_0()
             .overflow_y_scroll()
+            .track_scroll(&scroll)
             .gap_1()
             .children(slots.into_iter().map(|workspace| {
                 if let Some((id, input, _)) = &self.workspace_rename
@@ -210,11 +220,16 @@ impl Workspace {
                     cx.theme().sidebar
                 };
                 let id = workspace.id.clone();
+                let close_id = workspace.id.clone();
                 let title = workspace.title();
                 let rename = workspace.clone();
                 let weak = cx.entity().downgrade();
-                div()
+                h_flex()
                     .w_full()
+                    .min_w_0()
+                    .items_center()
+                    .rounded(px(6.))
+                    .bg(background)
                     .child(
                         Button::new(SharedString::from(format!("workspace-{}", workspace.id)))
                             .custom(
@@ -223,12 +238,12 @@ impl Workspace {
                                     .hover(background.blend(cx.theme().foreground.opacity(0.06)))
                                     .active(background.blend(cx.theme().foreground.opacity(0.10))),
                             )
-                            .w_full()
+                            .flex_1()
+                            .min_w_0()
                             .h(px(34.))
                             .px_3()
                             .justify_start()
                             .bg(background)
-                            .tooltip(title.clone())
                             .accessibility_label(title.clone())
                             .child(
                                 h_flex()
@@ -246,6 +261,34 @@ impl Workspace {
                                 view.select_workspace(id.clone(), window, cx)
                             })),
                     )
+                    .child(
+                        Button::new(SharedString::from(format!(
+                            "close-workspace-{}",
+                            workspace.id
+                        )))
+                        .custom(
+                            ButtonCustomVariant::new(cx)
+                                .foreground(cx.theme().muted_foreground.opacity(0.70))
+                                .hover(background.blend(cx.theme().foreground.opacity(0.06)))
+                                .active(background.blend(cx.theme().foreground.opacity(0.10))),
+                        )
+                        .small()
+                        .mr_1()
+                        .icon(Icon::new(gpui_kit::assets::IconName::X).size(px(13.)))
+                        .accessibility_label(glim_services::locale::tr("Close Workspace"))
+                        .on_click(cx.listener(
+                            move |view, _, window, cx| {
+                                if let Some(host) = view.workspace_window.clone() {
+                                    let id = close_id.clone();
+                                    window.defer(cx, move |window, cx| {
+                                        let _ = host.update(cx, |host, cx| {
+                                            host.request_workspace_close(&id, window, cx)
+                                        });
+                                    });
+                                }
+                            },
+                        )),
+                    )
                     .context_menu(move |menu, _, _| {
                         let weak = weak.clone();
                         let rename = rename.clone();
@@ -259,7 +302,46 @@ impl Workspace {
                         )
                     })
                     .into_any_element()
-            }))
+            }));
+        v_flex()
+            .relative()
+            .w_full()
+            .min_h_0()
+            .max_h(relative(0.4))
+            .overflow_hidden()
+            .child(list)
+            .child(
+                canvas(
+                    move |_, _, _| {},
+                    move |bounds, _, window, _| {
+                        let offset = -fade_scroll.offset().y;
+                        let remaining = fade_scroll.max_offset().y - offset;
+                        let height = px(12.).min(bounds.size.height / 2.);
+                        for (visible, top) in
+                            [(offset > px(0.5), true), (remaining > px(0.5), false)]
+                        {
+                            if !visible {
+                                continue;
+                            }
+                            let origin = if top {
+                                bounds.origin
+                            } else {
+                                point(bounds.origin.x, bounds.bottom() - height)
+                            };
+                            window.paint_quad(fill(
+                                Bounds::new(origin, size(bounds.size.width, height)),
+                                linear_gradient(
+                                    if top { 180. } else { 0. },
+                                    linear_color_stop(edge_color.opacity(0.95), 0.),
+                                    linear_color_stop(edge_color.opacity(0.), 1.),
+                                ),
+                            ));
+                        }
+                    },
+                )
+                .absolute()
+                .size_full(),
+            )
             .into_any_element()
     }
 }

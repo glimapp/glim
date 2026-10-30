@@ -13,6 +13,7 @@ pub(crate) mod telemetry;
 #[cfg(feature = "macos-updater")]
 mod updater_bridge;
 pub(crate) mod updates;
+pub(crate) mod workspace_sessions;
 
 use anyhow::{Result, bail};
 use gpui_kit::*;
@@ -171,18 +172,7 @@ pub(crate) fn open_recent_workspace(
     if updates::busy(cx) {
         return;
     }
-    open_workspace_with_session(
-        None,
-        Some(glim_core::update::WorkspaceSession {
-            roots: workspace.folders,
-            tabs: Vec::new(),
-            active: None,
-            workspace_id: Some(workspace.id),
-            name: workspace.name,
-            window_group: None,
-        }),
-        cx,
-    );
+    open_workspace_with_session(None, Some(workspace_sessions::restore(workspace, cx)), cx);
 }
 
 pub(crate) fn toggle_dark_mode(cx: &mut App) {
@@ -342,6 +332,10 @@ pub fn run() -> Result<()> {
 
     let language = glim_services::preferences::language().unwrap_or_else(|| "system".into());
     glim_services::locale::set(&language);
+    let saved_sessions = glim_services::preferences::workspace_sessions().unwrap_or_else(|error| {
+        log::error!("Cannot restore workspace files: {error:#}");
+        Default::default()
+    });
     let word_wrap = glim_services::preferences::word_wrap();
     let appearance = glim_services::preferences::appearance();
     let html_preview = glim_services::preferences::preview_mode("html");
@@ -383,16 +377,27 @@ pub fn run() -> Result<()> {
         cx.set_global(AppearanceSaveTask::default());
         cx.set_global(WorkspaceSaveTask::default());
         cx.set_global(ExplorerSaveTask::default());
+        cx.set_global(workspace_sessions::SavedWorkspaces {
+            sessions: saved_sessions,
+            write: None,
+        });
         cx.on_app_quit(|cx| {
             log::info!("application quit requested");
             log::logger().flush();
             for (view, _) in OpenWorkspaces::windows(cx) {
-                let _ = view.update(cx, |view, _| view.flush_usage());
+                let _ = view.update(cx, |view, cx| {
+                    view.flush_usage();
+                    view.remember_session(cx);
+                });
             }
             let telemetry = telemetry::shutdown(cx);
             let recovery = recovery::shutdown(cx);
             let pending = cx.global_mut::<ExplorerSaveTask>().0.take();
             let workspace = cx.global_mut::<WorkspaceSaveTask>().0.take();
+            let sessions = cx
+                .global_mut::<workspace_sessions::SavedWorkspaces>()
+                .write
+                .take();
             async move {
                 if let Some(recovery) = recovery
                     && let Err(error) = recovery.await
@@ -407,6 +412,9 @@ pub fn run() -> Result<()> {
                 }
                 if let Some(workspace) = workspace {
                     workspace.await;
+                }
+                if let Some(sessions) = sessions {
+                    sessions.await;
                 }
             }
         })

@@ -13,6 +13,7 @@ pub(crate) struct WorkspaceWindow {
     pub slots: Vec<WorkspaceSlot>,
     pub active: usize,
     pub group: String,
+    pub navigation_scroll: ScrollHandle,
     closing: bool,
 }
 
@@ -22,6 +23,7 @@ impl WorkspaceWindow {
             slots: Vec::new(),
             active: 0,
             closing: false,
+            navigation_scroll: ScrollHandle::new(),
             group: format!(
                 "window-{}-{:?}",
                 std::time::SystemTime::now()
@@ -70,6 +72,7 @@ impl WorkspaceWindow {
             workspace,
         });
         self.active = self.slots.len() - 1;
+        self.reveal_navigation();
         crate::app::register_workspace(&view, window.window_handle(), cx);
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
@@ -96,6 +99,70 @@ impl WorkspaceWindow {
         self.slots[index]
             .view
             .update(cx, |view, cx| view.resume_workspace(window, cx));
+        self.reveal_navigation();
+        cx.notify();
+    }
+
+    fn reveal_navigation(&self) {
+        let Some(active) = self.slots.get(self.active) else {
+            return;
+        };
+        if let Some(index) = self
+            .slots
+            .iter()
+            .filter(|slot| !slot.workspace.folders.is_empty() || slot.workspace.name.is_some())
+            .position(|slot| slot.workspace.id == active.workspace.id)
+        {
+            self.navigation_scroll.scroll_to_item(index);
+        }
+    }
+
+    pub fn request_workspace_close(
+        &mut self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.closing || crate::app::updates::busy(cx) {
+            return;
+        }
+        let Some(slot) = self.slots.iter().find(|slot| slot.workspace.id == id) else {
+            return;
+        };
+        let view = slot.view.clone();
+        if !view.read(cx).can_begin_quit() {
+            return;
+        }
+        if view.read(cx).has_unsaved() || view.read(cx).is_saving() {
+            self.select(id, window, cx);
+        }
+        view.update(cx, |view, cx| view.confirm_workspace_close(window, cx));
+    }
+
+    pub fn remove_workspace(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(index) = self.slots.iter().position(|slot| slot.workspace.id == id) else {
+            return;
+        };
+        let was_active = self.active == index;
+        let removed = self.slots.remove(index);
+        removed
+            .view
+            .update(cx, |view, cx| view.suspend_workspace(window, cx));
+        if self.slots.is_empty() {
+            self.active = 0;
+            self.append(None, None, window, cx);
+        } else {
+            if index < self.active {
+                self.active -= 1;
+            }
+            self.active = self.active.min(self.slots.len() - 1);
+            if was_active {
+                self.slots[self.active]
+                    .view
+                    .update(cx, |view, cx| view.resume_workspace(window, cx));
+            }
+            self.reveal_navigation();
+        }
         cx.notify();
     }
 
@@ -118,12 +185,7 @@ impl WorkspaceWindow {
         }
         self.append(
             None,
-            Some(WorkspaceSession {
-                roots: workspace.folders,
-                workspace_id: Some(workspace.id),
-                name: workspace.name,
-                ..Default::default()
-            }),
+            Some(crate::app::workspace_sessions::restore(workspace, cx)),
             window,
             cx,
         );
@@ -151,7 +213,10 @@ impl WorkspaceWindow {
             });
         } else {
             for slot in &self.slots {
-                slot.view.update(cx, |view, cx| view.commit_quit(cx));
+                slot.view.update(cx, |view, cx| {
+                    view.remember_session(cx);
+                    view.commit_quit(cx);
+                });
             }
             window.remove_window();
         }

@@ -25,7 +25,8 @@ impl Target {
     }
 }
 impl Workspace {
-    pub(super) fn record_history(&mut self) {
+    pub(super) fn record_history(&mut self, cx: &mut Context<Self>) {
+        self.remember_session(cx);
         if self.navigating {
             self.navigating = false;
             return;
@@ -158,6 +159,7 @@ impl Workspace {
         };
         let preference = self.tabs[index].preview_preference();
         self.tabs[index].set_preview(preview, cx);
+        self.remember_session(cx);
         if (self.tabs[index].toggle_label() == "Source") != preview {
             cx.notify();
             return;

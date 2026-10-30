@@ -287,3 +287,26 @@ pub fn save_telemetry_enabled(enabled: bool) -> Result<()> {
     file.persist(parent.join("telemetry"))?;
     Ok(())
 }
+
+/// File tabs retained per workspace independently of open windows and updates.
+pub fn workspace_sessions()
+-> Result<std::collections::BTreeMap<String, glim_core::update::WorkspaceSession>> {
+    let path = directory()?.join("workspace-sessions.json");
+    match std::fs::File::open(path) {
+        Ok(file) => Ok(serde_json::from_reader(std::io::BufReader::new(file))?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub fn save_workspace_sessions(
+    sessions: &std::collections::BTreeMap<String, glim_core::update::WorkspaceSession>,
+) -> Result<()> {
+    let directory = directory()?;
+    std::fs::create_dir_all(&directory)?;
+    let mut file = tempfile::NamedTempFile::new_in(&directory)?;
+    serde_json::to_writer(&mut file, sessions)?;
+    file.as_file().sync_all()?;
+    file.persist(directory.join("workspace-sessions.json"))?;
+    Ok(())
+}

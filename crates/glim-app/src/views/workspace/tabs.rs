@@ -69,7 +69,7 @@ impl Workspace {
             }
             self.tab_scroll.scroll_to_item(index);
             window.set_window_title("Glim");
-            self.record_history();
+            self.record_history(cx);
             cx.notify();
         }
     }
@@ -141,6 +141,7 @@ impl Workspace {
             window.set_window_title("Glim");
             window.focus(&self.focus, cx);
         }
+        self.remember_session(cx);
         cx.notify();
     }
     fn show_tab_menu(
@@ -243,6 +244,7 @@ impl Workspace {
             window.set_window_title("Glim");
             window.focus(&self.focus, cx);
         }
+        self.remember_session(cx);
         cx.notify();
     }
 }
@@ -289,6 +291,7 @@ impl Workspace {
             }
         });
         self.tab_scroll.scroll_to_item(to);
+        self.remember_session(cx);
         cx.notify();
     }
 

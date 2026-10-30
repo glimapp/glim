@@ -229,7 +229,6 @@ pub fn welcome(
                                         .h_full()
                                         .px_3()
                                         .justify_start()
-                                        .tooltip(paths.clone())
                                         .accessibility_label(format!("{title}: {paths}"))
                                         .child(
                                             h_flex()

@@ -500,5 +500,6 @@
   "Untitled Folder": "未命名文件夹",
   "Open in Current Window": "在当前窗口打开",
   "Remove from Recent Workspaces": "从最近工作空间中移除",
-  "Current": "当前"
+  "Current": "当前",
+  "Close Workspace": "关闭工作区"
 }

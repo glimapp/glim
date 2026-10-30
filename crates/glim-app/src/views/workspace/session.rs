@@ -27,7 +27,7 @@ impl Workspace {
                 || self.confirm_task.is_some(),
         }
     }
-    pub(crate) fn update_session(&self, cx: &App) -> WorkspaceSession {
+    fn session_snapshot(&self, cx: &App) -> WorkspaceSession {
         WorkspaceSession {
             roots: self.roots.clone(),
             tabs: self
@@ -46,20 +46,37 @@ impl Workspace {
                         .count()
                 }),
             workspace_id: Some(self.recent_id.clone()),
-            name: self.workspace_name.clone().or_else(|| {
-                let host = self.workspace_window.as_ref()?.upgrade()?;
-                host.read(cx)
+            name: self.workspace_name.clone(),
+            window_group: None,
+        }
+    }
+    pub(crate) fn update_session(&self, cx: &App) -> WorkspaceSession {
+        let mut session = self.session_snapshot(cx);
+        if let Some(host) = self
+            .workspace_window
+            .as_ref()
+            .and_then(|host| host.upgrade())
+        {
+            let host = host.read(cx);
+            session.window_group = Some(host.group.clone());
+            if session.name.is_none() {
+                session.name = host
                     .slots
                     .iter()
                     .find(|slot| slot.workspace.id == self.recent_id)
-                    .and_then(|slot| slot.workspace.name.clone())
-            }),
-            window_group: self
-                .workspace_window
-                .as_ref()
-                .and_then(|host| host.upgrade())
-                .map(|host| host.read(cx).group.clone()),
+                    .and_then(|slot| slot.workspace.name.clone());
+            }
         }
+        session
+    }
+    pub(crate) fn remember_session(&self, cx: &mut App) {
+        if self.loading
+            || self.restoring_roots.is_some()
+            || self.roots.is_empty() && self.tabs.is_empty() && self.workspace_name.is_none()
+        {
+            return;
+        }
+        crate::app::workspace_sessions::remember(self.session_snapshot(cx), cx);
     }
     pub(crate) fn take_book_writes(&mut self, cx: &mut App) -> Vec<Task<()>> {
         self.tabs
@@ -168,7 +185,7 @@ impl Workspace {
                 if view.root.is_none() {
                     view.watch_file_parent(window, cx);
                 }
-                view.record_history();
+                view.record_history(cx);
                 cx.notify();
             });
         }));

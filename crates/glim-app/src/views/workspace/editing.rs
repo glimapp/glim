@@ -6,6 +6,7 @@ pub(super) enum DiscardAction {
     CloseTab(usize),
     CloseTabs(Vec<super::header::Target>),
     CloseWindow,
+    CloseWorkspace,
     Folder(FolderSnapshot),
     Quit,
 }
@@ -465,7 +466,7 @@ impl Workspace {
                                     .is_some_and(|editor| editor.entity_id() == id)
                             }) {
                                 view.reveal_active_file(cx);
-                                view.record_history();
+                                view.record_history(cx);
                             }
                         }
                         view.finish_recovery(id, cx);
@@ -637,7 +638,18 @@ impl Workspace {
         match action {
             DiscardAction::CloseTab(index) => self.close_tab_unchecked(index, window, cx),
             DiscardAction::CloseTabs(targets) => self.close_tabs_unchecked(targets, window, cx),
+            DiscardAction::CloseWorkspace => {
+                self.remember_session(cx);
+                self.discard_recovery(cx);
+                if let Some(host) = self.workspace_window.clone() {
+                    let id = self.recent_id.clone();
+                    window.defer(cx, move |window, cx| {
+                        let _ = host.update(cx, |host, cx| host.remove_workspace(&id, window, cx));
+                    });
+                }
+            }
             DiscardAction::CloseWindow => {
+                self.remember_session(cx);
                 if let Some(host) = self.workspace_window.clone() {
                     self.quit_approval = Some(self.edit_revision);
                     window.defer(cx, move |window, cx| {
@@ -670,6 +682,9 @@ impl Workspace {
         } else {
             window.remove_window();
         }
+    }
+    pub(crate) fn confirm_workspace_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.confirm_discard(DiscardAction::CloseWorkspace, window, cx);
     }
     pub(crate) fn confirm_workspace_window_close(
         &mut self,

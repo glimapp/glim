@@ -60,6 +60,12 @@ impl Workspace {
                 match result {
                     Ok((folders, expanded, recent)) => {
                         if let Some(recent) = recent {
+                            let session =
+                                crate::app::workspace_sessions::restore(recent.clone(), cx);
+                            if !session.tabs.is_empty() {
+                                view.restore_update_session(session, window, cx);
+                                return;
+                            }
                             view.recent_id = recent.id;
                             view.workspace_name = recent.name;
                         }
@@ -526,7 +532,7 @@ impl Workspace {
         }
         self.reveal_active_file(cx);
         self.observe_autosave(window, cx);
-        self.record_history();
+        self.record_history(cx);
         window.set_window_title("Glim");
         if self.root.is_none() {
             self.watch_file_parent(window, cx);
