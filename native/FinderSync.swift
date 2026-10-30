@@ -18,7 +18,7 @@ final class GlimFinderSync: FIFinderSync {
             title: NSLocalizedString("Open as Glim Workspace", comment: "Finder context menu"),
             action: #selector(openWorkspace(_:)), keyEquivalent: "")
         item.target = self
-        item.representedObject = folders
+        item.tag = Int(menuKind.rawValue)
         let app = Bundle.main.bundleURL.deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         item.image = NSWorkspace.shared.icon(forFile: app.path)
@@ -48,7 +48,12 @@ final class GlimFinderSync: FIFinderSync {
     }
 
     @objc private func openWorkspace(_ sender: NSMenuItem) {
-        guard let folders = sender.representedObject as? [URL] else { return }
+        guard let kind = FIMenuKind(rawValue: UInt(sender.tag)),
+              let folders = folders(for: kind), !folders.isEmpty else {
+            logger.error("Finder workspace action has no selected folders")
+            return
+        }
+        logger.info("Opening \(folders.count) Finder workspace(s)")
         for folder in folders {
             var request = URLComponents()
             request.scheme = "glim"

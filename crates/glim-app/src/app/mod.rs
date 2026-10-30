@@ -721,7 +721,6 @@ fn open_workspace_session(
             glim_services::telemetry::track("window_opened", []);
             telemetry::refresh_resource_sampling(cx);
             cx.activate(true);
-            finder_integration::offer_setup(cx);
         }
         Err(error) => log::error!("Cannot open Glim window: {error:#}"),
     }

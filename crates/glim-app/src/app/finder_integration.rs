@@ -1,15 +1,8 @@
 //! Finder extension setup and serialized workspace URL delivery.
 #![allow(unsafe_code)]
 use gpui_kit::*;
-use std::ffi::{CString, c_char};
 
 unsafe extern "C" {
-    fn glim_finder_offer_setup(
-        title: *const c_char,
-        detail: *const c_char,
-        settings: *const c_char,
-        later: *const c_char,
-    );
     fn glim_finder_manage();
 }
 
@@ -19,24 +12,6 @@ impl Global for FinderRequests {}
 
 pub fn init(cx: &mut App) {
     cx.set_global(FinderRequests::default());
-}
-
-pub fn offer_setup(cx: &mut App) {
-    cx.defer(|_| {
-        let text = [
-            "Open folders from Finder",
-            "Enable Glim Finder in the system's Finder Extensions settings. You can then right-click a folder and choose Open as Glim Workspace. If you choose Later, you can return here from Glim Settings → Finder Integration.",
-            "Open System Settings",
-            "Later",
-        ]
-        .map(|text| CString::new(glim_services::locale::tr(text)).expect("Localized setup text"));
-        // SAFETY: the main-thread Swift bridge copies all four strings synchronously.
-        unsafe {
-            glim_finder_offer_setup(
-                text[0].as_ptr(), text[1].as_ptr(), text[2].as_ptr(), text[3].as_ptr(),
-            );
-        }
-    });
 }
 
 pub fn manage(cx: &mut App) {

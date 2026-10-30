@@ -109,7 +109,7 @@ macOS 的 `macos-updater` feature 通过 `app/updater_bridge` 接入 `native/Upd
 
 ## Finder 集成
 
-`native/FinderSync.swift` 是打包在 `Contents/PlugIns/GlimFinder.appex` 的沙盒 Finder Sync 扩展，在文件夹右键菜单提供直接入口，不设置徽标、不扫描目录，通过百分号编码的 `glim://open-workspace?path=...` 传递请求。`app/finder_integration` 保留串行后台任务，验证目录并读取最近会话；应用路由优先选择已打开的同路径工作区，否则在当前 Glim 窗口打开独立工作区，不把目录追加到其他工作区。原生 `FinderIntegration` 桥接在安装后提供本地化的一次性引导 sheet，并打开 Apple 的扩展管理界面，设置页保留手动入口。启用由用户选择，菜单排序由 Finder 决定。应用与扩展从内到外签名，仅扩展带沙盒 entitlement。
+`native/FinderSync.swift` 是打包在 `Contents/PlugIns/GlimFinder.appex` 的沙盒 Finder Sync 扩展，在文件夹右键菜单提供直接入口，不设置徽标、不扫描目录，通过百分号编码的 `glim://open-workspace?path=...` 传递请求。`app/finder_integration` 保留串行后台任务，验证目录并读取最近会话；应用路由优先选择已打开的同路径工作区，否则在当前 Glim 窗口打开独立工作区，不把目录追加到其他工作区。原生 `FinderIntegration` 桥接从设置页打开 Apple 的扩展管理界面，启动不弹出引导。Finder 菜单回调在点击时从系统控制器读取选中目录，不依赖跨进程传递菜单 representedObject。启用由用户选择，菜单排序由 Finder 决定。应用与扩展从内到外签名，仅扩展带沙盒 entitlement。
 
 ## Markdown 网络图片
 
