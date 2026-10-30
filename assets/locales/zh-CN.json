@@ -519,5 +519,9 @@
   "Preview unavailable": "预览暂不可用",
   "Row count unavailable": "行数统计暂不可用",
   "Show error details": "查看错误详情",
-  "Retrying…": "正在重试…"
+  "Retrying…": "正在重试…",
+  "Up one folder": "上一级",
+  "This folder is empty": "此文件夹为空",
+  "Extract to a new workspace": "解压后打开新工作空间",
+  "Name": "名称"
 }

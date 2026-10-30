@@ -519,5 +519,9 @@
   "Preview unavailable": "Preview unavailable",
   "Row count unavailable": "Row count unavailable",
   "Show error details": "Show error details",
-  "Retrying…": "Retrying…"
+  "Retrying…": "Retrying…",
+  "Up one folder": "Up one folder",
+  "This folder is empty": "This folder is empty",
+  "Extract to a new workspace": "Extract to a new workspace",
+  "Name": "Name"
 }

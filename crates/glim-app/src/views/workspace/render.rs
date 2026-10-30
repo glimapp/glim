@@ -77,12 +77,30 @@ impl Render for Workspace {
                     workspace.toggle_markdown_task(editor, range, checked, revision, window, cx);
                 });
             });
+        let archive_owner = cx.entity().downgrade();
+        let archive_action_kind = if self.picking {
+            super::reader_actions::ToolbarAction::CancelExtract
+        } else {
+            super::reader_actions::ToolbarAction::Extract
+        };
+        let archive_label = glim_services::locale::tr(if self.picking {
+            "Extracting… · Cancel"
+        } else {
+            "Extract…"
+        });
+        let archive_action: crate::views::reader::ArchiveAction =
+            std::sync::Arc::new(move |window, cx| {
+                let _ = archive_owner.update(cx, |v, cx| {
+                    v.run_toolbar_action(archive_action_kind, window, cx)
+                });
+            });
         let content = match self.page {
             Page::Settings => self.settings_page(cx),
             Page::Start => welcome(self, cx.entity_id(), cx).into_any_element(),
             Page::Document if loading_preview => crate::views::reader::preview_loading(cx),
             Page::Document => match self.active.and_then(|i| self.tabs.get_mut(i)) {
                 Some(reader) => {
+                    reader.set_archive_action(archive_label, archive_action, cx);
                     reader.set_task_toggle_handler(toggle_task, cx);
                     reader.render(open, cx)
                 }
@@ -92,10 +110,9 @@ impl Render for Workspace {
         // Preview actions use the same live capabilities and dispatcher as the
         // toolbar. Text editors keep their selection-aware editing menu.
         let content = if self.page == Page::Document
-            && self
-                .active_reader()
-                .is_some_and(|reader| reader.can_preview() && reader.toggle_label() == "Source")
-        {
+            && self.active_reader().is_some_and(|reader| {
+                reader.is_archive() || (reader.can_preview() && reader.toggle_label() == "Source")
+            }) {
             let workspace = cx.entity().downgrade();
             div()
                 .size_full()

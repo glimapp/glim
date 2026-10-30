@@ -60,6 +60,8 @@ pub(super) fn preview_loading(cx: &App) -> AnyElement {
         .into_any_element()
 }
 
+pub type ArchiveAction = Arc<dyn Fn(&mut Window, &mut App) + Send + Sync>;
+
 pub type OpenLink = Arc<dyn Fn(PathBuf, Option<String>, &mut Window, &mut App) + Send + Sync>;
 
 pub type ToggleTask =
@@ -324,6 +326,11 @@ impl Reader {
         false
     }
 
+    pub fn set_archive_action(&mut self, label: String, action: ArchiveAction, cx: &mut App) {
+        if let Renderer::Archive(view) = &self.renderer {
+            view.update(cx, |v, _| v.extract = Some((label, action)));
+        }
+    }
     pub fn is_archive(&self) -> bool {
         matches!(self.renderer, Renderer::Archive(_))
     }
@@ -337,7 +344,7 @@ impl Reader {
             recovery_key: None,
             json: None,
             csv: None,
-            renderer: Renderer::Archive(cx.new(|_| archive::ArchiveReader::new(document))),
+            renderer: Renderer::Archive(cx.new(|cx| archive::ArchiveReader::new(document, cx))),
         }
     }
     pub fn from_sqlite(path: PathBuf, window: &mut Window, cx: &mut App) -> Self {
