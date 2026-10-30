@@ -2,6 +2,7 @@ mod about;
 pub mod actions;
 mod assets;
 pub(crate) mod diagram_engine;
+pub(crate) mod finder_integration;
 mod image_http;
 pub(crate) mod languages;
 pub(crate) mod media_prepare;
@@ -372,6 +373,7 @@ pub fn run() -> Result<()> {
     });
     application.run(move |cx| {
         gpui_kit::init(cx);
+        finder_integration::init(cx);
         telemetry::initialize(cx);
         cx.set_quit_mode(QuitMode::Explicit);
         gpui_kit::component::set_locale(glim_services::locale::code());
@@ -548,6 +550,11 @@ fn open_system_files(urls: Vec<String>, cx: &mut App) {
     updates::interrupt_for_files(cx);
     for value in urls {
         if let Ok(url) = url::Url::parse(&value)
+            && finder_integration::receive(&url, cx)
+        {
+            continue;
+        }
+        if let Ok(url) = url::Url::parse(&value)
             && url.scheme() == "file"
             && let Ok(path) = url.to_file_path()
         {
@@ -572,6 +579,70 @@ fn open_system_files(urls: Vec<String>, cx: &mut App) {
                 open_workspace(Some(path), cx);
             }
         }
+    }
+}
+
+fn open_finder_workspace(
+    path: std::path::PathBuf,
+    recent: Option<glim_services::preferences::RecentWorkspace>,
+    cx: &mut App,
+) {
+    updates::interrupt_for_files(cx);
+    let mut windows = OpenWorkspaces::windows(cx);
+    for (view, handle) in &windows {
+        let Some(view) = view.upgrade() else { continue };
+        let Some(host) = view
+            .read(cx)
+            .workspace_window
+            .as_ref()
+            .and_then(|host| host.upgrade())
+        else {
+            continue;
+        };
+        let id = host
+            .read(cx)
+            .slots
+            .iter()
+            .find(|slot| slot.workspace.folders.as_slice() == [path.clone()])
+            .map(|slot| slot.workspace.id.clone());
+        if let Some(id) = id {
+            let _ = handle.update(cx, |_, window, cx| {
+                host.update(cx, |host, cx| host.select(&id, window, cx));
+                window.activate_window();
+            });
+            cx.activate(true);
+            return;
+        }
+    }
+    let active = cx.active_window();
+    windows.sort_by_key(|(_, handle)| Some(*handle) == active);
+    for (view, handle) in windows.into_iter().rev() {
+        let Some(view) = view.upgrade() else { continue };
+        let Some(host) = view
+            .read(cx)
+            .workspace_window
+            .as_ref()
+            .and_then(|host| host.upgrade())
+        else {
+            continue;
+        };
+        let _ = handle.update(cx, |_, window, cx| {
+            host.update(cx, |host, cx| {
+                if let Some(recent) = recent {
+                    host.open(recent, window, cx);
+                } else {
+                    host.append(Some(path), None, window, cx);
+                }
+            });
+            window.activate_window();
+        });
+        cx.activate(true);
+        return;
+    }
+    if let Some(recent) = recent {
+        open_recent_workspace(recent, cx);
+    } else {
+        open_workspace(Some(path), cx);
     }
 }
 
@@ -650,6 +721,7 @@ fn open_workspace_session(
             glim_services::telemetry::track("window_opened", []);
             telemetry::refresh_resource_sampling(cx);
             cx.activate(true);
+            finder_integration::offer_setup(cx);
         }
         Err(error) => log::error!("Cannot open Glim window: {error:#}"),
     }

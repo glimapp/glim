@@ -22,6 +22,7 @@ on:
       - 'scripts/check-locales.py'
       - 'scripts/generate-reader-limits.py'
       - 'scripts/bundle-macos.sh'
+      - 'scripts/bundle-finder.py'
       - 'scripts/package-dmg.sh'
       - 'scripts/configure-updater.py'
       - 'scripts/sign-macos.py'

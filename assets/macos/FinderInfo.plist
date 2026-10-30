@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleName</key><string>Glim Finder</string>
+    <key>CFBundleDisplayName</key><string>Glim Finder</string>
+    <key>CFBundleIdentifier</key><string>io.github.jony4.glimpse.finder</string>
+    <key>CFBundleExecutable</key><string>GlimFinder</string>
+    <key>CFBundlePackageType</key><string>XPC!</string>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>LSMinimumSystemVersion</key><string>11.0</string>
+    <key>NSExtension</key><dict>
+        <key>NSExtensionPointIdentifier</key><string>com.apple.FinderSync</string>
+        <key>NSExtensionPrincipalClass</key><string>GlimFinderSync</string>
+    </dict>
+</dict></plist>

@@ -103,6 +103,8 @@ Explorer expands newly added roots one level, leaving descendant folders collaps
 
 ## Platform, preferences and update boundaries
 
+`native/FinderSync.swift` is a sandboxed Finder Sync extension packaged at `Contents/PlugIns/GlimFinder.appex`. It supplies a direct folder context-menu action, without badges or directory scans, and delivers percent-encoded `glim://open-workspace?path=...` requests. `app/finder_integration` retains a serialized background task for directory validation and recent-session lookup; application routing selects an existing matching workspace or opens an independent workspace in the active Glim window. It never appends the selected folder to another workspace. The native `FinderIntegration` bridge offers a localized, one-time setup sheet after installation and opens Apple's extension-management interface; Settings retains a manual entry. Activation remains the user's choice and menu ordering belongs to Finder. The app and its extension are signed inside-out, with sandbox entitlements on the extension only.
+
 The maintained workspace uses GPUI on macOS Apple Silicon and Intel with ⌘ shortcuts. Swift provides native previews and default file-type settings; diagrams use system WebKit. Windows application/service branches have been removed; the build script explicitly rejects non-macOS targets.
 
 macOS bundle identity remains `io.github.jony4.glimpse` for compatibility. Preferences use `~/Library/Application Support/Glim`, with legacy Glimpse fallback where implemented. Locale dictionaries are embedded; document text and technical diagnostics are not translated. Each documentation topic has English and Simplified Chinese counterparts.

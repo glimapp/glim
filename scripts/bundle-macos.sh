@@ -44,5 +44,6 @@ if [[ "${GLIM_ENABLE_UPDATER:-0}" == 1 ]]; then
     cp "$GLIM_SPARKLE_DIR/LICENSE" "$bundle_dir/Contents/Resources/Sparkle-LICENSE.txt"
 fi
 python3 scripts/configure-updater.py "$bundle_dir"
+python3 scripts/bundle-finder.py "$bundle_dir"
 python3 scripts/sign-macos.py "$bundle_dir"
 printf 'Created %s\n' "$bundle_dir"

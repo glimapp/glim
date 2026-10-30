@@ -107,6 +107,10 @@ macOS 的 `macos-updater` feature 通过 `app/updater_bridge` 接入 `native/Upd
 参见[更新行为与信任](auto-update-design.zh-CN.md)、[发布配置](releasing.zh-CN.md#automatic-updates)和[未完成事项](TODO.zh-CN.md)。
 
 
+## Finder 集成
+
+`native/FinderSync.swift` 是打包在 `Contents/PlugIns/GlimFinder.appex` 的沙盒 Finder Sync 扩展，在文件夹右键菜单提供直接入口，不设置徽标、不扫描目录，通过百分号编码的 `glim://open-workspace?path=...` 传递请求。`app/finder_integration` 保留串行后台任务，验证目录并读取最近会话；应用路由优先选择已打开的同路径工作区，否则在当前 Glim 窗口打开独立工作区，不把目录追加到其他工作区。原生 `FinderIntegration` 桥接在安装后提供本地化的一次性引导 sheet，并打开 Apple 的扩展管理界面，设置页保留手动入口。启用由用户选择，菜单排序由 Finder 决定。应用与扩展从内到外签名，仅扩展带沙盒 entitlement。
+
 ## Markdown 网络图片
 
 `app/image_http` 提供仅支持 GET 的 GPUI 图片传输，网络与解码通过 `services/markup_images` 在后台执行。网络使用共享超时、重定向及最低传输速度策略；响应流式写入临时文件，不设总下载大小门槛；使用系统 curl，SVG 使用系统字体并禁用外部引用，失败时显示占位图。GitHub 仓库的 `blob`／`raw` 图片地址转换为原始文件地址；常规 ref/file 地址在原始域名失败时回退到 GitHub Contents API 的原始媒体响应，两个请求共用时限。未认证的 API 回退受 GitHub 请求频率限制，不改变原文或普通链接的目的地。

@@ -501,5 +501,11 @@
   "Open in Current Window": "Open in Current Window",
   "Remove from Recent Workspaces": "Remove from Recent Workspaces",
   "Current": "Current",
-  "Close Workspace": "Close Workspace"
+  "Close Workspace": "Close Workspace",
+  "Open folders from Finder": "Open folders from Finder",
+  "Enable Glim Finder in the system's Finder Extensions settings. You can then right-click a folder and choose Open as Glim Workspace. If you choose Later, you can return here from Glim Settings → Finder Integration.": "Enable Glim Finder in the system's Finder Extensions settings. You can then right-click a folder and choose Open as Glim Workspace. If you choose Later, you can return here from Glim Settings → Finder Integration.",
+  "Open System Settings": "Open System Settings",
+  "Finder Integration": "Finder Integration",
+  "Open folders as workspaces from the Finder context menu.": "Open folders as workspaces from the Finder context menu.",
+  "Later": "Later"
 }

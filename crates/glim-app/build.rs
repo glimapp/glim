@@ -46,6 +46,7 @@ fn build_native_preview() {
         "WorkbookPreview.swift",
         "WordPreview.swift",
         "EmbeddedPreview.swift",
+        "FinderIntegration.swift",
     ] {
         println!("cargo:rerun-if-changed=../../native/{source}");
     }
@@ -91,6 +92,7 @@ fn build_native_preview() {
             "../../native/WorkbookPreview.swift",
             "../../native/WordPreview.swift",
             "../../native/EmbeddedPreview.swift",
+            "../../native/FinderIntegration.swift",
         ])
         .arg(output.join("ReaderLimits.swift"))
         .args(["-o"])
@@ -114,6 +116,7 @@ fn build_native_preview() {
     println!("cargo:rustc-link-search=native={}", runtime.display());
     println!("cargo:rustc-link-search=native=/usr/lib/swift");
     println!("cargo:rustc-link-lib=static=GlimNativePreview");
+    println!("cargo:rustc-link-lib=framework=FinderSync");
     println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
 }
 

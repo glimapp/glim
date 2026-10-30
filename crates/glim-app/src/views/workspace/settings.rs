@@ -110,6 +110,10 @@ impl Workspace {
             .accessibility_label(glim_services::locale::tr("Default File Types…"))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(DefaultApplications), cx))
             .into_any_element();
+        let finder = action_button("settings-finder", "Manage…")
+            .accessibility_label(glim_services::locale::tr("Finder Integration"))
+            .on_click(|_, _, cx| crate::app::finder_integration::manage(cx))
+            .into_any_element();
         let updates = action_button("settings-updates", crate::app::updates::check_label(cx))
             .disabled(crate::app::updates::busy(cx))
             .accessibility_label(glim_services::locale::tr("Check for Updates…"))
@@ -181,6 +185,10 @@ impl Workspace {
                             "Default File Types…",
                             "Choose which file types open in Glim.",
                             associations,
+                        )).child(divider()).child(row(
+                            "Finder Integration",
+                            "Open folders as workspaces from the Finder context menu.",
+                            finder,
                         )))
                         .child(heading("Application").mt_3())
                         .child(

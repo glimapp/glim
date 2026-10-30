@@ -12,7 +12,7 @@ options = ['--force', '--sign', identity]
 options += ['--timestamp=none'] if identity == '-' else ['--timestamp', '--options', 'runtime']
 paths = list(bundle.rglob('*'))
 containers = [p for p in paths if p.is_dir() and not p.is_symlink()
-              and p.suffix in ('.app', '.xpc', '.framework')]
+              and p.suffix in ('.app', '.xpc', '.framework', '.appex')]
 # Signing a bundle's main executable can sign its enclosing bundle as well.
 # Defer these executables to their container, after every nested component.
 main_executables = set()
@@ -29,5 +29,8 @@ for path in paths:
         if 'Mach-O' in description:
             signing_units.append(path)
 for path in sorted(signing_units, key=lambda p: len(p.parts), reverse=True) + [bundle]:
-    subprocess.run(['codesign', *options, str(path)], check=True)
+    entitlements = (['--entitlements', str(Path(__file__).resolve().parent.parent /
+                     'assets/macos/Finder.entitlements')]
+                    if path.name == 'GlimFinder.appex' else [])
+    subprocess.run(['codesign', *options, *entitlements, str(path)], check=True)
 subprocess.run(['codesign', '--verify', '--deep', '--strict', str(bundle)], check=True)

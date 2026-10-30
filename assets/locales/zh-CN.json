@@ -501,5 +501,11 @@
   "Open in Current Window": "在当前窗口打开",
   "Remove from Recent Workspaces": "从最近工作空间中移除",
   "Current": "当前",
-  "Close Workspace": "关闭工作区"
+  "Close Workspace": "关闭工作区",
+  "Open folders from Finder": "从 Finder 打开工作区",
+  "Enable Glim Finder in the system's Finder Extensions settings. You can then right-click a folder and choose Open as Glim Workspace. If you choose Later, you can return here from Glim Settings → Finder Integration.": "在系统的 Finder 扩展设置中启用“Glim Finder”，即可右键点击文件夹，选择“用 Glim 打开工作区”。选择“稍后”后，可从 Glim 的“设置 → Finder 集成”再次进入。",
+  "Open System Settings": "前往系统设置",
+  "Finder Integration": "Finder 集成",
+  "Open folders as workspaces from the Finder context menu.": "在 Finder 中右键点击文件夹，用 Glim 打开为工作区。",
+  "Later": "稍后"
 }
