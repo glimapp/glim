@@ -495,5 +495,11 @@
   "Keep Tab Open": "保留标签",
   "CSV and TSV files can be viewed as a table using the toolbar. Your viewing mode is remembered.": "使用工具栏可将 CSV 和 TSV 文件切换为表格，Glim 会记住所选模式。",
   "View as Table": "切换为表格",
-  "Dismiss": "关闭提示"
+  "Dismiss": "关闭提示",
+  "Rename Workspace…": "重命名工作空间…",
+  "New Folder…": "新建文件夹…",
+  "Untitled Folder": "未命名文件夹",
+  "Open in Current Window": "在当前窗口打开",
+  "Remove from Recent Workspaces": "从最近工作空间中移除",
+  "Current": "当前"
 }

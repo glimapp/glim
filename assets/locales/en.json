@@ -495,5 +495,11 @@
   "Keep Tab Open": "Keep Tab Open",
   "CSV and TSV files can be viewed as a table using the toolbar. Your viewing mode is remembered.": "CSV and TSV files can be viewed as a table using the toolbar. Your viewing mode is remembered.",
   "View as Table": "View as Table",
-  "Dismiss": "Dismiss"
+  "Dismiss": "Dismiss",
+  "Rename Workspace…": "Rename Workspace…",
+  "New Folder…": "New Folder…",
+  "Untitled Folder": "Untitled Folder",
+  "Open in Current Window": "Open in Current Window",
+  "Remove from Recent Workspaces": "Remove from Recent Workspaces",
+  "Current": "Current"
 }

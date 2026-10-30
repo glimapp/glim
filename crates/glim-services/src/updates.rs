@@ -270,6 +270,7 @@ mod tests {
                     preview: false,
                 }],
                 active: Some(0),
+                ..Default::default()
             }],
         };
         write_session_at(directory.path(), &session)?;

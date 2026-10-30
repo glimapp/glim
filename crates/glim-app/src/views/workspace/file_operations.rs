@@ -3,6 +3,39 @@ use gpui_kit::*;
 use std::path::{Path, PathBuf};
 
 impl Workspace {
+    pub(super) fn choose_new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.picking || crate::app::workspace_editors_locked(cx) || crate::app::updates::busy(cx)
+        {
+            return;
+        }
+        let Some(directory) = self.root.clone() else {
+            return;
+        };
+        self.picking = true;
+        let selection = cx.prompt_for_new_path(
+            &directory,
+            Some(&glim_services::locale::tr("Untitled Folder")),
+        );
+        self.picker_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let result = match selection.await {
+                Ok(Ok(Some(path))) => {
+                    cx.background_executor()
+                        .spawn(async move { glim_services::workspace::create_folder(&path) })
+                        .await
+                }
+                Ok(Ok(None)) => Ok(()),
+                other => Err(anyhow::anyhow!("Cannot choose folder: {other:?}")),
+            };
+            let _ = view.update_in(cx, |view, window, cx| {
+                view.picking = false;
+                if let Err(error) = result {
+                    view.error = Some(format!("{error:#}").into());
+                }
+                view.refresh(window, cx);
+                cx.notify();
+            });
+        }));
+    }
     pub(super) fn choose_new_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let directory = self
             .active_reader()

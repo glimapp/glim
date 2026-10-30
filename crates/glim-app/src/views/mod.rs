@@ -6,6 +6,7 @@ mod path_hint;
 mod reader;
 mod welcome;
 pub mod workspace;
+pub(crate) mod workspace_window;
 
 mod file_icons;
 

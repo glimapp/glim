@@ -10,6 +10,10 @@ pub struct FolderSnapshot {
     pub entries: Vec<DirectoryEntry>,
 }
 
+pub fn create_folder(path: &Path) -> Result<()> {
+    std::fs::create_dir(path).with_context(|| format!("Cannot create folder {}", path.display()))
+}
+
 pub fn open_folder(path: &Path) -> Result<FolderSnapshot> {
     open_folder_cancellable(path, &crate::work::Cancellation::default())
 }

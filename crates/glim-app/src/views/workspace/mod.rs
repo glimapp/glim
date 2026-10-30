@@ -11,6 +11,7 @@ mod tabs;
 mod toolbar;
 mod updates;
 mod usage;
+mod workspaces;
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
@@ -29,6 +30,9 @@ const DEFAULT_SIDEBAR_RATIO: f32 = 0.20;
 const SIDEBAR_COLLAPSE_WIDTH: f32 = 120.;
 
 pub struct Workspace {
+    pub(crate) workspace_window: Option<WeakEntity<super::workspace_window::WorkspaceWindow>>,
+    workspace_name: Option<String>,
+    workspace_rename: Option<(String, Entity<InputState>, Subscription)>,
     path_hint: super::path_hint::PathHint,
     recent_id: String,
     restoring_roots: Option<Vec<PathBuf>>,
@@ -124,9 +128,6 @@ impl Workspace {
             .saturating_add(glim_services::limits::WORKSPACE_RECENT_WORKSPACES);
         cx.notify();
     }
-    pub(crate) fn folder_roots(&self) -> &[PathBuf] {
-        &self.roots
-    }
 
     pub(crate) fn matches_recent_workspace(
         &self,
@@ -207,6 +208,9 @@ impl Workspace {
             .unwrap_or(true)
         });
         let mut workspace = Self {
+            workspace_window: None,
+            workspace_name: None,
+            workspace_rename: None,
             path_hint: Default::default(),
             recent_id: format!(
                 "{}-{:?}",

@@ -44,6 +44,11 @@ impl Workspace {
         self.recovery_keys.clear();
     }
     fn cancel_close_request(&mut self, cx: &mut Context<Self>) {
+        if let Some(host) = self.workspace_window.clone() {
+            cx.defer(move |cx| {
+                let _ = host.update(cx, |host, cx| host.cancel_close(cx));
+            });
+        }
         if self
             .close_request
             .take()
@@ -570,6 +575,11 @@ impl Workspace {
         });
         let Some((id, title)) = next else {
             let request = self.close_request.take().unwrap();
+            if matches!(request.action, DiscardAction::CloseWindow)
+                && self.workspace_window.is_some()
+            {
+                self.quit_discards = request.discarded.clone();
+            }
             if matches!(request.action, DiscardAction::Quit) {
                 self.quit_approval = Some(self.edit_revision);
                 self.quit_discards = request.discarded;
@@ -636,8 +646,15 @@ impl Workspace {
             DiscardAction::CloseTab(index) => self.close_tab_unchecked(index, window, cx),
             DiscardAction::CloseTabs(targets) => self.close_tabs_unchecked(targets, window, cx),
             DiscardAction::CloseWindow => {
-                self.discard_recovery(cx);
-                window.remove_window();
+                if let Some(host) = self.workspace_window.clone() {
+                    self.quit_approval = Some(self.edit_revision);
+                    window.defer(cx, move |window, cx| {
+                        let _ = host.update(cx, |host, cx| host.request_close(window, cx));
+                    });
+                } else {
+                    self.discard_recovery(cx);
+                    window.remove_window();
+                }
             }
             DiscardAction::Folder(folder) => self.replace_folder(folder, window, cx),
             DiscardAction::Quit => cx.defer(crate::app::continue_quit),
@@ -650,11 +667,24 @@ impl Workspace {
         if crate::app::updates::intercept_last_window_close(cx) {
             return;
         }
+        if let Some(host) = self.workspace_window.clone() {
+            window.defer(cx, move |window, cx| {
+                let _ = host.update(cx, |host, cx| host.request_close(window, cx));
+            });
+            return;
+        }
         if self.has_unsaved() || self.is_saving() {
             self.confirm_discard(DiscardAction::CloseWindow, window, cx);
         } else {
             window.remove_window();
         }
+    }
+    pub(crate) fn confirm_workspace_window_close(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.confirm_discard(DiscardAction::CloseWindow, window, cx);
     }
     pub(super) fn receive_folder(
         &mut self,

@@ -42,12 +42,15 @@ impl Workspace {
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let work = cx.background_executor().spawn(async move {
             let paths = glim_services::preferences::workspace_folders()?;
+            let recent = glim_services::preferences::recent_workspaces()?
+                .into_iter()
+                .find(|workspace| workspace.folders == paths);
             let expanded = glim_services::preferences::explorer_expansion(&paths);
             let folders = paths
                 .into_iter()
                 .map(|path| open_folder_cancellable(&path, &cancel))
                 .collect::<Vec<_>>();
-            Ok::<_, anyhow::Error>((folders, expanded))
+            Ok::<_, anyhow::Error>((folders, expanded, recent))
         });
         self.load_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
@@ -55,7 +58,11 @@ impl Workspace {
             let _ = view.update_in(cx, |view, window, cx| {
                 let mut errors = Vec::new();
                 match result {
-                    Ok((folders, expanded)) => {
+                    Ok((folders, expanded, recent)) => {
+                        if let Some(recent) = recent {
+                            view.recent_id = recent.id;
+                            view.workspace_name = recent.name;
+                        }
                         for folder in folders {
                             match folder {
                                 Ok(folder) => view.add_folder(folder, window, cx),
@@ -79,7 +86,7 @@ impl Workspace {
                 if !view.roots.is_empty()
                     && cx.try_global::<crate::app::RecentWorkspaces>().is_some()
                 {
-                    crate::app::remember_workspace(view.recent_id.clone(), view.roots.clone(), cx);
+                    view.remember_current_workspace(cx);
                 }
                 view.load_incoming_file(window, cx);
                 if !errors.is_empty() {
@@ -97,6 +104,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> bool {
         if self.roots.iter().any(|root| root == path) {
+            self.select_workspace(self.recent_id.clone(), window, cx);
             self.page = super::Page::Document;
             self.sidebar_visible = true;
             cx.notify();
@@ -106,6 +114,7 @@ impl Workspace {
         }
         let index = self.tabs.iter().position(|r| r.path == path);
         if let Some(index) = index {
+            self.select_workspace(self.recent_id.clone(), window, cx);
             if self.preview_tab.as_deref() == Some(path) {
                 self.preview_tab = None;
             }
@@ -300,7 +309,7 @@ impl Workspace {
         );
         self.root = self.roots.first().cloned();
         if !self.loading && cx.try_global::<crate::app::ReaderPreferences>().is_some() {
-            crate::app::remember_workspace(self.recent_id.clone(), self.roots.clone(), cx);
+            self.remember_current_workspace(cx);
         }
         self.refresh_task = None;
         self.error = None;
@@ -376,6 +385,9 @@ impl Workspace {
         else {
             return;
         };
+        if self.workspace_name.is_none() {
+            self.workspace_name = Some(self.workspace_descriptor().title());
+        }
         self.roots.remove(index);
         self.root = self.roots.first().cloned();
         self.restoring_roots = None;
@@ -383,7 +395,7 @@ impl Workspace {
         self.search_task = None;
         self.pending_anchor = None;
         if cx.try_global::<crate::app::RecentWorkspaces>().is_some() {
-            crate::app::remember_workspace(self.recent_id.clone(), self.roots.clone(), cx);
+            self.remember_current_workspace(cx);
         }
         let (roots, expanded) = explorer.read(cx).expansion_state();
         crate::app::remember_explorer(roots, expanded, cx);
@@ -657,7 +669,15 @@ impl Workspace {
                 match result {
                     Ok(Ok(Some(paths))) => {
                         if let Some(path) = paths.into_iter().next() {
-                            view.open_path(path, window, cx);
+                            if folder && let Some(host) = view.workspace_window.clone() {
+                                window.defer(cx, move |window, cx| {
+                                    let _ = host.update(cx, |host, cx| {
+                                        host.append(Some(path), None, window, cx);
+                                    });
+                                });
+                            } else {
+                                view.open_path(path, window, cx);
+                            }
                         }
                     }
                     Ok(Ok(None)) => {}

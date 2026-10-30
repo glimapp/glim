@@ -98,7 +98,10 @@ fn load_recent_workspaces(cx: &mut App) {
     cx.global_mut::<WorkspaceSaveTask>().0 = Some(task);
 }
 
-pub(crate) fn remember_workspace(id: String, folders: Vec<std::path::PathBuf>, cx: &mut App) {
+pub(crate) fn remember_named_workspace(
+    workspace: glim_services::preferences::RecentWorkspace,
+    cx: &mut App,
+) {
     let previous = cx.global_mut::<WorkspaceSaveTask>().0.take();
     let task = cx.spawn(async move |cx| {
         if let Some(previous) = previous {
@@ -107,12 +110,8 @@ pub(crate) fn remember_workspace(id: String, folders: Vec<std::path::PathBuf>, c
         let result = cx
             .background_executor()
             .spawn(async move {
-                let recent = glim_services::preferences::remember_recent_workspace(
-                    glim_services::preferences::RecentWorkspace {
-                        id,
-                        folders: folders.clone(),
-                    },
-                )?;
+                let folders = workspace.folders.clone();
+                let recent = glim_services::preferences::remember_recent_workspace(workspace)?;
                 glim_services::preferences::save_workspace_folders(&folders)?;
                 anyhow::Ok(recent)
             })
@@ -123,6 +122,31 @@ pub(crate) fn remember_workspace(id: String, folders: Vec<std::path::PathBuf>, c
                 cx.refresh_windows();
             }),
             Err(error) => log::error!("Cannot remember workspace: {error:#}"),
+        }
+    });
+    cx.global_mut::<WorkspaceSaveTask>().0 = Some(task);
+}
+
+pub(crate) fn remove_recent_workspace(id: String, cx: &mut App) {
+    cx.global_mut::<RecentWorkspaces>()
+        .0
+        .retain(|workspace| workspace.id != id);
+    cx.refresh_windows();
+    let previous = cx.global_mut::<WorkspaceSaveTask>().0.take();
+    let task = cx.spawn(async move |cx| {
+        if let Some(previous) = previous {
+            previous.await;
+        }
+        let result = cx
+            .background_executor()
+            .spawn(async move { glim_services::preferences::remove_recent_workspace(&id) })
+            .await;
+        match result {
+            Ok(recent) => cx.update(|cx| {
+                cx.global_mut::<RecentWorkspaces>().0 = recent;
+                cx.refresh_windows();
+            }),
+            Err(error) => log::error!("Cannot remove recent workspace: {error:#}"),
         }
     });
     cx.global_mut::<WorkspaceSaveTask>().0 = Some(task);
@@ -140,19 +164,6 @@ pub(crate) fn sync_system_appearance(window: &mut Window, cx: &mut App) {
     }
 }
 
-pub(crate) fn recent_workspace_is_open(
-    workspace: &glim_services::preferences::RecentWorkspace,
-    exclude: EntityId,
-    cx: &App,
-) -> bool {
-    OpenWorkspaces::windows(cx).iter().any(|(view, _)| {
-        view.entity_id() != exclude
-            && view
-                .upgrade()
-                .is_some_and(|view| view.read(cx).matches_recent_workspace(workspace))
-    })
-}
-
 pub(crate) fn open_recent_workspace(
     workspace: glim_services::preferences::RecentWorkspace,
     cx: &mut App,
@@ -160,29 +171,15 @@ pub(crate) fn open_recent_workspace(
     if updates::busy(cx) {
         return;
     }
-    for (view, handle) in OpenWorkspaces::windows(cx) {
-        let focused = handle
-            .update(cx, |_, window, cx| {
-                let matches = view
-                    .upgrade()
-                    .is_some_and(|view| view.read(cx).matches_recent_workspace(&workspace));
-                if matches {
-                    window.activate_window();
-                    cx.activate(true);
-                }
-                matches
-            })
-            .unwrap_or(false);
-        if focused {
-            return;
-        }
-    }
     open_workspace_with_session(
         None,
         Some(glim_core::update::WorkspaceSession {
             roots: workspace.folders,
             tabs: Vec::new(),
             active: None,
+            workspace_id: Some(workspace.id),
+            name: workspace.name,
+            window_group: None,
         }),
         cx,
     );
@@ -311,7 +308,10 @@ fn show_settings(cx: &mut App) {
         .0
         .iter()
         .rev()
-        .find(|(view, _)| view.upgrade().is_some())
+        .find(|(view, _)| {
+            view.upgrade()
+                .is_some_and(|view| view.read(cx).is_visible_workspace(cx))
+        })
         .cloned();
     if let Some((view, handle)) = target {
         let _ = handle.update(cx, |_, window, cx| {
@@ -534,8 +534,11 @@ fn open_system_files(urls: Vec<String>, cx: &mut App) {
             let reused = windows.iter().rev().any(|(view, handle)| {
                 handle
                     .update(cx, |_, window, cx| {
-                        view.update(cx, |v, cx| v.open_system_file(path.clone(), window, cx))
-                            .unwrap_or(false)
+                        view.update(cx, |v, cx| {
+                            v.is_visible_workspace(cx)
+                                && v.open_system_file(path.clone(), window, cx)
+                        })
+                        .unwrap_or(false)
                     })
                     .unwrap_or(false)
             });
@@ -556,6 +559,24 @@ fn open_workspace_with_session(
     session: Option<glim_core::update::WorkspaceSession>,
     cx: &mut App,
 ) {
+    if let Some(group) = session
+        .as_ref()
+        .and_then(|session| session.window_group.as_ref())
+    {
+        let existing = OpenWorkspaces::windows(cx)
+            .into_iter()
+            .find_map(|(view, handle)| {
+                let view = view.upgrade()?;
+                let host = view.read(cx).workspace_window.as_ref()?.upgrade()?;
+                (host.read(cx).group == *group).then_some((host, handle))
+            });
+        if let Some((host, handle)) = existing {
+            let _ = handle.update(cx, |_, window, cx| {
+                host.update(cx, |host, cx| host.append(path, session, window, cx))
+            });
+            return;
+        }
+    }
     // Use the usable screen rectangle directly. Maximized invokes macOS zoom,
     // which toggles an already full-size initial frame back to a smaller one.
     let bounds = cx
@@ -575,18 +596,12 @@ fn open_workspace_with_session(
     match gpui_kit::open_window(options, cx, |window, cx| {
         window.set_draw_panic_handler(glim_services::diagnostics::take_render_failure);
         let restore = session.is_none() && path.is_none() && OpenWorkspaces::windows(cx).is_empty();
-        let workspace = cx.new(|cx| Workspace::new(path, window, cx));
-        if let Some(session) = session {
-            workspace.update(cx, |view, cx| {
-                view.restore_update_session(session, window, cx)
-            });
-        } else if restore {
+        let host = cx.new(crate::views::workspace_window::WorkspaceWindow::new);
+        let workspace = host.update(cx, |host, cx| host.append(path, session, window, cx));
+        if restore {
             workspace.update(cx, |view, cx| view.restore_workspace(window, cx));
         }
-        let windows = &mut cx.global_mut::<OpenWorkspaces>().0;
-        windows.retain(|(view, _)| view.upgrade().is_some());
-        windows.push((workspace.downgrade(), window.window_handle()));
-        workspace
+        host
     }) {
         Ok(_) => {
             glim_services::telemetry::track("window_opened", []);
@@ -595,6 +610,12 @@ fn open_workspace_with_session(
         }
         Err(error) => log::error!("Cannot open Glim window: {error:#}"),
     }
+}
+
+pub(crate) fn register_workspace(view: &Entity<Workspace>, handle: AnyWindowHandle, cx: &mut App) {
+    let windows = &mut cx.global_mut::<OpenWorkspaces>().0;
+    windows.retain(|(view, _)| view.upgrade().is_some());
+    windows.push((view.downgrade(), handle));
 }
 
 #[derive(Default)]

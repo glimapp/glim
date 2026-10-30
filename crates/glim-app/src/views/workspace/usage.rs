@@ -70,7 +70,11 @@ impl Workspace {
             self.usage = None;
             return;
         }
-        if !window.is_window_active() || window.has_active_prompt() || self.loading || self.picking
+        if !self.is_visible_workspace(cx)
+            || !window.is_window_active()
+            || window.has_active_prompt()
+            || self.loading
+            || self.picking
         {
             self.flush_usage();
             return;

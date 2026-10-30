@@ -80,11 +80,30 @@ pub fn save_explorer_expansion(roots: &[PathBuf], expanded: &[PathBuf]) -> Resul
     Ok(())
 }
 
-/// A window's ordered folder roots, including repeated paths.
+/// A workspace's ordered folder roots, including repeated paths.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RecentWorkspace {
     pub id: String,
     pub folders: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+impl RecentWorkspace {
+    pub fn title(&self) -> String {
+        self.name.clone().unwrap_or_else(|| {
+            self.folders
+                .iter()
+                .map(|path| {
+                    path.file_name()
+                        .unwrap_or(path.as_os_str())
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect::<Vec<_>>()
+                .join(" · ")
+        })
+    }
 }
 
 pub fn recent_workspaces() -> Result<Vec<RecentWorkspace>> {
@@ -99,6 +118,7 @@ pub fn recent_workspaces() -> Result<Vec<RecentWorkspace>> {
                 vec![RecentWorkspace {
                     id: "legacy".into(),
                     folders,
+                    name: None,
                 }]
             })
         }
@@ -108,6 +128,13 @@ pub fn recent_workspaces() -> Result<Vec<RecentWorkspace>> {
 
 pub fn remember_recent_workspace(workspace: RecentWorkspace) -> Result<Vec<RecentWorkspace>> {
     let mut recent = recent_workspaces()?;
+    let mut workspace = workspace;
+    if workspace.name.is_none() {
+        workspace.name = recent
+            .iter()
+            .find(|entry| entry.id == workspace.id || entry.folders == workspace.folders)
+            .and_then(|entry| entry.name.clone());
+    }
     recent.retain(|entry| {
         entry.id != workspace.id
             && (workspace.folders.is_empty() || entry.folders != workspace.folders)
@@ -115,6 +142,18 @@ pub fn remember_recent_workspace(workspace: RecentWorkspace) -> Result<Vec<Recen
     if !workspace.folders.is_empty() {
         recent.insert(0, workspace);
     }
+    save_recent_workspaces(&recent)?;
+    Ok(recent)
+}
+
+pub fn remove_recent_workspace(id: &str) -> Result<Vec<RecentWorkspace>> {
+    let mut recent = recent_workspaces()?;
+    recent.retain(|entry| entry.id != id);
+    save_recent_workspaces(&recent)?;
+    Ok(recent)
+}
+
+fn save_recent_workspaces(recent: &[RecentWorkspace]) -> Result<()> {
     let path = directory()?.join("recent-workspaces.json");
     let parent = path.parent().context("Invalid preferences path")?;
     std::fs::create_dir_all(parent)?;
@@ -122,7 +161,7 @@ pub fn remember_recent_workspace(workspace: RecentWorkspace) -> Result<Vec<Recen
     serde_json::to_writer(&mut file, &recent)?;
     file.as_file().sync_all()?;
     file.persist(path)?;
-    Ok(recent)
+    Ok(())
 }
 
 pub fn word_wrap() -> bool {

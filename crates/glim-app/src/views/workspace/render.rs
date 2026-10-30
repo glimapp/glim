@@ -10,7 +10,7 @@ use crate::{
 use gpui_kit::{
     base::InteractiveElementExt as _,
     component::{
-        ActiveTheme, Icon, Sizable,
+        ActiveTheme, Disableable, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         menu::{ContextMenuExt, PopupMenuItem},
@@ -261,17 +261,61 @@ impl Render for Workspace {
                 view.show_home(cx);
                 cx.notify();
             })))
-            .when(self.explorer.is_some(), |sidebar| {
-                sidebar.child(
-                    div()
-                        .px_3()
-                        .pt_3()
-                        .pb_2()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(glim_services::locale::tr("Workspace")),
-                )
-            })
+            .child(self.workspace_navigation(cx))
+            .child(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .pt_3()
+                    .pb_2()
+                    .pl_3()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(glim_services::locale::tr("Workspace")),
+                    )
+                    .child(
+                        Button::new("workspace-new-file")
+                            .ghost()
+                            .small()
+                            .icon(gpui_kit::assets::IconName::FilePlus)
+                            .tooltip(glim_services::locale::tr("New File"))
+                            .accessibility_label(glim_services::locale::tr("New File"))
+                            .on_click(
+                                cx.listener(|view, _, window, cx| view.choose_new_file(window, cx)),
+                            ),
+                    )
+                    .child(
+                        Button::new("workspace-new-folder")
+                            .ghost()
+                            .small()
+                            .icon(gpui_kit::assets::IconName::FolderPlus)
+                            .disabled(self.roots.is_empty())
+                            .tooltip(glim_services::locale::tr("New Folder…"))
+                            .accessibility_label(glim_services::locale::tr("New Folder…"))
+                            .on_click(cx.listener(|view, _, window, cx| {
+                                view.choose_new_folder(window, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("workspace-add-folder")
+                            .ghost()
+                            .small()
+                            .icon(gpui_kit::assets::IconName::Folders)
+                            .tooltip(glim_services::locale::tr("Add Folder to Workspace…"))
+                            .accessibility_label(glim_services::locale::tr(
+                                "Add Folder to Workspace…",
+                            ))
+                            .on_click(cx.listener(|view, _, window, cx| {
+                                view.choose_add_folder(window, cx)
+                            })),
+                    ),
+            )
             .child(div().flex_1().min_h_0().w_full().child(panel_content))
             .id("workspace-sidebar");
         let sidebar = if self.explorer.is_none() {

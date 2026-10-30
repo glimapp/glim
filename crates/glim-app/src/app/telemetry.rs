@@ -191,7 +191,12 @@ fn start_resource_sampling(cx: &mut App) {
             }
             let context = cx.update(|cx| {
                 let workspaces = super::OpenWorkspaces::windows(cx);
-                let mut props = vec![("workspace_windows", number(workspaces.len() as u64))];
+                let window_count = workspaces
+                    .iter()
+                    .map(|(_, handle)| *handle)
+                    .collect::<std::collections::HashSet<_>>()
+                    .len();
+                let mut props = vec![("workspace_windows", number(window_count as u64))];
                 let mut tabs = 0;
                 let mut pdf_tabs = 0;
                 let mut fullscreen_windows = 0;
@@ -204,6 +209,9 @@ fn start_resource_sampling(cx: &mut App) {
                         };
                         tabs += view.read(cx).telemetry_tab_count();
                         pdf_tabs += view.read(cx).telemetry_pdf_tab_count();
+                        if !view.read(cx).is_visible_workspace(cx) {
+                            return;
+                        }
                         fullscreen_windows += usize::from(window.is_fullscreen());
                         let size = window.viewport_size();
                         let scale = f64::from(window.scale_factor());

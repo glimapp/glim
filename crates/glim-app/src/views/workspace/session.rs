@@ -45,6 +45,13 @@ impl Workspace {
                         .filter(|r| r.draft_directory.is_none())
                         .count()
                 }),
+            workspace_id: Some(self.recent_id.clone()),
+            name: self.workspace_name.clone(),
+            window_group: self
+                .workspace_window
+                .as_ref()
+                .and_then(|host| host.upgrade())
+                .map(|host| host.read(cx).group.clone()),
         }
     }
     pub(crate) fn take_book_writes(&mut self, cx: &mut App) -> Vec<Task<()>> {
@@ -63,6 +70,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(id) = &session.workspace_id {
+            self.recent_id = id.clone();
+        }
+        self.workspace_name = session.name.clone();
         self.loading = true;
         self.loading_preview = false;
         self.restoring_roots = Some(session.roots.clone());
@@ -135,14 +146,14 @@ impl Workspace {
                 if !view.roots.is_empty()
                     && cx.try_global::<crate::app::RecentWorkspaces>().is_some()
                 {
-                    crate::app::remember_workspace(view.recent_id.clone(), view.roots.clone(), cx);
+                    view.remember_current_workspace(cx);
                 }
                 view.load_incoming_file(window, cx);
                 view.active = session
                     .active
                     .filter(|&i| i < view.tabs.len())
                     .or_else(|| (!view.tabs.is_empty()).then_some(0));
-                if view.active.is_some() {
+                if view.active.is_some() || !view.roots.is_empty() {
                     view.page = super::Page::Document;
                 }
                 view.reveal_active_file(cx);
@@ -210,6 +221,7 @@ mod tests {
                             })
                             .collect(),
                         active: Some(1),
+                        ..Default::default()
                     },
                     window,
                     cx,

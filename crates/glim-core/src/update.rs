@@ -64,6 +64,12 @@ pub struct WorkspaceSession {
     pub roots: Vec<PathBuf>,
     pub tabs: Vec<SessionTab>,
     pub active: Option<usize>,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub window_group: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateSession {
