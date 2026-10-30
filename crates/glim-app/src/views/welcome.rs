@@ -95,6 +95,19 @@ pub fn welcome(
     _current_id: EntityId,
     cx: &mut Context<super::workspace::Workspace>,
 ) -> impl IntoElement {
+    let has_workspace = current
+        .workspace_window
+        .as_ref()
+        .and_then(|host| host.upgrade())
+        .is_some_and(|host| {
+            host.read(cx)
+                .slots
+                .iter()
+                .any(|slot| !slot.workspace.folders.is_empty() || slot.workspace.name.is_some())
+        });
+    let descriptor = current.workspace_descriptor();
+    let center_content =
+        !has_workspace && descriptor.folders.is_empty() && descriptor.name.is_none();
     let recent = cx
         .try_global::<crate::app::RecentWorkspaces>()
         .map(|history| history.0.clone())
@@ -398,7 +411,11 @@ pub fn welcome(
         .px_6()
         .pt(px(24.))
         .pb_8()
+        .when(center_content, |view| {
+            view.pt_8().child(div().flex_1().min_h_0())
+        })
         .child(content)
+        .when(center_content, |view| view.child(div().flex_1().min_h_0()))
 }
 
 #[cfg(test)]
