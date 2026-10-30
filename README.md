@@ -14,7 +14,7 @@ Glim is a free, open-source file viewer for macOS. Open a project folder and rea
 <p align="center"><sub>Mac downloads are not yet notarized by Apple. You may need to approve the first launch in System Settings. <a href="#macos">See instructions</a></sub></p>
 
 <p align="center">
-  <a href="https://github.com/glimapp/glim/releases"><img src="https://img.shields.io/github/downloads/glimapp/glim/total?style=flat-square&amp;color=268879" alt="Total release downloads" /></a>
+  <a href="https://github.com/glimapp/glim/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fglimapp%2Fglim%2Frefs%2Fheads%2Fcodex%2Fdownload-stats%2Fdownloads-badge.json&amp;style=flat-square" alt="DMG installer downloads" /></a>
   <a href="https://github.com/glimapp/glim/actions/workflows/ci.yml"><img src="https://github.com/glimapp/glim/actions/workflows/ci.yml/badge.svg" alt="Desktop builds" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License" /></a>
   <a href="https://github.com/glimapp/glim/stargazers"><img src="https://img.shields.io/github/stars/glimapp/glim?style=social" alt="GitHub stars" /></a>
@@ -124,8 +124,8 @@ Thanks to everyone helping make Glim better.
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/glimapp/glim/refs/heads/codex/download-stats/downloads-dark.svg" />
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/glimapp/glim/refs/heads/codex/download-stats/downloads.svg" />
-    <img src="https://raw.githubusercontent.com/glimapp/glim/refs/heads/codex/download-stats/downloads.svg" alt="Glim release download history" width="100%" />
+    <img src="https://raw.githubusercontent.com/glimapp/glim/refs/heads/codex/download-stats/downloads.svg" alt="Glim DMG installer download history" width="100%" />
   </picture>
 </a>
 
-Daily snapshots of cumulative public GitHub release-asset downloads, including installers, update feeds, checksums and release-verification requests. Tracking starts on **2026-10-12**; earlier history is unavailable. These counts are downloads, not unique users or installs.
+Daily snapshots count only **.dmg installers** from public GitHub Releases, including prereleases. The badge and chart share the same daily snapshot. DMG-only observations start on **2026-10-30**; cumulative totals include downloads of older DMG releases. Earlier all-asset snapshots cannot be split by file type and remain [archived separately](https://github.com/glimapp/glim/blob/codex/download-stats/downloads-all-assets-legacy.json). Feeds, checksums, ZIPs and other assets are excluded. Counts are downloads, not unique users or installations.

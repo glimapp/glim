@@ -76,7 +76,7 @@ The bundle script enables `macos-updater`, embeds Sparkle and its license, write
 5. It uploads two Mac installers, two checksum files and two appcasts (six assets total) to a draft, then downloads them to verify exact bytes. It neither modifies published releases nor overwrites existing assets.
 6. Inspect the complete draft, publish and mark it Latest. Check both public feed URLs, signatures and release/build values. CI success alone never publishes a release.
 
-Feeds use `/releases/latest/download/appcast-macos-<arch>.xml`; enclosures use immutable `/releases/download/<tag>/Glim-<version>-macos-<arch>.dmg` URLs. Runtime macOS clients need no GitHub token or Releases API calls. Downloads include automatic updates; README history is a daily snapshot of all public asset download counts, including feeds/checksums/verification requests, not users or installations.
+Feeds use `/releases/latest/download/appcast-macos-<arch>.xml`; enclosures use immutable `/releases/download/<tag>/Glim-<version>-macos-<arch>.dmg` URLs. Runtime macOS clients need no GitHub token or Releases API calls. README download badges and history share daily snapshots of public `.dmg` installer downloads only (including automatic-update or verification downloads of DMGs). Feed, checksum, ZIP and other asset requests are excluded. Counts are not users or installations.
 
 ### Release builds and caching
 

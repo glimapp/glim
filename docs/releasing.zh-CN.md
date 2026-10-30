@@ -76,7 +76,7 @@ GLIM_ENABLE_UPDATER=1 GLIM_UPDATE_PUBLIC_KEY='<public-key>' scripts/package-dmg.
 5. 将两个 Mac 安装包、两个校验文件和两个 appcast（共六个附件） 上传草稿，回下载核对字节，不修改已公开 Release，不覆盖既有资产。
 6. 检查完整草稿，公开并标记 Latest，再检查两个公开 feed 地址、签名及版本／build。CI 成功本身不会自动公开版本。
 
-feed 地址是 `/releases/latest/download/appcast-macos-<arch>.xml`，安装包使用固定 `/releases/download/<tag>/Glim-<version>-macos-<arch>.dmg`。运行时 macOS 客户端不需要 GitHub Token，也不查询 Releases API。自动更新下载会进入附件计数；README 曲线每天记录全部公开附件下载量，包含 feed、校验文件和核验请求，不等于用户数或安装量。
+feed 地址是 `/releases/latest/download/appcast-macos-<arch>.xml`，安装包使用固定 `/releases/download/<tag>/Glim-<version>-macos-<arch>.dmg`。运行时 macOS 客户端不需要 GitHub Token，也不查询 Releases API。README 下载徽标与曲线共用每日快照，仅统计公开 `.dmg` 安装包下载（包含 DMG 的自动更新及核验下载），不计 feed、校验文件、ZIP 等其他附件，不等于用户数或安装量。
 
 ### 发布构建与缓存
 
