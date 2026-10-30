@@ -1,7 +1,7 @@
 //! Anonymous Aptabase events. Producers only enqueue bounded, typed properties;
 //! one cancellable background worker owns configuration and HTTP delivery.
 use crate::work::Cancellation;
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
@@ -669,19 +669,13 @@ fn os_version(argument: &str, cancel: &Cancellation) -> String {
 // Creation runs only in the enabled background worker. An unwritable store omits
 // reach identity rather than silently treating each launch as a different person.
 fn installation_id() -> Result<String> {
-    let directory = crate::preferences::directory()?;
-    std::fs::create_dir_all(&directory)?;
-    let path = directory.join("telemetry-installation-id");
-    let read = || -> Result<String> {
-        let value = std::fs::read_to_string(&path)?;
+    let db = crate::storage::open()?;
+    if let Some(value) = crate::storage::setting(&db, "telemetry-installation-id")? {
         ensure!(
             value.len() == 32 && value.bytes().all(|b| b.is_ascii_hexdigit()),
             "Invalid telemetry identity"
         );
-        Ok(value)
-    };
-    if path.exists() {
-        return read();
+        return Ok(value);
     }
     let mut bytes = [0_u8; 16];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
@@ -689,14 +683,12 @@ fn installation_id() -> Result<String> {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
-    use std::io::Write as _;
-    temporary.write_all(value.as_bytes())?;
-    temporary.as_file().sync_all()?;
-    match temporary.persist_noclobber(&path) {
-        Ok(_) => Ok(value),
-        Err(_) => read(),
-    }
+    db.execute(
+        "INSERT OR IGNORE INTO settings(key,value) VALUES('telemetry-installation-id',?1)",
+        [&value],
+    )?;
+    crate::storage::setting(&db, "telemetry-installation-id")?
+        .context("Missing installation identity")
 }
 impl Worker {
     pub fn run(self, cancel: &Cancellation) {

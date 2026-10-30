@@ -331,6 +331,7 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
 
+    glim_services::storage::initialize()?;
     let language = glim_services::preferences::language().unwrap_or_else(|| "system".into());
     glim_services::locale::set(&language);
     let saved_sessions = glim_services::preferences::workspace_sessions().unwrap_or_else(|error| {

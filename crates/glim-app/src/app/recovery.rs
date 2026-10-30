@@ -23,13 +23,13 @@ pub(super) fn init(cx: &mut App) {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(250))
                 .await;
-            if !restored && let Some(paths) = observer.recovered() {
+            if !restored && let Some(checkpoints) = observer.recovered() {
                 restored = true;
-                for path in paths {
+                for checkpoint in checkpoints {
                     let (cancel, guard) = glim_services::work::Cancellation::task();
                     let loaded = cx
                         .background_executor()
-                        .spawn(async move { drafts::read_cancellable(&path, &cancel) })
+                        .spawn(async move { drafts::read_cancellable(&checkpoint, &cancel) })
                         .await;
                     drop(guard);
                     cx.update(|cx| match loaded {

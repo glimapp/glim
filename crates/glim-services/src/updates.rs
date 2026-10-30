@@ -77,6 +77,12 @@ fn prepare_backup_at(bundle: &Path, backups: &Path) -> Result<PathBuf> {
     );
     let identifier = format!("{:x}", Sha256::digest(fingerprint.as_bytes()));
     fs::create_dir_all(backups)?;
+    let lock = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(backups.join(".lock"))?;
+    lock.lock()?;
     let archive = backups.join(format!("Glim-{identifier}.zip"));
     let receipt = archive.with_extension("sha256");
     if archive.is_file()
@@ -84,6 +90,7 @@ fn prepare_backup_at(bundle: &Path, backups: &Path) -> Result<PathBuf> {
             .ok()
             .is_some_and(|expected| digest(&archive).is_ok_and(|actual| actual == expected))
     {
+        prune_backups(backups, &archive)?;
         return Ok(archive);
     }
     let temp = tempfile::Builder::new()
@@ -101,10 +108,45 @@ fn prepare_backup_at(bundle: &Path, backups: &Path) -> Result<PathBuf> {
         .args(["-c", "-k", "--sequesterRsrc", "--keepParent"])
         .arg(&copy)
         .arg(&prepared))?;
+    fs::File::open(&prepared)?.sync_all()?;
     let hash = digest(&prepared)?;
     fs::rename(&prepared, &archive)?;
-    fs::write(&receipt, hash)?;
+    let mut receipt_file = tempfile::NamedTempFile::new_in(backups)?;
+    receipt_file.write_all(hash.as_bytes())?;
+    receipt_file.as_file().sync_all()?;
+    receipt_file.persist(&receipt)?;
+    verify_backup(&archive)?;
+    fs::File::open(backups)?.sync_all()?;
+    prune_backups(backups, &archive)?;
     Ok(archive)
+}
+
+fn prune_backups(directory: &Path, keep: &Path) -> Result<()> {
+    // Only remove archives produced by this app, after the replacement is verified.
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() || entry.path() == keep {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(id) = name
+            .to_str()
+            .and_then(|s| s.strip_prefix("Glim-"))
+            .and_then(|s| s.strip_suffix(".zip"))
+        else {
+            continue;
+        };
+        if id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+            continue;
+        }
+        fs::remove_file(entry.path())?;
+        match fs::remove_file(entry.path().with_extension("sha256")) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(())
 }
 
 pub fn verify_backup(archive: &Path) -> Result<()> {
@@ -117,15 +159,15 @@ pub fn verify_backup(archive: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn write_session_at(directory: &Path, session: &UpdateSession) -> Result<()> {
     validate_session(session)?;
-    fs::create_dir_all(directory)?;
-    let mut file = tempfile::NamedTempFile::new_in(directory)?;
-    serde_json::to_writer(&mut file, session)?;
-    file.flush()?;
-    file.as_file().sync_all()?;
-    file.persist(directory.join("update-session.json"))?;
-    Ok(())
+    crate::storage::set_record(
+        &crate::storage::open_at(directory)?,
+        "update",
+        "pending",
+        &serde_json::to_string(session)?,
+    )
 }
 fn validate_session(session: &UpdateSession) -> Result<()> {
     ensure!(session.schema == 1, "Unsupported update session format");
@@ -138,20 +180,57 @@ fn validate_session(session: &UpdateSession) -> Result<()> {
     Ok(())
 }
 pub fn save_session(session: &UpdateSession) -> Result<()> {
-    write_session_at(&state_directory()?, session)
+    validate_session(session)?;
+    crate::storage::set_record(
+        &crate::storage::open()?,
+        "update",
+        "pending",
+        &serde_json::to_string(session)?,
+    )
 }
 pub fn clear_session() -> Result<()> {
-    match fs::remove_file(state_directory()?.join("update-session.json")) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.into()),
-    }
+    crate::storage::open()?.execute(
+        "DELETE FROM records WHERE kind='update' AND id='pending'",
+        [],
+    )?;
+    Ok(())
 }
-/// Consume or quarantine by rename: a bad session cannot loop on every launch.
+/// Consume or quarantine atomically: a bad session cannot loop on every launch.
 /// Restore even after an installer failure left the old build in place. Explicit
 /// cancellation clears the checkpoint; loading always consumes it at most once.
 pub fn take_session(current_build: &str) -> Result<Option<UpdateSession>> {
-    take_session_at(&state_directory()?, current_build)
+    take_session_from(crate::storage::open()?, current_build)
+}
+fn take_session_from(
+    mut db: rusqlite::Connection,
+    current_build: &str,
+) -> Result<Option<UpdateSession>> {
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let Some(payload) = crate::storage::record(&tx, "update", "pending")? else {
+        return Ok(None);
+    };
+    let parsed = read_session(payload.as_bytes()).and_then(|session| {
+        validate_session(&session)?;
+        Ok(session)
+    });
+    if parsed.is_ok() {
+        ensure!(
+            !current_build.is_empty(),
+            "Cannot identify the running build"
+        );
+    }
+    crate::storage::set_record(
+        &tx,
+        "update",
+        if parsed.is_ok() { "last" } else { "rejected" },
+        &payload,
+    )?;
+    tx.execute(
+        "DELETE FROM records WHERE kind='update' AND id='pending'",
+        [],
+    )?;
+    tx.commit()?;
+    parsed.map(Some)
 }
 // Older releases could checkpoint Git-only tabs. Retiring those readers must
 // not reject the whole window and lose the ordinary file tabs during upgrade.
@@ -198,30 +277,9 @@ fn read_session(reader: impl Read) -> Result<UpdateSession> {
     }
     Ok(serde_json::from_value(value)?)
 }
+#[cfg(test)]
 fn take_session_at(directory: &Path, current_build: &str) -> Result<Option<UpdateSession>> {
-    let path = directory.join("update-session.json");
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let read = || -> Result<UpdateSession> {
-        let session = read_session(std::io::BufReader::new(fs::File::open(&path)?))?;
-        validate_session(&session)?;
-        Ok(session)
-    };
-    let session = match read() {
-        Ok(session) => session,
-        Err(error) => {
-            fs::rename(&path, directory.join("rejected-update-session.json"))?;
-            return Err(error);
-        }
-    };
-    ensure!(
-        !current_build.is_empty(),
-        "Cannot identify the running build"
-    );
-    // The version may skip ahead if another release was installed manually.
-    fs::rename(&path, directory.join("last-update-session.json"))?;
-    Ok(Some(session))
+    take_session_from(crate::storage::open_at(directory)?, current_build)
 }
 
 #[cfg(test)]
@@ -296,7 +354,14 @@ mod tests {
             }],
         };
         assert!(write_session_at(directory.path(), &session).is_err());
-        assert!(!directory.path().join("update-session.json").exists());
+        assert!(
+            crate::storage::record(
+                &crate::storage::open_at(directory.path())?,
+                "update",
+                "pending"
+            )?
+            .is_none()
+        );
         Ok(())
     }
     #[test]
@@ -305,10 +370,37 @@ mod tests {
         fs::write(dir.path().join("update-session.json"), "not json")?;
         assert!(take_session_at(dir.path(), "13").is_err());
         assert!(take_session_at(dir.path(), "13")?.is_none());
-        assert!(dir.path().join("rejected-update-session.json").exists());
+        assert!(
+            crate::storage::record(&crate::storage::open_at(dir.path())?, "update", "rejected")?
+                .is_some()
+        );
         Ok(())
     }
 
+    #[test]
+    fn retention_removes_only_previous_app_archives_and_receipts() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let keep = directory
+            .path()
+            .join(format!("Glim-{}.zip", "a".repeat(64)));
+        let old = directory
+            .path()
+            .join(format!("Glim-{}.zip", "b".repeat(64)));
+        for archive in [&keep, &old] {
+            fs::write(archive, b"bundle")?;
+            fs::write(archive.with_extension("sha256"), digest(archive)?)?;
+        }
+        let unrelated = directory.path().join("personal.zip");
+        fs::write(&unrelated, b"keep")?;
+        verify_backup(&keep)?;
+        prune_backups(directory.path(), &keep)?;
+        assert!(keep.is_file());
+        assert!(keep.with_extension("sha256").is_file());
+        assert!(!old.exists());
+        assert!(!old.with_extension("sha256").exists());
+        assert!(unrelated.is_file());
+        Ok(())
+    }
     #[test]
     fn signed_backup_survives_source_replacement_and_detects_tampering() -> Result<()> {
         let dir = tempfile::tempdir()?;

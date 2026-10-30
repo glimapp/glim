@@ -26,6 +26,7 @@ mod report;
 pub mod safetensors;
 pub mod spreadsheet;
 pub mod sqlite;
+pub mod storage;
 pub mod streamed;
 mod svg_preview;
 pub mod telemetry;

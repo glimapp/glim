@@ -69,11 +69,11 @@ Sparkle owns extraction, installation, permission prompts, bundle replacement an
 
 ## Backup and one-time recovery
 
-A complete signed bundle backup is prepared in the background before update activity starts. The backup is a content-fingerprint-named ZIP plus a SHA-256 receipt under `~/Library/Application Support/Glim/UpdateBackups/`. The signature is checked before copying and the receipt checked again before install approval. User documents and preferences are not part of the app backup. Existing matching verified backups are reusable and history is not automatically cleaned.
+A complete signed bundle backup is prepared in the background before update activity starts. The backup is a content-fingerprint-named ZIP plus a SHA-256 receipt under `~/Library/Application Support/Glim/UpdateBackups/`. The signature is checked before copying and the receipt checked again before install approval. User documents and preferences are not part of the app backup. Existing matching verified backups are reusable. Preparation is serialized with an OS lock and retains only one verified archive/receipt pair, pruning previous app-owned archives only after a replacement is complete and verified.
 
 The one-time session stores workspace roots, file/playlist tabs, order, active tab and supported preview modes. It contains no unsaved document text. Restored media is paused; document scroll positions and media timestamps are not a complete persistent session feature.
 
-A checkpoint is consumed once on next startup, including when a failed installation left the original build running or a manual install skipped ahead. Explicit cancellation clears it; corrupt checkpoints are quarantined rather than retried forever. Normal launches without a checkpoint only restore saved workspace roots.
+A checkpoint is consumed once on next startup, including when a failed installation left the original build running or a manual install skipped ahead. Explicit cancellation clears it; corrupt checkpoints are quarantined rather than retried forever. Normal launches without an update checkpoint restore saved window/workspace groups and file tabs from the application database.
 
 ## Failure boundaries and remaining work
 
@@ -86,12 +86,12 @@ A checkpoint is consumed once on next startup, including when a failed installat
 | Permission/replacement failure | Use Sparkle's result, retain backup and manual download access |
 | New app crashes | Manual recovery from a retained backup; no automatic health-based rollback |
 
-Real Intel/admin-directory acceptance coverage, Apple notarization, general session/draft recovery, key migration, beta channels, delta updates and a health-based recovery assistant remain separate work. Existing isolated tests do not substitute for every production hardware/permissions scenario.
+Real Intel/admin-directory acceptance coverage, Apple notarization, key migration, beta channels, delta updates and a health-based recovery assistant remain separate work. Existing isolated tests do not substitute for every production hardware/permissions scenario.
 
 ## Implementation references
 
 - `glim-core/src/update.rs`: snapshots, modes, activity guards and session values.
-- `glim-services/src/updates.rs`: backup verification and atomic one-time session files.
+- `glim-services/src/updates.rs`: backup verification and transactional one-time SQLite session records.
 - `glim-app/src/app/updates.rs`: global state, tasks, locks and install/quit approval.
 - `app/updater_bridge.rs` / `native/Updater.swift`: main-thread FFI and Sparkle custom driver/delegate.
 - `views/updates.rs` / `workspace/session.rs`: shared UI and restored readers.

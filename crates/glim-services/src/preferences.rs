@@ -1,87 +1,53 @@
-//! Small user preferences stored separately from workspace contents.
+//! Application preferences and workspace state backed by the shared SQLite store.
+use crate::storage::{self, set_setting, setting};
 use anyhow::{Context, Result};
-use std::{io::Write, path::PathBuf};
-
-fn wrap_path_for(application: &str) -> Result<PathBuf> {
-    let base = PathBuf::from(std::env::var_os("HOME").context("Home directory is unavailable")?)
-        .join("Library/Application Support");
-    Ok(base.join(application).join("word-wrap"))
-}
+use std::{collections::BTreeMap, path::PathBuf};
 
 pub(crate) fn directory() -> Result<PathBuf> {
-    Ok(wrap_path_for("Glim")?
-        .parent()
-        .expect("Preference path has a parent")
-        .to_path_buf())
+    Ok(
+        PathBuf::from(std::env::var_os("HOME").context("Home directory is unavailable")?)
+            .join("Library/Application Support/Glim"),
+    )
 }
-
-fn wrap_path() -> Result<PathBuf> {
-    wrap_path_for("Glim")
-}
-
 pub fn workspace_folders() -> Result<Vec<PathBuf>> {
-    let path = wrap_path()?.with_file_name("workspace.json");
-    match std::fs::read(path) {
-        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(error) => Err(error.into()),
-    }
+    storage::paths(&storage::open()?, "workspace", "")
 }
-
 pub fn save_workspace_folders(folders: &[PathBuf]) -> Result<()> {
-    let path = wrap_path()?.with_file_name("workspace.json");
-    let parent = path.parent().context("Invalid preferences path")?;
-    std::fs::create_dir_all(parent)?;
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    serde_json::to_writer(&mut file, folders)?;
-    file.as_file().sync_all()?;
-    file.persist(path)?;
+    let mut db = storage::open()?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    storage::save_paths(&tx, "workspace", "", folders)?;
+    tx.commit()?;
     Ok(())
 }
-
-pub type ExplorerExpansion = std::collections::BTreeMap<PathBuf, Vec<PathBuf>>;
-
+pub type ExplorerExpansion = BTreeMap<PathBuf, Vec<PathBuf>>;
 pub fn explorer_expansion(roots: &[PathBuf]) -> Result<ExplorerExpansion> {
-    let path = directory()?.join("explorer.json");
-    let states: ExplorerExpansion = match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Default::default()),
-        Err(error) => return Err(error.into()),
-    };
-    Ok(roots
+    let db = storage::open()?;
+    roots
         .iter()
-        .filter_map(|root| states.get(root).map(|paths| (root.clone(), paths.clone())))
-        .collect())
+        .map(|root| {
+            Ok((
+                root.clone(),
+                storage::paths(&db, "explorer", storage::path_text(root)?)?,
+            ))
+        })
+        .collect()
 }
-
 pub fn save_explorer_expansion(roots: &[PathBuf], expanded: &ExplorerExpansion) -> Result<()> {
-    let parent = directory()?;
-    std::fs::create_dir_all(&parent)?;
-    let path = parent.join("explorer.json");
-    let mut states: ExplorerExpansion = match std::fs::read(&path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
-        Err(error) => return Err(error.into()),
-    };
+    let mut db = storage::open()?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     for root in roots {
-        states.insert(
-            root.clone(),
-            expanded
-                .get(root)
-                .into_iter()
-                .flatten()
-                .filter(|path| path.starts_with(root))
-                .cloned()
-                .collect(),
-        );
+        let paths = expanded
+            .get(root)
+            .into_iter()
+            .flatten()
+            .filter(|p| p.starts_with(root))
+            .cloned()
+            .collect::<Vec<_>>();
+        storage::save_paths(&tx, "explorer", storage::path_text(root)?, &paths)?;
     }
-    let mut file = tempfile::NamedTempFile::new_in(&parent)?;
-    serde_json::to_writer(&mut file, &states)?;
-    file.as_file().sync_all()?;
-    file.persist(path)?;
+    tx.commit()?;
     Ok(())
 }
-
 /// A workspace's ordered folder roots, including repeated paths.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RecentWorkspace {
@@ -108,90 +74,87 @@ impl RecentWorkspace {
     }
 }
 
-pub fn recent_workspaces() -> Result<Vec<RecentWorkspace>> {
-    let path = directory()?.join("recent-workspaces.json");
-    match std::fs::read(path) {
-        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let folders = workspace_folders()?;
-            Ok(if folders.is_empty() {
-                Vec::new()
-            } else {
-                vec![RecentWorkspace {
-                    id: "legacy".into(),
-                    folders,
-                    name: None,
-                }]
+pub(crate) fn recent_at(db: &rusqlite::Connection) -> Result<Vec<RecentWorkspace>> {
+    let values = db
+        .prepare("SELECT id,name FROM recent_workspaces ORDER BY position")?
+        .query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    values
+        .into_iter()
+        .map(|(id, name)| {
+            Ok(RecentWorkspace {
+                folders: storage::paths(db, "recent", &id)?,
+                id,
+                name,
             })
-        }
-        Err(error) => Err(error.into()),
-    }
+        })
+        .collect()
 }
-
-pub fn remember_recent_workspace(workspace: RecentWorkspace) -> Result<Vec<RecentWorkspace>> {
-    let mut recent = recent_workspaces()?;
-    let mut workspace = workspace;
+pub fn recent_workspaces() -> Result<Vec<RecentWorkspace>> {
+    let mut db = storage::open()?;
+    let tx = db.transaction()?;
+    let recent = recent_at(&tx)?;
+    tx.commit()?;
+    Ok(recent)
+}
+pub(crate) fn save_recent_at(db: &rusqlite::Connection, recent: &[RecentWorkspace]) -> Result<()> {
+    db.execute("DELETE FROM recent_workspaces", [])?;
+    db.execute("DELETE FROM paths WHERE scope='recent'", [])?;
+    for (position, entry) in recent.iter().enumerate() {
+        db.execute(
+            "INSERT INTO recent_workspaces VALUES(?1,?2,?3)",
+            rusqlite::params![entry.id, entry.name, position as i64],
+        )?;
+        storage::save_paths(db, "recent", &entry.id, &entry.folders)?;
+    }
+    Ok(())
+}
+pub fn remember_recent_workspace(mut workspace: RecentWorkspace) -> Result<Vec<RecentWorkspace>> {
+    let mut db = storage::open()?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let mut recent = recent_at(&tx)?;
     if workspace.name.is_none() {
         workspace.name = recent
             .iter()
-            .find(|entry| entry.id == workspace.id || entry.folders == workspace.folders)
-            .and_then(|entry| entry.name.clone());
+            .find(|e| e.id == workspace.id || e.folders == workspace.folders)
+            .and_then(|e| e.name.clone());
     }
-    recent.retain(|entry| {
-        entry.id != workspace.id
-            && (workspace.folders.is_empty() || entry.folders != workspace.folders)
+    recent.retain(|e| {
+        e.id != workspace.id && (workspace.folders.is_empty() || e.folders != workspace.folders)
     });
     if !workspace.folders.is_empty() {
         recent.insert(0, workspace);
     }
-    save_recent_workspaces(&recent)?;
+    save_recent_at(&tx, &recent)?;
+    tx.commit()?;
     Ok(recent)
 }
-
 pub fn remove_recent_workspace(id: &str) -> Result<Vec<RecentWorkspace>> {
-    let mut recent = recent_workspaces()?;
-    recent.retain(|entry| entry.id != id);
-    save_recent_workspaces(&recent)?;
+    let mut db = storage::open()?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let mut recent = recent_at(&tx)?;
+    recent.retain(|e| e.id != id);
+    save_recent_at(&tx, &recent)?;
+    tx.commit()?;
     Ok(recent)
 }
-
-fn save_recent_workspaces(recent: &[RecentWorkspace]) -> Result<()> {
-    let path = directory()?.join("recent-workspaces.json");
-    let parent = path.parent().context("Invalid preferences path")?;
-    std::fs::create_dir_all(parent)?;
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    serde_json::to_writer(&mut file, &recent)?;
-    file.as_file().sync_all()?;
-    file.persist(path)?;
-    Ok(())
+fn get(key: &str) -> Result<Option<String>> {
+    setting(&storage::open()?, key)
 }
-
+fn set(key: &str, value: &str) -> Result<()> {
+    set_setting(&storage::open()?, key, value)
+}
 pub fn word_wrap() -> bool {
-    wrap_path()
+    get("word-wrap")
         .ok()
-        .and_then(|path| match std::fs::read_to_string(path) {
-            Ok(value) => Some(value),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                // Keep the previous preference until Glim saves its own value.
-                wrap_path_for("Glimpse")
-                    .ok()
-                    .and_then(|legacy| std::fs::read_to_string(legacy).ok())
-            }
-            Err(_) => None,
-        })
-        .is_some_and(|value| value.trim() == "true")
+        .flatten()
+        .is_some_and(|v| v.trim() == "true")
 }
-
 pub fn save_word_wrap(enabled: bool) -> Result<()> {
-    let path = wrap_path()?;
-    let parent = path.parent().context("Invalid preferences path")?;
-    std::fs::create_dir_all(parent)?;
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    writeln!(file, "{enabled}")?;
-    file.persist(path)?;
-    Ok(())
+    set("word-wrap", &enabled.to_string())
 }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Appearance {
     #[default]
@@ -199,138 +162,92 @@ pub enum Appearance {
     Light,
     Dark,
 }
-
 pub fn appearance() -> Appearance {
-    match wrap_path()
-        .ok()
-        .and_then(|path| std::fs::read_to_string(path.with_file_name("appearance")).ok())
-        .as_deref()
-        .map(str::trim)
-    {
+    match get("appearance").ok().flatten().as_deref().map(str::trim) {
         Some("light") => Appearance::Light,
         Some("dark") => Appearance::Dark,
         _ => Appearance::System,
     }
 }
-
-pub fn save_appearance(appearance: Appearance) -> Result<()> {
-    let path = wrap_path()?.with_file_name("appearance");
-    let parent = path.parent().context("Invalid preferences path")?;
-    std::fs::create_dir_all(parent)?;
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    writeln!(
-        file,
-        "{}",
-        match appearance {
+pub fn save_appearance(value: Appearance) -> Result<()> {
+    set(
+        "appearance",
+        match value {
             Appearance::System => "system",
             Appearance::Light => "light",
             Appearance::Dark => "dark",
-        }
-    )?;
-    file.persist(path)?;
-    Ok(())
+        },
+    )
 }
-
-pub fn preview_mode(kind: &str) -> bool {
-    preview_path(kind)
-        .ok()
-        .and_then(|path| std::fs::read_to_string(path).ok())
-        .map_or(kind != "csv", |value| value.trim() != "source")
-}
-fn preview_path(kind: &str) -> Result<PathBuf> {
+fn preview_key(kind: &str) -> Result<String> {
     anyhow::ensure!(
         matches!(kind, "html" | "markdown" | "csv"),
         "Unknown preview preference"
     );
-    Ok(wrap_path()?.with_file_name(format!("{kind}-view")))
+    Ok(format!("{kind}-view"))
+}
+pub fn preview_mode(kind: &str) -> bool {
+    preview_key(kind)
+        .ok()
+        .and_then(|key| get(&key).ok().flatten())
+        .map_or(kind != "csv", |v| v.trim() != "source")
 }
 pub fn save_preview_mode(kind: &str, preview: bool) -> Result<()> {
-    let path = preview_path(kind)?;
-    let parent = path.parent().context("Invalid preferences path")?;
-    std::fs::create_dir_all(parent)?;
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    writeln!(file, "{}", if preview { "preview" } else { "source" })?;
-    file.persist(path)?;
-    Ok(())
+    set(
+        &preview_key(kind)?,
+        if preview { "preview" } else { "source" },
+    )
 }
-
 pub fn language() -> Option<String> {
-    let path = wrap_path().ok()?.with_file_name("language");
-    let value = std::fs::read_to_string(path).ok()?;
-    crate::locale::supported(value.trim()).then(|| value.trim().to_owned())
+    get("language")
+        .ok()
+        .flatten()
+        .filter(|v| crate::locale::supported(v.trim()))
+        .map(|v| v.trim().to_owned())
 }
 pub fn save_language(language: &str) -> Result<()> {
     anyhow::ensure!(crate::locale::supported(language), "Unknown language");
-    let path = wrap_path()?.with_file_name("language");
-    let parent = path.parent().context("Invalid preferences path")?;
-    std::fs::create_dir_all(parent)?;
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    writeln!(file, "{language}")?;
-    file.persist(path)?;
-    Ok(())
+    set("language", language)
 }
-
-/// Telemetry defaults to enabled; unreadable preferences fail closed.
+/// Unreadable preferences fail closed.
 pub fn telemetry_enabled() -> bool {
-    let Ok(directory) = directory() else {
-        return false;
-    };
-    match std::fs::read_to_string(directory.join("telemetry")) {
-        Ok(value) => value.trim() == "true",
-        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
-    }
+    get("telemetry").is_ok_and(|v| v.is_none_or(|v| v.trim() == "true"))
 }
-
 pub fn save_telemetry_enabled(enabled: bool) -> Result<()> {
-    let parent = directory()?;
-    std::fs::create_dir_all(&parent)?;
-    let mut file = tempfile::NamedTempFile::new_in(&parent)?;
-    writeln!(file, "{enabled}")?;
-    file.persist(parent.join("telemetry"))?;
-    Ok(())
+    set("telemetry", &enabled.to_string())
 }
-
-/// File tabs retained per workspace independently of open windows and updates.
-pub fn workspace_sessions()
--> Result<std::collections::BTreeMap<String, glim_core::update::WorkspaceSession>> {
-    let path = directory()?.join("workspace-sessions.json");
-    match std::fs::File::open(path) {
-        Ok(file) => Ok(serde_json::from_reader(std::io::BufReader::new(file))?),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
-        Err(error) => Err(error.into()),
-    }
+pub fn workspace_sessions() -> Result<BTreeMap<String, glim_core::update::WorkspaceSession>> {
+    Ok(storage::sessions::load(&storage::open()?, "workspace")?
+        .into_iter()
+        .filter_map(|(id, sessions)| sessions.into_iter().next().map(|s| (id, s)))
+        .collect())
 }
-
 pub fn save_workspace_sessions(
-    sessions: &std::collections::BTreeMap<String, glim_core::update::WorkspaceSession>,
+    sessions: &BTreeMap<String, glim_core::update::WorkspaceSession>,
 ) -> Result<()> {
-    let directory = directory()?;
-    std::fs::create_dir_all(&directory)?;
-    let mut file = tempfile::NamedTempFile::new_in(&directory)?;
-    serde_json::to_writer(&mut file, sessions)?;
-    file.as_file().sync_all()?;
-    file.persist(directory.join("workspace-sessions.json"))?;
-    Ok(())
+    save_groups(
+        "workspace",
+        &sessions
+            .iter()
+            .map(|(id, s)| (id.clone(), vec![s.clone()]))
+            .collect(),
+    )
 }
-
-/// Last known workspace groups, including windows closed before app exit.
-pub fn window_sessions()
--> Result<std::collections::BTreeMap<String, Vec<glim_core::update::WorkspaceSession>>> {
-    match std::fs::File::open(directory()?.join("window-sessions.json")) {
-        Ok(file) => Ok(serde_json::from_reader(std::io::BufReader::new(file))?),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
-        Err(error) => Err(error.into()),
-    }
+pub fn window_sessions() -> Result<BTreeMap<String, Vec<glim_core::update::WorkspaceSession>>> {
+    storage::sessions::load(&storage::open()?, "window")
 }
-
 pub fn save_window_sessions(
-    windows: &std::collections::BTreeMap<String, Vec<glim_core::update::WorkspaceSession>>,
+    windows: &BTreeMap<String, Vec<glim_core::update::WorkspaceSession>>,
 ) -> Result<()> {
-    let directory = directory()?;
-    std::fs::create_dir_all(&directory)?;
-    let mut file = tempfile::NamedTempFile::new_in(&directory)?;
-    serde_json::to_writer(&mut file, windows)?;
-    file.as_file().sync_all()?;
-    file.persist(directory.join("window-sessions.json"))?;
+    save_groups("window", windows)
+}
+fn save_groups(
+    scope: &str,
+    groups: &BTreeMap<String, Vec<glim_core::update::WorkspaceSession>>,
+) -> Result<()> {
+    let mut db = storage::open()?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    storage::sessions::save(&tx, scope, groups)?;
+    tx.commit()?;
     Ok(())
 }

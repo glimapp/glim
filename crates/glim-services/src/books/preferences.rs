@@ -1,6 +1,5 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -34,30 +33,27 @@ pub struct Bookmark {
     pub fraction: f32,
     pub label: String,
 }
-fn path(fingerprint: &str) -> Result<PathBuf> {
+fn validate_identity(fingerprint: &str) -> Result<()> {
     let id = fingerprint.strip_prefix("ebook:").unwrap_or_default();
     ensure!(
         id.len() == 64 && id.bytes().all(|v| v.is_ascii_hexdigit()),
         "Invalid book identity"
     );
-    Ok(crate::preferences::directory()?
-        .join("Books")
-        .join(format!("{id}.json")))
+    Ok(())
 }
 pub fn read(fingerprint: &str) -> Result<ReadingState> {
-    let path = path(fingerprint)?;
-    read_at(&path)
+    validate_identity(fingerprint)?;
+    read_from(&crate::storage::open()?, fingerprint)
 }
-fn read_at(path: &std::path::Path) -> Result<ReadingState> {
-    if !path.exists() {
-        return Ok(ReadingState::default());
-    }
-    let state: ReadingState =
-        serde_json::from_reader(std::io::BufReader::new(std::fs::File::open(path)?))?;
+fn read_from(db: &rusqlite::Connection, fingerprint: &str) -> Result<ReadingState> {
+    let state = crate::storage::record(db, "book", fingerprint)?
+        .map(|v| serde_json::from_str::<ReadingState>(&v))
+        .transpose()?
+        .unwrap_or_default();
     validate(&state)?;
     Ok(state)
 }
-fn validate(state: &ReadingState) -> Result<()> {
+pub(crate) fn validate(state: &ReadingState) -> Result<()> {
     ensure!(
         state.fraction.is_finite()
             && (0. ..=1.).contains(&state.fraction)
@@ -73,17 +69,12 @@ fn validate(state: &ReadingState) -> Result<()> {
     Ok(())
 }
 pub fn save(fingerprint: &str, state: &ReadingState) -> Result<()> {
-    save_at(&path(fingerprint)?, state)
+    validate_identity(fingerprint)?;
+    save_to(&crate::storage::open()?, fingerprint, state)
 }
-fn save_at(path: &std::path::Path, state: &ReadingState) -> Result<()> {
+fn save_to(db: &rusqlite::Connection, fingerprint: &str, state: &ReadingState) -> Result<()> {
     validate(state)?;
-    let parent = path.parent().expect("Book preferences have a parent");
-    std::fs::create_dir_all(parent)?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    serde_json::to_writer(&mut temporary, state)?;
-    temporary.as_file().sync_all()?;
-    temporary.persist(path)?;
-    Ok(())
+    crate::storage::set_record(db, "book", fingerprint, &serde_json::to_string(state)?)
 }
 
 #[cfg(test)]
@@ -92,7 +83,8 @@ mod tests {
     #[test]
     fn reading_position_typography_and_bookmarks_roundtrip_without_touching_book_files() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("preferences.json");
+        let db = crate::storage::open_at(dir.path()).unwrap();
+        let fingerprint = format!("ebook:{}", "a".repeat(64));
         let mut state = ReadingState {
             chapter: 3,
             fraction: 0.625,
@@ -105,14 +97,14 @@ mod tests {
             fraction: 0.25,
             label: "Chapter one".into(),
         });
-        save_at(&path, &state).unwrap();
-        let restored = read_at(&path).unwrap();
+        save_to(&db, &fingerprint, &state).unwrap();
+        let restored = read_from(&db, &fingerprint).unwrap();
         assert_eq!(restored.chapter, 3);
         assert_eq!(restored.fraction, 0.625);
         assert_eq!(restored.font_size, 23.);
         assert_eq!(restored.bookmarks[0].fraction, 0.25);
         state.fraction = f32::NAN;
-        assert!(save_at(&path, &state).is_err());
-        assert_eq!(read_at(&path).unwrap().fraction, 0.625);
+        assert!(save_to(&db, &fingerprint, &state).is_err());
+        assert_eq!(read_from(&db, &fingerprint).unwrap().fraction, 0.625);
     }
 }

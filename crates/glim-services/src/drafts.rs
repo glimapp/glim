@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     fs::{File, OpenOptions},
-    io::{BufReader, BufWriter, Write},
+    io::BufReader,
     os::unix::fs::{DirBuilderExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc},
@@ -19,6 +19,13 @@ pub struct Draft {
     pub text: String,
 }
 
+/// Opaque database record reference; no per-note checkpoint files are created.
+pub struct Checkpoint {
+    store: PathBuf,
+    session: String,
+    id: String,
+}
+
 enum Change {
     Save(Draft),
     Delete,
@@ -26,7 +33,7 @@ enum Change {
 #[derive(Default)]
 struct State {
     pending: BTreeMap<String, Change>,
-    recovered: Vec<PathBuf>,
+    recovered: Vec<Checkpoint>,
     ready: bool,
     stopped: bool,
     error: Option<String>,
@@ -73,7 +80,7 @@ impl Client {
             let _ = self.wake.try_send(());
         }
     }
-    pub fn recovered(&self) -> Option<Vec<PathBuf>> {
+    pub fn recovered(&self) -> Option<Vec<Checkpoint>> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.ready.then(|| std::mem::take(&mut state.recovered))
     }
@@ -100,16 +107,17 @@ impl Worker {
         result
     }
     fn run_inner(&self) -> Result<()> {
-        let root = crate::preferences::directory()?.join("Drafts");
+        let root = crate::preferences::directory()?;
         self.run_at(&root)
     }
     fn run_at(&self, root: &Path) -> Result<()> {
+        let locks = root.join("DraftLocks");
         std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
-            .create(root)?;
-        std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))?;
-        let session = root.join(format!(
+            .create(&locks)?;
+        std::fs::set_permissions(&locks, std::fs::Permissions::from_mode(0o700))?;
+        let session = locks.join(format!(
             "session-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
@@ -124,40 +132,88 @@ impl Worker {
             .open(&lock_path)?;
         lock.lock()?;
         std::fs::rename(lock_path, session.join(".lock"))?;
+        let mut db = crate::storage::open_at(root)?;
+        let owner = session
+            .file_name()
+            .and_then(|v| v.to_str())
+            .context("Invalid draft session")?;
         let mut recovered = Vec::new();
-        for entry in std::fs::read_dir(root)? {
-            if self.state.lock().unwrap_or_else(|e| e.into_inner()).stopped {
-                break;
-            }
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() || entry.path() == session {
+        for source in [locks, root.join("Drafts")] {
+            if !source.is_dir() {
                 continue;
             }
-            let Ok(other_lock) = OpenOptions::new()
-                .write(true)
-                .open(entry.path().join(".lock"))
-            else {
-                continue;
-            };
-            if other_lock.try_lock().is_err() {
-                continue;
-            }
-            for record in std::fs::read_dir(entry.path())? {
-                let record = record?;
-                if !record.file_type()?.is_file()
-                    || record.path().extension().is_none_or(|ext| ext != "json")
-                {
+            for entry in std::fs::read_dir(&source)? {
+                if self.state.lock().unwrap_or_else(|e| e.into_inner()).stopped {
+                    break;
+                }
+                let entry = entry?;
+                if !entry.file_type()?.is_dir() || entry.path() == session {
                     continue;
                 }
-                let target = session.join(record.file_name());
-                ensure!(!target.exists(), "Duplicate draft recovery identity");
-                std::fs::rename(record.path(), &target)?;
-                recovered.push(target);
+                let Ok(other_lock) = OpenOptions::new()
+                    .write(true)
+                    .open(entry.path().join(".lock"))
+                else {
+                    continue;
+                };
+                if other_lock.try_lock().is_err() {
+                    continue;
+                }
+                let old_owner = entry.file_name().to_string_lossy().into_owned();
+                let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+                let mut imported = Vec::new();
+                for record in std::fs::read_dir(entry.path())? {
+                    let record = record?;
+                    if !record.file_type()?.is_file()
+                        || record.path().extension().is_none_or(|v| v != "json")
+                    {
+                        continue;
+                    }
+                    let relative = record
+                        .path()
+                        .strip_prefix(root)?
+                        .to_string_lossy()
+                        .into_owned();
+                    let exists: bool = tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM imported_files WHERE path=?1)",
+                        [&relative],
+                        |r| r.get(0),
+                    )?;
+                    if !exists {
+                        let draft =
+                            read_legacy(&record.path(), &crate::work::Cancellation::default())?;
+                        tx.execute("INSERT INTO drafts(session,id,title,directory,text) VALUES(?1,?2,?3,?4,?5)",rusqlite::params![owner,draft.id,draft.title,crate::storage::path_text(&draft.directory)?,draft.text])?;
+                        tx.execute("INSERT INTO imported_files(path) VALUES(?1)", [&relative])?;
+                    }
+                    imported.push(relative);
+                }
+                tx.execute(
+                    "UPDATE drafts SET session=?1 WHERE session=?2",
+                    (owner, &old_owner),
+                )?;
+                tx.commit()?;
+                for relative in imported {
+                    let target = root.join("LegacyMigration").join(&relative);
+                    if !target.exists() {
+                        std::fs::create_dir_all(target.parent().context("Invalid draft archive")?)?;
+                        std::fs::rename(root.join(relative), target)?;
+                    }
+                }
+                let _ = std::fs::remove_file(entry.path().join(".lock"));
+                let _ = std::fs::remove_dir(entry.path());
             }
-            let _ = std::fs::remove_file(entry.path().join(".lock"));
-            let _ = std::fs::remove_dir(entry.path());
         }
-        recovered.sort();
+        let ids = db
+            .prepare("SELECT id FROM drafts WHERE session=?1 ORDER BY id")?
+            .query_map([owner], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for id in ids {
+            recovered.push(Checkpoint {
+                store: root.to_owned(),
+                session: owner.to_owned(),
+                id,
+            });
+        }
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             state.recovered = recovered;
@@ -170,7 +226,7 @@ impl Worker {
                 std::mem::take(&mut state.pending)
             };
             for (id, change) in pending {
-                let result = apply(&session, &id, change);
+                let result = apply(&db, owner, &id, change);
                 if let Err(error) = result {
                     log::error!("draft checkpoint failed: {error:#}");
                     self.state.lock().unwrap_or_else(|e| e.into_inner()).error =
@@ -195,32 +251,50 @@ fn valid_id(id: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
-fn apply(directory: &Path, id: &str, change: Change) -> Result<()> {
+fn apply(db: &rusqlite::Connection, session: &str, id: &str, change: Change) -> Result<()> {
     ensure!(valid_id(id), "Invalid draft identity");
-    let path = directory.join(format!("{id}.json"));
     match change {
-        Change::Delete => match std::fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        },
+        Change::Delete => {
+            db.execute(
+                "DELETE FROM drafts WHERE session=?1 AND id=?2",
+                (session, id),
+            )?;
+        }
         Change::Save(draft) => {
-            let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
-            {
-                let mut writer = BufWriter::new(temporary.as_file_mut());
-                serde_json::to_writer(&mut writer, &draft)?;
-                writer.flush()?;
-            }
-            temporary.as_file().sync_all()?;
-            temporary.persist(path).map_err(|error| error.error)?;
-            Ok(())
+            db.execute("INSERT INTO drafts(session,id,title,directory,text) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(session,id) DO UPDATE SET title=excluded.title,directory=excluded.directory,text=excluded.text",rusqlite::params![session,id,draft.title,crate::storage::path_text(&draft.directory)?,draft.text])?;
         }
     }
+    Ok(())
 }
-pub fn read(path: &Path) -> Result<Draft> {
-    read_cancellable(path, &crate::work::Cancellation::default())
+
+pub fn read(checkpoint: &Checkpoint) -> Result<Draft> {
+    read_cancellable(checkpoint, &crate::work::Cancellation::default())
 }
-pub fn read_cancellable(path: &Path, cancel: &crate::work::Cancellation) -> Result<Draft> {
+pub fn read_cancellable(
+    checkpoint: &Checkpoint,
+    cancel: &crate::work::Cancellation,
+) -> Result<Draft> {
+    cancel.check()?;
+    ensure!(valid_id(&checkpoint.id), "Invalid recovered note identity");
+    let db = crate::storage::open_at(&checkpoint.store)?;
+    let owner = &checkpoint.session;
+    let id = &checkpoint.id;
+    let draft = db.query_row(
+        "SELECT title,directory,text FROM drafts WHERE session=?1 AND id=?2",
+        (owner, id),
+        |r| {
+            Ok(Draft {
+                id: id.clone(),
+                title: r.get(0)?,
+                directory: PathBuf::from(r.get::<_, String>(1)?),
+                text: r.get(2)?,
+            })
+        },
+    )?;
+    cancel.check()?;
+    Ok(draft)
+}
+fn read_legacy(path: &Path, cancel: &crate::work::Cancellation) -> Result<Draft> {
     let input = crate::work::Reader {
         inner: File::open(path)?,
         cancel: cancel.clone(),
@@ -254,7 +328,7 @@ mod tests {
         let task = std::thread::spawn(move || worker.run_at(&root));
         (client, task)
     }
-    fn ready(client: &Client) -> Vec<PathBuf> {
+    fn ready(client: &Client) -> Vec<Checkpoint> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
             if let Some(paths) = client.recovered() {
