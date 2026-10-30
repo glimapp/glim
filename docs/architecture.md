@@ -97,7 +97,7 @@ PDF and Office/iWork remain read-only. `services/spreadsheet` streams XLSX relat
 
 ## Directory browsing
 
-Explorer expands newly added roots one level, leaving descendant folders collapsed. It restores per-root expansion state from `explorer.json` during ordinary workspace restore and update-session restore; writes are atomic, serialized and awaited on quit. Tab activation reveals the active file by loading its ancestors in retained background tasks, selecting it and scrolling it into view; the latest requested file wins. Explorer loads direct children on expansion, honors ignore rules, hides `.git` and does not recursively follow symlinks. Cached background media checks control folder playback menus; rendering does not scan folders. Blank-space and row context menus are separate.
+Explorer expands newly added roots one level, leaving descendant folders collapsed. It restores per-root expansion state from `explorer.json` during ordinary workspace restore and update-session restore; writes are atomic, serialized and awaited on quit. Tab activation reveals the active file by loading its ancestors in retained background tasks, selecting it and scrolling it into view; the latest requested file wins. Explorer loads direct children on expansion; both directory listings and filename searches include dotfiles and files excluded by Git or ignore rules, hide `.git` and do not recursively follow symlinks. Cached background media checks control folder playback menus; rendering does not scan folders. Blank-space and row context menus are separate.
 
 
 ## Platform, preferences and update boundaries

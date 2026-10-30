@@ -40,9 +40,8 @@ pub fn list_directory_cancellable(
     let mut entries = Vec::new();
     for entry in WalkBuilder::new(path)
         .max_depth(Some(1))
-        .hidden(false)
+        .standard_filters(false)
         .follow_links(false)
-        .require_git(false)
         .filter_entry(|entry| entry.file_name() != ".git")
         .build()
     {
@@ -109,7 +108,7 @@ pub fn search_page(
     let mut skipped = 0;
     for root in roots {
         for entry in WalkBuilder::new(root)
-            .hidden(false)
+            .standard_filters(false)
             .follow_links(false)
             .filter_entry(|entry| entry.file_name() != ".git")
             .sort_by_file_name(|a, b| a.cmp(b))
@@ -192,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn lists_one_level_respects_ignore_and_keeps_dotfiles() -> Result<()> {
+    fn lists_one_level_includes_ignored_files_and_keeps_dotfiles() -> Result<()> {
         let temp = tempfile::tempdir()?;
         fs::create_dir(temp.path().join("src"))?;
         fs::write(temp.path().join("src/nested.rs"), "")?;
@@ -205,7 +204,7 @@ mod tests {
             .iter()
             .map(|e| e.path.file_name().unwrap().to_string_lossy())
             .collect();
-        assert_eq!(names, ["src", ".gitignore", "main.rs"]);
+        assert_eq!(names, ["src", ".gitignore", "ignored", "main.rs"]);
         assert!(entries[0].is_dir);
         Ok(())
     }
