@@ -64,6 +64,7 @@ impl Workspace {
                                 crate::app::workspace_sessions::restore(recent.clone(), cx);
                             if !session.tabs.is_empty() {
                                 view.restore_update_session(session, window, cx);
+                                view.show_home(cx);
                                 return;
                             }
                             view.recent_id = recent.id;

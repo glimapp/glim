@@ -71,6 +71,7 @@ impl Workspace {
                     {
                         slot.workspace = workspace.clone();
                     }
+                    host.remember_window(cx);
                     cx.notify();
                 });
             });

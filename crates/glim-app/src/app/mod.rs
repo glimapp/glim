@@ -336,6 +336,10 @@ pub fn run() -> Result<()> {
         log::error!("Cannot restore workspace files: {error:#}");
         Default::default()
     });
+    let saved_windows = glim_services::preferences::window_sessions().unwrap_or_else(|error| {
+        log::error!("Cannot restore workspace windows: {error:#}");
+        Default::default()
+    });
     let word_wrap = glim_services::preferences::word_wrap();
     let appearance = glim_services::preferences::appearance();
     let html_preview = glim_services::preferences::preview_mode("html");
@@ -361,7 +365,8 @@ pub fn run() -> Result<()> {
         }
     });
     application.on_reopen(|cx| {
-        if cx.windows().is_empty() && !updates::busy(cx) {
+        if cx.windows().is_empty() && !updates::busy(cx) && !workspace_sessions::restore_windows(cx)
+        {
             open_workspace(None, cx);
         }
     });
@@ -380,6 +385,9 @@ pub fn run() -> Result<()> {
         cx.set_global(workspace_sessions::SavedWorkspaces {
             sessions: saved_sessions,
             write: None,
+            windows: saved_windows,
+            window_write: None,
+            restoring: false,
         });
         cx.on_app_quit(|cx| {
             log::info!("application quit requested");
@@ -390,6 +398,11 @@ pub fn run() -> Result<()> {
                     view.remember_session(cx);
                 });
             }
+            workspace_sessions::checkpoint_windows(cx);
+            let window_sessions = cx
+                .global_mut::<workspace_sessions::SavedWorkspaces>()
+                .window_write
+                .take();
             let telemetry = telemetry::shutdown(cx);
             let recovery = recovery::shutdown(cx);
             let pending = cx.global_mut::<ExplorerSaveTask>().0.take();
@@ -415,6 +428,9 @@ pub fn run() -> Result<()> {
                 }
                 if let Some(sessions) = sessions {
                     sessions.await;
+                }
+                if let Some(window_sessions) = window_sessions {
+                    window_sessions.await;
                 }
             }
         })
@@ -567,6 +583,19 @@ fn open_workspace_with_session(
     session: Option<glim_core::update::WorkspaceSession>,
     cx: &mut App,
 ) {
+    open_workspace_session(path, session, false, cx);
+}
+
+fn open_home_workspace_with_session(session: glim_core::update::WorkspaceSession, cx: &mut App) {
+    open_workspace_session(None, Some(session), true, cx);
+}
+
+fn open_workspace_session(
+    path: Option<std::path::PathBuf>,
+    session: Option<glim_core::update::WorkspaceSession>,
+    start_on_home: bool,
+    cx: &mut App,
+) {
     if let Some(group) = session
         .as_ref()
         .and_then(|session| session.window_group.as_ref())
@@ -580,7 +609,10 @@ fn open_workspace_with_session(
             });
         if let Some((host, handle)) = existing {
             let _ = handle.update(cx, |_, window, cx| {
-                host.update(cx, |host, cx| host.append(path, session, window, cx))
+                let view = host.update(cx, |host, cx| host.append(path, session, window, cx));
+                if start_on_home {
+                    view.update(cx, |view, cx| view.show_home(cx));
+                }
             });
             return;
         }
@@ -608,6 +640,9 @@ fn open_workspace_with_session(
         let workspace = host.update(cx, |host, cx| host.append(path, session, window, cx));
         if restore {
             workspace.update(cx, |view, cx| view.restore_workspace(window, cx));
+        }
+        if start_on_home {
+            workspace.update(cx, |view, cx| view.show_home(cx));
         }
         host
     }) {

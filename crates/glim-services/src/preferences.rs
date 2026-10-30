@@ -310,3 +310,25 @@ pub fn save_workspace_sessions(
     file.persist(directory.join("workspace-sessions.json"))?;
     Ok(())
 }
+
+/// Last known workspace groups, including windows closed before app exit.
+pub fn window_sessions()
+-> Result<std::collections::BTreeMap<String, Vec<glim_core::update::WorkspaceSession>>> {
+    match std::fs::File::open(directory()?.join("window-sessions.json")) {
+        Ok(file) => Ok(serde_json::from_reader(std::io::BufReader::new(file))?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub fn save_window_sessions(
+    windows: &std::collections::BTreeMap<String, Vec<glim_core::update::WorkspaceSession>>,
+) -> Result<()> {
+    let directory = directory()?;
+    std::fs::create_dir_all(&directory)?;
+    let mut file = tempfile::NamedTempFile::new_in(&directory)?;
+    serde_json::to_writer(&mut file, windows)?;
+    file.as_file().sync_all()?;
+    file.persist(directory.join("window-sessions.json"))?;
+    Ok(())
+}

@@ -69,6 +69,9 @@ impl Workspace {
         }
         session
     }
+    pub(crate) fn window_session(&self, cx: &App) -> Option<WorkspaceSession> {
+        (!self.loading && self.restoring_roots.is_none()).then(|| self.session_snapshot(cx))
+    }
     pub(crate) fn remember_session(&self, cx: &mut App) {
         if self.loading
             || self.restoring_roots.is_some()
@@ -77,6 +80,11 @@ impl Workspace {
             return;
         }
         crate::app::workspace_sessions::remember(self.session_snapshot(cx), cx);
+        if let Some(host) = self.workspace_window.clone() {
+            cx.defer(move |cx| {
+                let _ = host.update(cx, |host, cx| host.remember_window(cx));
+            });
+        }
     }
     pub(crate) fn take_book_writes(&mut self, cx: &mut App) -> Vec<Task<()>> {
         self.tabs
@@ -98,6 +106,7 @@ impl Workspace {
             self.recent_id = id.clone();
         }
         self.workspace_name = session.name.clone();
+        self.page = super::Page::Document;
         self.loading = true;
         self.loading_preview = false;
         self.restoring_roots = Some(session.roots.clone());
@@ -177,9 +186,6 @@ impl Workspace {
                     .active
                     .filter(|&i| i < view.tabs.len())
                     .or_else(|| (!view.tabs.is_empty()).then_some(0));
-                if view.active.is_some() || !view.roots.is_empty() {
-                    view.page = super::Page::Document;
-                }
                 view.reveal_active_file(cx);
                 view.observe_autosave(window, cx);
                 if view.root.is_none() {

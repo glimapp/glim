@@ -316,7 +316,7 @@ impl Workspace {
 }
 
 impl Workspace {
-    fn show_home(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn show_home(&mut self, cx: &mut Context<Self>) {
         self.page = Page::Start;
         if let Some(explorer) = &self.explorer {
             explorer.update(cx, |view, cx| view.clear_clicked_selection(cx));

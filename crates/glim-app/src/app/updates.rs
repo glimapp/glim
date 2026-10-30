@@ -271,6 +271,22 @@ impl UpdateState {
         if let Some(task) = cx.global_mut::<super::WorkspaceSaveTask>().0.take() {
             writes.push(task);
         }
+        super::workspace_sessions::checkpoint_windows(cx);
+        if let Some(task) = cx
+            .global_mut::<super::workspace_sessions::SavedWorkspaces>()
+            .window_write
+            .take()
+        {
+            writes.push(task);
+        }
+        if let Some(task) = cx
+            .global_mut::<super::workspace_sessions::SavedWorkspaces>()
+            .write
+            .take()
+        {
+            writes.push(task);
+        }
+
         if let Some(task) = cx.global_mut::<super::AppearanceSaveTask>().0.take() {
             writes.push(task);
         }
@@ -618,11 +634,13 @@ pub(crate) fn start_application(path: Option<PathBuf>, urls: Vec<String>, cx: &m
         state.startup = Some(cx.spawn(async move |state, cx| {
             let result = work.await;
             cx.update(|cx| {
+                cx.global_mut::<super::workspace_sessions::SavedWorkspaces>()
+                    .restoring = true;
                 let mut restore_error = false;
                 let restored = match result {
                     Ok(Some(session)) if !session.workspaces.is_empty() => {
                         for workspace in session.workspaces {
-                            super::open_workspace_with_session(None, Some(workspace), cx);
+                            super::open_home_workspace_with_session(workspace, cx);
                         }
                         true
                     }
@@ -637,11 +655,12 @@ pub(crate) fn start_application(path: Option<PathBuf>, urls: Vec<String>, cx: &m
                         false
                     }
                 };
+                let restored_windows = super::workspace_sessions::restore_windows(cx);
                 if !urls.is_empty() {
                     super::open_system_files(urls, cx);
                 } else if let Some(path) = path {
                     super::open_workspace(Some(path), cx);
-                } else if !restored && cx.windows().is_empty() {
+                } else if !restored && !restored_windows && cx.windows().is_empty() {
                     super::open_workspace(None, cx);
                 }
                 if restore_error {

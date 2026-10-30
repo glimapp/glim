@@ -82,6 +82,7 @@ impl WorkspaceWindow {
             let _ = weak.update(cx, |host, cx| host.request_close(window, cx));
             false
         });
+        self.remember_window(cx);
         cx.notify();
         view
     }
@@ -101,6 +102,39 @@ impl WorkspaceWindow {
             .update(cx, |view, cx| view.resume_workspace(window, cx));
         self.reveal_navigation();
         cx.notify();
+    }
+
+    pub(crate) fn remember_window(&self, cx: &mut App) {
+        if !cx.has_global::<crate::app::workspace_sessions::SavedWorkspaces>() {
+            return;
+        }
+        let sessions = self
+            .slots
+            .iter()
+            .map(|slot| {
+                let mut session = slot
+                    .view
+                    .read(cx)
+                    .window_session(cx)
+                    .or_else(|| {
+                        cx.try_global::<crate::app::workspace_sessions::SavedWorkspaces>()
+                            .and_then(|saved| saved.windows.get(&self.group))
+                            .and_then(|sessions| {
+                                sessions.iter().find(|session| {
+                                    session.workspace_id.as_deref() == Some(&slot.workspace.id)
+                                })
+                            })
+                            .cloned()
+                    })
+                    .unwrap_or_else(|| {
+                        crate::app::workspace_sessions::restore(slot.workspace.clone(), cx)
+                    });
+                session.name = slot.workspace.name.clone().or(session.name);
+                session.window_group = Some(self.group.clone());
+                session
+            })
+            .collect();
+        crate::app::workspace_sessions::remember_window(self.group.clone(), sessions, cx);
     }
 
     fn reveal_navigation(&self) {
@@ -163,6 +197,7 @@ impl WorkspaceWindow {
             }
             self.reveal_navigation();
         }
+        self.remember_window(cx);
         cx.notify();
     }
 
@@ -218,6 +253,7 @@ impl WorkspaceWindow {
                     view.commit_quit(cx);
                 });
             }
+            self.remember_window(cx);
             window.remove_window();
         }
     }
