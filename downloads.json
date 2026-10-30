@@ -384,6 +384,387 @@
           "download_count": 4
         }
       ]
+    },
+    {
+      "date": "2026-10-31",
+      "observed_at": "2026-10-31T04:48:49+08:00",
+      "total": 248,
+      "release_count": 35,
+      "asset_count": 62,
+      "assets": [
+        {
+          "id": 624615938,
+          "name": "Glimpse-0.1.0-macos-arm64.dmg",
+          "release_tag": "v0.1.0",
+          "download_count": 3
+        },
+        {
+          "id": 627381450,
+          "name": "Glimpse-0.1.1-macos-arm64.dmg",
+          "release_tag": "v0.1.1",
+          "download_count": 3
+        },
+        {
+          "id": 627630345,
+          "name": "Glimpse-0.1.2-macos-arm64.dmg",
+          "release_tag": "v0.1.2",
+          "download_count": 2
+        },
+        {
+          "id": 629017445,
+          "name": "Glim-0.1.3-macos-arm64.dmg",
+          "release_tag": "v0.1.3",
+          "download_count": 1
+        },
+        {
+          "id": 629166263,
+          "name": "Glim-0.1.4-macos-arm64.dmg",
+          "release_tag": "v0.1.4",
+          "download_count": 1
+        },
+        {
+          "id": 629205780,
+          "name": "Glim-0.1.5-macos-arm64.dmg",
+          "release_tag": "v0.1.5",
+          "download_count": 1
+        },
+        {
+          "id": 629281461,
+          "name": "Glim-0.1.6-macos-arm64.dmg",
+          "release_tag": "v0.1.6",
+          "download_count": 1
+        },
+        {
+          "id": 629327144,
+          "name": "Glim-0.1.7-macos-arm64.dmg",
+          "release_tag": "v0.1.7",
+          "download_count": 1
+        },
+        {
+          "id": 629517293,
+          "name": "Glim-0.1.8-macos-x86_64.dmg",
+          "release_tag": "v0.1.8",
+          "download_count": 3
+        },
+        {
+          "id": 629517301,
+          "name": "Glim-0.1.8-macos-arm64.dmg",
+          "release_tag": "v0.1.8",
+          "download_count": 3
+        },
+        {
+          "id": 630545046,
+          "name": "Glim-0.1.9-macos-x86_64.dmg",
+          "release_tag": "v0.1.9",
+          "download_count": 2
+        },
+        {
+          "id": 630545061,
+          "name": "Glim-0.1.9-macos-arm64.dmg",
+          "release_tag": "v0.1.9",
+          "download_count": 2
+        },
+        {
+          "id": 631177630,
+          "name": "Glim-0.1.10-macos-x86_64.dmg",
+          "release_tag": "v0.1.10",
+          "download_count": 1
+        },
+        {
+          "id": 631177636,
+          "name": "Glim-0.1.10-macos-arm64.dmg",
+          "release_tag": "v0.1.10",
+          "download_count": 1
+        },
+        {
+          "id": 632176882,
+          "name": "Glim-0.1.11-macos-arm64.dmg",
+          "release_tag": "v0.1.11",
+          "download_count": 6
+        },
+        {
+          "id": 632176885,
+          "name": "Glim-0.1.11-macos-x86_64.dmg",
+          "release_tag": "v0.1.11",
+          "download_count": 4
+        },
+        {
+          "id": 632932206,
+          "name": "Glim-0.1.12-macos-arm64.dmg",
+          "release_tag": "v0.1.12",
+          "download_count": 2
+        },
+        {
+          "id": 632932208,
+          "name": "Glim-0.1.12-macos-x86_64.dmg",
+          "release_tag": "v0.1.12",
+          "download_count": 2
+        },
+        {
+          "id": 633143434,
+          "name": "Glim-0.1.13-macos-x86_64.dmg",
+          "release_tag": "v0.1.13",
+          "download_count": 2
+        },
+        {
+          "id": 633143436,
+          "name": "Glim-0.1.13-macos-arm64.dmg",
+          "release_tag": "v0.1.13",
+          "download_count": 4
+        },
+        {
+          "id": 633519999,
+          "name": "Glim-0.1.14-macos-arm64.dmg",
+          "release_tag": "v0.1.14",
+          "download_count": 4
+        },
+        {
+          "id": 633520009,
+          "name": "Glim-0.1.14-macos-x86_64.dmg",
+          "release_tag": "v0.1.14",
+          "download_count": 2
+        },
+        {
+          "id": 635550047,
+          "name": "Glim-0.1.15-macos-x86_64.dmg",
+          "release_tag": "v0.1.15",
+          "download_count": 3
+        },
+        {
+          "id": 635550053,
+          "name": "Glim-0.1.15-macos-arm64.dmg",
+          "release_tag": "v0.1.15",
+          "download_count": 4
+        },
+        {
+          "id": 635779558,
+          "name": "Glim-0.1.16-macos-x86_64.dmg",
+          "release_tag": "v0.1.16",
+          "download_count": 2
+        },
+        {
+          "id": 635779564,
+          "name": "Glim-0.1.16-macos-arm64.dmg",
+          "release_tag": "v0.1.16",
+          "download_count": 2
+        },
+        {
+          "id": 635971322,
+          "name": "Glim-0.1.17-macos-x86_64.dmg",
+          "release_tag": "v0.1.17",
+          "download_count": 2
+        },
+        {
+          "id": 635971324,
+          "name": "Glim-0.1.17-macos-arm64.dmg",
+          "release_tag": "v0.1.17",
+          "download_count": 3
+        },
+        {
+          "id": 636632054,
+          "name": "Glim-0.1.18-macos-x86_64.dmg",
+          "release_tag": "v0.1.18",
+          "download_count": 3
+        },
+        {
+          "id": 636632056,
+          "name": "Glim-0.1.18-macos-arm64.dmg",
+          "release_tag": "v0.1.18",
+          "download_count": 3
+        },
+        {
+          "id": 639890034,
+          "name": "Glim-0.2.0-macos-x86_64.dmg",
+          "release_tag": "v0.2.0",
+          "download_count": 3
+        },
+        {
+          "id": 639890041,
+          "name": "Glim-0.2.0-macos-arm64.dmg",
+          "release_tag": "v0.2.0",
+          "download_count": 3
+        },
+        {
+          "id": 640098385,
+          "name": "Glim-0.2.1-macos-x86_64.dmg",
+          "release_tag": "v0.2.1",
+          "download_count": 3
+        },
+        {
+          "id": 640098387,
+          "name": "Glim-0.2.1-macos-arm64.dmg",
+          "release_tag": "v0.2.1",
+          "download_count": 4
+        },
+        {
+          "id": 643516278,
+          "name": "Glim-0.2.2-macos-x86_64.dmg",
+          "release_tag": "v0.2.2",
+          "download_count": 2
+        },
+        {
+          "id": 643516281,
+          "name": "Glim-0.2.2-macos-arm64.dmg",
+          "release_tag": "v0.2.2",
+          "download_count": 7
+        },
+        {
+          "id": 646241307,
+          "name": "Glim-0.2.3-macos-x86_64.dmg",
+          "release_tag": "v0.2.3",
+          "download_count": 3
+        },
+        {
+          "id": 646241311,
+          "name": "Glim-0.2.3-macos-arm64.dmg",
+          "release_tag": "v0.2.3",
+          "download_count": 9
+        },
+        {
+          "id": 655143892,
+          "name": "Glim-0.2.4-macos-x86_64.dmg",
+          "release_tag": "v0.2.4",
+          "download_count": 3
+        },
+        {
+          "id": 655143895,
+          "name": "Glim-0.2.4-macos-arm64.dmg",
+          "release_tag": "v0.2.4",
+          "download_count": 4
+        },
+        {
+          "id": 655993305,
+          "name": "Glim-0.2.5-macos-x86_64.dmg",
+          "release_tag": "v0.2.5",
+          "download_count": 2
+        },
+        {
+          "id": 655993318,
+          "name": "Glim-0.2.5-macos-arm64.dmg",
+          "release_tag": "v0.2.5",
+          "download_count": 6
+        },
+        {
+          "id": 659239004,
+          "name": "Glim-0.2.6-macos-arm64.dmg",
+          "release_tag": "v0.2.6",
+          "download_count": 17
+        },
+        {
+          "id": 659239013,
+          "name": "Glim-0.2.6-macos-x86_64.dmg",
+          "release_tag": "v0.2.6",
+          "download_count": 3
+        },
+        {
+          "id": 661520315,
+          "name": "Glim-0.2.7-macos-arm64.dmg",
+          "release_tag": "v0.2.7",
+          "download_count": 12
+        },
+        {
+          "id": 661520317,
+          "name": "Glim-0.2.7-macos-x86_64.dmg",
+          "release_tag": "v0.2.7",
+          "download_count": 2
+        },
+        {
+          "id": 666692924,
+          "name": "Glim-0.2.8-macos-arm64.dmg",
+          "release_tag": "v0.2.8",
+          "download_count": 2
+        },
+        {
+          "id": 666692929,
+          "name": "Glim-0.2.8-macos-x86_64.dmg",
+          "release_tag": "v0.2.8",
+          "download_count": 3
+        },
+        {
+          "id": 667535720,
+          "name": "Glim-0.2.9-macos-arm64.dmg",
+          "release_tag": "v0.2.9",
+          "download_count": 3
+        },
+        {
+          "id": 667535721,
+          "name": "Glim-0.2.9-macos-x86_64.dmg",
+          "release_tag": "v0.2.9",
+          "download_count": 2
+        },
+        {
+          "id": 667783737,
+          "name": "Glim-0.2.10-macos-x86_64.dmg",
+          "release_tag": "v0.2.10",
+          "download_count": 2
+        },
+        {
+          "id": 667783741,
+          "name": "Glim-0.2.10-macos-arm64.dmg",
+          "release_tag": "v0.2.10",
+          "download_count": 3
+        },
+        {
+          "id": 668481445,
+          "name": "Glim-0.2.11-macos-x86_64.dmg",
+          "release_tag": "v0.2.11",
+          "download_count": 3
+        },
+        {
+          "id": 668481461,
+          "name": "Glim-0.2.11-macos-arm64.dmg",
+          "release_tag": "v0.2.11",
+          "download_count": 12
+        },
+        {
+          "id": 673817729,
+          "name": "Glim-0.2.12-macos-x86_64.dmg",
+          "release_tag": "v0.2.12",
+          "download_count": 8
+        },
+        {
+          "id": 673817732,
+          "name": "Glim-0.2.12-macos-arm64.dmg",
+          "release_tag": "v0.2.12",
+          "download_count": 16
+        },
+        {
+          "id": 683672194,
+          "name": "Glim-0.2.13-macos-x86_64.dmg",
+          "release_tag": "v0.2.13",
+          "download_count": 4
+        },
+        {
+          "id": 683672196,
+          "name": "Glim-0.2.13-macos-arm64.dmg",
+          "release_tag": "v0.2.13",
+          "download_count": 11
+        },
+        {
+          "id": 687668833,
+          "name": "Glim-0.2.14-macos-arm64.dmg",
+          "release_tag": "v0.2.14",
+          "download_count": 9
+        },
+        {
+          "id": 687668834,
+          "name": "Glim-0.2.14-macos-x86_64.dmg",
+          "release_tag": "v0.2.14",
+          "download_count": 5
+        },
+        {
+          "id": 691944290,
+          "name": "Glim-0.2.16-macos-x86_64.dmg",
+          "release_tag": "v0.2.16",
+          "download_count": 2
+        },
+        {
+          "id": 691944293,
+          "name": "Glim-0.2.16-macos-arm64.dmg",
+          "release_tag": "v0.2.16",
+          "download_count": 7
+        }
+      ]
     }
   ],
   "legacy_history": "downloads-all-assets-legacy.json"
