@@ -504,5 +504,8 @@
   "Current": "当前",
   "Close Workspace": "关闭工作区",
   "Finder Integration": "Finder 集成",
-  "Open folders as workspaces from the Finder context menu.": "在 Finder 中右键点击文件夹，用 Glim 打开为工作区。"
+  "Open folders as workspaces from the Finder context menu.": "在 Finder 中右键点击文件夹，用 Glim 打开为工作区。",
+  "A file is being saved. Wait for it to finish before moving this item to Trash.": "文件正在保存，请稍后再将此项目移到废纸篓。",
+  "An open file in this item has unsaved changes. Save it before moving this item to Trash.": "此项目中有打开的文件尚未保存，请先保存该文件，再将此项目移到废纸篓。",
+  "Another file operation is in progress": "另一个文件操作正在进行，请稍后重试。"
 }

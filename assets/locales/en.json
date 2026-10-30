@@ -504,5 +504,8 @@
   "Current": "Current",
   "Close Workspace": "Close Workspace",
   "Finder Integration": "Finder Integration",
-  "Open folders as workspaces from the Finder context menu.": "Open folders as workspaces from the Finder context menu."
+  "Open folders as workspaces from the Finder context menu.": "Open folders as workspaces from the Finder context menu.",
+  "A file is being saved. Wait for it to finish before moving this item to Trash.": "A file is being saved. Wait for it to finish before moving this item to Trash.",
+  "An open file in this item has unsaved changes. Save it before moving this item to Trash.": "An open file in this item has unsaved changes. Save it before moving this item to Trash.",
+  "Another file operation is in progress": "Another file operation is in progress"
 }

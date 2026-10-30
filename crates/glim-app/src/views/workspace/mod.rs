@@ -116,6 +116,11 @@ impl Workspace {
     pub(crate) fn unlock_and_refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.set_editing_locked(false, cx);
         self.refresh(window, cx);
+        // Finish removing trashed readers before resuming paused autosaves.
+        let view = cx.entity().downgrade();
+        window.defer(cx, move |window, cx| {
+            let _ = view.update(cx, |view, cx| view.resume_queued_saves(window, cx));
+        });
     }
 
     pub(crate) fn recent_visible(&self) -> usize {

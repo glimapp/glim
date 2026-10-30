@@ -921,10 +921,14 @@ pub(crate) fn workspace_editors_locked(cx: &App) -> bool {
             .try_global::<WorkspaceEditorLock>()
             .is_some_and(|lock| lock.0)
 }
-pub(crate) fn lock_workspace_editors(exclude: EntityId, cx: &mut App) -> Result<()> {
+pub(crate) fn lock_workspace_editors(
+    exclude: EntityId,
+    path: &std::path::Path,
+    cx: &mut App,
+) -> Result<()> {
     anyhow::ensure!(
         !workspace_editors_locked(cx),
-        "Another file operation is in progress"
+        glim_services::locale::tr("Another file operation is in progress")
     );
     let windows = cx
         .try_global::<OpenWorkspaces>()
@@ -936,10 +940,18 @@ pub(crate) fn lock_workspace_editors(exclude: EntityId, cx: &mut App) -> Result<
         .filter(|v| v.entity_id() != exclude)
         .collect::<Vec<_>>();
     anyhow::ensure!(
+        others.iter().all(|v| !v.read(cx).is_saving()),
+        glim_services::locale::tr(
+            "A file is being saved. Wait for it to finish before moving this item to Trash."
+        )
+    );
+    anyhow::ensure!(
         others
             .iter()
-            .all(|v| !v.read(cx).has_unsaved() && !v.read(cx).is_saving()),
-        "Another window has unsaved changes or an active operation. Save drafts and wait before changing files."
+            .all(|view| !view.read(cx).has_unsaved_in(path)),
+        glim_services::locale::tr(
+            "An open file in this item has unsaved changes. Save it before moving this item to Trash."
+        )
     );
     cx.set_global(WorkspaceEditorLock(true));
     for view in others {
@@ -947,18 +959,28 @@ pub(crate) fn lock_workspace_editors(exclude: EntityId, cx: &mut App) -> Result<
     }
     Ok(())
 }
-pub(crate) fn unlock_workspace_editors(exclude: EntityId, cx: &mut App) {
+pub(crate) fn finish_trash_operation(
+    exclude: EntityId,
+    deleted_path: Option<std::path::PathBuf>,
+    cx: &mut App,
+) {
     cx.set_global(WorkspaceEditorLock(false));
-    let windows = cx
-        .try_global::<OpenWorkspaces>()
-        .map(|w| w.0.clone())
-        .unwrap_or_default();
-    for (view, handle) in windows {
+    for (view, handle) in OpenWorkspaces::windows(cx) {
         if let Some(view) = view.upgrade()
             && view.entity_id() != exclude
         {
-            let _ = handle.update(cx, |_, window, cx| {
-                view.update(cx, |v, cx| v.unlock_and_refresh(window, cx));
+            let deleted_path = deleted_path.clone();
+            // Other workspaces may share the window currently dispatching this operation.
+            cx.defer(move |cx| {
+                let _ = handle.update(cx, |_, window, cx| {
+                    view.update(cx, |view, cx| {
+                        view.set_editing_locked(false, cx);
+                        if let Some(path) = deleted_path {
+                            view.did_trash(&path, window, cx);
+                        }
+                        view.unlock_and_refresh(window, cx);
+                    });
+                });
             });
         }
     }
@@ -1004,21 +1026,4 @@ pub(crate) fn change_language(language: &'static str, cx: &mut App) {
         }
     });
     cx.global_mut::<LanguageSaveTask>().0 = Some(task);
-}
-
-/// Complete a filesystem mutation in every window displaying the same paths.
-pub(crate) fn finish_trash_in_other_windows(
-    exclude: EntityId,
-    path: &std::path::Path,
-    cx: &mut App,
-) {
-    for (view, handle) in OpenWorkspaces::windows(cx) {
-        if let Some(view) = view.upgrade()
-            && view.entity_id() != exclude
-        {
-            let _ = handle.update(cx, |_, window, cx| {
-                view.update(cx, |view, cx| view.did_trash(path, window, cx));
-            });
-        }
-    }
 }

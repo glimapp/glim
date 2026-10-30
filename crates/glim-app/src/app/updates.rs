@@ -610,9 +610,16 @@ fn show_panel_after_dispatch(cx: &mut App) {
 }
 fn set_locked(locked: bool, cx: &mut App) {
     cx.set_global(UpdateInstallLock(locked));
-    for (view, _) in super::OpenWorkspaces::windows(cx) {
+    for (view, handle) in super::OpenWorkspaces::windows(cx) {
         if let Some(view) = view.upgrade() {
-            view.update(cx, |v, cx| v.set_editing_locked(locked, cx));
+            view.update(cx, |view, cx| view.set_editing_locked(locked, cx));
+            if !locked {
+                cx.defer(move |cx| {
+                    let _ = handle.update(cx, |_, window, cx| {
+                        view.update(cx, |view, cx| view.unlock_and_refresh(window, cx));
+                    });
+                });
+            }
         }
     }
 }

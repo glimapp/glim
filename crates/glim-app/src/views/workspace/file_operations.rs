@@ -80,6 +80,12 @@ impl Workspace {
         cx.notify();
     }
 
+    pub(crate) fn has_unsaved_in(&self, path: &Path) -> bool {
+        self.tabs.iter().any(|reader| {
+            reader.draft_directory.is_none() && reader.path.starts_with(path) && reader.is_dirty()
+        })
+    }
+
     pub(super) fn confirm_trash(
         &mut self,
         path: PathBuf,
@@ -121,12 +127,17 @@ impl Workspace {
     fn trash(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         // Share the cross-window mutation lock to prevent autosave racing
         // the move. Recheck after the confirmation dialog.
-        if self.has_unsaved() || self.is_saving() {
-            self.error = Some(glim_services::locale::tr("Save your changes and wait for active operations before moving an item to Trash.").into());
+        if self.is_saving() {
+            self.error = Some(glim_services::locale::tr("A file is being saved. Wait for it to finish before moving this item to Trash.").into());
             cx.notify();
             return;
         }
-        if let Err(error) = crate::app::lock_workspace_editors(cx.entity().entity_id(), cx) {
+        if self.has_unsaved_in(&path) {
+            self.error = Some(glim_services::locale::tr("An open file in this item has unsaved changes. Save it before moving this item to Trash.").into());
+            cx.notify();
+            return;
+        }
+        if let Err(error) = crate::app::lock_workspace_editors(cx.entity().entity_id(), &path, cx) {
             self.error = Some(error.to_string().into());
             cx.notify();
             return;
@@ -144,15 +155,14 @@ impl Workspace {
             let _ = view.update_in(cx, |view, window, cx| {
                 view.confirm_task = None;
                 view.set_editing_locked(false, cx);
-                crate::app::unlock_workspace_editors(cx.entity().entity_id(), cx);
+                crate::app::finish_trash_operation(
+                    cx.entity().entity_id(),
+                    result.as_ref().ok().map(|_| path.clone()),
+                    cx,
+                );
                 match result {
                     Ok(()) => {
                         view.did_trash(&path, window, cx);
-                        crate::app::finish_trash_in_other_windows(
-                            cx.entity().entity_id(),
-                            &path,
-                            cx,
-                        );
                     }
                     Err(error) => {
                         view.error = Some(
@@ -164,19 +174,26 @@ impl Workspace {
                         );
                     }
                 }
+                view.unlock_and_refresh(window, cx);
                 cx.notify();
             });
         }));
     }
 
     pub(crate) fn did_trash(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
+        self.incoming_files
+            .retain(|queued| !queued.starts_with(path));
+        self.results.retain(|result| !result.starts_with(path));
+        if !self.tabs.iter().any(|reader| reader.path.starts_with(path))
+            && !self.roots.iter().any(|root| root.starts_with(path))
+        {
+            return;
+        }
         self.refresh_task = None;
         self.load_task = None;
         self.incoming_file_task = None;
         self.loading = false;
-        self.incoming_files.retain(|p| !p.starts_with(path));
         self.search_task = None;
-        self.results.retain(|p| !p.starts_with(path));
         let targets = self
             .tabs
             .iter()

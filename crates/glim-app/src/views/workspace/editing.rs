@@ -245,16 +245,22 @@ impl Workspace {
         }
     }
 
+    pub(super) fn resume_queued_saves(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        while !self.editing_locked && self.saving.is_none() {
+            let Some(next) = self.save_queue.pop_front() else {
+                break;
+            };
+            self.save_editor(next, window, cx);
+        }
+    }
+
     pub(super) fn save_editor(
         &mut self,
         id: EntityId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.editing_locked {
-            return;
-        }
-        if self.saving.is_some() {
+        if self.editing_locked || self.saving.is_some() {
             if !self.save_queue.contains(&id) {
                 self.save_queue.push_back(id);
             }
@@ -343,12 +349,7 @@ impl Workspace {
                         }
                     }
                 }
-                while v.saving.is_none() {
-                    let Some(next) = v.save_queue.pop_front() else {
-                        break;
-                    };
-                    v.save_editor(next, window, cx);
-                }
+                v.resume_queued_saves(window, cx);
                 v.continue_close(window, cx);
                 cx.notify();
             });
@@ -495,12 +496,7 @@ impl Workspace {
                         }
                     }
                 }
-                while view.saving.is_none() {
-                    let Some(next) = view.save_queue.pop_front() else {
-                        break;
-                    };
-                    view.save_editor(next, window, cx);
-                }
+                view.resume_queued_saves(window, cx);
                 view.continue_close(window, cx);
                 cx.notify();
             });
