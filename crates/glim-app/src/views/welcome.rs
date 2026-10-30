@@ -20,12 +20,22 @@ fn quick_action(
     share: f32,
     cx: &App,
 ) -> Button {
-    let ink = match id {
-        "welcome-new-workspace" => super::accent(cx),
-        "welcome-open-file" => cx.theme().blue,
-        _ => cx.theme().warning,
+    let primary = id == "welcome-new-workspace";
+    let ink = if primary {
+        super::accent(cx)
+    } else {
+        cx.theme().muted_foreground
     };
-    let surface = cx.theme().background.blend(ink.opacity(0.055));
+    let surface = if primary {
+        cx.theme().background.blend(ink.opacity(0.14))
+    } else {
+        cx.theme().background
+    };
+    let border = if primary {
+        cx.theme().border.blend(ink.opacity(0.40))
+    } else {
+        cx.theme().border
+    };
     Button::new(id)
         .custom(
             ButtonCustomVariant::new(cx)
@@ -41,7 +51,7 @@ fn quick_action(
         .px_3()
         .rounded(px(10.))
         .border_1()
-        .border_color(cx.theme().border.blend(ink.opacity(0.18)))
+        .border_color(border)
         .accessibility_label(glim_services::locale::tr(label))
         .child(
             h_flex()
@@ -62,7 +72,12 @@ fn quick_action(
                         .truncate()
                         .text_sm()
                         .text_left()
-                        .font_weight(FontWeight::MEDIUM)
+                        .font_weight(if primary {
+                            FontWeight::SEMIBOLD
+                        } else {
+                            FontWeight::MEDIUM
+                        })
+                        .text_color(if primary { ink } else { cx.theme().foreground })
                         .child(glim_services::locale::tr(label)),
                 )
                 .child(
@@ -270,9 +285,16 @@ pub fn welcome(
                                 )
                                 .child(
                                     Button::new(("recent-new-window", index))
-                                        .ghost()
+                                        .custom(
+                                            ButtonCustomVariant::new(cx)
+                                                .foreground(
+                                                    cx.theme().muted_foreground.opacity(0.70),
+                                                )
+                                                .hover(cx.theme().foreground.opacity(0.04))
+                                                .active(cx.theme().foreground.opacity(0.08)),
+                                        )
                                         .small()
-                                        .icon(IconName::ArrowUpRight)
+                                        .icon(Icon::new(IconName::ArrowUpRight).size(px(14.)))
                                         .tooltip(glim_services::locale::tr("Open in New Window"))
                                         .accessibility_label(glim_services::locale::tr(
                                             "Open in New Window",
@@ -286,10 +308,17 @@ pub fn welcome(
                                 )
                                 .child(
                                     Button::new(("recent-remove", index))
-                                        .ghost()
+                                        .custom(
+                                            ButtonCustomVariant::new(cx)
+                                                .foreground(
+                                                    cx.theme().muted_foreground.opacity(0.70),
+                                                )
+                                                .hover(cx.theme().foreground.opacity(0.04))
+                                                .active(cx.theme().foreground.opacity(0.08)),
+                                        )
                                         .small()
                                         .mr_2()
-                                        .icon(IconName::X)
+                                        .icon(Icon::new(IconName::X).size(px(14.)))
                                         .tooltip(glim_services::locale::tr(
                                             "Remove from Recent Workspaces",
                                         ))
