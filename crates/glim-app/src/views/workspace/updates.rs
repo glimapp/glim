@@ -30,7 +30,7 @@ impl Workspace {
                             && !view.is_saving()
                         {
                             pending_readers = false;
-                            view.refresh_readers(window, cx);
+                            view.refresh_readers(false, window, cx);
                         }
                     })
                     .is_err()
@@ -76,10 +76,10 @@ impl Workspace {
         if let Some(explorer) = &self.explorer {
             explorer.update(cx, |v, cx| v.refresh(cx));
         }
-        self.refresh_readers(window, cx);
+        self.refresh_readers(true, window, cx);
     }
 
-    fn refresh_readers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn refresh_readers(&mut self, force: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.refresh_task.is_some() || self.watch_scan_task.is_some() || self.is_saving() {
             return;
         }
@@ -91,6 +91,9 @@ impl Workspace {
             .iter()
             .filter(|r| {
                 r.draft_directory.is_none()
+                    && (force
+                        || r.snapshot != "sqlite-preview"
+                        || r.sqlite_source_stamp(cx).is_some())
                     && (r.snapshot != "native-preview" || r.native_image_stamp(cx).is_some())
             })
             .map(|r| {
@@ -98,6 +101,11 @@ impl Workspace {
                     r.path.clone(),
                     r.native_image_stamp(cx),
                     r.page_refresh_request(cx),
+                    if force {
+                        None
+                    } else {
+                        r.sqlite_source_stamp(cx)
+                    },
                 )
             })
             .collect::<Vec<_>>();
@@ -105,7 +113,13 @@ impl Workspace {
         let read = cx.background_executor().spawn(async move {
             targets
                 .into_iter()
-                .filter_map(|(path, image_stamp, page_refresh)| {
+                .filter_map(|(path, image_stamp, page_refresh, sqlite_stamp)| {
+                    if let Some(expected) = sqlite_stamp
+                        && glim_services::sqlite::source_stamp(&path)
+                            .is_ok_and(|actual| actual == expected)
+                    {
+                        return None;
+                    }
                     if let Some(expected) = image_stamp
                         && std::fs::metadata(&path)
                             .is_ok_and(|m| (m.len(), m.modified().ok()) == expected)
@@ -139,6 +153,10 @@ impl Workspace {
                     };
                     // Never replace a draft, even if this refresh started before typing.
                     if view.tabs[index].is_dirty() || view.is_saving() {
+                        continue;
+                    }
+                    if matches!(content, Content::Sqlite(_)) && view.tabs[index].refresh_sqlite(cx)
+                    {
                         continue;
                     }
                     let unchanged = match &content {

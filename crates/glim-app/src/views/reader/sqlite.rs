@@ -157,6 +157,7 @@ pub(super) struct SqliteReader {
     count_error: bool,
     task: Option<Task<()>>,
     count_task: Option<Task<()>>,
+    refresh_task: Option<Task<()>>,
     debounce: Option<Task<()>>,
     detail_task: Option<Task<()>>,
     detail: Option<Detail>,
@@ -266,6 +267,7 @@ impl SqliteReader {
             count_error: false,
             task: Some(task),
             count_task: None,
+            refresh_task: None,
             debounce: None,
             detail_task: None,
             detail: None,
@@ -275,8 +277,96 @@ impl SqliteReader {
         reader.bind_window(window, cx);
         reader
     }
+    pub(super) fn source_stamp(&self) -> Option<glim_services::sqlite::SourceStamp> {
+        self.database.as_ref().and_then(|db| db.source_stamp())
+    }
+    pub(super) fn refresh(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if self.refresh_task.is_some() {
+            return;
+        }
+        let previous = self.query.clone();
+        let mut query = previous.clone();
+        let source = path.clone();
+        let (cancel, guard) = Cancellation::task();
+        let work = cx.background_executor().spawn(async move {
+            let database = browser::open(&source, &cancel)?;
+            if !database.tables.contains(&query.table) {
+                query.table = database.tables.first().cloned().unwrap_or_default();
+                query.page = 0;
+            }
+            if query.table.is_empty() {
+                query.columns.clear();
+                query.order.clear();
+                query.sort = None;
+                query.start_column = 0;
+                return Ok((database, query, None, None));
+            }
+            let columns = database.columns(&query.table, &cancel)?;
+            if columns.names != query.columns {
+                query.sort = None;
+                query.start_column = 0;
+            }
+            query.columns = columns.names;
+            query.order = columns.order;
+            let total = database.count(&query, &cancel).ok();
+            if let Some(total) = total {
+                query.page = query
+                    .page
+                    .min(total.saturating_sub(1) as usize / limits::SQLITE_PAGE_ROWS);
+            }
+            let page = database.page(&query, &cancel)?;
+            Ok::<_, anyhow::Error>((database, query, Some(page), total))
+        });
+        self.refresh_task = Some(cx.spawn(async move |view, cx| {
+            let _guard = guard;
+            let result = work.await;
+            let _ = view.update(cx, |view, cx| {
+                view.refresh_task = None;
+                if view.query != previous {
+                    view.refresh(path, cx);
+                    return;
+                }
+                match result {
+                    Ok((database, query, page, total)) => {
+                        if view.query.table != query.table || view.query.columns != query.columns {
+                            view.detail = None;
+                        }
+                        // Cancel queries against the old snapshot before publishing the replacement.
+                        view.task = None;
+                        view.count_task = None;
+                        view.detail_task = None;
+                        view.error = None;
+                        view.count_error = total.is_none() && !query.table.is_empty();
+                        view.total = total;
+                        view.more = page.as_ref().is_some_and(|p| p.more);
+                        view.grid.update(cx, |state, cx| {
+                            let grid = state.delegate_mut();
+                            let changed_columns = grid.columns != query.columns;
+                            grid.columns = query.columns.clone();
+                            grid.rows = page.as_ref().map(|p| p.rows.clone()).unwrap_or_default();
+                            grid.start = page.as_ref().map_or(0, |p| p.start_column);
+                            grid.offset = query.page.saturating_mul(limits::SQLITE_PAGE_ROWS);
+                            grid.busy = false;
+                            if changed_columns {
+                                state.refresh(cx);
+                            } else {
+                                cx.notify();
+                            }
+                        });
+                        view.query = query;
+                        view.database = Some(database);
+                    }
+                    Err(error) => {
+                        view.error = Some(error.to_string());
+                    }
+                }
+                cx.notify();
+            });
+        }));
+    }
+
     pub(super) fn can_move_to_window(&self) -> bool {
-        self.detail_task.is_none()
+        self.detail_task.is_none() && self.refresh_task.is_none()
     }
 
     pub(super) fn bind_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {

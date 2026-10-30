@@ -679,6 +679,24 @@ impl Reader {
             _ => false,
         }
     }
+    pub(crate) fn sqlite_source_stamp(
+        &self,
+        cx: &App,
+    ) -> Option<glim_services::sqlite::SourceStamp> {
+        if let Renderer::Sqlite(view) = &self.renderer {
+            view.read(cx).source_stamp()
+        } else {
+            None
+        }
+    }
+    pub(crate) fn refresh_sqlite(&self, cx: &mut App) -> bool {
+        if let Renderer::Sqlite(view) = &self.renderer {
+            view.update(cx, |view, cx| view.refresh(self.path.clone(), cx));
+            true
+        } else {
+            false
+        }
+    }
     pub fn native_image_stamp(&self, cx: &App) -> Option<(u64, Option<std::time::SystemTime>)> {
         match &self.renderer {
             Renderer::Native(view) => view.read(cx).image_stamp(),

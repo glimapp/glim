@@ -13,7 +13,7 @@ pub struct Database {
     snapshot: Snapshot,
     pub tables: Vec<String>,
 }
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct Query {
     pub table: String,
     pub columns: Vec<String>,
@@ -64,6 +64,9 @@ fn quote(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 impl Database {
+    pub fn source_stamp(&self) -> Option<super::SourceStamp> {
+        self.snapshot.source_stamp.clone()
+    }
     fn connection(&self, cancel: &Cancellation, seconds: u64) -> Result<Connection> {
         let connection = Connection::open_with_flags(
             self.snapshot.database.as_ref().unwrap(),
