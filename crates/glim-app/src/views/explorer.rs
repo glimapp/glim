@@ -23,7 +23,7 @@ pub enum ExplorerEvent {
     TrashEntry(PathBuf),
     PlayFolder(PathBuf, bool),
     Error(String),
-    ExpansionChanged(Vec<PathBuf>, Vec<PathBuf>),
+    ExpansionChanged(Vec<PathBuf>, glim_services::preferences::ExplorerExpansion),
 }
 
 gpui_kit::actions!(explorer, [Up, Down, Expand, Collapse, OpenSelected]);
@@ -202,9 +202,17 @@ impl Explorer {
         cx.notify();
     }
 
-    pub fn expansion_state(&self) -> (Vec<PathBuf>, Vec<PathBuf>) {
-        let mut expanded = self.expanded.iter().flatten().cloned().collect::<Vec<_>>();
-        expanded.sort();
+    pub fn expansion_state(&self) -> (Vec<PathBuf>, glim_services::preferences::ExplorerExpansion) {
+        let expanded = self
+            .roots
+            .iter()
+            .cloned()
+            .zip(self.expanded.iter().map(|paths| {
+                let mut paths = paths.iter().cloned().collect::<Vec<_>>();
+                paths.sort();
+                paths
+            }))
+            .collect();
         (self.roots.clone(), expanded)
     }
 
@@ -213,13 +221,19 @@ impl Explorer {
         cx.emit(ExplorerEvent::ExpansionChanged(roots, expanded));
     }
 
-    pub fn restore_expanded(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+    pub fn restore_expanded(
+        &mut self,
+        paths: glim_services::preferences::ExplorerExpansion,
+        cx: &mut Context<Self>,
+    ) {
         self.expanded = self
             .roots
             .iter()
             .map(|root| {
                 paths
-                    .iter()
+                    .get(root)
+                    .into_iter()
+                    .flatten()
                     .filter(|path| {
                         !path
                             .components()
@@ -590,14 +604,22 @@ impl Explorer {
     fn activate_path(
         &mut self,
         path: &std::path::Path,
+        root_id: u64,
         sticky: bool,
         explicit: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(index) = self.rows.iter().position(|row| row.entry.path == path) else {
+        let Some(index) = self
+            .rows
+            .iter()
+            .position(|row| self.root_ids[row.root_index] == root_id && row.entry.path == path)
+        else {
             return;
         };
+        self.clicked_path = Some(path.to_path_buf());
+        self.clicked_root = Some(self.rows[index].root_index);
+        cx.emit(ExplorerEvent::SelectionChanged);
         let depth = self.rows[index].depth;
         if !explicit && !self.rows[index].entry.is_dir {
             self.selected = Some(index);
@@ -627,6 +649,7 @@ impl Explorer {
             .into_owned();
         let label_name = name.clone();
         let root_index = row.root_index;
+        let root_id = self.root_ids[root_index];
         let label_key = (root_index, row.entry.path.clone(), sticky);
         let label_view = cx.entity().downgrade();
         let hint_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::default()));
@@ -826,11 +849,9 @@ impl Explorer {
                     .h(px(row_height))
                     .justify_start()
                     .on_click(cx.listener(move |view, event, window, cx| {
-                        view.clicked_path = Some(row_path.clone());
-                        view.clicked_root = Some(root_index);
-                        cx.emit(ExplorerEvent::SelectionChanged);
                         view.activate_path(
                             &row_path,
+                            root_id,
                             sticky,
                             !matches!(event, ClickEvent::Mouse(_)) || event.click_count() > 1,
                             window,

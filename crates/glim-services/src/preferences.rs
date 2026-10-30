@@ -39,26 +39,26 @@ pub fn save_workspace_folders(folders: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
-pub fn explorer_expansion(roots: &[PathBuf]) -> Result<Vec<PathBuf>> {
+pub type ExplorerExpansion = std::collections::BTreeMap<PathBuf, Vec<PathBuf>>;
+
+pub fn explorer_expansion(roots: &[PathBuf]) -> Result<ExplorerExpansion> {
     let path = directory()?.join("explorer.json");
-    let states: std::collections::BTreeMap<PathBuf, Vec<PathBuf>> = match std::fs::read(path) {
+    let states: ExplorerExpansion = match std::fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Default::default()),
         Err(error) => return Err(error.into()),
     };
     Ok(roots
         .iter()
-        .filter_map(|root| states.get(root))
-        .flatten()
-        .cloned()
+        .filter_map(|root| states.get(root).map(|paths| (root.clone(), paths.clone())))
         .collect())
 }
 
-pub fn save_explorer_expansion(roots: &[PathBuf], expanded: &[PathBuf]) -> Result<()> {
+pub fn save_explorer_expansion(roots: &[PathBuf], expanded: &ExplorerExpansion) -> Result<()> {
     let parent = directory()?;
     std::fs::create_dir_all(&parent)?;
     let path = parent.join("explorer.json");
-    let mut states: std::collections::BTreeMap<PathBuf, Vec<PathBuf>> = match std::fs::read(&path) {
+    let mut states: ExplorerExpansion = match std::fs::read(&path) {
         Ok(bytes) => serde_json::from_slice(&bytes)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
         Err(error) => return Err(error.into()),
@@ -67,7 +67,9 @@ pub fn save_explorer_expansion(roots: &[PathBuf], expanded: &[PathBuf]) -> Resul
         states.insert(
             root.clone(),
             expanded
-                .iter()
+                .get(root)
+                .into_iter()
+                .flatten()
                 .filter(|path| path.starts_with(root))
                 .cloned()
                 .collect(),

@@ -55,7 +55,7 @@ impl Global for ExplorerSaveTask {}
 
 pub(crate) fn remember_explorer(
     roots: Vec<std::path::PathBuf>,
-    expanded: Vec<std::path::PathBuf>,
+    expanded: glim_services::preferences::ExplorerExpansion,
     cx: &mut App,
 ) {
     if !cx.has_global::<ExplorerSaveTask>() {
