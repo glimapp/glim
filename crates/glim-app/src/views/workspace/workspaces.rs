@@ -227,7 +227,9 @@ impl Workspace {
                 let title = workspace.title();
                 let rename = workspace.clone();
                 let weak = cx.entity().downgrade();
+                let hover_group = SharedString::from(format!("workspace-row-{}", workspace.id));
                 h_flex()
+                    .group(hover_group.clone())
                     .w_full()
                     .min_w_0()
                     .items_center()
@@ -265,32 +267,41 @@ impl Workspace {
                             })),
                     )
                     .child(
-                        Button::new(SharedString::from(format!(
-                            "close-workspace-{}",
-                            workspace.id
-                        )))
-                        .custom(
-                            ButtonCustomVariant::new(cx)
-                                .foreground(cx.theme().muted_foreground.opacity(0.70))
-                                .hover(background.blend(cx.theme().foreground.opacity(0.06)))
-                                .active(background.blend(cx.theme().foreground.opacity(0.10))),
-                        )
-                        .small()
-                        .mr_1()
-                        .icon(Icon::new(gpui_kit::assets::IconName::X).size(px(13.)))
-                        .accessibility_label(glim_services::locale::tr("Close Workspace"))
-                        .on_click(cx.listener(
-                            move |view, _, window, cx| {
-                                if let Some(host) = view.workspace_window.clone() {
-                                    let id = close_id.clone();
-                                    window.defer(cx, move |window, cx| {
-                                        let _ = host.update(cx, |host, cx| {
-                                            host.request_workspace_close(&id, window, cx)
-                                        });
-                                    });
-                                }
-                            },
-                        )),
+                        div()
+                            .invisible()
+                            .group_hover(hover_group, |view| view.visible())
+                            .child(
+                                Button::new(SharedString::from(format!(
+                                    "close-workspace-{}",
+                                    workspace.id
+                                )))
+                                .custom(
+                                    ButtonCustomVariant::new(cx)
+                                        .foreground(cx.theme().muted_foreground.opacity(0.70))
+                                        .hover(
+                                            background.blend(cx.theme().foreground.opacity(0.06)),
+                                        )
+                                        .active(
+                                            background.blend(cx.theme().foreground.opacity(0.10)),
+                                        ),
+                                )
+                                .small()
+                                .mr_1()
+                                .icon(Icon::new(gpui_kit::assets::IconName::X).size(px(13.)))
+                                .accessibility_label(glim_services::locale::tr("Close Workspace"))
+                                .on_click(cx.listener(
+                                    move |view, _, window, cx| {
+                                        if let Some(host) = view.workspace_window.clone() {
+                                            let id = close_id.clone();
+                                            window.defer(cx, move |window, cx| {
+                                                let _ = host.update(cx, |host, cx| {
+                                                    host.request_workspace_close(&id, window, cx)
+                                                });
+                                            });
+                                        }
+                                    },
+                                )),
+                            ),
                     )
                     .context_menu(move |menu, _, _| {
                         let weak = weak.clone();
