@@ -46,7 +46,14 @@ impl Workspace {
                         .count()
                 }),
             workspace_id: Some(self.recent_id.clone()),
-            name: self.workspace_name.clone(),
+            name: self.workspace_name.clone().or_else(|| {
+                let host = self.workspace_window.as_ref()?.upgrade()?;
+                host.read(cx)
+                    .slots
+                    .iter()
+                    .find(|slot| slot.workspace.id == self.recent_id)
+                    .and_then(|slot| slot.workspace.name.clone())
+            }),
             window_group: self
                 .workspace_window
                 .as_ref()

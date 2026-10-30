@@ -43,7 +43,14 @@ impl WorkspaceWindow {
         if let Some(group) = session.as_ref().and_then(|s| s.window_group.clone()) {
             self.group = group;
         }
-        if let Some(slot) = self.slots.get(self.active) {
+        if let Some(slot) = self.slots.get_mut(self.active) {
+            slot.workspace = slot.view.read(cx).workspace_descriptor();
+            if slot.workspace.folders.is_empty()
+                && slot.workspace.name.is_none()
+                && slot.view.read(cx).telemetry_tab_count() > 0
+            {
+                slot.workspace.name = Some(glim_services::locale::tr("Workspace"));
+            }
             slot.view
                 .update(cx, |view, cx| view.suspend_workspace(window, cx));
         }
