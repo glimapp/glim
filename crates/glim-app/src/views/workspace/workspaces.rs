@@ -3,7 +3,7 @@ use glim_services::preferences::RecentWorkspace;
 use gpui_kit::{
     component::{
         ActiveTheme, Icon,
-        button::{Button, ButtonVariants},
+        button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         input::{Input, InputEvent, InputState},
         menu::{ContextMenuExt, PopupMenuItem},
@@ -204,6 +204,11 @@ impl Workspace {
                         .into_any_element();
                 }
                 let selected = self.page != Page::Start && self.recent_id == workspace.id;
+                let background = if selected {
+                    crate::views::selection_background(cx)
+                } else {
+                    cx.theme().sidebar
+                };
                 let id = workspace.id.clone();
                 let title = workspace.title();
                 let rename = workspace.clone();
@@ -212,16 +217,17 @@ impl Workspace {
                     .w_full()
                     .child(
                         Button::new(SharedString::from(format!("workspace-{}", workspace.id)))
-                            .ghost()
+                            .custom(
+                                ButtonCustomVariant::new(cx)
+                                    .color(background)
+                                    .hover(background.blend(cx.theme().foreground.opacity(0.06)))
+                                    .active(background.blend(cx.theme().foreground.opacity(0.10))),
+                            )
                             .w_full()
                             .h(px(34.))
                             .px_3()
                             .justify_start()
-                            .bg(if selected {
-                                crate::views::selection_background(cx)
-                            } else {
-                                cx.theme().sidebar
-                            })
+                            .bg(background)
                             .tooltip(title.clone())
                             .accessibility_label(title.clone())
                             .child(
