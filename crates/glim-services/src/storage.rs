@@ -34,17 +34,25 @@ pub(crate) fn open_at(directory: &Path) -> Result<Connection> {
     db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     ensure!(
-        version <= 1,
+        version <= 2,
         "Glim database was created by a newer application version"
     );
-    if version == 0 {
+    if version < 2 {
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version == 0 {
             tx.execute_batch(include_str!("storage/schema.sql"))?;
             migration::import(&tx, directory)
                 .context("Cannot migrate existing Glim data; original files have been preserved")?;
-            tx.execute_batch("PRAGMA user_version=1")?;
+        } else if version == 1 {
+            tx.execute_batch(
+                "INSERT INTO records(kind,id,payload)
+                SELECT 'migration-source',path,'' FROM imported_files;
+                DROP TABLE imported_files;",
+            )?;
+        }
+        if version < 2 {
+            tx.execute_batch("PRAGMA user_version=2")?;
         }
         tx.commit()?;
     }

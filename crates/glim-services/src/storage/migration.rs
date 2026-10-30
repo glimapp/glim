@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 fn source(db: &Connection, directory: &Path, name: &str) -> Result<Option<Vec<u8>>> {
     match std::fs::read(directory.join(name)) {
         Ok(bytes) => {
-            db.execute("INSERT INTO imported_files(path) VALUES(?1)", [name])?;
+            set_record(db, "migration-source", name, "")?;
             Ok(Some(bytes))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -119,18 +119,26 @@ pub(super) fn import(db: &Connection, directory: &Path) -> Result<()> {
 }
 pub(super) fn archive_sources(db: &Connection, directory: &Path) -> Result<()> {
     let names = db
-        .prepare("SELECT path FROM imported_files")?
+        .prepare("SELECT id FROM records WHERE kind='migration-source'")?
         .query_map([], |r| r.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for name in names {
-        if name.starts_with("Drafts/") {
+        let source = directory.join(&name);
+        // Existing draft sources must be handled under their session's OS lock.
+        // Absent sources are already archived and no longer need a checkpoint.
+        if source.exists() && (name.starts_with("Drafts/") || name.starts_with("DraftLocks/")) {
             continue;
         }
-        let source = directory.join(&name);
         let target = directory.join("LegacyMigration").join(&name);
         if source.is_file() && !target.exists() {
             std::fs::create_dir_all(target.parent().context("Invalid migration archive")?)?;
-            std::fs::rename(source, target)?;
+            std::fs::rename(&source, target)?;
+        }
+        if !source.exists() {
+            db.execute(
+                "DELETE FROM records WHERE kind='migration-source' AND id=?1",
+                [name],
+            )?;
         }
     }
     Ok(())

@@ -175,7 +175,7 @@ impl Worker {
                         .to_string_lossy()
                         .into_owned();
                     let exists: bool = tx.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM imported_files WHERE path=?1)",
+                        "SELECT EXISTS(SELECT 1 FROM records WHERE kind='migration-source' AND id=?1)",
                         [&relative],
                         |r| r.get(0),
                     )?;
@@ -183,7 +183,7 @@ impl Worker {
                         let draft =
                             read_legacy(&record.path(), &crate::work::Cancellation::default())?;
                         tx.execute("INSERT INTO drafts(session,id,title,directory,text) VALUES(?1,?2,?3,?4,?5)",rusqlite::params![owner,draft.id,draft.title,crate::storage::path_text(&draft.directory)?,draft.text])?;
-                        tx.execute("INSERT INTO imported_files(path) VALUES(?1)", [&relative])?;
+                        crate::storage::set_record(&tx, "migration-source", &relative, "")?;
                     }
                     imported.push(relative);
                 }
@@ -196,7 +196,13 @@ impl Worker {
                     let target = root.join("LegacyMigration").join(&relative);
                     if !target.exists() {
                         std::fs::create_dir_all(target.parent().context("Invalid draft archive")?)?;
-                        std::fs::rename(root.join(relative), target)?;
+                        std::fs::rename(root.join(&relative), target)?;
+                    }
+                    if !root.join(&relative).exists() {
+                        db.execute(
+                            "DELETE FROM records WHERE kind='migration-source' AND id=?1",
+                            [&relative],
+                        )?;
                     }
                 }
                 let _ = std::fs::remove_file(entry.path().join(".lock"));

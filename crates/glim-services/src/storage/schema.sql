@@ -7,5 +7,4 @@ CREATE TABLE session_roots(session INTEGER NOT NULL REFERENCES sessions(id) ON D
 CREATE TABLE session_tabs(session INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, position INTEGER NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('file','playlist')), path TEXT NOT NULL, flag INTEGER NOT NULL CHECK(flag IN (0,1)), PRIMARY KEY(session,position));
 -- Versioned reader state and update checkpoints keep their format-specific payloads.
 CREATE TABLE records(kind TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(kind,id));
-CREATE TABLE imported_files(path TEXT PRIMARY KEY);
 CREATE TABLE drafts(session TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, directory TEXT NOT NULL, text TEXT NOT NULL, PRIMARY KEY(session,id));
