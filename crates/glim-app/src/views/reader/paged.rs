@@ -66,6 +66,10 @@ impl PagedReader {
             scroll: UniformListScrollHandle::new(),
         }
     }
+    pub(super) fn can_move_to_window(&self) -> bool {
+        self.task.is_none()
+    }
+
     pub fn refresh_request(&self) -> Option<glim_services::paged::PageRefresh> {
         self.source_editor.as_ref()?;
         Some(glim_services::paged::PageRefresh {

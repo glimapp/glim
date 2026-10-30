@@ -585,6 +585,24 @@ impl Reader {
             renderer,
         }
     }
+    pub(crate) fn can_move_to_window(&self, cx: &App) -> bool {
+        self.structured_controls
+            .as_ref()
+            .is_none_or(|controls| controls.read(cx).can_move_to_window())
+            && match &self.renderer {
+                Renderer::Paged { view, .. } => view.read(cx).can_move_to_window(),
+                Renderer::Sqlite(view) => view.read(cx).can_move_to_window(),
+                Renderer::Native(view) => view.read(cx).can_move_to_window(cx),
+                _ => true,
+            }
+    }
+
+    pub(crate) fn bind_window(&self, window: &mut Window, cx: &mut App) {
+        if let Renderer::Sqlite(view) = &self.renderer {
+            view.update(cx, |view, cx| view.bind_window(window, cx));
+        }
+    }
+
     pub fn hide_native(&self, cx: &mut App) {
         if let Renderer::Paged {
             html: Some((view, _)),

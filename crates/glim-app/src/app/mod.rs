@@ -688,22 +688,7 @@ fn open_workspace_session(
             return;
         }
     }
-    // Use the usable screen rectangle directly. Maximized invokes macOS zoom,
-    // which toggles an already full-size initial frame back to a smaller one.
-    let bounds = cx
-        .primary_display()
-        .map(|display| display.visible_bounds())
-        .unwrap_or_else(|| Bounds::centered(None, size(px(1100.), px(760.)), cx));
-    let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
-        window_min_size: Some(size(px(800.), px(480.))),
-        titlebar: Some(TitlebarOptions {
-            // Center macOS traffic lights in the workspace's 48px title bar.
-            traffic_light_position: Some(point(px(9.), px(17.))),
-            ..gpui_kit::component::TitleBar::title_bar_options()
-        }),
-        ..gpui_kit::component::TitleBar::window_options()
-    };
+    let options = workspace_window_options(cx);
     match gpui_kit::open_window(options, cx, |window, cx| {
         window.set_draw_panic_handler(glim_services::diagnostics::take_render_failure);
         let restore = session.is_none() && path.is_none() && OpenWorkspaces::windows(cx).is_empty();
@@ -724,6 +709,40 @@ fn open_workspace_session(
         }
         Err(error) => log::error!("Cannot open Glim window: {error:#}"),
     }
+}
+
+fn workspace_window_options(cx: &App) -> WindowOptions {
+    // Use the usable screen rectangle directly. Maximized invokes macOS zoom,
+    // which toggles an already full-size initial frame back to a smaller one.
+    let bounds = cx
+        .primary_display()
+        .map(|display| display.visible_bounds())
+        .unwrap_or_else(|| Bounds::centered(None, size(px(1100.), px(760.)), cx));
+    WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        window_min_size: Some(size(px(800.), px(480.))),
+        titlebar: Some(TitlebarOptions {
+            // Center macOS traffic lights in the workspace's 48px title bar.
+            traffic_light_position: Some(point(px(9.), px(17.))),
+            ..gpui_kit::component::TitleBar::title_bar_options()
+        }),
+        ..gpui_kit::component::TitleBar::window_options()
+    }
+}
+
+pub(crate) fn open_detached_window(
+    cx: &mut App,
+) -> anyhow::Result<(Entity<Workspace>, AnyWindowHandle)> {
+    let (handle, host) = gpui_kit::open_window(workspace_window_options(cx), cx, |window, cx| {
+        window.set_draw_panic_handler(glim_services::diagnostics::take_render_failure);
+        let host = cx.new(crate::views::workspace_window::WorkspaceWindow::new);
+        host.update(cx, |host, cx| host.append(None, None, window, cx));
+        host
+    })?;
+    glim_services::telemetry::track("window_opened", []);
+    telemetry::refresh_resource_sampling(cx);
+    cx.activate(true);
+    Ok((host.read(cx).slots[0].view.clone(), handle))
 }
 
 pub(crate) fn register_workspace(view: &Entity<Workspace>, handle: AnyWindowHandle, cx: &mut App) {

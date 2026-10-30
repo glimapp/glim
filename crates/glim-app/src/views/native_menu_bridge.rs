@@ -77,6 +77,7 @@ impl Drop for NativeMenu {
 fn menu_symbol(title: &str) -> Option<&'static str> {
     use glim_services::locale::tr;
     [
+        ("Move Tab to New Window", "macwindow.badge.plus"),
         ("New File", "doc.badge.plus"),
         ("Add Folder to Workspace…", "folder.badge.plus"),
         ("Open", "arrow.up.forward.app"),

@@ -109,7 +109,7 @@ impl Workspace {
         self.tab_scroll.scroll_to_item(0);
         cx.notify();
     }
-    fn checkpoint_editor(&self, id: EntityId, cx: &App) {
+    pub(super) fn checkpoint_editor(&self, id: EntityId, cx: &App) {
         if let Some(reader) = self.tabs.iter().find(|reader| {
             reader
                 .editor()

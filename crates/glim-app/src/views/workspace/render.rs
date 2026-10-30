@@ -43,7 +43,7 @@ impl Render for Workspace {
             }
         }
         let header = self.header(cx);
-        let tab_bar = self.tab_bar(cx);
+        let tab_bar = self.tab_bar(window, cx);
         let view = cx.entity().downgrade();
         let open: crate::views::reader::OpenLink =
             std::sync::Arc::new(move |path, anchor, window, cx| {

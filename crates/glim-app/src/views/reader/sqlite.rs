@@ -161,6 +161,7 @@ pub(super) struct SqliteReader {
     detail_task: Option<Task<()>>,
     detail: Option<Detail>,
     _subscriptions: Vec<Subscription>,
+    grid_subscription: Option<Subscription>,
 }
 impl SqliteReader {
     pub fn new(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -224,16 +225,6 @@ impl SqliteReader {
                 view.load_page(cx);
             }
         }));
-        subscriptions.push(cx.subscribe_in(
-            &grid,
-            window,
-            |view, _, event, window, cx| match event {
-                TableEvent::DoubleClickedCell(row, col) if *col > 0 => {
-                    view.load_value(*row, col - 1, 0, window, cx)
-                }
-                _ => {}
-            },
-        ));
         let (cancel, guard) = Cancellation::task();
         let telemetry_started = std::time::Instant::now();
         let work = cx
@@ -262,7 +253,7 @@ impl SqliteReader {
                 cx.notify();
             });
         });
-        Self {
+        let mut reader = Self {
             database: None,
             query: Query::default(),
             grid,
@@ -279,8 +270,28 @@ impl SqliteReader {
             detail_task: None,
             detail: None,
             _subscriptions: subscriptions,
-        }
+            grid_subscription: None,
+        };
+        reader.bind_window(window, cx);
+        reader
     }
+    pub(super) fn can_move_to_window(&self) -> bool {
+        self.detail_task.is_none()
+    }
+
+    pub(super) fn bind_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.grid_subscription = Some(cx.subscribe_in(
+            &self.grid,
+            window,
+            |view, _, event, window, cx| match event {
+                TableEvent::DoubleClickedCell(row, col) if *col > 0 => {
+                    view.load_value(*row, col - 1, 0, window, cx)
+                }
+                _ => {}
+            },
+        ));
+    }
+
     fn last_page(&self) -> Option<usize> {
         self.total
             .map(|n| n.saturating_sub(1) as usize / limits::SQLITE_PAGE_ROWS)

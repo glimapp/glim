@@ -31,6 +31,10 @@ impl JsonFormat {
             error: None,
         }
     }
+    pub(super) fn can_move_to_window(&self) -> bool {
+        self.task.is_none()
+    }
+
     fn format(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(editor) = self.editor.clone() else {
             return;

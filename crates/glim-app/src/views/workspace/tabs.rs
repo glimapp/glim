@@ -13,12 +13,43 @@ use gpui_kit::{
 #[derive(Clone)]
 struct DraggedTab {
     workspace: EntityId,
+    source: WeakEntity<Workspace>,
+    window: AnyWindowHandle,
     target: super::header::Target,
     label: String,
 }
 impl Render for DraggedTab {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let source = self.source.clone();
+        let source_window = self.window;
+        let target = self.target.clone();
         h_flex()
+            .child(
+                canvas(
+                    |_, _, _| {},
+                    move |_, _, window, _| {
+                        let source = source.clone();
+                        let target = target.clone();
+                        window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+                            if phase != DispatchPhase::Capture
+                                || event.button != MouseButton::Left
+                                || window.window_handle() != source_window
+                                || !cx.has_active_drag()
+                                || Bounds::new(Point::default(), window.viewport_size())
+                                    .contains(&event.position)
+                            {
+                                return;
+                            }
+                            cx.stop_active_drag(window);
+                            let _ =
+                                source.update(cx, |view, cx| view.detach_tab(&target, window, cx));
+                            cx.stop_propagation();
+                        });
+                    },
+                )
+                .absolute()
+                .size_0(),
+            )
             .px_3()
             .py_1()
             .rounded(px(7.))
@@ -31,9 +62,109 @@ impl Render for DraggedTab {
 enum TabMenuAction {
     Close(Vec<super::header::Target>),
     Trash(std::path::PathBuf),
+    Detach(super::header::Target),
+    CopyPath(std::path::PathBuf),
+    Reveal(std::path::PathBuf),
 }
 
 impl Workspace {
+    fn detach_tab(
+        &mut self,
+        target: &super::header::Target,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_saving()
+            || self.loading
+            || self.confirm_task.is_some()
+            || crate::app::updates::busy(cx)
+        {
+            self.error =
+                Some("A file operation is in progress. Please retry after it finishes.".into());
+            cx.notify();
+            return;
+        }
+        let Some(index) = self
+            .tabs
+            .iter()
+            .position(|reader| super::header::Target::from_reader(reader) == *target)
+        else {
+            return;
+        };
+        if !self.tabs[index].can_move_to_window(cx) {
+            self.error =
+                Some("A file operation is in progress. Please retry after it finishes.".into());
+            cx.notify();
+            return;
+        }
+        // Create the destination before taking ownership of the live reader.
+        let (destination, handle) = match crate::app::open_detached_window(cx) {
+            Ok(destination) => destination,
+            Err(error) => {
+                self.error = Some(format!("{error:#}").into());
+                cx.notify();
+                return;
+            }
+        };
+        let reader = self.tabs.remove(index);
+        reader.hide_native(cx);
+        if let Some(editor) = reader.editor() {
+            let id = editor.entity_id();
+            self.autosave.remove(&id);
+            // The destination takes over the same recovery record.
+            self.recovery_keys.remove(&id);
+            self.save_queue.retain(|queued| *queued != id);
+        }
+        self.active = selection_after_close(self.active, index, self.tabs.len() + 1);
+        self.observe_autosave(window, cx);
+        if let Some(active) = self.active {
+            self.activate_tab(active, window, cx);
+            self.tabs[active].reveal_native(cx);
+        }
+        if let Some(session) = self.window_session(cx) {
+            crate::app::workspace_sessions::remember(session, cx);
+        }
+        self.sync_workspace(cx);
+        cx.notify();
+        // The just-created window cannot close between these synchronous updates.
+        handle
+            .update(cx, |_, window, cx| {
+                destination.update(cx, |view, cx| view.receive_detached_tab(reader, window, cx));
+            })
+            .expect("Newly created tab window");
+    }
+
+    fn receive_detached_tab(
+        &mut self,
+        reader: Reader,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workspace_name = Some(
+            reader
+                .path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| reader.title.to_string()),
+        );
+        reader.bind_window(window, cx);
+        let editor = reader.editor();
+        let autosave = reader.draft_directory.is_none() && reader.is_dirty();
+        self.tabs.push(reader);
+        self.observe_autosave(window, cx);
+        self.activate_tab(0, window, cx);
+        self.tabs[0].reveal_native(cx);
+        self.watch_file_parent(window, cx);
+        if let Some(editor) = editor {
+            self.checkpoint_editor(editor.entity_id(), cx);
+            if autosave {
+                self.save_editor(editor.entity_id(), window, cx);
+            }
+        }
+        self.sync_workspace(cx);
+        self.remember_session(cx);
+    }
+
     pub(super) fn active_reader(&self) -> Option<&Reader> {
         self.active.and_then(|index| self.tabs.get(index))
     }
@@ -159,6 +290,34 @@ impl Workspace {
         };
         let mut items = Vec::new();
         let mut actions = Vec::new();
+        items.push((
+            Some(glim_services::locale::tr("Move Tab to New Window")),
+            !self.is_saving()
+                && !self.loading
+                && self.tabs[index].can_move_to_window(cx)
+                && self.confirm_task.is_none()
+                && !crate::app::updates::busy(cx),
+        ));
+        actions.push(Some(TabMenuAction::Detach(target.clone())));
+        if self.tabs[index].draft_directory.is_none() {
+            let path = self.tabs[index].path.clone();
+            items.push((Some(glim_services::locale::tr("Reveal in Finder")), true));
+            actions.push(Some(TabMenuAction::Reveal(path.clone())));
+            items.push((Some(glim_services::locale::tr("Copy Absolute Path")), true));
+            let relative = self
+                .roots
+                .iter()
+                .filter_map(|root| path.strip_prefix(root).ok())
+                .min_by_key(|relative| relative.components().count())
+                .map(ToOwned::to_owned);
+            actions.push(Some(TabMenuAction::CopyPath(path)));
+            if let Some(relative) = relative {
+                items.push((Some(glim_services::locale::tr("Copy Relative Path")), true));
+                actions.push(Some(TabMenuAction::CopyPath(relative)));
+            }
+        }
+        items.push((None, true));
+        actions.push(None);
         for (label, mode) in [
             ("Close", 0),
             ("Close Tabs to the Right", 1),
@@ -199,6 +358,11 @@ impl Workspace {
                     .and_then(Option::take)
                 {
                     match action {
+                        TabMenuAction::Detach(target) => view.detach_tab(&target, window, cx),
+                        TabMenuAction::CopyPath(path) => cx.write_to_clipboard(
+                            ClipboardItem::new_string(path.to_string_lossy().into_owned()),
+                        ),
+                        TabMenuAction::Reveal(path) => cx.reveal_path(&path),
                         TabMenuAction::Close(targets) => view.close_tabs(targets, window, cx),
                         TabMenuAction::Trash(path) => view.confirm_trash(path, window, cx),
                     }
@@ -295,7 +459,7 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn tab_bar(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn tab_bar(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let tabs = self
             .tabs
             .iter()
@@ -325,6 +489,8 @@ impl Workspace {
                 let drop_target = target.clone();
                 let dragged = DraggedTab {
                     workspace: cx.entity_id(),
+                    source: cx.entity().downgrade(),
+                    window: window.window_handle(),
                     target: target.clone(),
                     label: label.clone(),
                 };

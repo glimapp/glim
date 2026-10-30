@@ -121,7 +121,7 @@ impl NativeReader {
         self.html_anchor = Some(anchor.to_owned());
     }
 
-    fn open_bytes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_bytes(&mut self, cx: &mut Context<Self>) {
         if self.task.is_some() || self.folder {
             return;
         }
@@ -133,7 +133,7 @@ impl NativeReader {
         let work = cx
             .background_executor()
             .spawn(async move { glim_services::paged::read_binary_page(&path, 0) });
-        self.task = Some(cx.spawn_in(window, async move |view, cx| {
+        self.task = Some(cx.spawn(async move |view, cx| {
             let result = work.await;
             glim_services::telemetry::result(
                 "native_load",
@@ -141,7 +141,7 @@ impl NativeReader {
                 telemetry_started,
                 &result,
             );
-            let _ = view.update_in(cx, |view, _, cx| {
+            let _ = view.update(cx, |view, cx| {
                 view.task = None;
                 view.loading_bytes = false;
                 match result {
@@ -168,6 +168,12 @@ impl NativeReader {
         }));
         cx.notify();
     }
+    pub(super) fn can_move_to_window(&self, cx: &App) -> bool {
+        self.raw
+            .as_ref()
+            .is_none_or(|raw| raw.read(cx).can_move_to_window())
+    }
+
     pub fn image_stamp(&self) -> Option<(u64, Option<std::time::SystemTime>)> {
         self.prepared
             .as_ref()
@@ -354,7 +360,7 @@ impl Render for NativeReader {
                     Button::new("failed-native-file-bytes")
                         .ghost()
                         .label(glim_services::locale::tr("File bytes"))
-                        .on_click(cx.listener(|view, _, window, cx| view.open_bytes(window, cx))),
+                        .on_click(cx.listener(|view, _, _, cx| view.open_bytes(cx))),
                 )
             })
             .into_any_element()
