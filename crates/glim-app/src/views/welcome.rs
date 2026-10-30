@@ -412,10 +412,12 @@ pub fn welcome(
         .pt(px(24.))
         .pb_8()
         .when(center_content, |view| {
-            view.pt_8().child(div().flex_1().min_h_0())
+            view.pt_8().child(div().flex_1().flex_grow(0.85).min_h_0())
         })
         .child(content)
-        .when(center_content, |view| view.child(div().flex_1().min_h_0()))
+        .when(center_content, |view| {
+            view.child(div().flex_1().flex_grow(1.15).min_h_0())
+        })
 }
 
 #[cfg(test)]
