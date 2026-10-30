@@ -18,7 +18,6 @@ use gpui_kit::{
 pub enum ExplorerEvent {
     SelectionChanged,
     OpenFile(PathBuf),
-    PreviewFile(PathBuf),
     NewFile(PathBuf),
     RemoveFolder(u64),
     TrashEntry(PathBuf),
@@ -592,7 +591,7 @@ impl Explorer {
         &mut self,
         path: &std::path::Path,
         sticky: bool,
-        keep: bool,
+        explicit: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -600,11 +599,11 @@ impl Explorer {
             return;
         };
         let depth = self.rows[index].depth;
-        if !keep && !self.rows[index].entry.is_dir {
+        if !explicit && !self.rows[index].entry.is_dir {
             self.selected = Some(index);
             self.preserve_next_reveal = Some(path.to_path_buf());
             window.focus(&self.focus, cx);
-            cx.emit(ExplorerEvent::PreviewFile(path.to_path_buf()));
+            cx.emit(ExplorerEvent::OpenFile(path.to_path_buf()));
             cx.notify();
         } else {
             self.activate(index, window, cx);

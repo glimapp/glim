@@ -115,9 +115,6 @@ impl Workspace {
         let index = self.tabs.iter().position(|r| r.path == path);
         if let Some(index) = index {
             self.select_workspace(self.recent_id.clone(), window, cx);
-            if self.preview_tab.as_deref() == Some(path) {
-                self.preview_tab = None;
-            }
             self.activate_tab(index, window, cx);
             self.tabs[index].reveal_native(cx);
             window.activate_window();
@@ -201,18 +198,6 @@ impl Workspace {
     }
 
     pub(super) fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_path_mode(path, false, window, cx);
-    }
-    fn open_path_mode(
-        &mut self,
-        path: PathBuf,
-        preview: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if !preview && self.preview_tab.as_ref() == Some(&path) {
-            self.preview_tab = None;
-        }
         glim_services::diagnostics::event(
             "INFO",
             &format!("open requested file={}", path.display()),
@@ -261,11 +246,10 @@ impl Workspace {
                         view.receive_folder(folder, window, cx);
                     }
                     Ok(Opened::File(_, Ok(document))) => {
-                        view.install_browsed_content(*document, preview, window, cx)
+                        view.install_content(*document, window, cx)
                     }
-                    Ok(Opened::File(path, Err(error))) => view.install_browsed_content(
+                    Ok(Opened::File(path, Err(error))) => view.install_content(
                         Content::Unavailable(path, format!("{error:#}")),
-                        preview,
                         window,
                         cx,
                     ),
@@ -332,9 +316,6 @@ impl Workspace {
                         cx.notify();
                     }
                     ExplorerEvent::OpenFile(path) => view.open_path(path.clone(), window, cx),
-                    ExplorerEvent::PreviewFile(path) => {
-                        view.open_path_mode(path.clone(), true, window, cx)
-                    }
                     ExplorerEvent::NewFile(path) => {
                         view.choose_new_file_in(path.clone(), window, cx)
                     }
@@ -496,47 +477,6 @@ impl Workspace {
                 Reader::from_native(path, folder, shuffle, cx)
             }
             Content::Unavailable(p, e) => Reader::unavailable(p, e, window, cx),
-        }
-    }
-    fn install_browsed_content(
-        &mut self,
-        content: Content,
-        preview: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let previous = if preview {
-            self.preview_tab.take()
-        } else {
-            None
-        };
-        self.install_content(content, window, cx);
-        if !preview {
-            return;
-        }
-        let current = self.active_reader().map(|reader| reader.path.clone());
-        if let Some(previous) = previous
-            && current.as_ref() != Some(&previous)
-            && !self.is_saving()
-            && let Some(index) = self.tabs.iter().position(|reader| {
-                reader.path == previous && !reader.is_dirty() && reader.draft_directory.is_none()
-            })
-        {
-            let removed = self.tabs.remove(index);
-            removed.hide_native(cx);
-            glim_services::telemetry::file_event(
-                "tab_closed",
-                &removed.path,
-                [("reason", glim_services::telemetry::text("preview_replaced"))],
-            );
-            self.active = current
-                .as_ref()
-                .and_then(|path| self.tabs.iter().position(|reader| &reader.path == path));
-            self.observe_autosave(window, cx);
-        }
-        self.preview_tab = current;
-        if let Some(index) = self.active {
-            self.tab_scroll.scroll_to_item(index);
         }
     }
     pub(super) fn install_content(
@@ -978,7 +918,7 @@ mod tests {
     use gpui_kit::{AppContext, TestAppContext, WindowOptions, test::TestWindowExt};
 
     #[gpui_kit::test]
-    fn browsing_replaces_only_clean_previews_and_never_caps_kept_tabs(cx: &mut TestAppContext) {
+    fn opening_retains_all_tabs_and_reuses_existing_readers(cx: &mut TestAppContext) {
         let directory = tempfile::tempdir().unwrap();
         let paths = (0..20)
             .map(|index| directory.path().join(format!("note-{index}.txt")))
@@ -996,7 +936,7 @@ mod tests {
         for path in &paths[..2] {
             cx.update_window(handle, |_, window, cx| {
                 view.update(cx, |view, cx| {
-                    view.open_path_mode(path.clone(), true, window, cx);
+                    view.open_path(path.clone(), window, cx);
                 })
             })
             .unwrap();
@@ -1004,8 +944,9 @@ mod tests {
         }
         cx.update(|cx| {
             let workspace = view.read(cx);
-            assert_eq!(workspace.tabs.len(), 1);
-            assert_eq!(workspace.tabs[0].path, paths[1]);
+            assert_eq!(workspace.tabs.len(), 2);
+            assert_eq!(workspace.tabs[0].path, paths[0]);
+            assert_eq!(workspace.active_reader().unwrap().path, paths[1]);
         });
         let editor = cx.update(|cx| view.read(cx).active_reader().unwrap().editor().unwrap());
         cx.update_window(handle, |_, window, cx| {
@@ -1016,13 +957,12 @@ mod tests {
         .unwrap();
         cx.run_until_parked();
         cx.update(|cx| {
-            assert!(view.read(cx).preview_tab.is_none());
-            assert!(view.read(cx).tabs[0].is_dirty());
+            assert!(view.read(cx).tabs[1].is_dirty());
         });
         for path in &paths[2..] {
             cx.update_window(handle, |_, window, cx| {
                 view.update(cx, |view, cx| {
-                    view.open_path_mode(path.clone(), true, window, cx);
+                    view.open_path(path.clone(), window, cx);
                 })
             })
             .unwrap();
@@ -1037,10 +977,9 @@ mod tests {
         }
         cx.update(|cx| {
             let workspace = view.read(cx);
-            assert_eq!(workspace.tabs.len(), 19);
-            assert_eq!(workspace.tabs[0].path, paths[1]);
-            assert!(workspace.tabs[0].is_dirty());
-            assert!(workspace.preview_tab.is_none());
+            assert_eq!(workspace.tabs.len(), 20);
+            assert_eq!(workspace.tabs[0].path, paths[0]);
+            assert!(workspace.tabs[1].is_dirty());
         });
         assert_eq!(std::fs::read_to_string(&paths[1]).unwrap(), "original\n");
     }

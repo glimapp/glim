@@ -492,7 +492,6 @@
   "The downloaded update could not be verified or unpacked. Retry to download a fresh copy.": "The downloaded update could not be verified or unpacked. Retry to download a fresh copy.",
   "Quit other copies of Glim, then retry. You can also install the latest release manually.": "Quit other copies of Glim, then retry. You can also install the latest release manually.",
   "Retry the update. If it still fails, install the latest release manually.": "Retry the update. If it still fails, install the latest release manually.",
-  "Keep Tab Open": "Keep Tab Open",
   "CSV and TSV files can be viewed as a table using the toolbar. Your viewing mode is remembered.": "CSV and TSV files can be viewed as a table using the toolbar. Your viewing mode is remembered.",
   "View as Table": "View as Table",
   "Dismiss": "Dismiss",
@@ -501,6 +500,5 @@
   "Untitled Folder": "Untitled Folder",
   "Open in Current Window": "Open in Current Window",
   "Remove from Recent Workspaces": "Remove from Recent Workspaces",
-  "Current": "Current",
-  "Workspace actions": "Workspace actions"
+  "Current": "Current"
 }

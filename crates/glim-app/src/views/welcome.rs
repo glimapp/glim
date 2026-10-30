@@ -5,7 +5,7 @@ use gpui_kit::{
         ActiveTheme, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
-        menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
+        menu::{ContextMenuExt, PopupMenuItem},
         v_flex,
     },
     prelude::FluentBuilder,
@@ -20,7 +20,12 @@ fn quick_action(
     share: f32,
     cx: &App,
 ) -> Button {
-    let surface = cx.theme().background;
+    let ink = match id {
+        "welcome-new-workspace" => super::accent(cx),
+        "welcome-open-file" => cx.theme().blue,
+        _ => cx.theme().warning,
+    };
+    let surface = cx.theme().background.blend(ink.opacity(0.055));
     Button::new(id)
         .custom(
             ButtonCustomVariant::new(cx)
@@ -32,42 +37,40 @@ fn quick_action(
         .flex_1()
         .flex_basis(relative(share))
         .min_w_0()
-        .h(px(76.))
+        .h(px(60.))
         .px_3()
         .rounded(px(10.))
         .border_1()
-        .border_color(cx.theme().border)
+        .border_color(cx.theme().border.blend(ink.opacity(0.18)))
         .accessibility_label(glim_services::locale::tr(label))
         .child(
-            v_flex()
+            h_flex()
                 .w_full()
                 .min_w_0()
+                .items_center()
                 .gap_2()
-                .items_start()
                 .child(
-                    h_flex()
-                        .w_full()
-                        .justify_between()
-                        .child(
-                            Icon::new(icon)
-                                .size(px(20.))
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(shortcut),
-                        ),
+                    Icon::new(icon)
+                        .size(px(20.))
+                        .text_color(ink)
+                        .flex_shrink_0(),
                 )
                 .child(
                     div()
-                        .w_full()
+                        .flex_1()
+                        .min_w_0()
                         .truncate()
                         .text_sm()
                         .text_left()
                         .font_weight(FontWeight::MEDIUM)
                         .child(glim_services::locale::tr(label)),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_size(px(10.))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(shortcut),
                 ),
         )
 }
@@ -88,293 +91,276 @@ pub fn welcome(
         .into_iter()
         .take(current.recent_visible())
         .collect::<Vec<_>>();
-    let content =
-        v_flex()
-            .w_full()
-            .max_w(px(860.))
-            .min_w_0()
-            .flex_shrink_0()
-            .gap_8()
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        img("branding/glim-welcome.png")
-                            .size(px(48.))
-                            .object_fit(ObjectFit::Contain)
-                            .flex_shrink_0(),
+    let content = v_flex()
+        .w_full()
+        .max_w(px(860.))
+        .min_w_0()
+        .flex_shrink_0()
+        .gap_8()
+        .child(
+            h_flex()
+                .items_center()
+                .gap_3()
+                .child(
+                    img("branding/glim-welcome.png")
+                        .size(px(48.))
+                        .object_fit(ObjectFit::Contain)
+                        .flex_shrink_0(),
+                )
+                .child(
+                    div()
+                        .text_size(px(34.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Glim"),
+                ),
+        )
+        .child(
+            h_flex()
+                .w_full()
+                .gap_3()
+                .child(
+                    quick_action(
+                        "welcome-new-workspace",
+                        "Open New Workspace",
+                        "⌘⇧O",
+                        IconName::FolderOpen,
+                        0.5,
+                        cx,
                     )
-                    .child(
-                        div()
-                            .text_size(px(34.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Glim"),
-                    ),
-            )
-            .child(
-                h_flex()
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFolder), cx)),
+                )
+                .child(
+                    quick_action(
+                        "welcome-open-file",
+                        "Open File…",
+                        "⌘O",
+                        IconName::FileText,
+                        0.25,
+                        cx,
+                    )
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFile), cx)),
+                )
+                .child(
+                    quick_action(
+                        "welcome-new-file",
+                        "New File",
+                        "⌘N",
+                        IconName::FilePlus,
+                        0.25,
+                        cx,
+                    )
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(NewFile), cx)),
+                ),
+        )
+        .when(!visible.is_empty(), |view| {
+            view.child(
+                v_flex()
                     .w_full()
+                    .min_w_0()
                     .gap_3()
                     .child(
-                        quick_action(
-                            "welcome-new-workspace",
-                            "Open New Workspace",
-                            "⌘⇧O",
-                            IconName::FolderOpen,
-                            0.5,
-                            cx,
-                        )
-                        .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFolder), cx)),
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(glim_services::locale::tr("Recent Workspaces")),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(recent_count.to_string()),
+                            ),
                     )
-                    .child(
-                        quick_action(
-                            "welcome-open-file",
-                            "Open File…",
-                            "⌘O",
-                            IconName::FileText,
-                            0.25,
-                            cx,
-                        )
-                        .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFile), cx)),
-                    )
-                    .child(
-                        quick_action(
-                            "welcome-new-file",
-                            "New File",
-                            "⌘N",
-                            IconName::FilePlus,
-                            0.25,
-                            cx,
-                        )
-                        .on_click(|_, window, cx| window.dispatch_action(Box::new(NewFile), cx)),
-                    ),
-            )
-            .when(!visible.is_empty(), |view| {
-                view.child(
-                    v_flex()
-                        .w_full()
-                        .min_w_0()
-                        .gap_3()
-                        .child(
+                    .child(v_flex().w_full().min_w_0().gap_1().children(
+                        visible.into_iter().enumerate().map(|(index, workspace)| {
+                            let title = workspace.title();
+                            let paths = workspace
+                                .folders
+                                .iter()
+                                .map(|path| {
+                                    home.as_ref()
+                                        .and_then(|home| path.strip_prefix(home).ok())
+                                        .map(|relative| format!("~/{}", relative.display()))
+                                        .unwrap_or_else(|| path.display().to_string())
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" · ");
+                            let is_current = current.matches_recent_workspace(&workspace);
+                            let open = workspace.clone();
+                            let new_window = workspace.clone();
+                            let remove_id = workspace.id.clone();
+                            let context_workspace = workspace.clone();
+                            let weak = cx.entity().downgrade();
+                            let context_weak = weak;
+                            let accent = super::accent(cx);
                             h_flex()
-                                .gap_2()
+                                .w_full()
+                                .min_w_0()
+                                .h(px(44.))
                                 .items_center()
+                                .rounded(px(7.))
+                                .when(is_current, |row| row.bg(accent.opacity(0.08)))
+                                .hover(|row| row.bg(cx.theme().muted.opacity(0.55)))
                                 .child(
-                                    div()
+                                    Button::new(("recent-workspace", index))
+                                        .ghost()
                                         .flex_1()
-                                        .text_sm()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .child(glim_services::locale::tr("Recent Workspaces")),
+                                        .min_w_0()
+                                        .h_full()
+                                        .px_3()
+                                        .justify_start()
+                                        .tooltip(paths.clone())
+                                        .accessibility_label(format!("{title}: {paths}"))
+                                        .child(
+                                            h_flex()
+                                                .w_full()
+                                                .min_w_0()
+                                                .items_center()
+                                                .gap_3()
+                                                .child(
+                                                    Icon::new(IconName::Folder)
+                                                        .size(px(17.))
+                                                        .text_color(if is_current {
+                                                            accent
+                                                        } else {
+                                                            cx.theme().muted_foreground
+                                                        })
+                                                        .flex_shrink_0(),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .w(relative(0.30))
+                                                        .min_w_0()
+                                                        .flex_shrink_0()
+                                                        .truncate()
+                                                        .text_sm()
+                                                        .font_weight(FontWeight::MEDIUM)
+                                                        .child(title),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .truncate()
+                                                        .text_xs()
+                                                        .text_color(cx.theme().muted_foreground)
+                                                        .child(paths),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .w(px(40.))
+                                                        .flex_shrink_0()
+                                                        .text_xs()
+                                                        .text_color(accent)
+                                                        .when(is_current, |label| {
+                                                            label.child(glim_services::locale::tr(
+                                                                "Current",
+                                                            ))
+                                                        }),
+                                                ),
+                                        )
+                                        .on_click(cx.listener(move |view, _, window, cx| {
+                                            view.open_recent_here(open.clone(), window, cx)
+                                        })),
                                 )
                                 .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(recent_count.to_string()),
-                                ),
-                        )
-                        .child(v_flex().w_full().min_w_0().gap_1().children(
-                            visible.into_iter().enumerate().map(|(index, workspace)| {
-                                let title = workspace.title();
-                                let paths = workspace
-                                    .folders
-                                    .iter()
-                                    .map(|path| {
-                                        home.as_ref()
-                                            .and_then(|home| path.strip_prefix(home).ok())
-                                            .map(|relative| format!("~/{}", relative.display()))
-                                            .unwrap_or_else(|| path.display().to_string())
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join(" · ");
-                                let is_current = current.matches_recent_workspace(&workspace);
-                                let open = workspace.clone();
-                                let menu_workspace = workspace.clone();
-                                let context_workspace = workspace.clone();
-                                let weak = cx.entity().downgrade();
-                                let context_weak = weak.clone();
-                                let accent = super::accent(cx);
-                                h_flex()
-                                    .w_full()
-                                    .min_w_0()
-                                    .h(px(44.))
-                                    .items_center()
-                                    .rounded(px(7.))
-                                    .when(is_current, |row| row.bg(accent.opacity(0.08)))
-                                    .hover(|row| row.bg(cx.theme().muted.opacity(0.55)))
-                                    .child(
-                                        Button::new(("recent-workspace", index))
-                                            .ghost()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .h_full()
-                                            .px_3()
-                                            .justify_start()
-                                            .tooltip(paths.clone())
-                                            .accessibility_label(format!("{title}: {paths}"))
-                                            .child(
-                                                h_flex()
-                                                    .w_full()
-                                                    .min_w_0()
-                                                    .items_center()
-                                                    .gap_3()
-                                                    .child(
-                                                        Icon::new(IconName::Folder)
-                                                            .size(px(17.))
-                                                            .text_color(if is_current {
-                                                                accent
-                                                            } else {
-                                                                cx.theme().muted_foreground
-                                                            })
-                                                            .flex_shrink_0(),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .w(relative(0.30))
-                                                            .min_w_0()
-                                                            .flex_shrink_0()
-                                                            .truncate()
-                                                            .text_sm()
-                                                            .font_weight(FontWeight::MEDIUM)
-                                                            .child(title),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .flex_1()
-                                                            .min_w_0()
-                                                            .truncate()
-                                                            .text_xs()
-                                                            .text_color(cx.theme().muted_foreground)
-                                                            .child(paths),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .w(px(40.))
-                                                            .flex_shrink_0()
-                                                            .text_xs()
-                                                            .text_color(accent)
-                                                            .when(is_current, |label| {
-                                                                label.child(
-                                                                    glim_services::locale::tr(
-                                                                        "Current",
-                                                                    ),
-                                                                )
-                                                            }),
-                                                    ),
+                                    Button::new(("recent-new-window", index))
+                                        .ghost()
+                                        .small()
+                                        .icon(IconName::ArrowUpRight)
+                                        .tooltip(glim_services::locale::tr("Open in New Window"))
+                                        .accessibility_label(glim_services::locale::tr(
+                                            "Open in New Window",
+                                        ))
+                                        .on_click(move |_, _, cx| {
+                                            crate::app::open_recent_workspace(
+                                                new_window.clone(),
+                                                cx,
                                             )
-                                            .on_click(cx.listener(move |view, _, window, cx| {
-                                                view.open_recent_here(open.clone(), window, cx)
-                                            })),
-                                    )
-                                    .child(
-                                        Button::new(("recent-actions", index))
-                                            .ghost()
-                                            .small()
-                                            .mr_2()
-                                            .icon(IconName::Ellipsis)
-                                            .tooltip(glim_services::locale::tr("Workspace actions"))
-                                            .accessibility_label(glim_services::locale::tr(
-                                                "Workspace actions",
-                                            ))
-                                            .dropdown_menu(move |menu, _, _| {
-                                                let open = menu_workspace.clone();
-                                                let weak = weak.clone();
-                                                let new_window = menu_workspace.clone();
-                                                let remove = menu_workspace.id.clone();
-                                                menu.item(
-                                                    PopupMenuItem::new(glim_services::locale::tr(
-                                                        "Open in Current Window",
-                                                    ))
-                                                    .on_click(move |_, window, cx| {
-                                                        let _ = weak.update(cx, |view, cx| {
-                                                            view.open_recent_here(
-                                                                open.clone(),
-                                                                window,
-                                                                cx,
-                                                            )
-                                                        });
-                                                    }),
-                                                )
-                                                .item(
-                                                    PopupMenuItem::new(glim_services::locale::tr(
-                                                        "Open in New Window",
-                                                    ))
-                                                    .on_click(move |_, _, cx| {
-                                                        crate::app::open_recent_workspace(
-                                                            new_window.clone(),
-                                                            cx,
-                                                        )
-                                                    }),
-                                                )
-                                                .separator()
-                                                .item(
-                                                    PopupMenuItem::new(glim_services::locale::tr(
-                                                        "Remove from Recent Workspaces",
-                                                    ))
-                                                    .on_click(move |_, _, cx| {
-                                                        crate::app::remove_recent_workspace(
-                                                            remove.clone(),
-                                                            cx,
-                                                        )
-                                                    }),
-                                                )
-                                            }),
-                                    )
-                                    .context_menu(move |menu, _, _| {
-                                        let open = context_workspace.clone();
-                                        let weak = context_weak.clone();
-                                        let new_window = context_workspace.clone();
-                                        let remove = context_workspace.id.clone();
-                                        menu.item(
-                                            PopupMenuItem::new(glim_services::locale::tr(
-                                                "Open in Current Window",
-                                            ))
-                                            .on_click(move |_, window, cx| {
+                                        }),
+                                )
+                                .child(
+                                    Button::new(("recent-remove", index))
+                                        .ghost()
+                                        .small()
+                                        .mr_2()
+                                        .icon(IconName::X)
+                                        .tooltip(glim_services::locale::tr(
+                                            "Remove from Recent Workspaces",
+                                        ))
+                                        .accessibility_label(glim_services::locale::tr(
+                                            "Remove from Recent Workspaces",
+                                        ))
+                                        .on_click(move |_, _, cx| {
+                                            crate::app::remove_recent_workspace(
+                                                remove_id.clone(),
+                                                cx,
+                                            )
+                                        }),
+                                )
+                                .context_menu(move |menu, _, _| {
+                                    let open = context_workspace.clone();
+                                    let weak = context_weak.clone();
+                                    let new_window = context_workspace.clone();
+                                    let remove = context_workspace.id.clone();
+                                    menu.item(
+                                        PopupMenuItem::new(glim_services::locale::tr(
+                                            "Open in Current Window",
+                                        ))
+                                        .on_click(
+                                            move |_, window, cx| {
                                                 let _ = weak.update(cx, |view, cx| {
                                                     view.open_recent_here(open.clone(), window, cx)
                                                 });
-                                            }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(glim_services::locale::tr(
-                                                "Open in New Window",
-                                            ))
-                                            .on_click(move |_, _, cx| {
+                                            },
+                                        ),
+                                    )
+                                    .item(
+                                        PopupMenuItem::new(glim_services::locale::tr(
+                                            "Open in New Window",
+                                        ))
+                                        .on_click(
+                                            move |_, _, cx| {
                                                 crate::app::open_recent_workspace(
                                                     new_window.clone(),
                                                     cx,
                                                 )
-                                            }),
-                                        )
-                                        .separator()
-                                        .item(
-                                            PopupMenuItem::new(glim_services::locale::tr(
-                                                "Remove from Recent Workspaces",
-                                            ))
-                                            .on_click(move |_, _, cx| {
+                                            },
+                                        ),
+                                    )
+                                    .separator()
+                                    .item(
+                                        PopupMenuItem::new(glim_services::locale::tr(
+                                            "Remove from Recent Workspaces",
+                                        ))
+                                        .on_click(
+                                            move |_, _, cx| {
                                                 crate::app::remove_recent_workspace(
                                                     remove.clone(),
                                                     cx,
                                                 )
-                                            }),
-                                        )
-                                    })
-                            }),
-                        ))
-                        .when(more, |view| {
-                            view.child(
-                                Button::new("recent-more")
-                                    .ghost()
-                                    .icon(IconName::ChevronDown)
-                                    .label(glim_services::locale::tr("Show more"))
-                                    .on_click(
-                                        cx.listener(|view, _, _, cx| view.show_more_recent(cx)),
-                                    ),
-                            )
+                                            },
+                                        ),
+                                    )
+                                })
                         }),
-                )
-            });
+                    ))
+                    .when(more, |view| {
+                        view.child(
+                            Button::new("recent-more")
+                                .ghost()
+                                .icon(IconName::ChevronDown)
+                                .label(glim_services::locale::tr("Show more"))
+                                .on_click(cx.listener(|view, _, _, cx| view.show_more_recent(cx))),
+                        )
+                    }),
+            )
+        });
     v_flex()
         .id("welcome-page")
         .size_full()

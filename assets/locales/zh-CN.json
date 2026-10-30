@@ -492,7 +492,6 @@
   "The downloaded update could not be verified or unpacked. Retry to download a fresh copy.": "下载的更新无法验证或解压，请重试以重新下载。",
   "Quit other copies of Glim, then retry. You can also install the latest release manually.": "请退出其他运行中的 Glim 后重试，也可以手动安装最新版本。",
   "Retry the update. If it still fails, install the latest release manually.": "请重试更新；如果仍然失败，可以手动安装最新版本。",
-  "Keep Tab Open": "保留标签",
   "CSV and TSV files can be viewed as a table using the toolbar. Your viewing mode is remembered.": "使用工具栏可将 CSV 和 TSV 文件切换为表格，Glim 会记住所选模式。",
   "View as Table": "切换为表格",
   "Dismiss": "关闭提示",
@@ -501,6 +500,5 @@
   "Untitled Folder": "未命名文件夹",
   "Open in Current Window": "在当前窗口打开",
   "Remove from Recent Workspaces": "从最近工作空间中移除",
-  "Current": "当前",
-  "Workspace actions": "工作空间操作"
+  "Current": "当前"
 }
