@@ -870,7 +870,7 @@ mod incoming_file_tests {
         let first = directory.path().join("notes.txt");
         let second = directory.path().join("README.md");
         let image = directory.path().join("picture.gif");
-        let unsupported = directory.path().join("unknown.custom-format");
+        let binary = directory.path().join("unknown.custom-format");
         std::fs::write(&first, "ordinary text").unwrap();
         std::fs::write(&second, "# Markdown").unwrap();
         // The simulated GPUI window cannot host AppKit image controllers.
@@ -883,7 +883,7 @@ mod incoming_file_tests {
             ],
         )
         .unwrap();
-        std::fs::write(&unsupported, [0, 255, 0, 255]).unwrap();
+        std::fs::write(&binary, [0, 255, 0, 255]).unwrap();
         cx.update(gpui_kit::init);
         let (handle, view) = cx.update(|cx| {
             gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
@@ -893,7 +893,7 @@ mod incoming_file_tests {
         });
         cx.update_window(handle, |_, window, cx| {
             view.update(cx, |view, cx| {
-                for path in [&first, &second, &image, &unsupported, &first] {
+                for path in [&first, &second, &image, &binary, &first] {
                     assert!(view.open_system_file(path.clone(), window, cx));
                 }
             });
@@ -907,8 +907,9 @@ mod incoming_file_tests {
             assert_eq!(view.tabs[2].path, second);
             assert_eq!(view.tabs[1].path, image);
             assert!(!view.tabs[1].is_unavailable());
-            assert_eq!(view.tabs[0].path, unsupported);
-            assert!(view.tabs[0].is_unavailable());
+            assert_eq!(view.tabs[0].path, binary);
+            assert!(!view.tabs[0].is_unavailable());
+            assert!(view.tabs[0].editor().is_none());
             assert!(view.incoming_files.is_empty());
             assert!(view.incoming_file_task.is_none());
             view.tabs[3].editor().unwrap().entity_id()
