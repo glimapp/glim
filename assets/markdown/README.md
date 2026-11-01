@@ -1,5 +1,7 @@
 # 离线 Markdown 渲染资源
 
+本文供维护离线引擎资源的贡献者阅读。普通用户查看[笔记与思维导图专题](../../docs/topics.zh-CN.md#notes)，图表语法见[格式说明](../../docs/file-format-support.zh-CN.md#markdown-图表与公式)。本目录的离线引擎与 HTML 页面本身的联网行为分别管理。
+
 `renderer.js` 随二进制内嵌，由系统 WebView 在独立、不可见的子进程中执行。Markdown 文档只作为 JSON 数据传入，页面不接收文档 HTML；网络连接、外部导航和下载关闭。渲染结果为 SVG，由 services 在后台转为 PNG，再交给原生 TextView 扩展显示。
 
 更新资源：在 `scripts/markdown` 执行 `npm ci --ignore-scripts` 和 `npm run bundle`。Node/npm 只用于维护资源，应用运行不依赖它们。提交生成文件及两个 lockfile。
@@ -12,7 +14,7 @@ PlantUML 的 themes / emoji / OpenIconic 来自固定的 `@plantuml/core` 包。
 
 当前维护的 macOS Apple Silicon 与 Intel 构建使用系统 WebKit。不包含其他平台的 WebView 实现。
 
-Salt 常用线框由 `scripts/markdown/salt.js` 的本地 SVG 适配器绘制，不依赖 PlantUML TeaVM 中缺失的 Salt 模块。支持范围和限制见 `docs/file-format-support.md`。`@startdot` 使用已内置 Graphviz；Journey 指定纯 SVG 文字。
+Salt 常用线框由 `scripts/markdown/salt.js` 的本地 SVG 适配器绘制，不依赖 PlantUML TeaVM 中缺失的 Salt 模块。支持范围和限制见[格式说明](../../docs/file-format-support.zh-CN.md)。`@startdot` 使用已内置 Graphviz；Journey 指定纯 SVG 文字。
 
 Chen ER 的常用语法通过 `scripts/markdown/chen.js` 转为 DOT，并由内置 Graphviz 布局为 SVG；未支持的 EER 指令会明确报错，适配范围见格式文档。
 

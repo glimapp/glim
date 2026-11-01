@@ -1,19 +1,19 @@
 name: Feature or format request / 功能与格式建议
-description: Suggest a reading experience or a file format to support.
+description: Describe who needs to view or handle which files and why. / 描述谁在什么场景需要查看或处理哪些文件。
 title: "[Request]: "
 body:
   - type: textarea
     id: need
     attributes:
       label: What do you want to do? / 想解决什么问题？
-      description: Describe the task and why the current experience falls short. English or Chinese is welcome.
+      description: Who are you, what task are you doing, and where does the current experience fall short? / 你是什么角色、正在做什么、目前哪里不方便？
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
       label: Desired experience / 期望的体验
-      description: For a format, explain which information or preview matters most.
+      description: Describe the actions or information needed, such as reading records or inspecting coordinates. / 说明要查看的信息或完成的操作，例如浏览记录或检查坐标。
     validations:
       required: true
   - type: input

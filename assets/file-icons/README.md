@@ -1,5 +1,7 @@
 # File icons
 
+Maintainer reference for the icons shown beside user files. For viewing capabilities, use the [topic guide](../../docs/topics.md) and [compatibility catalog](../../docs/file-format-support.md); icon coverage does not establish reader support.
+
 Material Icon Theme 5.39.0, under the MIT license (see LICENSE). SVG originals and 48 px transparent PNGs are checked in; normal app builds need no Node.js, network or image conversion tools. The npm archive and its integrity hash are recorded in manifest.json.
 
 Coverage: 634 icon assets, 1410 extension rules and 2151 exact filename rules, including light-theme variants. Directory-qualified filename rules take precedence over basenames and longest compound suffixes. Embedded assets are sorted by complete resource paths (including .png), matching the runtime binary search. Glim also handles Dockerfile/Containerfile variants, Compose variants, environment variants and GitHub Actions workflow directories. Icons identify files; they do not imply reader or editing support.

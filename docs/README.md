@@ -2,27 +2,33 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Product home](../README.md) · [Download](https://github.com/glimapp/glim/releases/latest)
 
-Glim is a file-reading workspace for macOS: documents, data, images and code in one window. It supports Apple Silicon and Intel.
+Glim helps you view files for work, study and projects on a Mac, with basic text editing. Find your task first, then learn the controls you need.
 
-## Use Glim
+## Use the app
 
-| What you need | Start here |
+| Your question | Start here |
 | --- | --- |
-| Open folders, switch views, edit and save | [User guide](user-guide.md) |
-| Check what a format supports and where it falls back | [Formats and compatibility](file-format-support.md) |
-| Choose an installer and complete first launch | [Download and installation](../README.md#download) |
-| Understand updates, save protection and restart recovery | [Application updates](auto-update-design.md) |
-| Understand optional anonymous usage telemetry | [Telemetry](telemetry.md) |
-| See implemented capabilities and remaining work | [Remaining work](TODO.md) |
+| What can I use it for? | [Office, reading, media, data and specialist topics](topics.md) |
+| How do I start? | [Files, workspaces, reading and saving](user-guide.md) |
+| Which installer and how do I open it? | [Download and installation](../README.md#download) |
+| Can I edit, and why does a preview differ? | [Common questions](faq.md) |
+| What does a particular format support? | [Formats and compatibility](file-format-support.md) |
+| How do updates and restart recovery work? | [Updates and recovery](updates.md) |
+| Are files uploaded, and what uses the network? | [Privacy and network access](privacy.md) |
+| What still needs work? | [Current coverage and remaining work](TODO.md) |
+| Accessibility or a security concern? | [Accessibility](../ACCESSIBILITY.md) · [Private vulnerability reports](../SECURITY.md) |
 
-## Develop Glim
+## Contribute and maintain
 
-| Topic | Contents |
+You do not need implementation documents to use Glim. Start with [Contributing](../CONTRIBUTING.md) to report a problem or change code.
+
+| Maintainer reference | Contents |
 | --- | --- |
-| [Architecture](architecture.md) | Module boundaries, background tasks, reader lifetime and native bridges |
+| [Architecture](architecture.md) | Modules, workspaces, file loading and readers |
 | [Build and release](releasing.md) | Toolchains, packaging, signing and both Mac architectures |
-| [Shared reader policy](reader-limits.md) | Paging, preview and active-resource budgets |
-| [Contributing](../CONTRIBUTING.md) | Issue reports and code contributions |
-| [Security](../SECURITY.md) · [Accessibility](../ACCESSIBILITY.md) | Vulnerability reporting and current coverage |
+| [Update internals](auto-update-design.md) | Trust chain, install protection and recovery |
+| [Telemetry reference](telemetry.md) | Events, metrics and interpretation limits |
+| [Reader policy inventory](reader-limits.md) | Generated paging and resource-budget reference |
+| [Scalable-reader status](reader-limits-migration.md) · [Rendering pipeline](rendering-pipeline.md) | Chinese maintainer references, separating current implementation from future direction |
 
-Documentation describes the current source implementation. Consult [Release notes](https://github.com/glimapp/glim/releases) for a particular published build. The user guide and main technical documents have matching English and Simplified Chinese pages.
+Documentation describes current source. Consult [Release notes](https://github.com/glimapp/glim/releases) for a published build.

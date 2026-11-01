@@ -1,9 +1,8 @@
 <p align="center"><img src="assets/branding/repository-banner.svg" alt="Glim — 文档、数据和代码，一个 Mac 工作空间。免费开源，支持 Apple Silicon 与 Intel。" width="100%" /></p>
 
+# Glim · 在一个 Mac 工作空间里查看你的文件
 
-# Glim — 文档、数据和代码，一个 Mac 工作空间
-
-Glim 是免费开源的 macOS 文件查看器。打开一个项目文件夹，在同一个窗口里阅读 Markdown、PDF、图片、JSON、CSV 和源代码。预览与原文随时切换，检查本地数据，也能顺手修改文本。
+Glim 是免费开源的 Mac 文件查看器。收到一份合同、一个资料包，或者打开自己的项目文件夹，都可以把文档、图片、表格、音视频和代码放在同一个窗口里查看。普通文本还能顺手修改并保存。
 
 <p align="center">免费开源 · macOS · Apple Silicon 与 Intel · <a href="README.md">English</a> / <b>简体中文</b></p>
 
@@ -20,62 +19,55 @@ Glim 是免费开源的 macOS 文件查看器。打开一个项目文件夹，�
   <a href="https://github.com/glimapp/glim/stargazers"><img src="https://img.shields.io/github/stars/glimapp/glim?style=social" alt="GitHub Star 数量" /></a>
 </p>
 
-## 从一个文件，读到整个目录
+## 你平时会用它看什么？
 
-<p align="center"><img src="assets/readme/workspace.png" alt="Glim 阅读内嵌 GitHub Star 图表的 Markdown 报告，左侧为项目文件树，顶部同时打开 PNG、Markdown 和 SVG 标签。" width="100%" /></p>
+办公时，可能要一起看合同、表格和演示文稿；学习时，手边有 PDF、电子书和笔记；做项目时，资料里又夹着图片、数据和代码。Glim 把这些文件放在同一个工作空间，按你手里的事情来组织。
 
-报告、图表、生成图表的脚本和原始数据库，可以放在同一个工作空间。截图展示 Markdown 报告中的内嵌图表，相邻标签保留相关 PNG 和 SVG 文件。
-
-| 要完成的事 | 在 Glim 中 |
+| 专题 | 适合谁、用来做什么 |
 | --- | --- |
-| 阅读报告与项目说明 | 排版 Markdown 表格、图表和公式，跟随本地链接查看相关文件与图片 |
-| 检查导出数据或 API 响应 | 展开 JSON 对象，按表格阅读 CSV/TSV，查看单元格完整内容 |
-| 查看本地数据库 | 在只读 SQLite 快照中浏览表、筛选和排序记录、检查结构 |
-| 查阅文档与参考资料 | 将 PDF、支持的 Office 文档、图片和电子书保留在工作空间标签中 |
-| 修改错别字或配置值 | 基础编辑 UTF-8 文本，支持撤销重做、自动保存和 ⌘S 显式保存 |
+| [办公文件](docs/topics.zh-CN.md#office) | 职场人士查看合同、报告、表格和演示文稿 |
+| [阅读与学习](docs/topics.zh-CN.md#reading) | 学生、研究者和阅读爱好者阅读 PDF、电子书、漫画和笔记 |
+| [图片与设计素材](docs/topics.zh-CN.md#images) | 查看照片、动画、SVG 和字体，复制图片或提取图片文字 |
+| [音视频与字幕](docs/topics.zh-CN.md#media) | 播放本地音视频，按文件夹连续播放，单独查看和修改字幕 |
+| [笔记与思维导图](docs/topics.zh-CN.md#notes) | 写 Markdown、查看 XMind 和流程图，整理说明与思路 |
+| [表格与数据](docs/topics.zh-CN.md#data) | 运营、分析师和开发者查看 CSV 表格、JSON 数据树与交互图 |
+| [数据库](docs/topics.zh-CN.md#database) | 浏览本地 SQLite 的表、结构和记录，使用只读快照 |
+| [开发者](docs/topics.zh-CN.md#developer) | 一起阅读源码、网页、配置、日志和技术文档，做基础文本修改 |
+| [2D 图形与 3D 模型](docs/topics.zh-CN.md#graphics) | 查看 SVG、技术图表及 OBJ/STL 的静态网格投影 |
+| [GIS 与轨迹](docs/topics.zh-CN.md#gis) | 检查 GeoJSON 的字段、GPX/KML 的坐标和原文 |
+| [AI 与科研文件](docs/topics.zh-CN.md#research) | 检查模型元数据、部分 NumPy 数值及 Notebook 数据结构 |
+| [压缩包与资料交接](docs/topics.zh-CN.md#archives) | 浏览 ZIP、解压到新目录，或查看 TAR 目录和压缩文本 |
 
-### 接着查看报告背后的数据
+[按专题了解具体用法与限制](docs/topics.zh-CN.md) · [查询某种文件格式](docs/file-format-support.zh-CN.md)
 
-<p align="center"><img src="assets/readme/sqlite.png" alt="Glim 浏览 SQLite 只读快照，左侧选择数据表，右侧按 drupal 筛选记录，并提供列排序和分页导航。" width="100%" loading="lazy" /></p>
+## 打开一个文件夹，把相关资料放在一起
 
-SQLite 通过独立的只读快照打开。选择表或视图，搜索全部记录的所有字段、排序，或双击值查看完整内容；源数据库保持不变。
+<p align="center"><img src="assets/readme/workspace.png" alt="左侧文件夹列表，右侧阅读 Markdown 报告，顶部标签保留相关图片和文档。" width="100%" /></p>
 
-## 用自己的文件开始
+你可以把一次工作的资料作为一个工作空间：在左侧找文件，在顶部标签之间切换。一个窗口可以保留多个工作空间，文件标签也可以拆到独立窗口。重启后可恢复窗口、工作空间和文件标签；通用滚动位置与媒体播放进度尚不完整恢复。
 
-1. **打开文件**（⌘O），或**打开文件夹**（⌘⇧O）。从侧栏浏览相关文件；标题栏搜索按名称或路径查找工作空间文件夹中的文件。
-2. **选择适合内容的视图。** Markdown、HTML 和支持的数据阅读器提供预览／原文切换；文档、图片使用各自的阅读控件。
-3. **需要时做一点修改。** 已有 UTF-8 文件会自动保存。⌘N 创建未命名笔记，第一次 ⌘S 时选择保存位置。
+## 需要时，接着查看资料里的数据
 
-[使用指南](docs/user-guide.zh-CN.md) · [格式与兼容范围](docs/file-format-support.zh-CN.md) · [下载 Glim](https://github.com/glimapp/glim/releases/latest)
+<p align="center"><img src="assets/readme/sqlite.png" alt="选择 SQLite 数据表，筛选记录，并使用排序和分页查看数据。" width="100%" loading="lazy" /></p>
 
-## 格式一览
+例如，报告旁边还有一份本地数据库。在 Glim 中打开 SQLite，选择表、筛选和排序记录，双击单元格阅读完整值。查看使用独立快照，源数据库保持只读。
 
-<a href="docs/file-format-support.zh-CN.md">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/formats-dark.svg" />
-    <source media="(prefers-color-scheme: light)" srcset="assets/readme/formats.svg" />
-    <img src="assets/readme/formats.svg" alt="Glim 支持的代表文件格式；剑号标记基础预览" width="100%" />
-  </picture>
-</a>
+## 第一次使用
 
-*† 基础预览。各阅读器的实际能力见[格式说明](docs/file-format-support.zh-CN.md)。*
+1. 下载适合自己 Mac 的安装包，将 Glim 拖入“应用程序”。
+2. 按 ⌘O 打开文件，或按 ⌘⇧O 选择文件夹。已有资料可以直接打开。
+3. 在标签之间切换；支持的内容可以切换预览与原文。阅读控件通常在内容底部附近，部分阅读器需要将鼠标移过去才会显示。
+4. 需要记点东西时按 ⌘N；需要修改普通文本时进入原文。已有文本文件修改后会自动写回原文件，⌘S 也可以保存。
 
-| 内容 | 代表格式 |
-| --- | --- |
-| 文档与文本 | Markdown、HTML、UTF-8 文本和日志；Markdown 中的图表与公式 |
-| 数据与代码 | JSON/JSONC/JSON5、CSV/TSV、YAML、TOML、XML、SQLite 及带高亮的源代码 |
-| 图片与办公文档 | PNG、JPEG、WebP、GIF、SVG、TIFF、PDF、Word、Excel、PowerPoint 和 iWork |
-| 电子书与思维导图 | EPUB、FB2、CBZ、XMind |
-| 媒体与专用文件 | 系统支持的音视频、字体、safetensors 元数据、归档目录与部分文本预览 |
+[完整使用指南](docs/user-guide.zh-CN.md) · [常见问题](docs/faq.zh-CN.md) · [文档目录](docs/README.zh-CN.md)
 
-### 使用前了解这些行为
+## 使用时了解这些边界
 
-- **编辑与保存：** UTF-8 文本支持基础编辑和保存。表格、数据树、数据库快照、图片和文档预览保持只读；可编辑格式保留原文入口。大文本或超长行使用可编辑分页。
-- **兼容范围：** Office 预览可能与原始排版不同；表格公式显示已保存的值，不重新计算。媒体播放取决于 macOS 编码支持，部分格式提供基础预览或源内容后备。
-- **本地文件与联网内容：** 文件在本地打开。Markdown 可加载远程图片，HTML 预览支持 CSS、JavaScript 和网络资源。可选的匿名使用统计由设置控制，见[使用统计说明](docs/telemetry.zh-CN.md)。
-- **平台与安装：** 支持 macOS Apple Silicon 和 Intel。目前安装包使用临时签名，尚未经过 Apple 公证，首次打开方式见下文。
-
-[完整格式说明](docs/file-format-support.zh-CN.md) · [文档目录](docs/README.zh-CN.md) · [未完成事项](docs/TODO.zh-CN.md)
+- 文档、图片、数据表、数据库和思维导图预览以查看为主。普通 UTF-8 文本支持基础编辑、撤销重做、自动保存和显式保存。
+- Office 的复杂排版可能有差异，Excel 显示已保存的公式结果，不重新计算。需要精确排版或专业编辑时，可交给相应应用。
+- GIS 当前展示数据和坐标；3D 当前提供静态投影。它们的具体范围见各专题。
+- 文件在本地打开。Markdown 的远程图片、HTML 的脚本与网络资源，以及更新和启用的使用统计可能联网，见[隐私与联网说明](docs/privacy.zh-CN.md)。
+- 支持 Apple Silicon 和 Intel Mac。安装包尚未经过 Apple 公证，首次打开步骤见下文。
 
 ## 下载与安装
 

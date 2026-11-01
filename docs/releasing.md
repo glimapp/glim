@@ -2,6 +2,10 @@
 
 **English** · [简体中文](releasing.zh-CN.md) · [Documentation](README.md)
 
+This reference is for build and release maintainers. For installation and everyday updates, see [installation help](../README.md#download) and [updates and recovery](updates.md).
+
+Write release notes around user tasks: who encounters the change, what they can now do, compatibility limits, actual validation and installation requirements. Every GitHub Release needs equivalent English and Chinese notes. Identify unfinished or unverified behavior. Use [current user topics](topics.md) as the basis; format counts do not explain the benefit by themselves.
+
 ## Platforms and prerequisites
 
 | Target | Requirements |

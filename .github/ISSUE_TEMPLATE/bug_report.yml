@@ -1,5 +1,5 @@
 name: Bug report / 问题反馈
-description: Something does not open, render, or behave correctly.
+description: Tell us which task failed while opening, reading or editing a file. / 描述查看或编辑文件时遇到的问题。
 title: "[Bug]: "
 body:
   - type: markdown
@@ -9,7 +9,7 @@ body:
     id: version
     attributes:
       label: Glim version / 版本
-      placeholder: "0.1.8"
+      placeholder: "Copy from About Glim / 从关于 Glim 复制"
     validations:
       required: true
   - type: dropdown
@@ -32,7 +32,7 @@ body:
     id: reproduce
     attributes:
       label: Steps and actual behavior / 复现步骤与实际表现
-      description: Include the file extension and approximate size when relevant.
+      description: Describe the task first, then the steps, file type and approximate size. / 先说明正在做什么，再写步骤、文件类型及大致大小。
     validations:
       required: true
   - type: textarea
@@ -45,4 +45,4 @@ body:
     id: evidence
     attributes:
       label: Sanitized sample, screenshot, or logs / 脱敏样例、截图或日志
-      description: Attach a minimal public or synthetic sample if possible. Include assistive technology details for accessibility issues.
+      description: Use a public or synthetic sample; inspect logs before sharing. Include assistive technology if relevant. / 提供可公开或合成样例，分享前检查日志；辅助功能问题请说明所用技术。

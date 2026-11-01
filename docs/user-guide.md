@@ -1,53 +1,66 @@
-# Use Glim
+# Start with your own files
 
 **English** · [简体中文](user-guide.zh-CN.md) · [Documentation](README.md)
 
-Glim keeps documents, data and code in one Mac workspace. Start with a folder you already use: a report, its images, an export and the scripts that produced it.
+Glim is a file-viewing workspace for Mac. Use it to read a contract, study reference material, or inspect data and code. Open files you already have. Browse [topics](topics.md) to find tasks that fit your work.
 
-## Open and find files
+## Open a file or a folder
 
-- **⌘O** opens a file; **⌘⇧O** opens a folder. Add Folder to Workspace appends another folder to the current window.
-- The sidebar contains Home and your workspace file tree. Home shows opening actions and recent folder workspaces. Collapse the sidebar to keep a narrow icon rail; its folder icon expands the file list again.
-- Title-bar search finds files by name or path within workspace folders, respecting the file-discovery scope. It does not search document contents. Use the source editor’s search for text within an editable document.
-- Files open in tabs. Reopening a file already open in Glim activates its existing tab/window. Back and Forward revisit previously opened file targets.
-- **⌘W** closes the active tab, or an empty window; **⌘⇧W** closes the current window. Closing the last window leaves Glim running; **⌘Q** quits.
+See [installation](../README.md#download) first.
 
-## Choose a reading view
+- ⌘O opens a file; ⌘⇧O opens a folder as a workspace. Use the sidebar to open related files.
+- Add Folder to Workspace appends material to the current workspace. The sidebar can also hold several workspaces, each retaining its own tabs when switched.
+- Home offers file, workspace and new-file actions, plus recent workspaces. Renaming a workspace changes its display name, not the directory on disk.
+- Title-bar search finds workspace files by name or path, not by their contents. Use source-editor search within the current text.
 
-Markdown and HTML offer Preview and Source views. Markdown renders tables, formulas and diagrams; local links open related files. HTML uses WebKit, supports CSS and JavaScript, and can load network resources. Relative local HTML resources stay within the enclosing project, or the document directory when no project root is found.
+## Keep related files open
 
-JSON-family files offer a read-only tree alongside source. CSV/TSV offer a read-only table alongside editable source; inspect complete cell values when a table cell is truncated. Supported structured formats can also project data as an interactive graph; this view does not change the file.
+Opening a file leaves a tab so you can return after opening another. Reopening the same file activates its existing tab or window. Back and Forward revisit previously opened files.
 
-PDFs, images, supported Office documents, ebooks and media have their own reading controls. Reader actions appear in the outer toolbar, a floating content toolbar, or the content menu as supported. For readers with a floating toolbar, pause the pointer near the bottom of the content to reveal it. Open **Settings → Keyboard Shortcuts** for keyboard help. File fullscreen gives the current reader more room; Escape returns to the workspace.
+A tab's context menu can reveal it in Finder, copy its path or move it to a separate window. You can also drag a tab out. Collapse the sidebar for more reading space; the folder icon in the narrow rail expands it again.
 
-See the [format guide](file-format-support.md) for available actions and compatibility. A preview may reproduce only part of a format; the default application remains available for specialist editing or original layout.
+⌘W closes the current tab or an empty window. ⌘⇧W closes the current window. Closing the last window leaves Glim running; ⌘Q quits. Unsaved work goes through save confirmation.
 
-## Edit and save text
+## Choose how to view the content
 
-Ordinary UTF-8 text supports typing, selection, undo/redo and explicit **⌘S**. Existing files save automatically after a short typing pause. Automatic saving writes the original file; keep that in mind when opening a configuration or shared file. If the on-disk content changes before a save, Glim preserves your unsaved editor content and reports the conflict.
+| Content | Common actions |
+| --- | --- |
+| Contracts, reports and presentations | Page, select text and zoom in PDFs; switch Word Reading mode / Original layout; show supported documents fullscreen |
+| Spreadsheets and data | Switch Excel worksheets and pages; read CSV/TSV tables; expand JSON trees |
+| Notes and technical documents | Switch Markdown Preview / Source; read formulas and diagrams; check and save tasks in ordinary task lists |
+| Images and fonts | Zoom and copy images; extract text from supported raster previews; enter font samples |
+| Ebooks and comics | Contents, chapters or comic pages, typography, bookmarks and saved position |
+| Audio and video | Playback and ordered or shuffled folder playlists |
+| Mind maps and structured data | Expand or fold XMind topics; switch supported data to an interactive graph |
 
-**⌘N** creates an untitled text note. Its first save asks for a filename and location; later edits use the normal automatic-save behavior. Saving with a different extension does not convert text into a PDF, image or Office document.
+Actions appear in toolbars or content context menus. Some floating toolbars appear when you pause the pointer near the bottom of the content. File fullscreen expands the current reader; Escape returns to the workspace. Keyboard help is in Settings → Keyboard Shortcuts.
 
-Large or very long-line UTF-8 documents use editable pages. Save pending page edits before navigating where prompted. Generated text, binary views, database snapshots, images and document previews remain read-only. Editable source is available only where the format supports it.
+Actions differ by format. See [topics](topics.md) and [format compatibility](file-format-support.md).
 
-Before closing unsaved work, Glim offers Save, Don’t Save and Cancel. A failed or canceled save leaves the note open.
+## Make a small text edit
 
-## Browse SQLite without changing the source
+Ordinary UTF-8 text supports typing, selection, undo/redo and ⌘S. Existing files save automatically after a short typing pause, directly to the original. Keep this in mind with configuration and shared files. If another application changes the file before saving, Glim keeps your unsaved editor content and reports a conflict.
 
-Glim prepares a private snapshot, including associated WAL/journal data when present, and checks that the source stayed stable during copying. Open the main database file, select a table or view, then search across every column in all records, sort or page through results. Double-click a cell to read its full value. Slow queries can offer a retry with more time.
+⌘N creates an untitled note. Its first ⌘S asks for a location and name; later edits save automatically. Changing the extension does not convert text into a PDF or Office document.
 
-The snapshot is read-only. Glim does not execute arbitrary write SQL or checkpoint the source database. Encrypted databases are unsupported.
+Large or long-line text uses editable pages; save pending page edits before navigating when prompted. Tables, trees, databases, images and Office previews are read-only; edit supported text through Source. Closing unsaved content offers Save, Don't Save or Cancel. A failed save leaves it open.
 
-## Resume work
+## Inspect a database or unpack a handoff
 
-Home lists recent folder workspaces. Reopening one restores its folders; normal startup does not restore every file tab or every reader’s scroll/playback position. Ebook bookmarks and reading progress have their own saved state.
+Open the main SQLite file, choose a table or view, filter, sort and page. Double-click a cell for its full value. Glim creates a separate read-only snapshot with available WAL/journal data; it does not modify or checkpoint the source. Encrypted databases and arbitrary write SQL are unsupported.
 
-Untitled notes are checkpointed locally and can be recovered after an interrupted session. Edits not yet written to a checkpoint can be lost, and recovery errors are reported. Save important notes to a named file. These note checkpoints are separate from complete workspace-session recovery.
+Browse ZIP entries and choose extraction to create a separate directory, then open it as a new workspace. Existing directories are not overwritten, and extraction can be cancelled. TAR currently offers listings only. GZ/BZ2/XZ support on-demand decompressed source reading.
 
-Configured in-app updates preserve supported file/playlist tabs through a one-time restart checkpoint. See [update behavior](auto-update-design.md); available features in a published build are described in its release notes.
+## Continue next time
 
-## Settings, network content and help
+Normal startup can restore saved windows, workspaces, ordered file tabs and supported preview modes. Open recent workspaces in the current or a new window. Moved or deleted files remain visible as unavailable tabs.
 
-Settings provides appearance, language, default file-type associations, update checks, keyboard help and optional anonymous usage telemetry. Local file reading does not require a hosted viewer. Markdown remote images, HTML network content and enabled update/telemetry requests can use the network; see [telemetry](telemetry.md) and [security](../SECURITY.md).
+General scroll and cursor positions and media time are not fully restored. Restored media stays paused. Ebooks separately save reading progress and bookmarks.
 
-If a file fails to open or renders incorrectly, [report an issue](https://github.com/glimapp/glim/issues/new?template=bug_report.yml) with the Glim version, macOS version, format, steps and a sanitized example you can share. Do not include credentials or private document/database content. Some errors provide Retry or Open Log Folder; logs can contain local paths, so review them before sharing.
+Untitled notes use local recovery checkpoints. Changes not yet checkpointed can still be lost; save important notes as files. Application updates have a separate one-time restart checkpoint; see [updates and recovery](updates.md). Session records and application backups do not replace backups of your files.
+
+## Settings and help
+
+Settings includes appearance, language, default file associations, update checks, shortcuts and usage-statistics controls. Making Glim the default for a file type can cause Finder to open those files in Glim.
+
+See [privacy](privacy.md) for network and local-storage behavior. For opening, preview or saving problems, check [common questions](faq.md), then [report an issue](https://github.com/glimapp/glim/issues/new?template=bug_report.yml) with your version, Mac type, steps and a sanitized sample. Logs may contain local paths; review them before sharing.

@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Glim welcomes people of all backgrounds and experience levels. English and Chinese are welcome throughout the project.
+Glim welcomes people who use the app, report problems, write documentation and contribute code, across backgrounds and experience levels. English and Chinese are welcome throughout the project.
 
 ## Expected behavior
 
@@ -16,4 +16,10 @@ To report harmful content, use GitHub's **Report content** control on the releva
 
 ## 中文说明
 
-请尊重不同背景的参与者，就事论事，保护隐私。禁止骚扰、威胁、歧视、泄露隐私和恶意干扰。维护者可按严重程度移除内容、警告或限制参与。敏感举报请使用 GitHub 的 Report content 功能，不要公开私人证据。
+欢迎使用软件、报告问题、编写文档和贡献代码的参与者，中文与英文均可。请就事论事，补充有用背景、尊重他人的贡献、隐私和时间。
+
+禁止骚扰、威胁、歧视、性骚扰、泄露隐私、垃圾信息和恶意干扰。未经允许不要公开他人的私密信息。
+
+这些约定适用于本仓库的 Issue、PR、Discussions 及其他官方社区空间，维护者同样遵守。维护者可按行为的严重程度及重复情况移除内容、警告或限制参与。
+
+敏感举报使用相关内容上的 GitHub **Report content**。适合公开讨论的问题可以在对应话题中联系维护者 [@NeoPanic](https://github.com/NeoPanic)。不要公开私密证据；当前没有单独公布的私密举报邮箱。

@@ -1,6 +1,8 @@
-# Application updates
+# Application update internals
 
 **English** · [简体中文](auto-update-design.zh-CN.md) · [Documentation](README.md)
+
+This is a maintainer reference. Read [updates and recovery](updates.md) for checking updates, save protection and backup scope. The sections below cover signing, installation coordination and implementation limits.
 
 ## Current implementation
 
@@ -10,7 +12,7 @@ This page describes implemented behavior and remaining boundaries, not a promise
 
 ## User behavior
 
-Open updates from the Glim menu, About or the workspace update indicator. All workspace windows share one `UpdateState`; reopening activates the existing centered update window. A user-initiated check opens this window immediately, including while preparing the backup, checking, reporting no update or reporting an error. Background checks do not open it.
+Open updates from the Glim menu, About or the workspace update indicator. All workspace windows share one `UpdateState`; reopening activates the existing centered update window. Manual checks report progress and up-to-date/error status at the menu/settings entry. Only an available or ready update opens the update window. Repeated checks are coalesced; background checks do not interrupt reading.
 
 | Mode | Check | Download | Install |
 | --- | --- | --- | --- |

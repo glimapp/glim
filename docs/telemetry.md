@@ -1,8 +1,10 @@
-# Usage and format prioritization
+# Usage statistics technical reference
 
 [简体中文](telemetry.zh-CN.md)
 
-Telemetry follows the existing Settings switch. Enabled installations report feature events and sanitized errors to the configured Aptabase endpoint. Disabling stops delivery immediately and clears queued events. Installation identity is a random 128-bit token, stored in Glim's preferences directory, created only by the enabled background worker. It is unrelated to hardware, account, paths or document contents. It persists across launches and opt-out/re-enable; deleting the preferences token creates a new identity. An unwritable identity store omits the token. Count distinct `installation_id` values to estimate reach; this measures installations, not people. Multiple devices, reinstallations, opted-out users and undelivered events affect that estimate. Aptabase's built-in session count must not be relabeled as unique users. Cross-session identity is a custom property; distinct installation counts require export analysis or a compatible custom query.
+For the switch, upload scope and local records, read [privacy and network access](privacy.md). This reference is for maintainers checking event fields, metric semantics and offline analysis. Installation counts, downloads and people are separate measures.
+
+Telemetry follows the existing Settings switch. Enabled installations report feature events and sanitized errors to the configured Aptabase endpoint. Disabling stops delivery immediately and clears queued events. Installation identity is a random 128-bit token, stored in the settings table of Glim's application database, created only by the enabled background worker. It is unrelated to hardware, account, paths or document contents. It persists across launches and opt-out/re-enable; a missing identity record creates a new identity. An unwritable identity store omits the token. Count distinct `installation_id` values to estimate reach; this measures installations, not people. Multiple devices, reinstallations, opted-out users and undelivered events affect that estimate. Aptabase's built-in session count must not be relabeled as unique users. Cross-session identity is a custom property; distinct installation counts require export analysis or a compatible custom query.
 
 ## Format ranking
 

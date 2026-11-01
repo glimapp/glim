@@ -1,57 +1,84 @@
-# 文件格式与限制
+# 文件格式与兼容范围
 
-[English](file-format-support.md) · **简体中文** · [首页](../README.zh-CN.md)
+[English](file-format-support.md) · **简体中文** · [文档目录](README.zh-CN.md)
 
-文档、数据和代码，共用一个 macOS 文件阅读工作空间。打开方式、编辑保存及恢复行为见[使用指南](user-guide.zh-CN.md)。
+如果你想先了解软件适不适合自己，看[场景专题](topics.zh-CN.md)；本页用于查一份具体文件能看什么。以下按使用场景分组，格式名保留为查询依据，支持范围为 Apple Silicon 与 Intel Mac。
 
-“支持”指下表中的实际行为，不代表完整兼容一种格式的全部功能。文件统一在工作空间标签中打开。当前支持范围为 macOS Apple Silicon 与 Intel，下表描述这两个架构的能力。
+预览主要用于查看；普通 UTF-8 原文可以基础编辑并自动保存。基础预览可能只显示结构、坐标或元数据。这里的“支持”以每行列出的行为为准，专业排版、编辑和执行能力分别说明。
 
-## 格式目录
+## 办公文档
 
-| 格式 | 当前行为 |
+| 文件 | 可以做什么、有哪些边界 |
+| --- | --- |
+| PDF | 标签内嵌 PDFKit 预览，翻页、缩放、文字选择与密码输入 |
+| DOC/DOCX/RTF | 单一自适应宽度只读预览，支持缩放，失败时自动回退 Quick Look。复杂排版、绘图、嵌入对象及页眉页脚可能有差异 |
+| PPT/PPTX | 标签内嵌 Quick Look 只读预览，可用性和排版取决于系统预览器 |
+| XLS/XLSX/XLSM | XLSX／XLSM 保留单一分页样式预览、合并及缓存值；XLS 及不支持的结构使用 Quick Look。不重算公式；展示页不含图表、绘图及共享字符串分段富文本格式 |
+| KEY/Pages/Numbers | Quick Look 只读预览，支持目录文档包，不提供编辑或演示动画 |
+| ODT/ODS/ODP | 容器目录与部分文档文本提取 |
+
+## 阅读、笔记与导图
+
+| 文件 | 可以做什么、有哪些边界 |
+| --- | --- |
+| Markdown | 原生阅读排版、表格、任务列表、脚注、Alerts、frontmatter、图表、公式、相对图片、本地链接与源码编辑 |
+| XMind | 新版 JSON / 旧版 XML 容器；工作表、附属与游离主题树、折叠、缩放与详情。支持纯文本备注、标签、HTTP(S) 链接和关系端点，只读 |
+| AsciiDoc/Org/RST | 基础标题、列表与代码块阅读投影，保留原文编辑，不完整兼容方言 |
+| D2/Pikchr/`*.vega.json` | 离线静态图表，支持原文编辑，禁用外部导入、数据与图片 |
+| EPUB / FB2 / FB2 ZIP / CBZ | 专用只读书籍阅读器：spine／目录导航、章节或漫画页、插图、字号／行距／纸张控件、书签和位置保存；不复刻出版者 CSS 或 EPUB 固定版式 |
+| OPML | 只读大纲，展开／折叠，明确操作后打开或复制链接；不自动请求订阅源 |
+
+## 图片、图形与字体
+
+| 文件 | 可以做什么、有哪些边界 |
+| --- | --- |
+| PNG/JPEG/WebP/GIF/BMP/TIFF/ICO/SVG/ICNS/EXR/HDR/QOI | 图片预览，GIF 动画、TIFF 多页、EXR/HDR 转 SDR；ICNS 需含 PNG 表示，SVG 不加载外部文件资源 |
+| TTF/OTF/TTC/OTC/DFONT | CoreText 字体／集合查看、字形与自定义示例，不安装字体 |
+| BDF | 基础位图字形预览，不安装字体；预览预算见共享策略清单 |
+| draw.io | 基础形状、文字、连线和多页预览；自定义图形、嵌入图片、富文本与精确布线可能简化或省略 |
+
+## 音视频与字幕
+
+| 文件 | 可以做什么、有哪些边界 |
+| --- | --- |
+| MP3/MP4/MKV/M4A/M4V/MOV/AAC/WAV/AIF/AIFF/CAF/FLAC | 标签内嵌 AVKit 播放、文件夹顺序／随机队列。H.264／AAC-LC 的 MKV 无损重新封装为临时 MP4，包含误标为 `.mp4` 的 Matroska。其他 MKV 编码和内嵌字幕暂不支持，其余媒体解码取决于系统支持 |
+| SRT/VTT | 按时间戳阅读字幕并编辑原文，不与媒体播放同步 |
+
+## 表格、结构化数据与数据库
+
+| 文件 | 可以做什么、有哪些边界 |
+| --- | --- |
+| JSON/JSONC/JSON5、NDJSON/JSONL、GeoJSON、Notebook | 原文与按需加载的只读树。JSONC 支持注释和尾逗号，NDJSON 转为逐行记录数组；GeoJSON 不绘制地图，Notebook 不执行 |
+| CSV/TSV | 虚拟化只读表格与原文编辑，支持引号、跨行字段、BOM 与不齐列 |
+| DB/DB3/SQLite/SQLite3 及可识别的 SQLite 文件头 | 只读临时快照，表／视图、结构、SQL 定义与分页记录；关联 WAL/SHM/journal 在主库存在时通过主库打开 |
+| YAML / TOML / XML | 原文基础编辑；YAML、XML 可用于支持的结构化交互图，TOML 不在该交互图范围 |
+
+## 源码、配置与二进制
+
+| 文件 | 可以做什么、有哪些边界 |
 | --- | --- |
 | Rust、C/C++、Go、Swift、Java、C#、Kotlin、Zig、Python、Ruby、PHP、Lua、Scala、Elixir、Shell | 源码高亮、折叠、搜索、Minimap 与基础 UTF-8 编辑 |
 | JS/TS/JSX/TSX、HTML、CSS、Astro、Svelte、ERB/EJS、Jinja/Jinja2/Nunjucks/Twig | 源码高亮；部分模板采用轻量着色，并非完整语法解析 |
 | Vue、XML/plist、SCSS/LESS、Cython、CUDA/Metal、GLSL/OSL | 复用相关语言高亮，不提供专用语义校验 |
 | Dockerfile/Containerfile、Makefile/CMake、Nix、INI、`.env`、忽略规则及相关配置 | 高亮或轻量着色的文本编辑，不执行内容 |
-| Markdown | 原生阅读排版、表格、任务列表、脚注、Alerts、frontmatter、图表、公式、相对图片、本地链接与源码编辑 |
 | HTML/HTM | WebKit 浏览器预览，支持 CSS/JavaScript 及源码编辑；所属 Git 项目内（无 Git 根目录时为文档目录）的相对本地资源分块加载 |
 | TXT、日志及其他 UTF-8 文本 | 基础编辑；大文件或超长行使用可编辑 UTF-8 分页 |
-| JSON/JSONC/JSON5、NDJSON/JSONL、GeoJSON、Notebook | 原文与按需加载的只读树。JSONC 支持注释和尾逗号，NDJSON 转为逐行记录数组；GeoJSON 不绘制地图，Notebook 不执行 |
-| CSV/TSV | 虚拟化只读表格与原文编辑，支持引号、跨行字段、BOM 与不齐列 |
-| XMind | 新版 JSON / 旧版 XML 容器；工作表、附属与游离主题树、折叠、缩放与详情。支持纯文本备注、标签、HTTP(S) 链接和关系端点，只读 |
-| PNG/JPEG/WebP/GIF/BMP/TIFF/ICO/SVG/ICNS/EXR/HDR/QOI | 图片预览，GIF 动画、TIFF 多页、EXR/HDR 转 SDR；ICNS 需含 PNG 表示，SVG 不加载外部文件资源 |
-| PDF — macOS | 标签内嵌 PDFKit 预览，翻页、缩放、文字选择与密码输入 |
-| DOC/DOCX/RTF — macOS | 单一自适应宽度只读预览，支持缩放，失败时自动回退 Quick Look。复杂排版、绘图、嵌入对象及页眉页脚可能有差异 |
-| PPT/PPTX — macOS | 标签内嵌 Quick Look 只读预览，可用性和排版取决于系统预览器 |
-| XLS/XLSX/XLSM — macOS | XLSX／XLSM 保留单一分页样式预览、合并及缓存值；XLS 及不支持的结构使用 Quick Look。不重算公式；展示页不含图表、绘图及共享字符串分段富文本格式 |
-| KEY/Pages/Numbers — macOS | Quick Look 只读预览，支持目录文档包，不提供编辑或演示动画 |
-| MP3/MP4/MKV/M4A/M4V/MOV/AAC/WAV/AIF/AIFF/CAF/FLAC — macOS | 标签内嵌 AVKit 播放、文件夹顺序／随机队列。H.264／AAC-LC 的 MKV 无损重新封装为临时 MP4，包含误标为 `.mp4` 的 Matroska。其他 MKV 编码和内嵌字幕暂不支持，其余媒体解码取决于系统支持 |
-| TTF/OTF/TTC/OTC/DFONT — macOS | CoreText 字体／集合查看、字形与自定义示例，不安装字体 |
-| DB/DB3/SQLite/SQLite3 及可识别的 SQLite 文件头 — macOS | 只读临时快照，表／视图、结构、SQL 定义与分页记录；关联 WAL/SHM/journal 在主库存在时通过主库打开 |
-| safetensors | 仅读取头部，显示张量名称、shape、精度、参数量与元数据，不加载或执行权重 |
 | `.DS_Store` 等二进制点文件 | 有界十六进制／ASCII 预览，不提供语义解码或编辑 |
-
-`.key` 也可能是文本密钥：仅 ZIP 容器和文档包进入 Keynote 阅读器。系统文件关联按后缀／类型生效，可能同时影响两种用途。
-
-## 基础预览
-
-| 格式 | 当前行为与边界 |
-| --- | --- |
-| AsciiDoc/Org/RST | 基础标题、列表与代码块阅读投影，保留原文编辑，不完整兼容方言 |
-| SRT/VTT | 按时间戳阅读字幕并编辑原文，不与媒体播放同步 |
 | MATLAB/Stan/HTTP/HCL/Dhall/KDL | 基础词法着色与编辑，不执行脚本、请求或配置 |
-| D2/Pikchr/`*.vega.json` | 离线静态图表，支持原文编辑，禁用外部导入、数据与图片 |
+
+## 专业文件与压缩包
+
+| 文件 | 可以做什么、有哪些边界 |
+| --- | --- |
+| safetensors | 仅读取头部，显示张量名称、shape、精度、参数量与元数据，不加载或执行权重 |
 | OBJ/STL | 静态网格投影，支持 OBJ 面与 ASCII／二进制 STL，不提供交互旋转、材质或纹理 |
 | GPX/KML | 离线坐标表与 XML 原文，不加载地图底图或外部资源 |
-| BDF | 前 64 个位图字形，每个最多 64×64，不安装字体 |
-| ZIP/TAR | 条目名称与大小，标识越界路径，不解压 |
+| ZIP | 浏览条目与大小，默认隐藏 AppleDouble 元数据；可取消的后台解压到独立新目录，不覆盖已有目录，完成后作为新工作空间打开 |
+| TAR | 条目名称与大小，标识越界路径；不提供解压 |
 | GZ/BZ2/XZ | 按需解压并提供完整源分页，使用有界滚动缓存 |
-| EPUB / FB2 / FB2 ZIP / CBZ | 专用只读书籍阅读器：spine／目录导航、章节或漫画页、插图、字号／行距／纸张控件、书签和位置保存；不复刻出版者 CSS 或 EPUB 固定版式 |
-| ODT/ODS/ODP | 容器目录与部分文档文本提取 |
 | NPY | v1/v2/v3 头部及预览范围内的基础小端 f8/f4/i8/i4/u1 数值；其他类型保留元数据，不执行 pickle |
 
-XMind 使用统一阅读布局，不还原原始手动位置或样式，也不展示图片、附件、边界和概要。加密或损坏文档显示错误；链接不会自动打开。
+`.key` 也可能是文本密钥：只有 ZIP 容器和文档包进入 Keynote 阅读器；默认文件关联仍可能影响两种用途。XMind 使用统一阅读布局，不还原原始手动位置、图片、附件、边界和概要。链接不会自动打开。
 
 ## Markdown 图表与公式
 
@@ -81,18 +108,21 @@ MKV 支持 H.264／AAC-LC 重新封装，包括 AVC 配置及 Annex-B 帧；暂�
 
 ## 阅读器补充说明
 
+Markdown 的远程图片会在后台下载；失败时显示占位内容。HTML 使用浏览器布局与联网能力。SVG 不运行脚本或加载外部文件资源。联网范围见[隐私说明](privacy.zh-CN.md)。
+
+Mach-O（含通用二进制）、ELF 和 PE 通过文件头识别，提供架构、字长、字节序、入口、段／节及可解析的依赖名称和十六进制内容。不运行或反编译程序；元数据准备失败时保留完整字节分页。
+
 电子书各项边界见统一配置清单。只加载本地书内资源，不请求远程图片或执行活动内容。暂不支持 DRM EPUB、MOBI/AZW、PDF 书籍版式、出版者 CSS 的完整还原及 EPUB 固定版式。Space／Page Down 与 Shift-Space／Page Up 按视口翻页，Left／Right 切换章节。阅读偏好与书签单独保存，不改写原书。
 
-XLSX 按页预览网格，避免系统提供者截断长工作表，另保留完整单元格索引。GPX/KML 坐标和图表批次提供继续浏览入口。复杂书籍、XMind、网格／字体投影及张量头保留完整源后备。原生图片可能采用缩放栅格，实际大小缩放不保证原分辨率解码。SQLite 完整值窗口不约束引擎内部表达式分配；ZIP 中央目录及 Quick Look/WebKit 仍受平台／库实现约束。文件总量门槛改为流式、分页或完整源后备。
+XLSX 按页预览网格，避免系统提供者截断长工作表；内部保留完整单元格索引，不提供独立单元格数据模式。GPX/KML 坐标提供分页；图表随可视区域自动分批加载。复杂书籍、XMind、网格／字体投影及张量头保留完整源后备。原生图片可能采用缩放栅格，实际大小缩放不保证原分辨率解码。SQLite 完整值窗口不约束引擎内部表达式分配；ZIP 中央目录及 Quick Look/WebKit 仍受平台／库实现约束。文件总量门槛改为流式、分页或完整源后备。
 
-演示文稿（PPT、PPTX、Keynote）在悬浮工具栏提供**播放幻灯片**，打开独立的全屏 Quick Look 演示，使用系统文档控件翻页，Esc 退出。翻页、转场、动画和内嵌媒体取决于系统文档提供器。本入口不导入 Google Slides 云端链接或 HTML 幻灯片框架。
+演示文稿（PPT、PPTX、Keynote）在悬浮工具栏提供**播放幻灯片**，在当前窗口中展开 Quick Look 全屏演示，使用系统文档控件翻页，Esc 退出。翻页、转场、动画和内嵌媒体取决于系统文档提供器。本入口不导入 Google Slides 云端链接或 HTML 幻灯片框架。
 
 PDF 也提供**播放幻灯片**，使用 PDFKit 从当前页开始单页全屏展示。方向键、Page Up/Down、空格与 Shift+空格以及 Home/End 翻页；Esc 或悬浮栏“退出放映”返回最后展示的页。已解锁文档不需要重新输入密码。
 
 位图预览的悬浮工具栏提供**提取文字**。Apple Vision 在本机识别当前图片页，独立结果窗口支持选择复制及“复制全部”。识别使用当前解码预览，超大图片的小字可先切换“原尺寸”再提取。识别可能有误，结果为纯文本；SVG 预览暂不提供该功能。
 
 Office／iWork 和 PDF 工具栏提供**复制预览文字**和**识别图片文字**。Word、PDF 优先复制选中文字，否则复制已加载阅读内容／当前页。其他原生预览复制系统提供器当前公开的文字及单元格值，输出纯文本，表格格式依赖提供器。PDF OCR 识别当前页；OOXML／iWork 内嵌图片逐张识别常见位图，结果窗口提供“下一张图片”和“复制全部”。旧版二进制 Office 内嵌图片及矢量资源暂不支持此提取路径。Word 提供阅读模式／原始版式切换；Excel 使用单一分页预览，不提供独立单元格数据模式。
-
 
 ## 维护
 

@@ -1,9 +1,8 @@
 <p align="center"><img src="assets/branding/repository-banner.svg" alt="Glim — documents, data and code in one Mac workspace. Free and open source; Apple Silicon and Intel." width="100%" /></p>
 
+# Glim · Your files in one Mac workspace
 
-# Glim — Documents, data, and code. One Mac workspace.
-
-Glim is a free, open-source file viewer for macOS. Open a project folder and read its Markdown, PDFs, images, JSON, CSV and source code in the same window. Switch between previews and source, inspect local data, and make small text edits without leaving your files.
+Glim is a free, open-source file viewer for Mac. Open a contract, a folder of reference material or a project, and keep documents, images, spreadsheets, audio, video and code in one window. You can also make and save small text edits.
 
 <p align="center">Free and open source · macOS · Apple Silicon &amp; Intel · <b>English</b> / <a href="README.zh-CN.md">简体中文</a></p>
 
@@ -20,62 +19,55 @@ Glim is a free, open-source file viewer for macOS. Open a project folder and rea
   <a href="https://github.com/glimapp/glim/stargazers"><img src="https://img.shields.io/github/stars/glimapp/glim?style=social" alt="GitHub stars" /></a>
 </p>
 
-## Read a folder, not just a file
+## What would you use Glim for?
 
-<p align="center"><img src="assets/readme/workspace.png" alt="Glim showing a Markdown report with an embedded GitHub Star chart, a project file tree, and PNG, Markdown and SVG tabs." width="100%" /></p>
+At work, you might need a contract, a spreadsheet and a presentation together. When studying, you might have PDFs, ebooks and notes. A project folder can mix images, data and code. Glim keeps those files in a workspace for the task you are doing.
 
-A Markdown report, its chart images, the scripts that produced them and the underlying database can stay together. The screenshot shows a Markdown report with an embedded chart, with related PNG and SVG files open in adjacent tabs.
-
-| Your task | In Glim |
+| Topic | Who it helps and what you can do |
 | --- | --- |
-| Read a report or project documentation | Render Markdown tables, diagrams and formulas; follow local links and view related images |
-| Inspect an export or API response | Expand JSON objects, read CSV/TSV tables and inspect complete cell values |
-| Check a local database | Browse SQLite tables, filter and sort records, and inspect schema in a read-only snapshot |
-| Review documents and reference material | Keep PDFs, supported Office files, images and ebooks in workspace tabs |
-| Fix a typo or configuration value | Edit UTF-8 text with undo/redo, automatic saving and explicit ⌘S |
+| [Office files](docs/topics.md#office) | Read contracts, reports, spreadsheets and presentations |
+| [Reading and study](docs/topics.md#reading) | Read PDFs, ebooks, comics and study notes |
+| [Images and design assets](docs/topics.md#images) | View photos, animation, SVGs and fonts; copy images or extract image text |
+| [Audio, video and subtitles](docs/topics.md#media) | Play local media and folder playlists; read and edit subtitles separately |
+| [Notes and mind maps](docs/topics.md#notes) | Write Markdown and read XMind files, flowcharts and diagrams |
+| [Tables and data](docs/topics.md#data) | Inspect CSV tables, JSON trees and interactive data graphs |
+| [Databases](docs/topics.md#database) | Browse local SQLite tables, structure and records in read-only snapshots |
+| [Developers](docs/topics.md#developer) | Read source, webpages, configuration, logs and technical docs; make basic text edits |
+| [2D graphics and 3D models](docs/topics.md#graphics) | View SVGs, technical diagrams and static OBJ/STL mesh projections |
+| [GIS and tracks](docs/topics.md#gis) | Inspect GeoJSON fields and GPX/KML coordinates and source |
+| [AI and research files](docs/topics.md#research) | Inspect model metadata, selected NumPy values and notebook structures |
+| [Archives and handoffs](docs/topics.md#archives) | Browse and extract ZIPs to a new directory, or inspect TAR listings and compressed text |
 
-### Inspect the data behind the document
+[Explore tasks and limitations by topic](docs/topics.md) · [Look up a file format](docs/file-format-support.md)
 
-<p align="center"><img src="assets/readme/sqlite.png" alt="Glim browsing a read-only SQLite snapshot with a table list, records filtered by drupal, sortable columns and page navigation." width="100%" loading="lazy" /></p>
+## Open a folder and keep related files together
 
-SQLite opens in a private read-only snapshot. Choose a table or view, search across every column in all records, sort, or double-click a value to read it in full. Glim leaves the source database unchanged.
+<p align="center"><img src="assets/readme/workspace.png" alt="A folder tree beside a Markdown report, with related image and document tabs above." width="100%" /></p>
+
+Use a workspace for the files behind a task. Find files in the sidebar and switch between tabs. A window can hold multiple workspaces, and a file tab can move to its own window. Windows, workspaces and file tabs can return after restarting; general scroll positions and media playback positions are not fully restored.
+
+## Look at the data behind a document
+
+<p align="center"><img src="assets/readme/sqlite.png" alt="A selected SQLite table with record filtering, sorting and page controls." width="100%" loading="lazy" /></p>
+
+If a local database sits beside your report, open it in Glim. Choose a table, filter or sort its records, and double-click a cell to read the full value. Glim uses a separate snapshot and keeps the source database read-only.
 
 ## Start with your own files
 
-1. **Open a file** with ⌘O, or **open a folder** with ⌘⇧O. The sidebar lets you browse related files; title-bar search finds files by name or path in workspace folders.
-2. **Choose the view that fits the content.** Markdown, HTML and supported data readers provide preview/source controls. Documents and images use their format-specific reading controls.
-3. **Make a small edit when needed.** Existing UTF-8 files save automatically. ⌘N starts an untitled note; its first ⌘S asks where to save it.
+1. Download the installer for your Mac and drag Glim into Applications.
+2. Press ⌘O to open a file, or ⌘⇧O to choose a folder. Open the files you already have.
+3. Switch between tabs, or between Preview and Source where available. Reading controls are usually near the bottom of the content; some appear when you move the pointer there.
+4. Press ⌘N for a note, or use Source for a small text edit. Edits to existing text files save automatically to the original; ⌘S also saves.
 
-[User guide](docs/user-guide.md) · [Formats and compatibility](docs/file-format-support.md) · [Download Glim](https://github.com/glimapp/glim/releases/latest)
+[User guide](docs/user-guide.md) · [Common questions](docs/faq.md) · [Documentation](docs/README.md)
 
-## Formats at a glance
+## Know what to expect
 
-<a href="docs/file-format-support.md">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/formats-dark.svg" />
-    <source media="(prefers-color-scheme: light)" srcset="assets/readme/formats.svg" />
-    <img src="assets/readme/formats.svg" alt="Representative Glim file formats; dagger marks partial previews" width="100%" />
-  </picture>
-</a>
-
-*† Partial preview. See the [format guide](docs/file-format-support.md) for each reader’s actual behavior.*
-
-| Content | Representative formats |
-| --- | --- |
-| Documents and text | Markdown, HTML, UTF-8 text and logs; diagrams and formulas in Markdown |
-| Data and code | JSON/JSONC/JSON5, CSV/TSV, YAML, TOML, XML, SQLite and highlighted source code |
-| Images and documents | PNG, JPEG, WebP, GIF, SVG, TIFF, PDF, Word, Excel, PowerPoint and iWork |
-| Books and mind maps | EPUB, FB2, CBZ and XMind |
-| Media and specialist files | System-supported audio/video, fonts, safetensors metadata, archive listings and selected text previews |
-
-### What to expect
-
-- **Editing:** UTF-8 text supports basic editing and saving. Tables, data trees, database snapshots, images and document previews are read-only; editable formats retain source access. Large or long-line text uses editable pages.
-- **Compatibility:** Office previews can differ from the original layout; spreadsheet formulas use saved values without recalculation. Media playback depends on macOS codecs. Some formats provide a partial preview or source fallback.
-- **Local files and network content:** Files open locally. Markdown can fetch remote images, and HTML previews support CSS, JavaScript and network resources. Optional anonymous usage telemetry is controlled in Settings; see [telemetry](docs/telemetry.md).
-- **Platform:** macOS on Apple Silicon and Intel. Current downloads are ad-hoc signed and have not been notarized by Apple; installation steps are below.
-
-[Full format guide](docs/file-format-support.md) · [Documentation](docs/README.md) · [Remaining work](docs/TODO.md)
+- Document, image, table, database and mind-map previews focus on viewing. Ordinary UTF-8 text supports basic editing, undo/redo, automatic saving and explicit saving.
+- Complex Office layouts can differ. Excel displays saved formula results without recalculation. Use the appropriate specialist application for precise layout or advanced editing.
+- GIS currently shows data and coordinates; 3D currently provides static projections. Each topic explains its specific coverage.
+- Files open locally. Markdown remote images, HTML scripts and network resources, updates and enabled usage statistics can use the network. See [privacy and network access](docs/privacy.md).
+- Apple Silicon and Intel Macs are supported. Installers are not yet notarized by Apple; first-launch instructions follow.
 
 ## Download
 

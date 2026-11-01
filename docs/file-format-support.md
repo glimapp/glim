@@ -1,57 +1,84 @@
-# File formats and limits
+# File formats and compatibility
 
-**English** · [简体中文](file-format-support.zh-CN.md) · [Home](../README.md)
+**English** · [简体中文](file-format-support.zh-CN.md) · [Documentation](README.md)
 
-Documents, data and code share one macOS reading workspace. For opening files, saving edits and resuming work, see the [user guide](user-guide.md).
+Start with [topics](topics.md) to find a use for Glim. Use this page to check what a specific file can show. Entries are grouped by task, retaining format names for lookup. Coverage applies to Apple Silicon and Intel Macs.
 
-Support means the behavior listed below, not full compatibility with every feature of a format. Files open in workspace tabs. The supported targets are macOS Apple Silicon and Intel; the table describes capabilities on those two architectures.
+Previews focus on viewing; ordinary UTF-8 source can be edited and saved automatically. Basic previews may show only structure, coordinates or metadata. Support means the behavior listed in each row; specialist layout, editing and execution have separate limits.
 
-## Format catalog
+## Office documents
 
-| Formats | Current behavior |
+| Files | Actions and limits |
+| --- | --- |
+| PDF | Embedded PDFKit preview with pages, zoom, text selection and password entry |
+| DOC/DOCX/RTF | Single adaptive read-only preview with zoom; automatic Quick Look fallback on failure. Complex layout, drawings, embedded objects and headers/footers may differ |
+| PPT/PPTX | Embedded Quick Look read-only preview; availability and layout depend on the system provider |
+| XLSX / XLSM / XLS | XLSX/XLSM offer one paged layout preview with styles, merges and cached values. XLS and unsupported structures use Quick Look. No formula recalculation; presentation pages omit charts/drawings and shared-string rich-text formatting |
+| KEY/Pages/Numbers | Quick Look read-only preview, including directory packages; no editing or presentation animations |
+| ODT/ODS/ODP | Container listing and selected document text extraction |
+
+## Reading, notes and mind maps
+
+| Files | Actions and limits |
+| --- | --- |
+| Markdown | Native reading layout, tables, task lists, footnotes, alerts, frontmatter, diagrams, formulas, relative images and local links; source editing |
+| XMind | Modern JSON and legacy XML containers; sheets, attached/floating topic trees, folding, zoom and topic details. Plain notes, labels, HTTP(S) links and relationship endpoints; read-only |
+| AsciiDoc/Org/RST | Basic headings, lists and code-block reading projection with editable original text; not complete dialect rendering |
+| D2/Pikchr/`*.vega.json` | Offline static diagrams; source editing. External imports, datasets and images disabled |
+| EPUB / FB2 / FB2 ZIP / CBZ | Dedicated read-only book reader: spine/TOC navigation, chapters or comic pages, inline illustrations, typography/paper controls, bookmarks and saved position. Publisher CSS and fixed-layout EPUB are not reproduced |
+| OPML | Read-only outline with expand/fold and explicit open/copy link actions; no automatic feed requests |
+
+## Images, graphics and fonts
+
+| Files | Actions and limits |
+| --- | --- |
+| PNG/JPEG/WebP/GIF/BMP/TIFF/ICO/SVG/ICNS/EXR/HDR/QOI | Image previews; GIF animation, multipage TIFF, SDR conversion for EXR/HDR. ICNS needs a PNG representation; SVG external file resources are not loaded |
+| TTF/OTF/TTC/OTC/DFONT | CoreText font/collection inspection, glyphs and custom samples; fonts are not installed |
+| BDF | A bounded bitmap glyph preview; no font installation |
+| draw.io | Basic shapes, text, connectors and page previews; custom shapes, embedded images, rich text and exact routing may be simplified or omitted |
+
+## Audio, video and subtitles
+
+| Files | Actions and limits |
+| --- | --- |
+| MP3/MP4/MKV/M4A/M4V/MOV/AAC/WAV/AIF/AIFF/CAF/FLAC | Embedded AVKit playback and ordered/shuffled folder playlists. H.264/AAC-LC MKV is losslessly remuxed to a temporary MP4, including Matroska mislabeled `.mp4`. Other MKV codecs and embedded subtitles are unsupported; other media decoding depends on system codecs |
+| SRT/VTT | Read subtitles by timestamp; edit source. Not synchronized with media playback |
+
+## Tables, structured data and databases
+
+| Files | Actions and limits |
+| --- | --- |
+| JSON/JSONC/JSON5, NDJSON/JSONL, GeoJSON, notebooks | Source and an on-demand read-only tree. JSONC accepts comments/trailing commas; NDJSON becomes a line-record array. GeoJSON is not a map and notebooks are not executed |
+| CSV/TSV | Virtualized read-only table and editable source; quoted/multiline fields, BOM and uneven rows supported |
+| DB/DB3/SQLite/SQLite3 and recognized SQLite headers | Read-only temporary snapshot; tables/views, schema, SQL definitions and paged records. Associated WAL/SHM/journal files resolve to the main database when available |
+| YAML / TOML / XML | Basic source editing; YAML and XML support structured interactive graphs, while TOML is outside that graph scope |
+
+## Source, configuration and binary files
+
+| Files | Actions and limits |
 | --- | --- |
 | Rust, C/C++, Go, Swift, Java, C#, Kotlin, Zig, Python, Ruby, PHP, Lua, Scala, Elixir, shell | Source highlighting, folding, search, Minimap and basic UTF-8 editing |
 | JS/TS/JSX/TSX, HTML, CSS, Astro, Svelte, ERB/EJS, Jinja/Jinja2/Nunjucks/Twig | Source highlighting; some templates use lightweight coloring rather than full grammars |
 | Vue, XML/plist, SCSS/LESS, Cython, CUDA/Metal, GLSL/OSL | Reuse related language highlighting; no dedicated semantic validation |
 | Dockerfile/Containerfile, Makefile/CMake, Nix, INI, `.env`, ignore files and related configuration | Highlighted or lightly colored text; editing, not execution |
-| Markdown | Native reading layout, tables, task lists, footnotes, alerts, frontmatter, diagrams, formulas, relative images and local links; source editing |
 | HTML/HTM | WebKit browser preview with CSS/JavaScript and editable source; relative local assets within the enclosing Git project (otherwise the document directory) load in streamed chunks |
 | TXT, logs and other UTF-8 text | Basic editing; large or very long-line documents use editable UTF-8 pages |
-| JSON/JSONC/JSON5, NDJSON/JSONL, GeoJSON, notebooks | Source and an on-demand read-only tree. JSONC accepts comments/trailing commas; NDJSON becomes a line-record array. GeoJSON is not a map and notebooks are not executed |
-| CSV/TSV | Virtualized read-only table and editable source; quoted/multiline fields, BOM and uneven rows supported |
-| XMind | Modern JSON and legacy XML containers; sheets, attached/floating topic trees, folding, zoom and topic details. Plain notes, labels, HTTP(S) links and relationship endpoints; read-only |
-| PNG/JPEG/WebP/GIF/BMP/TIFF/ICO/SVG/ICNS/EXR/HDR/QOI | Image previews; GIF animation, multipage TIFF, SDR conversion for EXR/HDR. ICNS needs a PNG representation; SVG external file resources are not loaded |
-| PDF — macOS | Embedded PDFKit preview with pages, zoom, text selection and password entry |
-| DOC/DOCX/RTF — macOS | Single adaptive read-only preview with zoom; automatic Quick Look fallback on failure. Complex layout, drawings, embedded objects and headers/footers may differ |
-| PPT/PPTX — macOS | Embedded Quick Look read-only preview; availability and layout depend on the system provider |
-| XLSX / XLSM / XLS — macOS | XLSX/XLSM offer one paged layout preview with styles, merges and cached values. XLS and unsupported structures use Quick Look. No formula recalculation; presentation pages omit charts/drawings and shared-string rich-text formatting |
-| KEY/Pages/Numbers — macOS | Quick Look read-only preview, including directory packages; no editing or presentation animations |
-| MP3/MP4/MKV/M4A/M4V/MOV/AAC/WAV/AIF/AIFF/CAF/FLAC — macOS | Embedded AVKit playback and ordered/shuffled folder playlists. H.264/AAC-LC MKV is losslessly remuxed to a temporary MP4, including Matroska mislabeled `.mp4`. Other MKV codecs and embedded subtitles are unsupported; other media decoding depends on system codecs |
-| TTF/OTF/TTC/OTC/DFONT — macOS | CoreText font/collection inspection, glyphs and custom samples; fonts are not installed |
-| DB/DB3/SQLite/SQLite3 and recognized SQLite headers — macOS | Read-only temporary snapshot; tables/views, schema, SQL definitions and paged records. Associated WAL/SHM/journal files resolve to the main database when available |
-| safetensors | Tensor names, shapes, dtypes, parameter counts and metadata from the header; weights are not loaded or executed |
 | Binary dotfiles such as `.DS_Store` | Bounded hexadecimal/ASCII preview; no semantic decoding or editing |
-
-A `.key` text file can be a cryptographic key: only ZIP containers and document packages enter the Keynote reader. File associations are based on extension/type and can affect both uses.
-
-## Partial previews
-
-| Formats | Current behavior and boundary |
-| --- | --- |
-| AsciiDoc/Org/RST | Basic headings, lists and code-block reading projection with editable original text; not complete dialect rendering |
-| SRT/VTT | Read subtitles by timestamp; edit source. Not synchronized with media playback |
 | MATLAB/Stan/HTTP/HCL/Dhall/KDL | Basic lexical coloring and editing; scripts, requests and configurations are not executed |
-| D2/Pikchr/`*.vega.json` | Offline static diagrams; source editing. External imports, datasets and images disabled |
+
+## Specialist files and archives
+
+| Files | Actions and limits |
+| --- | --- |
+| safetensors | Tensor names, shapes, dtypes, parameter counts and metadata from the header; weights are not loaded or executed |
 | OBJ/STL | Static mesh projection; OBJ faces and ASCII/binary STL. No interactive rotation, materials or textures |
 | GPX/KML | Offline coordinate table and XML source; no map tiles or external resources |
-| BDF | A bounded bitmap glyph preview; no font installation |
-| ZIP/TAR | Entry names and sizes, with unsafe paths identified; no extraction |
+| ZIP | Browse entries and sizes; AppleDouble metadata hidden by default. Cancellable background extraction to a separate new directory without overwriting existing directories; open as a new workspace on completion |
+| TAR | Entry names and sizes, with unsafe paths identified; no extraction |
 | GZ/BZ2/XZ | On-demand decompression into complete source pages with a bounded rolling cache |
-| EPUB / FB2 / FB2 ZIP / CBZ | Dedicated read-only book reader: spine/TOC navigation, chapters or comic pages, inline illustrations, typography/paper controls, bookmarks and saved position. Publisher CSS and fixed-layout EPUB are not reproduced |
-| ODT/ODS/ODP | Container listing and selected document text extraction |
 | NPY | v1/v2/v3 headers and a bounded preview of basic little-endian f8/f4/i8/i4/u1 values; other types retain metadata, no pickle execution |
 
-XMind uses a consistent reading layout, not the original manual positions or styles. Images, attachments, boundaries and summaries are not reproduced. Encrypted/damaged documents show an error; links are never opened automatically.
+A `.key` file can also be a text cryptographic key: only ZIP containers and document packages use the Keynote reader; default associations can affect both uses. XMind uses a consistent reading layout without original manual positions, images, attachments, boundaries or summaries. Links do not open automatically.
 
 ## Markdown diagrams and formulas
 
@@ -87,9 +114,9 @@ Mach-O (including universal), ELF and PE files are recognized by their headers a
 
 Ebook limits are listed in the shared policy inventory. Text and image resources are loaded locally; remote images and active content are not fetched or executed. DRM EPUB, MOBI/AZW, PDF book layout, publisher stylesheet fidelity and fixed-layout EPUB are outside this reader. Space/Page Down and Shift-Space/Page Up turn viewport pages; Left/Right switch chapters. Reading preferences and bookmarks are stored separately from book files.
 
-XLSX layout preview is paginated to avoid provider truncation; the complete cell index remains available separately. GPX/KML coordinates and diagram batches have continuation controls. Complex books, XMind, mesh/font projections and tensor headers retain complete source fallbacks. Native images may use a scaled raster; actual-size zoom does not guarantee original-resolution decoding. SQLite full-value windows do not bound the engine’s internal expression allocations. ZIP directory indexing and native Quick Look/WebKit behavior remain library/platform constraints.
+XLSX layout preview is paginated to avoid provider truncation; the complete cell index is retained internally, without a separate cell-data mode. GPX/KML coordinates have page controls; diagrams load automatically in batches for the visible area. Complex books, XMind, mesh/font projections and tensor headers retain complete source fallbacks. Native images may use a scaled raster; actual-size zoom does not guarantee original-resolution decoding. SQLite full-value windows do not bound the engine’s internal expression allocations. ZIP directory indexing and native Quick Look/WebKit behavior remain library/platform constraints.
 
-Presentation files (PPT, PPTX, Keynote) offer **Play Slideshow** in the floating toolbar. This opens a separate full-screen Quick Look presentation; use the system document controls to navigate and Escape to leave. Slide navigation, transitions, animations and embedded media depend on the installed system provider. Google Slides cloud links and HTML slide frameworks are not imported by this entry.
+Presentation files (PPT, PPTX, Keynote) offer **Play Slideshow** in the floating toolbar. This expands the embedded Quick Look preview into a fullscreen presentation in its current window; use the system document controls to navigate and Escape to leave. Slide navigation, transitions, animations and embedded media depend on the installed system provider. Google Slides cloud links and HTML slide frameworks are not imported by this entry.
 
 PDF also offers **Play Slideshow**, using PDFKit single-page full-screen display from the current page. Arrow keys, Page Up/Down, Space/Shift-Space and Home/End navigate; Escape or the floating Exit Slideshow button returns to the last displayed page. Already-unlocked documents remain unlocked.
 

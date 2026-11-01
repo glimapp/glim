@@ -1,22 +1,27 @@
-# Roadmap and remaining work
+# Current coverage and remaining work
 
 **English** · [简体中文](TODO.zh-CN.md) · [Documentation](README.md)
 
-## Implemented baseline
+Glim covers [tasks](topics.md) across office work, reading, media, data and development. This page identifies gaps so you can decide whether it fits your work. Candidate work does not promise a release date.
 
-- Multiple file readers in workspace tabs, including macOS native previews and XMind.
-- Ordinary UTF-8 editing/autosave, structured data previews and offline diagrams; [reader-specific limits](file-format-support.md) apply.
-- macOS signed updates, recovery app backups and one-time update-session tab restoration.
-- Normal startup restores workspace folders; untitled notes have local recovery checkpoints. Complete general tab-session restoration remains unfinished.
+## Available now
 
-## Remaining implementation
+- Mixed files in workspaces, multiple workspaces and separate file windows.
+- Documents, ebooks, mind maps, images, media playback, structured data and SQLite inspection.
+- Basic UTF-8 editing with automatic or explicit saving; ZIP browsing and extraction.
+- Normal-startup window, workspace and file-tab recovery; ebook bookmarks and progress; untitled-note checkpoints.
+- In-app updates, application backups and one-time update-session recovery in configured releases.
 
-- Fuller EPUB publisher stylesheet and fixed-layout reproduction. Dedicated EPUB, FB2/FB2 ZIP and CBZ reading, TOC, illustrations, typography settings, bookmarks and progress restoration are implemented.
-- Developer ID signing and Apple notarization. Certificates/credentials are required.
-- General session recovery for tabs and reader scroll/playback positions; continue improving untitled-note checkpoint reliability.
-- Complete PlantUML Salt/Chen dialects and unrestricted diagram/HTML external-resource compatibility.
-- Full Office style/chart reproduction, formula recalculation and richer archive content readers.
-- GGUF/ONNX/NPZ metadata readers. NPY already has a basic bounded header/value preview.
+## Gaps by task
+
+| Task | Current gap |
+| --- | --- |
+| Office | Complex layout, charts and embedded objects, formula recalculation, complete OpenDocument reading |
+| Reading | Publisher EPUB styling and fixed-layout fidelity |
+| Continuing work | General scroll/cursor and media-time recovery; draft-recovery reliability |
+| Diagrams | Complete PlantUML Salt/Chen dialects; external resources remain restricted |
+| Specialist files | GIS maps and interactive 3D are unavailable; GGUF/ONNX/NPZ readers remain unfinished |
+| Installation | Developer ID signing and Apple notarization require credentials |
 
 ## Remaining acceptance coverage
 
