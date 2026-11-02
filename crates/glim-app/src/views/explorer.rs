@@ -48,6 +48,32 @@ impl Row {
     }
 }
 
+#[derive(Default)]
+struct StickyRows {
+    items: Vec<StickyRow>,
+    hidden: Vec<usize>,
+}
+
+struct StickyRow {
+    index: Option<usize>,
+    depth: usize,
+    y: f32,
+}
+
+impl StickyRows {
+    fn display_depth(&self, index: usize, rows: &[Row]) -> usize {
+        let depth = rows[index].depth;
+        if let Some(&parent) = self.hidden.last()
+            && index > parent
+            && index < rows[parent].subtree_end
+        {
+            depth.saturating_sub(self.hidden.len().saturating_sub(1))
+        } else {
+            depth
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum FileMenuAction {
     NewFile,
@@ -631,12 +657,25 @@ impl Explorer {
             self.activate(index, window, cx);
         }
         if sticky {
-            self.scroll
-                .scroll_to_item_strict_with_offset(index, ScrollStrategy::Top, depth);
+            let capacity = sticky_capacity(
+                f32::from(self.scroll.0.borrow().base_handle.bounds().size.height),
+                row_height(cx),
+            );
+            self.scroll.scroll_to_item_strict_with_offset(
+                index,
+                ScrollStrategy::Top,
+                depth.min(capacity),
+            );
         }
     }
 
-    fn render_row(&self, index: usize, sticky: bool, cx: &mut Context<Self>) -> AnyElement {
+    fn render_row(
+        &self,
+        index: usize,
+        sticky: bool,
+        depth: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let row_height = row_height(cx);
         let row = &self.rows[index];
         let expanded = self.expanded[row.root_index].contains(&row.entry.path);
@@ -725,7 +764,7 @@ impl Explorer {
                 },
             )
             .when(sticky, |row| row.occlude())
-            .children((0..row.depth).map(|level| {
+            .children((0..depth).map(|level| {
                 div()
                     .absolute()
                     .top_0()
@@ -734,10 +773,10 @@ impl Explorer {
                     .w(px(1.))
                     .bg(cx.theme().border.opacity(0.5))
             }))
-            .pl(px(if row.depth == 0 {
+            .pl(px(if depth == 0 {
                 0.
             } else {
-                8. + row.depth as f32 * 14.
+                8. + depth as f32 * 14.
             }))
             .pr_2()
             .child(
@@ -879,6 +918,87 @@ impl Explorer {
             .child(entry)
             .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
             .into_any_element()
+    }
+
+    fn render_hidden_ancestors(&self, hidden: &[usize], cx: &mut Context<Self>) -> AnyElement {
+        let root_index = self.rows[hidden[0]].root_index;
+        let root_id = self.root_ids[root_index];
+        let paths = hidden
+            .iter()
+            .map(|&index| self.rows[index].entry.path.clone())
+            .collect::<Vec<_>>();
+        div()
+            .id(self.rows[hidden[0]].element_id("sticky-ancestors"))
+            .w_full()
+            .h(px(row_height(cx)))
+            .pl(px(22.))
+            .pr_2()
+            .rounded(px(6.))
+            .bg(cx.theme().sidebar)
+            .occlude()
+            .child(
+                Button::new(self.rows[hidden[0]].element_id("sticky-ancestors-menu"))
+                    .custom(
+                        ButtonCustomVariant::new(cx)
+                            .hover(cx.theme().foreground.opacity(0.04))
+                            .active(cx.theme().foreground.opacity(0.07)),
+                    )
+                    .w_full()
+                    .h(px(row_height(cx)))
+                    .justify_start()
+                    .text_color(cx.theme().muted_foreground)
+                    .accessibility_label(glim_services::locale::tr("Show parent folders"))
+                    .child("…")
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        view.show_ancestor_menu(paths.clone(), root_id, window, cx);
+                    })),
+            )
+            .into_any_element()
+    }
+
+    fn show_ancestor_menu(
+        &mut self,
+        paths: Vec<PathBuf>,
+        root_id: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.context_menu_task = None;
+        let Some(root) = self.root_ids.iter().position(|id| *id == root_id) else {
+            return;
+        };
+        let items = paths
+            .iter()
+            .map(|path| {
+                let relative = path.strip_prefix(&self.roots[root]).unwrap_or(path);
+                (Some(relative.to_string_lossy().into_owned()), true)
+            })
+            .collect::<Vec<_>>();
+        let Some(menu) = super::native_menu_bridge::NativeMenu::new(&items, window) else {
+            return;
+        };
+        self.context_menu_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let selected = menu.choose(cx).await;
+            let _ = view.update_in(cx, |view, window, cx| {
+                if let Some(path) = selected.and_then(|index| paths.get(index))
+                    && let Some(index) = view.rows.iter().position(|row| {
+                        view.root_ids[row.root_index] == root_id && row.entry.path == *path
+                    })
+                {
+                    view.pending_reveal = None;
+                    view.pending_reveal_root = None;
+                    view.preserve_next_reveal = None;
+                    view.selected = Some(index);
+                    view.clicked_path = Some(path.clone());
+                    view.clicked_root = Some(view.rows[index].root_index);
+                    view.scroll
+                        .scroll_to_item_strict(index, ScrollStrategy::Center);
+                    window.focus(&view.focus, cx);
+                    cx.emit(ExplorerEvent::SelectionChanged);
+                    cx.notify();
+                }
+            });
+        }));
     }
 
     fn show_file_menu(
@@ -1040,7 +1160,7 @@ impl Render for Explorer {
                     view.activate(index, window, cx);
                 }
             }))
-            .on_action(cx.listener(|view, _: &Collapse, window, cx| {
+            .on_action(cx.listener(move |view, _: &Collapse, window, cx| {
                 if let Some(index) = view.selected
                     && let Some(row) = view.rows.get(index)
                 {
@@ -1048,6 +1168,15 @@ impl Render for Explorer {
                         view.activate(index, window, cx);
                     } else if let Some(parent) = row.parent {
                         view.selected = Some(parent);
+                        let capacity = sticky_capacity(
+                            f32::from(view.scroll.0.borrow().base_handle.bounds().size.height),
+                            row_height,
+                        );
+                        view.scroll.scroll_to_item_with_offset(
+                            parent,
+                            ScrollStrategy::Nearest,
+                            view.rows[parent].depth.min(capacity),
+                        );
                         cx.notify();
                     }
                 }
@@ -1065,9 +1194,23 @@ impl Render for Explorer {
                 uniform_list(
                     "files",
                     self.rows.len(),
-                    cx.processor(|view, range: std::ops::Range<usize>, _, cx| {
+                    cx.processor(move |view, range: std::ops::Range<usize>, _, cx| {
+                        let scroll = &view.scroll.0.borrow().base_handle;
+                        let pinned = sticky_rows_with_height(
+                            &view.rows,
+                            -f32::from(scroll.offset().y),
+                            f32::from(scroll.bounds().size.height),
+                            row_height,
+                        );
                         range
-                            .map(|index| view.render_row(index, false, cx))
+                            .map(|index| {
+                                view.render_row(
+                                    index,
+                                    false,
+                                    pinned.display_depth(index, &view.rows),
+                                    cx,
+                                )
+                            })
                             .collect()
                     }),
                 )
@@ -1092,11 +1235,20 @@ impl Render for Explorer {
                                     offset,
                                     f32::from(bounds.size.height),
                                     row_height,
-                                )
-                                .into_iter()
-                                .map(|(index, y)| (y, view.render_row(index, true, cx)))
-                                .collect::<Vec<_>>();
-                                (pinned, blank_top)
+                                );
+                                let elements = pinned
+                                    .items
+                                    .iter()
+                                    .map(|row| {
+                                        let element = if let Some(index) = row.index {
+                                            view.render_row(index, true, row.depth, cx)
+                                        } else {
+                                            view.render_hidden_ancestors(&pinned.hidden, cx)
+                                        };
+                                        (row.y, element)
+                                    })
+                                    .collect::<Vec<_>>();
+                                (elements, blank_top)
                             })
                             .unwrap_or_default();
                         // A separate hit area below the final row: never an ancestor
@@ -1165,20 +1317,25 @@ fn row_height(_: &App) -> f32 {
 #[cfg(test)]
 fn sticky_rows(rows: &[Row], offset: f32, height: f32) -> Vec<(usize, f32)> {
     sticky_rows_with_height(rows, offset, height, 32.)
+        .items
+        .into_iter()
+        .filter_map(|row| row.index.map(|index| (index, row.y)))
+        .collect()
 }
 
-/// Pin only real expanded ancestor rows that have crossed their tree slot.
-/// A sibling subtree pushes the previous ancestor out, rather than inheriting it.
-fn sticky_rows_with_height(
-    rows: &[Row],
-    offset: f32,
-    height: f32,
-    row_height: f32,
-) -> Vec<(usize, f32)> {
+fn sticky_capacity(height: f32, row_height: f32) -> usize {
+    // Leave at least half the viewport for the directory contents.
+    4.min((height / row_height) as usize / 2)
+}
+
+/// Compress only ancestors crossing the compact overlay, so distant descendants
+/// cannot become pinned before they reach the visible list's top edge.
+fn sticky_rows_with_height(rows: &[Row], offset: f32, height: f32, row_height: f32) -> StickyRows {
     let offset = offset.max(0.);
     let top = (offset / row_height).floor() as usize;
-    let mut pinned = Vec::new();
-    let capacity = ((height / row_height) as usize).saturating_sub(1);
+    let mut pinned = StickyRows::default();
+    let mut pinned_path = Vec::new();
+    let capacity = sticky_capacity(height, row_height);
     for slot in 0..capacity {
         let slot_y = slot as f32 * row_height;
         let probe = top.saturating_add(((offset % row_height + slot_y) / row_height) as usize);
@@ -1196,25 +1353,55 @@ fn sticky_rows_with_height(
             current = rows[index].parent;
         }
         ancestors.reverse();
-        if pinned
-            .iter()
-            .enumerate()
-            .any(|(level, (index, _))| ancestors.get(level) != Some(index))
-        {
+        if !ancestors.starts_with(&pinned_path) {
             break;
         }
-        let Some(&index) = ancestors.get(slot) else {
-            break;
-        };
-        let natural_y = index as f32 * row_height - offset;
-        if natural_y >= slot_y {
-            break;
+        loop {
+            let mut candidate = StickyRows::default();
+            let indices = if ancestors.len() > capacity && capacity >= 3 {
+                let tail = ancestors.len() - (capacity - 2);
+                candidate.hidden = ancestors[1..tail].to_vec();
+                std::iter::once(Some(ancestors[0]))
+                    .chain(std::iter::once(None))
+                    .chain(ancestors[tail..].iter().copied().map(Some))
+                    .collect::<Vec<_>>()
+            } else {
+                ancestors[ancestors.len().saturating_sub(capacity)..]
+                    .iter()
+                    .copied()
+                    .map(Some)
+                    .collect::<Vec<_>>()
+            };
+            let mut truncate = None;
+            for (depth, entry) in indices.into_iter().enumerate() {
+                let index = entry.unwrap_or_else(|| *candidate.hidden.last().unwrap());
+                let y = depth as f32 * row_height;
+                let natural_y = index as f32 * row_height - offset;
+                let end_y = rows[index].subtree_end as f32 * row_height - offset;
+                if natural_y >= y || end_y <= y {
+                    truncate = ancestors.iter().position(|&ancestor| {
+                        if end_y <= y {
+                            rows[ancestor].subtree_end as f32 * row_height - offset <= y
+                        } else {
+                            ancestor == index
+                        }
+                    });
+                    break;
+                }
+                candidate.items.push(StickyRow {
+                    index: entry,
+                    depth,
+                    y: y.min(end_y - row_height),
+                });
+            }
+            if let Some(length) = truncate {
+                ancestors.truncate(length);
+            } else {
+                pinned = candidate;
+                pinned_path = ancestors;
+                break;
+            }
         }
-        let end_y = rows[index].subtree_end as f32 * row_height - offset;
-        if end_y <= slot_y {
-            break;
-        }
-        pinned.push((index, slot_y.min(end_y - row_height)));
     }
     pinned
 }
