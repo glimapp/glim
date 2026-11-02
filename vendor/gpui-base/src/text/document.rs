@@ -240,7 +240,8 @@ impl ParsedDocument {
                         .into_any_element()
                 }
             })
-            .size_full(),
+            .size_full()
+            .pb(node_cx.style.scroll_bottom_padding()),
         )
     }
 }

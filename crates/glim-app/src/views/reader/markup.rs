@@ -1,7 +1,7 @@
 use super::{OpenLink, diagrams::DiagramPreview, pictures::Pictures, source::SourceReader};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    base::{TextView, TextViewState},
+    base::{TextView, TextViewDefaults, TextViewState, TextViewStyle},
     component::ActiveTheme,
     *,
 };
@@ -355,8 +355,19 @@ impl MarkupReader {
         });
         // The viewport owns a virtual block list; offscreen tables are not
         // rebuilt and laid out on every wheel event.
+        let style = TextViewDefaults::global(cx)
+            .style()
+            .cloned()
+            .unwrap_or_else(|| TextViewStyle::from_theme(&gpui_kit::base::Theme::global(cx)));
+        let mut table_style = style.table().clone();
+        table_style.overflow.x = Some(Overflow::Scroll);
         let text_view = TextView::new(&self.state)
             .text_size(px(14.))
+            .style(
+                style
+                    .with_table(table_style)
+                    .with_scroll_bottom_padding(px(40.)),
+            )
             .scrollable(true)
             .size_full()
             // Keep document padding inside the viewport so the component's

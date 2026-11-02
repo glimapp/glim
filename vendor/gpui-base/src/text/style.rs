@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use gpui::{HighlightStyle, Hsla, Rems, StyleRefinement, rems};
+use gpui::{HighlightStyle, Hsla, Pixels, Rems, StyleRefinement, rems};
 
 use crate::ColorTokens;
 
@@ -19,6 +19,7 @@ pub struct TextViewStyle {
     code_background: Hsla,
     border: Hsla,
     paragraph_gap: Rems,
+    scroll_bottom_padding: Pixels,
     heading: Arc<dyn Fn(u8) -> StyleRefinement + Send + Sync + 'static>,
     code_block: StyleRefinement,
     table: StyleRefinement,
@@ -35,6 +36,7 @@ pub struct TextViewStyle {
 impl PartialEq for TextViewStyle {
     fn eq(&self, other: &Self) -> bool {
         self.paragraph_gap == other.paragraph_gap
+            && self.scroll_bottom_padding == other.scroll_bottom_padding
             && self.foreground == other.foreground
             && self.muted_foreground == other.muted_foreground
             && self.link == other.link
@@ -81,6 +83,7 @@ impl TextViewStyle {
             code_background: colors.accent,
             border: colors.border,
             paragraph_gap: rems(1.),
+            scroll_bottom_padding: Pixels::ZERO,
             heading: Arc::new(|_| StyleRefinement::default()),
             code_block: StyleRefinement::default(),
             table: StyleRefinement::default(),
@@ -138,6 +141,17 @@ impl TextViewStyle {
     pub fn with_paragraph_gap(mut self, gap: Rems) -> Self {
         self.paragraph_gap = gap;
         self
+    }
+
+    /// Adds space after the document in a scrollable TextView without reducing
+    /// its viewport height. Fit-content views ignore this value.
+    pub fn with_scroll_bottom_padding(mut self, padding: Pixels) -> Self {
+        self.scroll_bottom_padding = padding.max(Pixels::ZERO);
+        self
+    }
+
+    pub(crate) fn scroll_bottom_padding(&self) -> Pixels {
+        self.scroll_bottom_padding
     }
 
     /// Sets the style refinement for headings, selected by heading level (1-6).

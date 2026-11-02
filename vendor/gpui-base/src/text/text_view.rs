@@ -79,6 +79,11 @@ impl TextViewDefaults {
         cx.try_global::<Self>().cloned().unwrap_or_default()
     }
 
+    /// Returns the installed presentation style for selective overrides.
+    pub fn style(&self) -> Option<&TextViewStyle> {
+        self.style.as_ref()
+    }
+
     /// Whether a syntax highlighter was installed.
     pub fn has_code_block_highlighter(&self) -> bool {
         self.code_block_highlighter.is_some()
