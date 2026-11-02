@@ -1,4 +1,6 @@
 {
+  "Collapse all folders": "全部收起",
+  "Expand all folders": "全部展开",
   "This file is already open in Glim. Choose another name or close its tab before replacing it.": "这个文件已在 Glim 中打开。请选择其他名称，或关闭对应标签后再覆盖。",
   "The destination is read-only": "目标文件为只读，请选择其他保存位置。",
   "Destination changed. Your note has not been saved; choose its location again.": "目标文件已变化。笔记仍然保留，请重新选择保存位置。",

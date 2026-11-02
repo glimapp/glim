@@ -8,7 +8,7 @@ use glim_services::workspace::list_directory_cancellable;
 use gpui_kit::{
     base::TestSupportExt,
     component::{
-        ActiveTheme, FocusableExt, Icon,
+        ActiveTheme, FocusableExt, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
     },
     prelude::FluentBuilder,
@@ -94,6 +94,7 @@ pub struct Explorer {
     directories: HashMap<PathBuf, Vec<DirectoryEntry>>,
     expanded: Vec<HashSet<PathBuf>>,
     tasks: HashMap<PathBuf, Task<()>>,
+    expansion_tasks: HashMap<u64, Task<()>>,
     pending_refresh: HashSet<PathBuf>,
     media_presence: HashMap<PathBuf, bool>,
     media_tasks: HashMap<PathBuf, Task<()>>,
@@ -133,6 +134,7 @@ impl Explorer {
             directories: HashMap::from([(root.clone(), entries)]),
             expanded: vec![HashSet::from([root])],
             tasks: HashMap::new(),
+            expansion_tasks: HashMap::new(),
             pending_refresh: HashSet::new(),
             media_presence: HashMap::new(),
             media_tasks: HashMap::new(),
@@ -172,6 +174,7 @@ impl Explorer {
     /// Remove one root occurrence without touching its files or other root entries.
     pub fn remove_folder(&mut self, root_id: u64, cx: &mut Context<Self>) -> Option<usize> {
         let index = self.root_ids.iter().position(|id| *id == root_id)?;
+        self.expansion_tasks.remove(&root_id);
         let selected = self
             .selected
             .and_then(|i| self.rows.get(i))
@@ -254,6 +257,7 @@ impl Explorer {
         paths: glim_services::preferences::ExplorerExpansion,
         cx: &mut Context<Self>,
     ) {
+        self.expansion_tasks.clear();
         self.expanded = self
             .roots
             .iter()
@@ -298,6 +302,89 @@ impl Explorer {
         for path in paths {
             self.load_directory(path, cx);
         }
+    }
+
+    fn toggle_all_folders(&mut self, root_id: u64, cx: &mut Context<Self>) {
+        let Some(root_index) = self.root_ids.iter().position(|id| *id == root_id) else {
+            return;
+        };
+        let root = self.roots[root_index].clone();
+        self.expansion_tasks.remove(&root_id);
+        self.pending_reveal = None;
+        self.pending_reveal_root = None;
+        self.preserve_next_reveal = None;
+        self.show_all_ancestors = false;
+        if self.expanded[root_index].contains(&root) {
+            self.expanded[root_index].clear();
+        } else {
+            self.expanded[root_index].insert(root.clone());
+            let (cancel, guard) = glim_services::work::Cancellation::task();
+            let task = cx.spawn(async move |view, cx| {
+                let _guard = guard;
+                let mut paths = vec![root];
+                while !paths.is_empty() {
+                    let read_cancel = cancel.clone();
+                    // Read one level at a time, with one active directory scan per root.
+                    let batch = cx
+                        .background_executor()
+                        .spawn(async move {
+                            paths
+                                .into_iter()
+                                .take_while(|_| read_cancel.check().is_ok())
+                                .map(|path| {
+                                    let entries = list_directory_cancellable(&path, &read_cancel);
+                                    (path, entries)
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .await;
+                    let Ok(next) = view.update(cx, |view, cx| {
+                        let Some(root_index) = view.root_ids.iter().position(|id| *id == root_id)
+                        else {
+                            return Vec::new();
+                        };
+                        let mut next = Vec::new();
+                        let mut first_error = None;
+                        for (path, entries) in batch {
+                            match entries {
+                                Ok(entries) => {
+                                    next.extend(
+                                        entries
+                                            .iter()
+                                            .filter(|entry| entry.is_dir && !entry.is_symlink)
+                                            .map(|entry| entry.path.clone()),
+                                    );
+                                    view.expanded[root_index].insert(path.clone());
+                                    view.directories.insert(path, entries);
+                                }
+                                Err(error) => {
+                                    view.expanded[root_index].remove(&path);
+                                    first_error.get_or_insert(error);
+                                }
+                            }
+                        }
+                        view.rebuild();
+                        view.expansion_changed(cx);
+                        if let Some(error) = first_error {
+                            cx.emit(ExplorerEvent::Error(format!("{error:#}")));
+                        }
+                        cx.notify();
+                        next
+                    }) else {
+                        return;
+                    };
+                    paths = next;
+                }
+                let _ = view.update(cx, |view, cx| {
+                    view.expansion_tasks.remove(&root_id);
+                    cx.notify();
+                });
+            });
+            self.expansion_tasks.insert(root_id, task);
+        }
+        self.rebuild();
+        self.expansion_changed(cx);
+        cx.notify();
     }
 
     fn load_directory(&mut self, path: PathBuf, cx: &mut Context<Self>) {
@@ -616,6 +703,7 @@ impl Explorer {
             self.preserve_next_reveal = Some(row.entry.path.clone());
             cx.emit(ExplorerEvent::OpenFile(row.entry.path));
         } else {
+            self.expansion_tasks.remove(&self.root_ids[row.root_index]);
             self.show_all_ancestors = false;
             self.pending_reveal = None;
             self.pending_reveal_root = None;
@@ -755,6 +843,8 @@ impl Explorer {
             )
             .h(px(row_height))
             .w_full()
+            .flex()
+            .items_center()
             .rounded(px(6.))
             .bg(
                 if self.clicked_root == Some(root_index)
@@ -886,7 +976,8 @@ impl Explorer {
                                 ),
                         ),
                     )
-                    .w_full()
+                    .flex_1()
+                    .min_w_0()
                     .h(px(row_height))
                     .justify_start()
                     .on_click(cx.listener(move |view, event, window, cx| {
@@ -900,6 +991,42 @@ impl Explorer {
                         );
                     })),
             )
+            .when(row.depth == 0, |entry| {
+                let label = glim_services::locale::tr(if expanded {
+                    "Collapse all folders"
+                } else {
+                    "Expand all folders"
+                });
+                entry.child(
+                    Button::new(row.element_id(if sticky {
+                        "sticky-toggle-all-folders"
+                    } else {
+                        "toggle-all-folders"
+                    }))
+                    .custom(
+                        ButtonCustomVariant::new(cx)
+                            .hover(cx.theme().foreground.opacity(0.04))
+                            .active(cx.theme().foreground.opacity(0.07)),
+                    )
+                    .small()
+                    .w(px(24.))
+                    .h(px(24.))
+                    .flex_shrink_0()
+                    .text_color(cx.theme().muted_foreground)
+                    .icon(if expanded {
+                        gpui_kit::assets::IconName::FoldVertical
+                    } else {
+                        gpui_kit::assets::IconName::UnfoldVertical
+                    })
+                    .tooltip(label.clone())
+                    .accessibility_label(label)
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        cx.stop_propagation();
+                        view.toggle_all_folders(root_id, cx);
+                        window.focus(&view.focus, cx);
+                    })),
+                )
+            })
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |view, _, window, cx| {

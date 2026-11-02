@@ -1,4 +1,6 @@
 {
+  "Collapse all folders": "Collapse all folders",
+  "Expand all folders": "Expand all folders",
   "This file is already open in Glim. Choose another name or close its tab before replacing it.": "This file is already open in Glim. Choose another name or close its tab before replacing it.",
   "The destination is read-only": "The destination is read-only",
   "Destination changed. Your note has not been saved; choose its location again.": "Destination changed. Your note has not been saved; choose its location again.",

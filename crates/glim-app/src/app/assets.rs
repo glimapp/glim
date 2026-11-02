@@ -34,6 +34,8 @@ gpui_kit::assets::icon_assets!(
         Minus,
         ChevronDown,
         ChevronRight,
+        FoldVertical,
+        UnfoldVertical,
         FolderGit2,
         ArrowUpRight,
         Clock,
