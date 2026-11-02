@@ -64,31 +64,60 @@ pub(crate) fn thumbnail_png_cancellable(
         None
     };
     let path = converted.as_ref().map_or(path, |file| file.path());
-    let output = if sips_thumbnail(path, &output, max_edge, cancel)? {
-        output
+    let dimensions = image::ImageReader::open(path)
+        .ok()
+        .and_then(|reader| reader.with_guessed_format().ok())
+        .and_then(|reader| reader.into_dimensions().ok());
+    let svg_size = if dimensions.is_none() {
+        crate::svg_preview::dimensions(path, cancel).ok().flatten()
     } else {
-        let svg = crate::svg_preview::prepare(path, cancel)?;
-        // ImageIO needs the SVG extension on streamed downloads. Quick Look
-        // can return a square document canvas instead of the image viewport.
-        if sips_thumbnail(svg.path(), &output, max_edge, cancel)? {
-            output
-        } else {
-            let mut command = Command::new("/usr/bin/qlmanage");
-            command
-                .args(["-t", "-s", &max_edge.to_string(), "-o"])
-                .arg(directory.path())
-                .arg(svg.path())
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            let result = crate::work::run(&mut command, cancel)?;
-            ensure!(result.success(), "Cannot prepare image thumbnail");
-            directory
-                .path()
-                .join(svg.path().file_name().context("Missing SVG filename")?)
-                .with_extension("svg.png")
-        }
+        None
     };
+    if let Some(size) = svg_size {
+        let svg = crate::svg_preview::prepare_thumbnail(path, size, cancel)?;
+        let side = size.0.max(size.1);
+        let edge = side.ceil().clamp(1., f64::from(max_edge)) as u32;
+        let mut command = Command::new("/usr/bin/qlmanage");
+        command
+            .args(["-t", "-s", &edge.to_string(), "-o"])
+            .arg(directory.path())
+            .arg(svg.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        ensure!(
+            crate::work::run(&mut command, cancel)?.success(),
+            "Cannot prepare SVG thumbnail"
+        );
+        let thumbnail = directory
+            .path()
+            .join(svg.path().file_name().context("Missing SVG filename")?)
+            .with_extension("svg.png");
+        let (width, height) = image::ImageReader::open(&thumbnail)?.into_dimensions()?;
+        ensure!(
+            width > 0 && height > 0 && width <= max_edge && height <= max_edge,
+            "Invalid SVG thumbnail dimensions"
+        );
+        let width = (f64::from(width) * size.0 / side).ceil().max(1.) as u32;
+        let height = (f64::from(height) * size.1 / side).ceil().max(1.) as u32;
+        let mut reader = image::ImageReader::open(thumbnail)?;
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(max_edge);
+        limits.max_image_height = Some(max_edge);
+        limits.max_alloc = Some(reader_limits::INLINE_IMAGE_DECODED_BYTES);
+        reader.limits(limits);
+        cancel.check()?;
+        let image = reader.decode()?;
+        cancel.check()?;
+        image
+            .crop_imm(0, 0, width, height)
+            .save_with_format(&output, image::ImageFormat::Png)?;
+    } else {
+        ensure!(
+            sips_thumbnail(path, &output, max_edge, dimensions, cancel)?,
+            "Cannot prepare inline image thumbnail"
+        );
+    }
     ensure!(
         std::fs::metadata(&output)?.len()
             <= u64::from(max_edge) * u64::from(max_edge) * 4
@@ -107,12 +136,9 @@ fn sips_thumbnail(
     path: &Path,
     output: &Path,
     max_edge: u32,
+    dimensions: Option<(u32, u32)>,
     cancel: &crate::work::Cancellation,
 ) -> Result<bool> {
-    let dimensions = image::ImageReader::open(path)
-        .ok()
-        .and_then(|reader| reader.with_guessed_format().ok())
-        .and_then(|reader| reader.into_dimensions().ok());
     // Specify both dimensions for thin images: sips' longest-edge option can
     // round the short edge to zero even though the source is valid.
     let mut command = Command::new("/usr/bin/sips");

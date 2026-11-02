@@ -113,11 +113,12 @@ fn intrinsic_size(
             _ => {}
         }
     }
-    if width.is_some() && height.is_some() {
-        return Ok(None);
+    if let (Some(width), Some(height)) = (width, height) {
+        return Ok(Some((width, height)));
     }
     let Some((view_width, view_height)) = view_box else {
-        return Ok(None);
+        // SVG uses a 300×150 default viewport for unspecified dimensions.
+        return Ok(Some((width.unwrap_or(300.), height.unwrap_or(150.))));
     };
     let size = match (width, height) {
         (Some(width), None) => (width, width * view_height / view_width),
@@ -144,8 +145,47 @@ fn absolute_length(value: &str) -> Option<f64> {
     let pixels = number.trim().parse::<f64>().ok()? * factor;
     (pixels.is_finite() && pixels > 0.).then_some(pixels)
 }
-pub(crate) fn prepare(path: &Path, cancel: &Cancellation) -> Result<tempfile::NamedTempFile> {
-    prepare_image(path, cancel, false)
+pub(crate) fn dimensions(path: &Path, cancel: &Cancellation) -> Result<Option<(f64, f64)>> {
+    let input = crate::work::RecordReader::new(File::open(path)?, limits::SVG_EVENT_BYTES, cancel);
+    let mut reader = Reader::from_reader(BufReader::with_capacity(limits::IO_BUFFER_BYTES, input));
+    let mut buffer = Vec::new();
+    loop {
+        cancel.check()?;
+        let event = reader.read_event_into(&mut buffer)?;
+        reader.get_mut().get_mut().reset(limits::SVG_EVENT_BYTES);
+        match event {
+            Event::Start(start) | Event::Empty(start) => {
+                if start.local_name().as_ref() != b"svg" {
+                    return Ok(None);
+                }
+                return intrinsic_size(&start, reader.decoder());
+            }
+            Event::Eof => return Ok(None),
+            _ => buffer.clear(),
+        }
+    }
+}
+
+pub(crate) fn prepare_thumbnail(
+    path: &Path,
+    size: (f64, f64),
+    cancel: &Cancellation,
+) -> Result<tempfile::NamedTempFile> {
+    let prepared = prepare_image(path, cancel, false)?;
+    let mut output = tempfile::Builder::new().suffix(".svg").tempfile()?;
+    let mut writer = BufWriter::new(output.as_file_mut());
+    let side = size.0.max(size.1);
+    // Quick Look fits a square viewport reliably. The caller crops its unused
+    // bottom/right region after rendering, keeping the nested SVG's coordinates.
+    write!(
+        writer,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{side}\" height=\"{side}\" viewBox=\"0 0 {side} {side}\">"
+    )?;
+    cancel.copy(prepared.reopen()?, &mut writer)?;
+    writer.write_all(b"</svg>")?;
+    writer.flush()?;
+    drop(writer);
+    Ok(output)
 }
 /// Only for SVG loaded as a browser `<img>`, whose image-document sandbox
 /// disables scripts, navigation and external resource loads. Preserve XHTML
