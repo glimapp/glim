@@ -470,9 +470,16 @@ impl Explorer {
                 self.selected = Some(index);
                 self.clicked_path = Some(target);
                 self.clicked_root = Some(root_index);
-                // Center explicitly so pinned ancestor rows cannot cover the target.
-                self.scroll
-                    .scroll_to_item_strict(index, ScrollStrategy::Center);
+                if let Some(offset) = self.compact_file_offset(index, row_height(cx)) {
+                    self.scroll.scroll_to_item_strict_with_offset(
+                        index,
+                        ScrollStrategy::Top,
+                        offset,
+                    );
+                } else {
+                    self.scroll
+                        .scroll_to_item_strict(index, ScrollStrategy::Center);
+                }
             }
         }
     }
@@ -613,6 +620,7 @@ impl Explorer {
         window.focus(&self.focus, cx);
         if !row.entry.is_dir {
             self.preserve_next_reveal = Some(row.entry.path.clone());
+            self.reveal_compact_file(index, cx);
             cx.emit(ExplorerEvent::OpenFile(row.entry.path));
         } else {
             self.pending_reveal = None;
@@ -650,6 +658,7 @@ impl Explorer {
         if !explicit && !self.rows[index].entry.is_dir {
             self.selected = Some(index);
             self.preserve_next_reveal = Some(path.to_path_buf());
+            self.reveal_compact_file(index, cx);
             window.focus(&self.focus, cx);
             cx.emit(ExplorerEvent::OpenFile(path.to_path_buf()));
             cx.notify();
@@ -666,6 +675,22 @@ impl Explorer {
                 ScrollStrategy::Top,
                 depth.min(capacity),
             );
+        }
+    }
+
+    fn compact_file_offset(&self, index: usize, row_height: f32) -> Option<usize> {
+        let row = self.rows.get(index)?;
+        let capacity = sticky_capacity(
+            f32::from(self.scroll.0.borrow().base_handle.bounds().size.height),
+            row_height,
+        );
+        (!row.entry.is_dir && capacity >= 3 && row.depth > capacity).then_some(capacity)
+    }
+
+    fn reveal_compact_file(&self, index: usize, cx: &App) {
+        if let Some(offset) = self.compact_file_offset(index, row_height(cx)) {
+            self.scroll
+                .scroll_to_item_strict_with_offset(index, ScrollStrategy::Top, offset);
         }
     }
 
@@ -929,6 +954,7 @@ impl Explorer {
             .collect::<Vec<_>>();
         div()
             .id(self.rows[hidden[0]].element_id("sticky-ancestors"))
+            .relative()
             .w_full()
             .h(px(row_height(cx)))
             .pl(px(22.))
@@ -936,6 +962,15 @@ impl Explorer {
             .rounded(px(6.))
             .bg(cx.theme().sidebar)
             .occlude()
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(px(26.))
+                    .w(px(1.))
+                    .bg(cx.theme().border.opacity(0.5)),
+            )
             .child(
                 Button::new(self.rows[hidden[0]].element_id("sticky-ancestors-menu"))
                     .custom(
@@ -945,10 +980,21 @@ impl Explorer {
                     )
                     .w_full()
                     .h(px(row_height(cx)))
+                    .text_size(px(12.))
                     .justify_start()
                     .text_color(cx.theme().muted_foreground)
                     .accessibility_label(glim_services::locale::tr("Show parent folders"))
-                    .child("…")
+                    .child(
+                        div().w_full().text_left().child(
+                            div()
+                                .w(px(16.))
+                                .h(px(16.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child("…"),
+                        ),
+                    )
                     .on_click(cx.listener(move |view, _, window, cx| {
                         view.show_ancestor_menu(paths.clone(), root_id, window, cx);
                     })),
@@ -1137,6 +1183,18 @@ impl Render for Explorer {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let row_height = row_height(cx);
         let view = cx.entity().downgrade();
+        let item_count = self
+            .selected
+            .and_then(|index| {
+                self.compact_file_offset(index, row_height).map(|offset| {
+                    let height = f32::from(self.scroll.0.borrow().base_handle.bounds().size.height);
+                    // A final deep file needs trailing space to reveal its own
+                    // ancestors instead of retaining the previous branch's stack.
+                    (index.saturating_sub(offset) + (height / row_height).ceil() as usize)
+                        .max(self.rows.len())
+                })
+            })
+            .unwrap_or(self.rows.len());
         gpui_kit::component::v_flex()
             .relative()
             .overflow_hidden()
@@ -1193,7 +1251,7 @@ impl Render for Explorer {
             .child(
                 uniform_list(
                     "files",
-                    self.rows.len(),
+                    item_count,
                     cx.processor(move |view, range: std::ops::Range<usize>, _, cx| {
                         let scroll = &view.scroll.0.borrow().base_handle;
                         let pinned = sticky_rows_with_height(
@@ -1204,12 +1262,16 @@ impl Render for Explorer {
                         );
                         range
                             .map(|index| {
-                                view.render_row(
-                                    index,
-                                    false,
-                                    pinned.display_depth(index, &view.rows),
-                                    cx,
-                                )
+                                if index < view.rows.len() {
+                                    view.render_row(
+                                        index,
+                                        false,
+                                        pinned.display_depth(index, &view.rows),
+                                        cx,
+                                    )
+                                } else {
+                                    div().w_full().h(px(row_height)).into_any_element()
+                                }
                             })
                             .collect()
                     }),
@@ -1378,7 +1440,7 @@ fn sticky_rows_with_height(rows: &[Row], offset: f32, height: f32, row_height: f
                 let y = depth as f32 * row_height;
                 let natural_y = index as f32 * row_height - offset;
                 let end_y = rows[index].subtree_end as f32 * row_height - offset;
-                if natural_y >= y || end_y <= y {
+                if natural_y > y || (natural_y == y && candidate.hidden.is_empty()) || end_y <= y {
                     truncate = ancestors.iter().position(|&ancestor| {
                         if end_y <= y {
                             rows[ancestor].subtree_end as f32 * row_height - offset <= y
