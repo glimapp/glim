@@ -204,7 +204,8 @@ impl Render for ArchiveReader {
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(format!(
-                                        "ZIP · {} {} · {}",
+                                        "{} · {} {} · {}",
+                                        self.archive.format,
                                         self.archive.entries.len(),
                                         tr("Archive entries"),
                                         bytes(self.archive.bytes)

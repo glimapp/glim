@@ -59,6 +59,16 @@ fn main() {
         Ok("x86_64") => "x86_64",
         _ => panic!("Unsupported macOS architecture"),
     };
+    println!("cargo:rerun-if-changed=../../native/Archive.c");
+    let archive = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("glim-archive");
+    let status = Command::new("xcrun")
+        .args(["clang", "-O2", "-Wall", "-Wextra", "-Werror", "-target"])
+        .arg(format!("{arch}-apple-macos11.0"))
+        .args(["../../native/Archive.c", "-larchive", "-o"])
+        .arg(archive)
+        .status()
+        .expect("Compile macOS archive helper");
+    assert!(status.success(), "Archive helper compilation failed");
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("glim-preview");
     let main = output.with_file_name("main.swift");
     std::fs::copy("../../native/PreviewMain.swift", &main)

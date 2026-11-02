@@ -736,10 +736,7 @@ fn read_content_inner(
             Err(error) => Err(error),
         };
     }
-    if path
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
-    {
+    if glim_services::archive::supports(path) {
         return glim_services::archive::read(path, cancel).map(Content::Archive);
     }
     if glim_services::formats::supports(path) {

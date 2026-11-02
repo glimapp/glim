@@ -46,6 +46,29 @@
             <string>bdf</string>
             <string>zip</string>
             <string>tar</string>
+            <string>tgz</string>
+            <string>tbz</string>
+            <string>tbz2</string>
+            <string>txz</string>
+            <string>tlz</string>
+            <string>tzst</string>
+            <string>taz</string>
+            <string>7z</string>
+            <string>rar</string>
+            <string>cab</string>
+            <string>cpio</string>
+            <string>ar</string>
+            <string>a</string>
+            <string>xar</string>
+            <string>iso</string>
+            <string>lha</string>
+            <string>lzh</string>
+            <string>lzma</string>
+            <string>lz</string>
+            <string>lz4</string>
+            <string>zst</string>
+            <string>zstd</string>
+            <string>Z</string>
             <string>gz</string>
             <string>bz2</string>
             <string>xz</string>

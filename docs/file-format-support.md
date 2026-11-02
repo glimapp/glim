@@ -73,9 +73,8 @@ Previews focus on viewing; ordinary UTF-8 source can be edited and saved automat
 | safetensors | Tensor names, shapes, dtypes, parameter counts and metadata from the header; weights are not loaded or executed |
 | OBJ/STL | Static mesh projection; OBJ faces and ASCII/binary STL. No interactive rotation, materials or textures |
 | GPX/KML | Offline coordinate table and XML source; no map tiles or external resources |
-| ZIP | Browse entries and sizes; AppleDouble metadata hidden by default. Cancellable background extraction to a separate new directory without overwriting existing directories; open as a new workspace on completion |
-| TAR | Entry names and sizes, with unsafe paths identified; no extraction |
-| GZ/BZ2/XZ | On-demand decompression into complete source pages with a bounded rolling cache |
+| ZIP / TAR and compressed TAR / 7z / RAR / CAB / CPIO / AR / XAR / ISO9660 / LHA | Shared directory browser, entry sizes, folder navigation and cancellable extraction into a separate new workspace without overwriting existing directories. TGZ/TBZ/TBZ2/TXZ/TLZ/TZST/TAZ aliases are accepted; AppleDouble metadata is hidden. Encrypted, multipart and unsupported codec variants report errors |
+| GZ / BZ2 / XZ / LZMA / LZIP / LZ4 / Zstandard / Unix compress | Compressed archives use the same browser; standalone compressed streams display one decompressed file and share extraction controls |
 | NPY | v1/v2/v3 headers and a bounded preview of basic little-endian f8/f4/i8/i4/u1 values; other types retain metadata, no pickle execution |
 
 A `.key` file can also be a text cryptographic key: only ZIP containers and document packages use the Keynote reader; default associations can affect both uses. XMind uses a consistent reading layout without original manual positions, images, attachments, boundaries or summaries. Links do not open automatically.

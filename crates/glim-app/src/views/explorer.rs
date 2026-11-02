@@ -108,6 +108,7 @@ pub struct Explorer {
     preserve_next_reveal: Option<PathBuf>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
+    show_all_ancestors: bool,
     context_menu_task: Option<Task<()>>,
 }
 
@@ -146,6 +147,7 @@ impl Explorer {
             preserve_next_reveal: None,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
+            show_all_ancestors: false,
             context_menu_task: None,
         };
         view.rebuild();
@@ -470,16 +472,8 @@ impl Explorer {
                 self.selected = Some(index);
                 self.clicked_path = Some(target);
                 self.clicked_root = Some(root_index);
-                if let Some(offset) = self.compact_file_offset(index, row_height(cx)) {
-                    self.scroll.scroll_to_item_strict_with_offset(
-                        index,
-                        ScrollStrategy::Top,
-                        offset,
-                    );
-                } else {
-                    self.scroll
-                        .scroll_to_item_strict(index, ScrollStrategy::Center);
-                }
+                self.scroll
+                    .scroll_to_item_strict(index, ScrollStrategy::Center);
             }
         }
     }
@@ -620,9 +614,9 @@ impl Explorer {
         window.focus(&self.focus, cx);
         if !row.entry.is_dir {
             self.preserve_next_reveal = Some(row.entry.path.clone());
-            self.reveal_compact_file(index, cx);
             cx.emit(ExplorerEvent::OpenFile(row.entry.path));
         } else {
+            self.show_all_ancestors = false;
             self.pending_reveal = None;
             self.pending_reveal_root = None;
             if !self.expanded[row.root_index].remove(&row.entry.path) {
@@ -658,7 +652,6 @@ impl Explorer {
         if !explicit && !self.rows[index].entry.is_dir {
             self.selected = Some(index);
             self.preserve_next_reveal = Some(path.to_path_buf());
-            self.reveal_compact_file(index, cx);
             window.focus(&self.focus, cx);
             cx.emit(ExplorerEvent::OpenFile(path.to_path_buf()));
             cx.notify();
@@ -675,22 +668,6 @@ impl Explorer {
                 ScrollStrategy::Top,
                 depth.min(capacity),
             );
-        }
-    }
-
-    fn compact_file_offset(&self, index: usize, row_height: f32) -> Option<usize> {
-        let row = self.rows.get(index)?;
-        let capacity = sticky_capacity(
-            f32::from(self.scroll.0.borrow().base_handle.bounds().size.height),
-            row_height,
-        );
-        (!row.entry.is_dir && capacity >= 3 && row.depth > capacity).then_some(capacity)
-    }
-
-    fn reveal_compact_file(&self, index: usize, cx: &App) {
-        if let Some(offset) = self.compact_file_offset(index, row_height(cx)) {
-            self.scroll
-                .scroll_to_item_strict_with_offset(index, ScrollStrategy::Top, offset);
         }
     }
 
@@ -948,10 +925,7 @@ impl Explorer {
     fn render_hidden_ancestors(&self, hidden: &[usize], cx: &mut Context<Self>) -> AnyElement {
         let root_index = self.rows[hidden[0]].root_index;
         let root_id = self.root_ids[root_index];
-        let paths = hidden
-            .iter()
-            .map(|&index| self.rows[index].entry.path.clone())
-            .collect::<Vec<_>>();
+        let first_path = self.rows[hidden[0]].entry.path.clone();
         div()
             .id(self.rows[hidden[0]].element_id("sticky-ancestors"))
             .relative()
@@ -972,7 +946,7 @@ impl Explorer {
                     .bg(cx.theme().border.opacity(0.5)),
             )
             .child(
-                Button::new(self.rows[hidden[0]].element_id("sticky-ancestors-menu"))
+                Button::new(self.rows[hidden[0]].element_id("sticky-ancestors-expand"))
                     .custom(
                         ButtonCustomVariant::new(cx)
                             .hover(cx.theme().foreground.opacity(0.04))
@@ -996,55 +970,21 @@ impl Explorer {
                         ),
                     )
                     .on_click(cx.listener(move |view, _, window, cx| {
-                        view.show_ancestor_menu(paths.clone(), root_id, window, cx);
+                        if let Some(index) = view.rows.iter().position(|row| {
+                            view.root_ids[row.root_index] == root_id && row.entry.path == first_path
+                        }) {
+                            view.show_all_ancestors = true;
+                            view.scroll.scroll_to_item_strict_with_offset(
+                                index,
+                                ScrollStrategy::Top,
+                                view.rows[index].depth,
+                            );
+                            window.focus(&view.focus, cx);
+                            cx.notify();
+                        }
                     })),
             )
             .into_any_element()
-    }
-
-    fn show_ancestor_menu(
-        &mut self,
-        paths: Vec<PathBuf>,
-        root_id: u64,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.context_menu_task = None;
-        let Some(root) = self.root_ids.iter().position(|id| *id == root_id) else {
-            return;
-        };
-        let items = paths
-            .iter()
-            .map(|path| {
-                let relative = path.strip_prefix(&self.roots[root]).unwrap_or(path);
-                (Some(relative.to_string_lossy().into_owned()), true)
-            })
-            .collect::<Vec<_>>();
-        let Some(menu) = super::native_menu_bridge::NativeMenu::new(&items, window) else {
-            return;
-        };
-        self.context_menu_task = Some(cx.spawn_in(window, async move |view, cx| {
-            let selected = menu.choose(cx).await;
-            let _ = view.update_in(cx, |view, window, cx| {
-                if let Some(path) = selected.and_then(|index| paths.get(index))
-                    && let Some(index) = view.rows.iter().position(|row| {
-                        view.root_ids[row.root_index] == root_id && row.entry.path == *path
-                    })
-                {
-                    view.pending_reveal = None;
-                    view.pending_reveal_root = None;
-                    view.preserve_next_reveal = None;
-                    view.selected = Some(index);
-                    view.clicked_path = Some(path.clone());
-                    view.clicked_root = Some(view.rows[index].root_index);
-                    view.scroll
-                        .scroll_to_item_strict(index, ScrollStrategy::Center);
-                    window.focus(&view.focus, cx);
-                    cx.emit(ExplorerEvent::SelectionChanged);
-                    cx.notify();
-                }
-            });
-        }));
     }
 
     fn show_file_menu(
@@ -1183,18 +1123,6 @@ impl Render for Explorer {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let row_height = row_height(cx);
         let view = cx.entity().downgrade();
-        let item_count = self
-            .selected
-            .and_then(|index| {
-                self.compact_file_offset(index, row_height).map(|offset| {
-                    let height = f32::from(self.scroll.0.borrow().base_handle.bounds().size.height);
-                    // A final deep file needs trailing space to reveal its own
-                    // ancestors instead of retaining the previous branch's stack.
-                    (index.saturating_sub(offset) + (height / row_height).ceil() as usize)
-                        .max(self.rows.len())
-                })
-            })
-            .unwrap_or(self.rows.len());
         gpui_kit::component::v_flex()
             .relative()
             .overflow_hidden()
@@ -1251,7 +1179,7 @@ impl Render for Explorer {
             .child(
                 uniform_list(
                     "files",
-                    item_count,
+                    self.rows.len(),
                     cx.processor(move |view, range: std::ops::Range<usize>, _, cx| {
                         let scroll = &view.scroll.0.borrow().base_handle;
                         let pinned = sticky_rows_with_height(
@@ -1259,19 +1187,16 @@ impl Render for Explorer {
                             -f32::from(scroll.offset().y),
                             f32::from(scroll.bounds().size.height),
                             row_height,
+                            view.show_all_ancestors,
                         );
                         range
                             .map(|index| {
-                                if index < view.rows.len() {
-                                    view.render_row(
-                                        index,
-                                        false,
-                                        pinned.display_depth(index, &view.rows),
-                                        cx,
-                                    )
-                                } else {
-                                    div().w_full().h(px(row_height)).into_any_element()
-                                }
+                                view.render_row(
+                                    index,
+                                    false,
+                                    pinned.display_depth(index, &view.rows),
+                                    cx,
+                                )
                             })
                             .collect()
                     }),
@@ -1297,6 +1222,7 @@ impl Render for Explorer {
                                     offset,
                                     f32::from(bounds.size.height),
                                     row_height,
+                                    view.show_all_ancestors,
                                 );
                                 let elements = pinned
                                     .items
@@ -1378,7 +1304,7 @@ fn row_height(_: &App) -> f32 {
 
 #[cfg(test)]
 fn sticky_rows(rows: &[Row], offset: f32, height: f32) -> Vec<(usize, f32)> {
-    sticky_rows_with_height(rows, offset, height, 32.)
+    sticky_rows_with_height(rows, offset, height, 32., false)
         .items
         .into_iter()
         .filter_map(|row| row.index.map(|index| (index, row.y)))
@@ -1387,18 +1313,24 @@ fn sticky_rows(rows: &[Row], offset: f32, height: f32) -> Vec<(usize, f32)> {
 
 fn sticky_capacity(height: f32, row_height: f32) -> usize {
     // Leave at least half the viewport for the directory contents.
-    4.min((height / row_height) as usize / 2)
+    (height / row_height) as usize / 2
 }
 
 /// Compress only ancestors crossing the compact overlay, so distant descendants
 /// cannot become pinned before they reach the visible list's top edge.
-fn sticky_rows_with_height(rows: &[Row], offset: f32, height: f32, row_height: f32) -> StickyRows {
+fn sticky_rows_with_height(
+    rows: &[Row],
+    offset: f32,
+    height: f32,
+    row_height: f32,
+    show_all: bool,
+) -> StickyRows {
     let offset = offset.max(0.);
     let top = (offset / row_height).floor() as usize;
     let mut pinned = StickyRows::default();
     let mut pinned_path = Vec::new();
-    let capacity = sticky_capacity(height, row_height);
-    for slot in 0..capacity {
+    let visible = (height / row_height) as usize;
+    for slot in 0..visible.saturating_sub(1) {
         let slot_y = slot as f32 * row_height;
         let probe = top.saturating_add(((offset % row_height + slot_y) / row_height) as usize);
         let Some(row) = rows.get(probe) else {
@@ -1415,12 +1347,19 @@ fn sticky_rows_with_height(rows: &[Row], offset: f32, height: f32, row_height: f
             current = rows[index].parent;
         }
         ancestors.reverse();
+        let content_start = ancestors.last().map_or(probe, |index| index + 1).max(top);
+        let remaining = rows.len().saturating_sub(content_start);
+        let capacity = if show_all {
+            visible.saturating_sub(1)
+        } else {
+            visible.saturating_sub(remaining.min((visible / 2).max(1)))
+        };
         if !ancestors.starts_with(&pinned_path) {
             break;
         }
         loop {
             let mut candidate = StickyRows::default();
-            let indices = if ancestors.len() > capacity && capacity >= 3 {
+            let indices = if !show_all && ancestors.len() > capacity && capacity >= 3 {
                 let tail = ancestors.len() - (capacity - 2);
                 candidate.hidden = ancestors[1..tail].to_vec();
                 std::iter::once(Some(ancestors[0]))

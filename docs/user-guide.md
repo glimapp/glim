@@ -49,7 +49,7 @@ Large or long-line text uses editable pages; save pending page edits before navi
 
 Open the main SQLite file, choose a table or view, filter, sort and page. Double-click a cell for its full value. Glim creates a separate read-only snapshot with available WAL/journal data; it does not modify or checkpoint the source. Encrypted databases and arbitrary write SQL are unsupported.
 
-Browse ZIP entries and choose extraction to create a separate directory, then open it as a new workspace. Existing directories are not overwritten, and extraction can be cancelled. TAR currently offers listings only. GZ/BZ2/XZ support on-demand decompressed source reading.
+ZIP, TAR and compressed TAR, 7z, RAR and other supported archives share a directory browser. Open folders to inspect entry names and sizes, then extract into a separate new workspace. Existing directories are not overwritten, and extraction can be cancelled. Standalone GZ/BZ2/XZ/LZ4/Zstandard streams appear as a single decompressed file. Password-protected, multipart and unsupported codec variants report an error.
 
 ## Continue next time
 
