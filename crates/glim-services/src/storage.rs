@@ -119,7 +119,7 @@ pub(crate) fn save_paths(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glim_core::update::{SessionTab, WorkspaceSession};
+    use glim_core::session::{SessionTab, WorkspaceSession};
     use std::collections::BTreeMap;
 
     #[test]

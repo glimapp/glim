@@ -36,6 +36,7 @@ fn main() {
 fn build_native_preview() {
     for source in [
         "Preview.swift",
+        "PreviewRequest.swift",
         "ImagePreview.swift",
         "ImageTextExtraction.swift",
         "PreviewCopy.swift",
@@ -82,6 +83,7 @@ fn build_native_preview() {
             "-target",
             &format!("{arch}-apple-macos11.0"),
             "../../native/Preview.swift",
+            "../../native/PreviewRequest.swift",
             "../../native/ImagePreview.swift",
             "../../native/ImageTextExtraction.swift",
             "../../native/PreviewCopy.swift",

@@ -5,11 +5,11 @@ final class SettingsApp: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
             let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
-            let request = try JSONDecoder().decode(Playlist.self, from: data)
-            nativeTranslations = request.localizations ?? [:]
+            let request = try NativePreviewRequest.decode(data)
+            nativeTranslations = request.localizations
             if let menu = NSApp.mainMenu { localizeMenu(menu) }
-            guard let path = request.associations else { NSApp.terminate(nil); return }
-            settings = try AssociationWindow(bundleURL: URL(fileURLWithPath: path))
+            guard case .associations(let associations) = request.content else { NSApp.terminate(nil); return }
+            settings = try AssociationWindow(bundleURL: URL(fileURLWithPath: associations.bundle))
         } catch {
             NSAlert(error: error).runModal(); NSApp.terminate(nil)
         }

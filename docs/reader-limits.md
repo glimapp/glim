@@ -357,3 +357,9 @@ This page is generated from the same policy. After editing it, run `python3 scri
 | `opml.xml_bytes` | 16 MiB | bytes | budget | OPML XML preview budget; fall back to source pages when exceeded. |
 | `opml.nodes` | 100,000 | items | budget | Maximum resident outline nodes. |
 | `opml.nesting` | 256 | levels | budget | Maximum outline nesting depth. |
+
+## watch
+
+| Key | Value | Unit | Effect | Behavior |
+| --- | ---: | --- | --- | --- |
+| `watch.pending_paths` | 4,096 | paths | fallback | Maximum distinct pending filesystem paths. Overflow triggers a full source check instead of dropping changes; document access is unlimited. |

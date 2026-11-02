@@ -159,6 +159,28 @@ pub fn language_for_path(path: &Path) -> &'static str {
     }
 }
 
+/// Saved contents and derived fingerprints occupy separate domains.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContentSnapshot {
+    Text(std::sync::Arc<str>),
+    Fingerprint(String),
+    Untracked,
+}
+impl ContentSnapshot {
+    pub fn saved_text(&self) -> Option<std::sync::Arc<str>> {
+        match self {
+            Self::Text(text) => Some(text.clone()),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReaderMode {
+    Source,
+    Preview,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,9 +1,12 @@
 use super::{
     Workspace,
-    loading::{Content, read_content},
+    loading::{Content, read_content_cancellable},
 };
 use crate::views::reader::Reader;
-use glim_core::update::{SessionTab, UpdateActivity, WorkspaceSession};
+use glim_core::{
+    session::{SessionTab, WorkspaceSession},
+    update::UpdateActivity,
+};
 use gpui_kit::*;
 
 impl Workspace {
@@ -33,16 +36,16 @@ impl Workspace {
             tabs: self
                 .tabs
                 .iter()
-                .filter(|r| r.draft_directory.is_none())
+                .filter(|r| r.document.draft_directory.is_none())
                 .map(|r| r.session_tab(cx))
                 .collect(),
             active: self
                 .active
-                .filter(|index| self.tabs[*index].draft_directory.is_none())
+                .filter(|index| self.tabs[*index].document.draft_directory.is_none())
                 .map(|index| {
                     self.tabs[..index]
                         .iter()
-                        .filter(|r| r.draft_directory.is_none())
+                        .filter(|r| r.document.draft_directory.is_none())
                         .count()
                 }),
             workspace_id: Some(self.recent_id.clone()),
@@ -111,15 +114,18 @@ impl Workspace {
         self.loading_preview = false;
         self.restoring_roots = Some(session.roots.clone());
         let folders = session.roots.clone();
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        let folder_cancel = cancel.clone();
         let work = cx.background_executor().spawn(async move {
             let expanded = glim_services::preferences::explorer_expansion(&folders);
             let folders = folders
                 .into_iter()
-                .map(|p| glim_services::workspace::open_folder(&p))
+                .map(|p| glim_services::workspace::open_folder_cancellable(&p, &folder_cancel))
                 .collect::<Vec<_>>();
             (folders, expanded)
         });
         self.load_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let _guard = guard;
             let (folders, expanded) = work.await;
             let _ = view.update_in(cx, |view, window, cx| {
                 for folder in folders {
@@ -142,9 +148,10 @@ impl Workspace {
             });
             for descriptor in session.tabs {
                 let requested = descriptor.clone();
+                let cancel = cancel.clone();
                 let loaded = cx
                     .background_executor()
-                    .spawn(async move { read_session_tab(&requested) })
+                    .spawn(async move { read_session_tab(&requested, &cancel) })
                     .await;
                 if view
                     .update_in(cx, |view, window, cx| {
@@ -152,7 +159,7 @@ impl Workspace {
                             Ok(Content::Native(path, folder, shuffle)) => {
                                 Reader::from_native_paused(path, folder, shuffle, cx)
                             }
-                            Ok(content) => Self::make_reader(content, window, cx),
+                            Ok(content) => Reader::from_content(content, window, cx),
                             Err(error) => Reader::unavailable(
                                 tab_path(&descriptor),
                                 format!("{error:#}"),
@@ -202,9 +209,13 @@ fn tab_path(tab: &SessionTab) -> std::path::PathBuf {
         SessionTab::File { path, .. } | SessionTab::Playlist { path, .. } => path.clone(),
     }
 }
-fn read_session_tab(tab: &SessionTab) -> anyhow::Result<Content> {
+fn read_session_tab(
+    tab: &SessionTab,
+    cancel: &glim_services::work::Cancellation,
+) -> anyhow::Result<Content> {
+    cancel.check()?;
     match tab {
-        SessionTab::File { path, .. } => read_content(path),
+        SessionTab::File { path, .. } => read_content_cancellable(path, cancel),
         SessionTab::Playlist { path, shuffle } => Ok(Content::Native(path.clone(), true, *shuffle)),
     }
 }
@@ -212,7 +223,7 @@ fn read_session_tab(tab: &SessionTab) -> anyhow::Result<Content> {
 #[cfg(test)]
 mod tests {
     use super::Workspace;
-    use glim_core::update::{SessionTab, WorkspaceSession};
+    use glim_core::session::{SessionTab, WorkspaceSession};
     use gpui_kit::{AppContext, TestAppContext, WindowOptions};
 
     #[gpui_kit::test]
@@ -264,11 +275,14 @@ mod tests {
         cx.update(|cx| {
             let view = view.read(cx);
             assert_eq!(
-                view.tabs.iter().map(|r| &r.path).collect::<Vec<_>>(),
+                view.tabs
+                    .iter()
+                    .map(|r| &r.document.path)
+                    .collect::<Vec<_>>(),
                 vec![&incoming, &text, &markdown, &missing]
             );
             assert_eq!(view.active, Some(0));
-            assert_eq!(view.tabs[2].toggle_label(), "Preview");
+            assert_eq!(view.tabs[2].mode(), glim_core::ReaderMode::Source);
             assert!(view.tabs[3].is_unavailable());
             assert!(!view.loading);
         });

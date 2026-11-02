@@ -7,13 +7,40 @@ struct EmbeddedPreviewTests {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.15))
     }
     static func create(_ path: URL) throws -> UnsafeMutableRawPointer {
-        let data = try JSONSerialization.data(withJSONObject: ["files": [path.path], "shuffle": false])
+        let data = try JSONSerialization.data(withJSONObject: ["version": 1, "localizations": [:], "content": path.pathExtension == "pdf" ? ["kind": "pdf", "source": path.path] : ["kind": "media", "files": [path.path], "shuffle": false, "autoplay": true]])
         return data.withUnsafeBytes { glimPreviewCreate($0.bindMemory(to: UInt8.self).baseAddress!, data.count) }
     }
     static func controller(_ handle: UnsafeMutableRawPointer) -> NativePreviewController {
         Unmanaged<NativePreviewController>.fromOpaque(handle).takeUnretainedValue()
     }
+    static func requestContract() throws {
+        let fixture = URL(fileURLWithPath: "native/tests/fixtures/preview-requests.json")
+        let entries = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as! [[String: Any]]
+        precondition(entries.count == 8)
+        for entry in entries {
+            let request = try NativePreviewRequest.decode(JSONSerialization.data(withJSONObject: entry))
+            switch request.content {
+            case .pdf(let file): precondition(file.source == "/documents/read me.pdf")
+            case .image(let image): precondition(image.source == "/documents/图片.png" && image.size?.width == 640 && image.prepared == "/cache/image.png")
+            case .font(let file): precondition(file.source == "/documents/font.otf")
+            case .office(let office): precondition(office.imagePages && office.reading == "/cache/reading.html")
+            case .workbook(let workbook): precondition(workbook.database == "/cache/index.sqlite" && workbook.cache == "/cache/sheets")
+            case .html(let html): precondition(html.text == "<p>中文</p>")
+            case .media(let media): precondition(!media.autoplay && media.preparation?.directory == "/cache/media" && media.files == ["/documents/movie.mkv"])
+            case .associations(let associations): precondition(associations.bundle == "/Applications/Glim.app")
+            }
+        }
+        for invalid: [String: Any] in [
+            ["version": 2, "localizations": [:], "content": ["kind": "pdf", "source": "/document.pdf"]],
+            ["version": 1, "localizations": [:], "content": ["kind": "unknown"]],
+            ["version": 1, "localizations": [:], "content": ["kind": "workbook", "source": "/table.xlsx"]],
+        ] {
+            let data = try JSONSerialization.data(withJSONObject: invalid)
+            precondition((try? NativePreviewRequest.decode(data)) == nil)
+        }
+    }
     static func main() throws {
+        try requestContract()
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -121,7 +148,7 @@ struct EmbeddedPreviewTests {
         precondition(window.accessibilityChildren()?.count == 1)
 
         // Update session restoration must not start media in the background.
-        let restoredData = try JSONSerialization.data(withJSONObject: ["files": [audioURL.path], "shuffle": false, "autoplay": false])
+        let restoredData = try JSONSerialization.data(withJSONObject: ["version": 1, "localizations": [:], "content": ["kind": "media", "files": [audioURL.path], "shuffle": false, "autoplay": false]])
         let restoredAudio = restoredData.withUnsafeBytes { glimPreviewCreate($0.bindMemory(to: UInt8.self).baseAddress!, restoredData.count) }
         glimPreviewLayout(restoredAudio, parent, 0, 0, 700, 500)
         pump()

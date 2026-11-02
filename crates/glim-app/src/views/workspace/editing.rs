@@ -30,7 +30,7 @@ impl Workspace {
             if reader
                 .editor()
                 .is_some_and(|editor| self.quit_discards.contains(&editor.entity_id()))
-                && let Some(key) = &reader.recovery_key
+                && let Some(key) = &reader.document.recovery_key
             {
                 crate::app::recovery::remove(key, cx);
             }
@@ -38,7 +38,7 @@ impl Workspace {
     }
     fn discard_recovery(&mut self, cx: &App) {
         for reader in &self.tabs {
-            if let Some(key) = &reader.recovery_key {
+            if let Some(key) = &reader.document.recovery_key {
                 crate::app::recovery::remove(key, cx);
             }
         }
@@ -80,8 +80,8 @@ impl Workspace {
     pub(crate) fn open_document_paths(&self) -> Vec<std::path::PathBuf> {
         self.tabs
             .iter()
-            .filter(|reader| reader.draft_directory.is_none())
-            .map(|reader| reader.path.clone())
+            .filter(|reader| reader.document.draft_directory.is_none())
+            .map(|reader| reader.document.path.clone())
             .collect()
     }
     pub(crate) fn report_recovery_error(&mut self, message: String, cx: &mut Context<Self>) {
@@ -95,7 +95,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let mut reader = crate::views::reader::Reader::untitled(draft.directory, window, cx);
-        reader.recovery_key = Some(draft.id);
+        reader.document.recovery_key = Some(draft.id);
         reader.title = draft.title.into();
         reader.set_word_wrap(self.word_wrap, window, cx);
         reader.restore_draft_text(draft.text, window, cx);
@@ -114,15 +114,16 @@ impl Workspace {
             reader
                 .editor()
                 .is_some_and(|editor| editor.entity_id() == id)
-        }) && let (Some(key), Some(editor)) = (&reader.recovery_key, reader.editor())
+        }) && let (Some(key), Some(editor)) = (&reader.document.recovery_key, reader.editor())
         {
             crate::app::recovery::checkpoint(
                 glim_services::drafts::Draft {
                     id: key.clone(),
-                    title: if reader.draft_directory.is_some() {
+                    title: if reader.document.draft_directory.is_some() {
                         reader.title.to_string()
                     } else {
                         reader
+                            .document
                             .path
                             .file_name()
                             .unwrap_or_default()
@@ -130,9 +131,10 @@ impl Workspace {
                             .into_owned()
                     },
                     directory: reader
+                        .document
                         .draft_directory
                         .clone()
-                        .or_else(|| reader.path.parent().map(ToOwned::to_owned))
+                        .or_else(|| reader.document.path.parent().map(ToOwned::to_owned))
                         .unwrap_or_default(),
                     text: editor.read(cx).value().to_string(),
                 },
@@ -145,9 +147,9 @@ impl Workspace {
             reader
                 .editor()
                 .is_some_and(|editor| editor.entity_id() == id)
-        }) && reader.draft_directory.is_none()
+        }) && reader.document.draft_directory.is_none()
             && !reader.is_dirty()
-            && let Some(key) = &reader.recovery_key
+            && let Some(key) = &reader.document.recovery_key
         {
             crate::app::recovery::remove(key, cx);
         }
@@ -157,10 +159,10 @@ impl Workspace {
         if let Some(reader) = self.active_reader() {
             glim_services::telemetry::file_event(
                 "file_save_requested",
-                &reader.path,
+                &reader.document.path,
                 [(
                     "untitled",
-                    glim_services::telemetry::flag(reader.draft_directory.is_some()),
+                    glim_services::telemetry::flag(reader.document.draft_directory.is_some()),
                 )],
             );
         }
@@ -173,7 +175,12 @@ impl Workspace {
         let keys = self
             .tabs
             .iter()
-            .filter_map(|reader| Some((reader.editor()?.entity_id(), reader.recovery_key.clone()?)))
+            .filter_map(|reader| {
+                Some((
+                    reader.editor()?.entity_id(),
+                    reader.document.recovery_key.clone()?,
+                ))
+            })
             .collect::<std::collections::HashMap<_, _>>();
         for (id, key) in &self.recovery_keys {
             if keys.get(id) != Some(key) {
@@ -205,11 +212,11 @@ impl Workspace {
                             {
                                 glim_services::telemetry::file_event(
                                     "editing_started",
-                                    &reader.path,
+                                    &reader.document.path,
                                     [(
                                         "untitled",
                                         glim_services::telemetry::flag(
-                                            reader.draft_directory.is_some(),
+                                            reader.document.draft_directory.is_some(),
                                         ),
                                     )],
                                 );
@@ -220,7 +227,7 @@ impl Workspace {
                             }
                             view.checkpoint_editor(id, cx);
                             if view.tabs.iter().any(|reader| {
-                                reader.draft_directory.is_some()
+                                reader.document.draft_directory.is_some()
                                     && reader
                                         .editor()
                                         .is_some_and(|editor| editor.entity_id() == id)
@@ -267,18 +274,18 @@ impl Workspace {
             return;
         }
         let Some(reader) = self.tabs.iter().find(|r| {
-            (r.is_dirty() || r.draft_directory.is_some())
+            (r.is_dirty() || r.document.draft_directory.is_some())
                 && r.editor().is_some_and(|e| e.entity_id() == id)
         }) else {
             return;
         };
-        if reader.draft_directory.is_some() {
+        if reader.document.draft_directory.is_some() {
             self.save_draft(id, window, cx);
             return;
         }
         let editor = reader.editor().unwrap();
-        let path = reader.path.clone();
-        let expected = reader.snapshot.clone();
+        let path = reader.document.path.clone();
+        let expected = reader.document.snapshot.saved_text();
         let page = reader.page_save_request(cx);
         let text = editor.read(cx).value().to_string();
         self.saving = Some(id);
@@ -293,9 +300,13 @@ impl Workspace {
             let started = std::time::Instant::now();
             let result = if let Some(page) = page {
                 glim_services::paged::save_page_cancellable(&page, &text, &cancel).map(Some)
-            } else {
+            } else if let Some(expected) = expected {
                 glim_services::files::save_document_cancellable(&path, &expected, &text, &cancel)
                     .map(|()| None)
+            } else {
+                Err(anyhow::anyhow!(
+                    "Editable document has no saved text snapshot"
+                ))
             };
             glim_services::telemetry::result("file_save", Some(&path), started, &result);
             match &result {
@@ -369,7 +380,7 @@ impl Workspace {
         }) else {
             return;
         };
-        let directory = reader.draft_directory.clone().unwrap();
+        let directory = reader.document.draft_directory.clone().unwrap();
         let name = if std::path::Path::new(reader.title.as_ref())
             .extension()
             .is_some()
@@ -484,7 +495,7 @@ impl Workspace {
                         view.cancel_close_request(cx);
                         // Cancel a batch of draft-save dialogs as a unit; ordinary
                         // file autosaves may continue without opening more panels.
-                        let drafts = view.tabs.iter().filter(|reader| reader.draft_directory.is_some())
+                        let drafts = view.tabs.iter().filter(|reader| reader.document.draft_directory.is_some())
                             .filter_map(|reader| reader.editor().map(|editor| editor.entity_id()))
                             .collect::<Vec<_>>();
                         view.save_queue.retain(|queued| *queued != id && !drafts.contains(queued));

@@ -1,0 +1,89 @@
+[
+  {
+    "version": 1,
+    "localizations": {},
+    "content": {
+      "kind": "pdf",
+      "source": "/documents/read me.pdf"
+    }
+  },
+  {
+    "version": 1,
+    "localizations": {},
+    "content": {
+      "kind": "image",
+      "source": "/documents/图片.png",
+      "prepared": "/cache/image.png",
+      "size": {
+        "width": 640,
+        "height": 480
+      }
+    }
+  },
+  {
+    "version": 1,
+    "localizations": {},
+    "content": {
+      "kind": "font",
+      "source": "/documents/font.otf"
+    }
+  },
+  {
+    "version": 1,
+    "localizations": {},
+    "content": {
+      "kind": "office",
+      "source": "/documents/report.docx",
+      "reading": "/cache/reading.html",
+      "image_pages": true
+    }
+  },
+  {
+    "version": 1,
+    "localizations": {},
+    "content": {
+      "kind": "workbook",
+      "source": "/documents/table.xlsx",
+      "database": "/cache/index.sqlite",
+      "cache": "/cache/sheets",
+      "helper": "/Applications/Glim.app/Contents/MacOS/glim",
+      "information": "two sheets"
+    }
+  },
+  {
+    "version": 1,
+    "localizations": {},
+    "content": {
+      "kind": "html",
+      "source": "/documents/page.html",
+      "text": "<p>中文</p>"
+    }
+  },
+  {
+    "version": 1,
+    "localizations": {},
+    "content": {
+      "kind": "media",
+      "files": [
+        "/documents/movie.mkv"
+      ],
+      "shuffle": false,
+      "autoplay": false,
+      "preparation": {
+        "files": [
+          "/documents/movie.mkv"
+        ],
+        "helper": "/Applications/Glim.app/Contents/MacOS/glim",
+        "directory": "/cache/media"
+      }
+    }
+  },
+  {
+    "version": 1,
+    "localizations": {},
+    "content": {
+      "kind": "associations",
+      "bundle": "/Applications/Glim.app"
+    }
+  }
+]

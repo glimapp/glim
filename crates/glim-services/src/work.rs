@@ -1,5 +1,5 @@
 //! Cancellation and fixed working buffers for streaming reader operations.
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use std::{
     io::{Read, Write},
     sync::{
@@ -7,6 +7,15 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
+
+#[derive(Debug)]
+pub struct Cancelled;
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Reading canceled")
+    }
+}
+impl std::error::Error for Cancelled {}
 
 #[derive(Clone)]
 pub struct Cancellation(Arc<Vec<Arc<AtomicBool>>>);
@@ -32,10 +41,9 @@ impl Cancellation {
         ))
     }
     pub fn check(&self) -> Result<()> {
-        ensure!(
-            !self.0.iter().any(|flag| flag.load(Ordering::Relaxed)),
-            "Reading canceled"
-        );
+        if self.0.iter().any(|flag| flag.load(Ordering::Relaxed)) {
+            return Err(Cancelled.into());
+        }
         Ok(())
     }
     pub fn copy(&self, mut input: impl Read, mut output: impl Write) -> Result<u64> {

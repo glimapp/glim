@@ -4,6 +4,7 @@ pub mod archive;
 pub mod binary;
 pub mod csv;
 pub mod diagnostics;
+pub mod documents;
 pub mod drafts;
 pub mod executables;
 pub mod files;

@@ -216,14 +216,14 @@ pub fn telemetry_enabled() -> bool {
 pub fn save_telemetry_enabled(enabled: bool) -> Result<()> {
     set("telemetry", &enabled.to_string())
 }
-pub fn workspace_sessions() -> Result<BTreeMap<String, glim_core::update::WorkspaceSession>> {
+pub fn workspace_sessions() -> Result<BTreeMap<String, glim_core::session::WorkspaceSession>> {
     Ok(storage::sessions::load(&storage::open()?, "workspace")?
         .into_iter()
         .filter_map(|(id, sessions)| sessions.into_iter().next().map(|s| (id, s)))
         .collect())
 }
 pub fn save_workspace_sessions(
-    sessions: &BTreeMap<String, glim_core::update::WorkspaceSession>,
+    sessions: &BTreeMap<String, glim_core::session::WorkspaceSession>,
 ) -> Result<()> {
     save_groups(
         "workspace",
@@ -233,17 +233,17 @@ pub fn save_workspace_sessions(
             .collect(),
     )
 }
-pub fn window_sessions() -> Result<BTreeMap<String, Vec<glim_core::update::WorkspaceSession>>> {
+pub fn window_sessions() -> Result<BTreeMap<String, Vec<glim_core::session::WorkspaceSession>>> {
     storage::sessions::load(&storage::open()?, "window")
 }
 pub fn save_window_sessions(
-    windows: &BTreeMap<String, Vec<glim_core::update::WorkspaceSession>>,
+    windows: &BTreeMap<String, Vec<glim_core::session::WorkspaceSession>>,
 ) -> Result<()> {
     save_groups("window", windows)
 }
 fn save_groups(
     scope: &str,
-    groups: &BTreeMap<String, Vec<glim_core::update::WorkspaceSession>>,
+    groups: &BTreeMap<String, Vec<glim_core::session::WorkspaceSession>>,
 ) -> Result<()> {
     let mut db = storage::open()?;
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;

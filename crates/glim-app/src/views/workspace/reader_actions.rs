@@ -108,10 +108,8 @@ pub(super) fn document_items(reader: &Reader, word_wrap: bool) -> Vec<ToolbarIte
             preview.label = "JSON tree";
             preview.icon = Some(IconName::ListTree);
         } else if reader.is_csv() {
-            preview.label = if reader
-                .path
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("tsv"))
+            preview.label = if reader.table_format()
+                == Some(glim_services::documents::presentation::TableFormat::Tsv)
             {
                 "TSV table"
             } else {
@@ -119,7 +117,7 @@ pub(super) fn document_items(reader: &Reader, word_wrap: bool) -> Vec<ToolbarIte
             };
             preview.icon = Some(IconName::Rows2);
         }
-        preview.selected = reader.toggle_label() == "Source";
+        preview.selected = reader.mode() == glim_core::ReaderMode::Preview;
         let mut source = ToolbarItem::new(ToolbarAction::Source);
         source.selected = !preview.selected;
         items.extend([preview, source]);
@@ -127,7 +125,7 @@ pub(super) fn document_items(reader: &Reader, word_wrap: bool) -> Vec<ToolbarIte
     if reader.can_word_wrap() {
         let mut wrap = ToolbarItem::new(ToolbarAction::WordWrap);
         wrap.selected = word_wrap;
-        wrap.enabled = !reader.can_preview() || reader.toggle_label() != "Source";
+        wrap.enabled = !reader.can_preview() || reader.mode() != glim_core::ReaderMode::Preview;
         if !wrap.enabled {
             wrap.label = "Word wrap · Source view";
         }
@@ -182,7 +180,7 @@ impl super::Workspace {
         let Some(reader) = self.active_reader().filter(|r| r.is_archive()) else {
             return;
         };
-        let path = reader.path.clone();
+        let path = reader.document.path.clone();
         self.picking = true;
         let selection = cx.prompt_for_paths(PathPromptOptions {
             files: false,

@@ -20,7 +20,7 @@ pub(super) struct Target {
 impl Target {
     pub(super) fn from_reader(reader: &crate::views::reader::Reader) -> Self {
         Self {
-            path: reader.path.clone(),
+            path: reader.document.path.clone(),
         }
     }
 }
@@ -34,7 +34,7 @@ impl Workspace {
         let Some(r) = self.active_reader() else {
             return;
         };
-        if r.draft_directory.is_some() {
+        if r.document.draft_directory.is_some() {
             return;
         }
         let target = Target::from_reader(r);
@@ -160,13 +160,13 @@ impl Workspace {
         let preference = self.tabs[index].preview_preference();
         self.tabs[index].set_preview(preview, cx);
         self.remember_session(cx);
-        if (self.tabs[index].toggle_label() == "Source") != preview {
+        if (self.tabs[index].mode() == glim_core::ReaderMode::Preview) != preview {
             cx.notify();
             return;
         }
         glim_services::telemetry::file_event(
             "preview_mode_changed",
-            &self.tabs[index].path,
+            &self.tabs[index].document.path,
             [("preview", glim_services::telemetry::flag(preview))],
         );
         if !preview {
@@ -211,13 +211,14 @@ impl Workspace {
             let name = self
                 .active_reader()
                 .map(|reader| {
-                    if reader.draft_directory.is_some() {
+                    if reader.document.draft_directory.is_some() {
                         return reader.title.to_string();
                     }
                     reader
+                        .document
                         .path
                         .file_name()
-                        .unwrap_or(reader.path.as_os_str())
+                        .unwrap_or(reader.document.path.as_os_str())
                         .to_string_lossy()
                         .into_owned()
                 })

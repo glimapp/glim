@@ -1,5 +1,5 @@
 use super::workspace::Workspace;
-use glim_core::update::WorkspaceSession;
+use glim_core::session::WorkspaceSession;
 use glim_services::preferences::RecentWorkspace;
 use gpui_kit::*;
 

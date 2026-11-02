@@ -1,37 +1,27 @@
 use super::{Workspace, loading::Content};
-use glim_services::watch::WorkspaceWatch;
+use glim_services::watch::{Changes, WorkspaceWatch};
 use gpui_kit::*;
 use std::time::Duration;
 
 impl Workspace {
     pub(super) fn start_watching(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.watch_task = Some(cx.spawn_in(window, async move |view, cx| {
-            let mut pending_readers = false;
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(500))
                     .await;
                 if view
                     .update_in(cx, |view, window, cx| {
-                        if view
-                            .watch
-                            .as_ref()
-                            .is_some_and(WorkspaceWatch::take_changed)
-                        {
-                            if let Some(explorer) = &view.explorer {
-                                explorer.update(cx, |v, cx| v.refresh(cx));
+                        if let Some(watch) = &view.watch {
+                            let changes = watch.take_changes();
+                            if !changes.is_empty() {
+                                if let Some(explorer) = &view.explorer {
+                                    explorer.update(cx, |v, cx| v.refresh(cx));
+                                }
+                                view.pending_refresh.merge(changes);
                             }
-                            pending_readers = true;
                         }
-                        if pending_readers
-                            && !view.loading
-                            && view.refresh_task.is_none()
-                            && view.watch_scan_task.is_none()
-                            && !view.is_saving()
-                        {
-                            pending_readers = false;
-                            view.refresh_readers(false, window, cx);
-                        }
+                        view.start_pending_refresh(window, cx);
                     })
                     .is_err()
                 {
@@ -44,8 +34,8 @@ impl Workspace {
         let parents = self
             .tabs
             .iter()
-            .filter(|r| r.draft_directory.is_none())
-            .filter_map(|r| r.path.parent().map(ToOwned::to_owned))
+            .filter(|r| r.document.draft_directory.is_none())
+            .filter_map(|r| r.document.path.parent().map(ToOwned::to_owned))
             .collect::<std::collections::BTreeSet<_>>();
         let work = cx.background_executor().spawn(async move {
             let mut parents = parents.into_iter();
@@ -76,110 +66,125 @@ impl Workspace {
         if let Some(explorer) = &self.explorer {
             explorer.update(cx, |v, cx| v.refresh(cx));
         }
-        self.refresh_readers(true, window, cx);
+        self.refresh_readers(true, Changes::all(), window, cx);
     }
 
-    fn refresh_readers(&mut self, force: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.refresh_task.is_some() || self.watch_scan_task.is_some() || self.is_saving() {
+    fn refresh_readers(
+        &mut self,
+        force: bool,
+        changes: Changes,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_refresh.merge(changes);
+        self.force_refresh |= force;
+        self.start_pending_refresh(window, cx);
+    }
+
+    fn start_pending_refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending_refresh.is_empty()
+            || self.loading
+            || self.refresh_task.is_some()
+            || self.watch_scan_task.is_some()
+            || self.is_saving()
+            || self.tabs.iter().any(|reader| reader.refresh_busy(cx))
+        {
             return;
         }
+        let changes = std::mem::take(&mut self.pending_refresh);
+        let force = std::mem::take(&mut self.force_refresh);
         for reader in &mut self.tabs {
             reader.refresh_dependencies(cx);
         }
-        let targets = self
+        let mut targets = self
             .tabs
             .iter()
-            .filter(|r| {
-                r.draft_directory.is_none()
-                    && (force
-                        || r.snapshot != "sqlite-preview"
-                        || r.sqlite_source_stamp(cx).is_some())
-                    && (r.snapshot != "native-preview" || r.native_image_stamp(cx).is_some())
-            })
-            .map(|r| {
-                (
-                    r.path.clone(),
-                    r.native_image_stamp(cx),
-                    r.page_refresh_request(cx),
-                    if force {
-                        None
-                    } else {
-                        r.sqlite_source_stamp(cx)
-                    },
-                )
+            .filter_map(|reader| {
+                Some((
+                    reader.refresh_version(cx),
+                    reader.refresh_request(force, cx)?,
+                ))
             })
             .collect::<Vec<_>>();
-        let (cancel, cancel_on_drop) = glim_services::work::Cancellation::task();
-        let read = cx.background_executor().spawn(async move {
-            targets
-                .into_iter()
-                .filter_map(|(path, image_stamp, page_refresh, sqlite_stamp)| {
-                    if let Some(expected) = sqlite_stamp
-                        && glim_services::sqlite::source_stamp(&path)
-                            .is_ok_and(|actual| actual == expected)
-                    {
-                        return None;
-                    }
-                    if let Some(expected) = image_stamp
-                        && std::fs::metadata(&path)
-                            .is_ok_and(|m| (m.len(), m.modified().ok()) == expected)
-                    {
-                        return None;
-                    }
-                    let content = if let Some(request) = page_refresh {
-                        match request.read(&cancel) {
-                            Ok(None) => return None,
-                            Ok(Some(page)) => Ok(Content::Page(page)),
-                            Err(error) => Err(error),
-                        }
-                    } else {
-                        super::loading::read_content_cancellable(&path, &cancel)
-                    };
-                    Some((
-                        path.clone(),
-                        content.unwrap_or_else(|e| Content::Unavailable(path, format!("{e:#}"))),
-                    ))
-                })
-                .collect::<Vec<_>>()
-        });
+        if let Some(active) = self
+            .active
+            .and_then(|i| self.tabs.get(i))
+            .map(|r| r.refresh_version(cx))
+        {
+            targets.sort_by_key(|(version, _)| *version != active);
+        }
+        let changes = std::sync::Arc::new(changes);
+        let (cancel, guard) = glim_services::work::Cancellation::task();
         self.refresh_task = Some(cx.spawn_in(window, async move |view, cx| {
-            let _cancel_on_drop = cancel_on_drop;
-            let contents = read.await;
-            let _ = view.update_in(cx, |view, window, cx| {
-                view.refresh_task = None;
-                for (path, content) in contents {
-                    let Some(index) = view.tabs.iter().position(|r| r.path == path) else {
-                        continue;
-                    };
-                    // Never replace a draft, even if this refresh started before typing.
-                    if view.tabs[index].is_dirty() || view.is_saving() {
-                        continue;
-                    }
-                    if matches!(content, Content::Sqlite(_)) && view.tabs[index].refresh_sqlite(cx)
-                    {
-                        continue;
-                    }
-                    let unchanged = match &content {
-                        Content::File(d) => view.tabs[index].snapshot == d.text,
-                        Content::Image(d) => view.tabs[index].snapshot == d.fingerprint,
-                        Content::Opml(d) => view.tabs[index].snapshot == d.fingerprint,
-                        Content::XMind(d) => view.tabs[index].snapshot == d.fingerprint,
-                        Content::Book(d) => view.tabs[index].snapshot == d.fingerprint,
-                        Content::Page(d) => view.tabs[index].snapshot == d.fingerprint(),
-                        Content::Archive(..) | Content::Native(..) | Content::Sqlite(..) => false,
-                        Content::Unavailable(_, _) => false,
-                    };
-                    if unchanged && !view.tabs[index].is_unavailable() {
-                        continue;
-                    }
-                    let mut reader = Self::make_reader(content, window, cx);
-                    reader.inherit_view(&view.tabs[index], cx);
-                    reader.set_word_wrap(view.word_wrap, window, cx);
-                    reader.set_editing_locked(view.editing_locked, cx);
-                    view.tabs[index] = reader;
+            let _guard = guard;
+            for (version, request) in targets {
+                let cancel = cancel.clone();
+                let work_changes = changes.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { request.read(&work_changes, &cancel) })
+                    .await;
+                if view
+                    .update_in(cx, |view, window, cx| {
+                        let Some(index) = view
+                            .tabs
+                            .iter()
+                            .position(|r| r.refresh_version(cx) == version)
+                        else {
+                            view.pending_refresh.merge((*changes).clone());
+                            return;
+                        };
+                        if view.tabs[index].refresh_busy(cx) {
+                            view.pending_refresh.merge((*changes).clone());
+                            return;
+                        }
+                        if view.tabs[index].is_dirty() || view.is_saving() {
+                            return;
+                        }
+                        let content = match result {
+                            Ok(Some(content)) => content,
+                            Ok(None) => return,
+                            Err(error) => {
+                                // Keep the last readable view when a replacement cannot be prepared.
+                                if !error.is::<glim_services::work::Cancelled>() {
+                                    view.error = Some(
+                                        format!(
+                                            "Cannot refresh {}: {error:#}",
+                                            view.tabs[index].document.path.display()
+                                        )
+                                        .into(),
+                                    );
+                                    cx.notify();
+                                }
+                                return;
+                            }
+                        };
+                        if matches!(content, Content::Sqlite(_))
+                            && view.tabs[index].refresh_sqlite(cx)
+                        {
+                            return;
+                        }
+                        if content.matches_snapshot(&view.tabs[index].document.snapshot)
+                            && !view.tabs[index].is_unavailable()
+                        {
+                            return;
+                        }
+                        let mut reader =
+                            crate::views::reader::Reader::from_content(content, window, cx);
+                        reader.inherit_view(&view.tabs[index], cx);
+                        reader.set_word_wrap(view.word_wrap, window, cx);
+                        reader.set_editing_locked(view.editing_locked, cx);
+                        view.tabs[index] = reader;
+                        view.observe_autosave(window, cx);
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    return;
                 }
-                view.observe_autosave(window, cx);
-                cx.notify();
+            }
+            let _ = view.update(cx, |view, _| {
+                view.refresh_task = None;
             });
         }));
     }

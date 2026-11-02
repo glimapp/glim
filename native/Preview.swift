@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 import CoreServices
 import CoreText
 
-struct Playlist: Decodable { let files: [String]; let shuffle: Bool; let autoplay: Bool?; let playbackFiles: [String: String]?; let matroskaFiles: [String]?; let mediaHelper: String?; let mediaDirectory: String?; let mediaErrors: [String: String]?; let office: Bool?; let image: Bool?; let imagePath: String?; let imageWidth: Double?; let imageHeight: Double?; let associations: String?; let font: Bool?; let sqlite: String?; let sqliteInfo: String?; let spreadsheet: String?; let htmlContent: String?; let htmlFile: Bool?; let fileBytes: Bool?; let spreadsheetIndex: Bool?; let wordReading: String?; let wordImagePages: Bool?; let spreadsheetCache: String?; let spreadsheetHelper: String?; let language: String?; let localizations: [String: String]? }
+
 
 var nativeTranslations: [String: String] = [:]
 func L(_ text: String) -> String { nativeTranslations[text] ?? text }
@@ -752,7 +752,7 @@ final class MediaPreparation {
 final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var closed = false
     let host = NativePreviewHost(frame: NSRect(x: 0, y: 0, width: 1000, height: 740))
-    let player = AVPlayer()
+    lazy var player = AVPlayer()
     var pendingPlayback = false
     var playbackObserver: Any?
     var playbackStateObserver: NSKeyValueObservation?
@@ -764,10 +764,10 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     private var telemetryMediaWall = 0.0
     private var telemetryPositionAt = 0.0
     private var telemetryGeneration: UInt64?
-    let playerView = AVPlayerView()
-    let pdfView = ReaderPDFView()
+    lazy var playerView = AVPlayerView()
+    lazy var pdfView = ReaderPDFView()
     var pdfSlideshow: PDFSlideshow?
-    let audioBackdrop = AudioBackdrop()
+    lazy var audioBackdrop = AudioBackdrop()
     private var artworkSnapshot: ArtworkSnapshot?
     private let artworkButton = NSButton(title: L("Open full artwork"), target: nil, action: nil)
     var metadataAsset: AVURLAsset?
@@ -786,11 +786,11 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     var index = 0
     var token: NSKeyValueObservation?
     var pdf = false
+    private(set) var mediaLoaded = false
     private var previewCopy: PreviewCopy?
     private let copyRasterQueue = DispatchQueue(label: "glim.preview.copy-raster", qos: .userInitiated)
     private var presentationStartKeys: Any?
     var officeView: QLPreviewView?
-    var spreadsheetView: WKWebView?
     var fontPreview: FontPreview?
     var imagePreview: ImagePreview?
     var htmlPreview: HTMLPreview?
@@ -803,56 +803,59 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         NSButton(title: title, target: self, action: action)
     }
     // Called on the application main thread, once per persistent reader tab.
-    func load(_ playlist: Playlist) throws {
-        nativeTranslations = playlist.localizations ?? [:]
+    func load(_ request: NativePreviewRequest) throws {
+        nativeTranslations = request.localizations
         host.setAccessibilityElement(true)
         host.setAccessibilityRole(.group)
-        host.setAccessibilityLabel(playlist.files.first.map { URL(fileURLWithPath: $0).lastPathComponent } ?? L("Preview"))
-        urls = playlist.files.map { URL(fileURLWithPath: $0) }
+        host.setAccessibilityLabel(request.content.files.first.map { URL(fileURLWithPath: $0).lastPathComponent } ?? L("Preview"))
+        urls = request.content.files.map { URL(fileURLWithPath: $0) }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-        playbackFiles = playlist.playbackFiles ?? [:]
-        mediaErrors = playlist.mediaErrors ?? [:]
-        matroskaFiles = Set(playlist.matroskaFiles ?? [])
-        mediaHelper = playlist.mediaHelper.map { URL(fileURLWithPath: $0) }
-        mediaDirectory = playlist.mediaDirectory.map { URL(fileURLWithPath: $0) }
-        if playlist.shuffle { urls.shuffle() }
-        guard !urls.isEmpty else { throw NSError(domain: "Glim", code: 1, userInfo: [NSLocalizedDescriptionKey: "No media files found."]) }
-        pdf = urls.count == 1 && urls[0].pathExtension.lowercased() == "pdf"
-        if playlist.htmlContent != nil || playlist.htmlFile == true {
-            let preview = HTMLPreview(document: urls[0], contents: playlist.htmlContent); htmlPreview = preview
+        var autoplay = false
+        switch request.content {
+        case .media(let media):
+            if media.shuffle { urls.shuffle() }
+            matroskaFiles = Set(media.preparation?.files ?? [])
+            mediaHelper = media.preparation.map { URL(fileURLWithPath: $0.helper) }
+            mediaDirectory = media.preparation.map { URL(fileURLWithPath: $0.directory) }
+            autoplay = media.autoplay
+            mediaLoaded = true
+        case .pdf: pdf = true
+        default: break
+        }
+        guard !urls.isEmpty else { throw NSError(domain: "Glim", code: 1, userInfo: [NSLocalizedDescriptionKey: "No preview files found."]) }
+        switch request.content {
+        case .html(let html):
+            let preview = HTMLPreview(document: urls[0], contents: html.text); htmlPreview = preview
             preview.view.frame = host.bounds; preview.view.autoresizingMask = [.width, .height]
             host.addSubview(preview.view)
             if let anchor = htmlAnchor { preview.reveal(anchor) }
             return
-        }
-        if playlist.spreadsheetIndex == true, let database = playlist.sqlite,
-           let cache = playlist.spreadsheetCache, let helper = playlist.spreadsheetHelper {
-            let preview = WorkbookPreview(database: database, cache: cache, helper: helper, information: playlist.sqliteInfo ?? "") { [weak self] in
+        case .workbook(let workbook):
+            let preview = WorkbookPreview(database: workbook.database, cache: workbook.cache, helper: workbook.helper, information: workbook.information) { [weak self] in
                 guard let self = self else { return [] }
                 return self.contentCopyControls() + [self.externalOpenButton()]
             }
             workbookPreview = preview; preview.view.frame = host.bounds
             preview.view.autoresizingMask = [.width, .height]; host.addSubview(preview.view)
             return
-        }
-        if playlist.image == true {
-            let imageURL = playlist.imagePath.map { URL(fileURLWithPath: $0) } ?? urls[0]
-            let sourceSize = playlist.imageWidth.flatMap { width in playlist.imageHeight.map { NSSize(width: width, height: $0) } }
+        case .image(let image):
+            let imageURL = image.prepared.map { URL(fileURLWithPath: $0) } ?? urls[0]
+            let sourceSize = image.size.map { NSSize(width: $0.width, height: $0.height) }
             let preview = ImagePreview(url: imageURL, sourceSize: sourceSize); imagePreview = preview
             host.historySwipeAvailable = { [weak preview] in preview?.canNavigateHistory ?? false }
             preview.view.frame = host.bounds; preview.view.autoresizingMask = [.width, .height]
             host.addSubview(preview.view); return
-        }
-        if playlist.font == true {
+        case .font:
             let preview = FontPreview(url: urls[0]); fontPreview = preview
-            preview.view.frame = host.bounds
-            preview.view.autoresizingMask = [.width, .height]
+            preview.view.frame = host.bounds; preview.view.autoresizingMask = [.width, .height]
             host.addSubview(preview.view)
             return
-        }
-        if playlist.office == true {
-            showOffice(urls[0], spreadsheet: playlist.spreadsheet, wordReading: playlist.wordReading, wordImagePages: playlist.wordImagePages == true)
+        case .office(let office):
+            showOffice(urls[0], wordReading: office.reading, wordImagePages: office.imagePages)
             return
+        case .associations:
+            throw NSError(domain: "Glim", code: 1, userInfo: [NSLocalizedDescriptionKey: "Settings requests cannot create document previews."])
+        case .pdf, .media: break
         }
         let content = NSStackView()
         content.orientation = .vertical
@@ -957,12 +960,12 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
             body.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
             NotificationCenter.default.addObserver(self, selector: #selector(finished(_:)), name: .AVPlayerItemDidPlayToEndTime, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(playbackFailed(_:)), name: .AVPlayerItemFailedToPlayToEndTime, object: nil)
-            play(0, autoplay: playlist.autoplay != false)
+            play(0, autoplay: autoplay)
         }
         // Leave AVKit's timeline clear when its own playback controls appear.
         FloatingReaderToolbar(items: toolbar).install(in: host, bottomInset: pdf ? 16 : 80, managesContextMenu: !pdf)
     }
-    func showOffice(_ url: URL, spreadsheet: String? = nil, wordReading: String? = nil, wordImagePages: Bool = false) {
+    func showOffice(_ url: URL, wordReading: String? = nil, wordImagePages: Bool = false) {
         if ["doc", "docx", "rtf"].contains(url.pathExtension.lowercased()) {
             let preview = WordPreview(source: url, imagePages: wordImagePages, reading: wordReading.map { URL(fileURLWithPath: $0) }, extraControls: contentCopyControls() + [externalOpenButton()])
             wordPreview = preview
@@ -1006,23 +1009,6 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         }
         contentCopyControls().forEach { toolbar.addArrangedSubview($0) }
         toolbar.addArrangedSubview(externalOpenButton())
-        if let html = spreadsheet {
-            let configuration = WKWebViewConfiguration()
-            configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-            let web = WKWebView(frame: .zero, configuration: configuration)
-            spreadsheetView = web
-            web.translatesAutoresizingMaskIntoConstraints = false
-            host.addSubview(web)
-            NSLayoutConstraint.activate([
-                web.topAnchor.constraint(equalTo: host.topAnchor),
-                web.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-                web.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-                web.bottomAnchor.constraint(equalTo: host.bottomAnchor)
-            ])
-            FloatingReaderToolbar(items: toolbar).install(in: host)
-            web.loadHTMLString(html, baseURL: nil)
-            return
-        }
         // Only slides use the inspector-style presentation. In particular,
         // Numbers compact previews can render a small centered thumbnail card
         // even when the host fills the window; spreadsheets need normal layout.
@@ -1382,18 +1368,18 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         wordPreview?.close()
         officeView?.previewItem = nil
         officeView?.close()
-        spreadsheetView?.stopLoading()
         if !host.isHidden {
             host.isHidden = true
             host.updateAccessibility()
         }
         host.removeFromSuperview()
-        pdfView.clearSelection()
-        pdfView.document = nil
+        if pdf { pdfView.clearSelection(); pdfView.document = nil }
         telemetryVolumeWork?.cancel(); telemetryVolumeWork = nil
         telemetryVolumeObserver = nil; telemetryMuteObserver = nil
         metadataAsset?.cancelLoading(); artworkSnapshot = nil; token = nil; playbackStateObserver = nil
-        if let observer = playbackObserver { player.removeTimeObserver(observer); playbackObserver = nil }
-        player.pause(); player.replaceCurrentItem(with: nil)
+        if mediaLoaded {
+            if let observer = playbackObserver { player.removeTimeObserver(observer); playbackObserver = nil }
+            player.pause(); player.replaceCurrentItem(with: nil)
+        }
     }
 }

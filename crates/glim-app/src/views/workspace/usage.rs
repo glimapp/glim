@@ -19,6 +19,7 @@ impl Workspace {
             .iter()
             .filter(|reader| {
                 reader
+                    .document
                     .path
                     .extension()
                     .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
@@ -40,10 +41,13 @@ impl Workspace {
         if self.page == Page::Document
             && let Some(reader) = self.active_reader()
         {
-            props.extend(telemetry::file_properties(&reader.path));
+            props.extend(telemetry::file_properties(&reader.document.path));
             props.push(("reader_kind", text(reader.telemetry_kind())));
-            props.push(("untitled", flag(reader.draft_directory.is_some())));
-            props.push(("preview", flag(reader.toggle_label() == "Source")));
+            props.push(("untitled", flag(reader.document.draft_directory.is_some())));
+            props.push((
+                "preview",
+                flag(reader.mode() == glim_core::ReaderMode::Preview),
+            ));
         }
         props
     }
@@ -84,7 +88,7 @@ impl Workspace {
         } else {
             None
         };
-        let preview = reader.is_some_and(|r| r.toggle_label() == "Source");
+        let preview = reader.is_some_and(|r| r.mode() == glim_core::ReaderMode::Preview);
         let key = (self.page, reader.map(Target::from_reader), preview);
         if self.usage.as_ref().is_some_and(|s| s.key == key) {
             return;
@@ -101,9 +105,9 @@ impl Workspace {
             ("preview", flag(preview)),
         ];
         if let Some(reader) = reader {
-            props.extend(telemetry::file_properties(&reader.path));
+            props.extend(telemetry::file_properties(&reader.document.path));
             props.push(("reader_kind", text(reader.telemetry_kind())));
-            props.push(("untitled", flag(reader.draft_directory.is_some())));
+            props.push(("untitled", flag(reader.document.draft_directory.is_some())));
         }
         self.flush_usage();
         self.usage = Some(Segment {

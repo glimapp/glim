@@ -1,6 +1,6 @@
 use super::*;
 use crate::preferences::{ExplorerExpansion, RecentWorkspace};
-use glim_core::update::WorkspaceSession;
+use glim_core::session::WorkspaceSession;
 use std::collections::BTreeMap;
 
 fn source(db: &Connection, directory: &Path, name: &str) -> Result<Option<Vec<u8>>> {

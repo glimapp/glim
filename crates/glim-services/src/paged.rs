@@ -65,7 +65,15 @@ pub struct TextPage {
     pub identity: (u64, u64),
 }
 pub fn read_page(path: &Path, start: u64, all: bool) -> Result<TextPage> {
-    read_source(
+    read_page_cancellable(path, start, all, &crate::work::Cancellation::default())
+}
+pub fn read_page_cancellable(
+    path: &Path,
+    start: u64,
+    all: bool,
+    cancel: &crate::work::Cancellation,
+) -> Result<TextPage> {
+    read_source_cancellable(
         PageSource {
             original: std::path::absolute(path)?,
             binary: false,
@@ -74,10 +82,18 @@ pub fn read_page(path: &Path, start: u64, all: bool) -> Result<TextPage> {
         },
         start,
         all,
+        cancel,
     )
 }
 pub fn read_binary_page(path: &Path, start: u64) -> Result<TextPage> {
-    read_source(
+    read_binary_page_cancellable(path, start, &crate::work::Cancellation::default())
+}
+pub fn read_binary_page_cancellable(
+    path: &Path,
+    start: u64,
+    cancel: &crate::work::Cancellation,
+) -> Result<TextPage> {
+    read_source_cancellable(
         PageSource {
             original: std::path::absolute(path)?,
             binary: true,
@@ -86,6 +102,7 @@ pub fn read_binary_page(path: &Path, start: u64) -> Result<TextPage> {
         },
         start,
         false,
+        cancel,
     )
 }
 pub fn generated(path: &Path, backing: tempfile::NamedTempFile) -> Result<TextPage> {

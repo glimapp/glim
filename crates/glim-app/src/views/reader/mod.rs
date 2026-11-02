@@ -1,6 +1,7 @@
 mod archive;
 mod books;
 mod boundary;
+mod construction;
 mod controls;
 mod csv;
 mod diagrams;
@@ -15,10 +16,13 @@ mod native_bridge;
 mod opml;
 mod paged;
 mod pictures;
+mod refresh;
 mod source;
 mod sqlite;
 mod xmind;
-use glim_core::{Document, DocumentKind, language_for_path};
+use crate::app::document_session::DocumentSession;
+use glim_core::{ContentSnapshot, Document, DocumentKind, ReaderMode, language_for_path};
+use glim_services::documents::presentation::{TableFormat, TextPresentation};
 use gpui_kit::*;
 use markup::MarkupReader;
 use media::{GifReader, ImageReader, UnavailableReader};
@@ -94,11 +98,8 @@ enum Renderer {
     Unavailable(UnavailableReader),
 }
 pub struct Reader {
-    pub snapshot: String,
+    pub(crate) document: DocumentSession,
     pub title: SharedString,
-    pub path: PathBuf,
-    pub draft_directory: Option<PathBuf>,
-    pub recovery_key: Option<String>,
     json: Option<(Entity<json::JsonTree>, bool)>,
     csv: Option<(Entity<csv::CsvTable>, bool)>,
     renderer: Renderer,
@@ -121,15 +122,8 @@ impl Reader {
     }
 
     pub fn new(document: Document, window: &mut Window, cx: &mut App) -> Self {
-        let html = document
-            .path
-            .extension()
-            .and_then(|s| s.to_str())
-            .is_some_and(|s| s.eq_ignore_ascii_case("html") || s.eq_ignore_ascii_case("htm"));
-        let renderer = if document.kind == DocumentKind::Markdown
-            || html
-            || glim_services::text_formats::supports(&document.path)
-        {
+        let presentation = TextPresentation::for_path(&document.path);
+        let renderer = if document.kind == DocumentKind::Markdown || presentation.markup {
             Renderer::Markup(Box::new(MarkupReader::new(
                 &document.path,
                 &document.text,
@@ -146,40 +140,19 @@ impl Reader {
                 cx,
             ))
         };
-        let json = (language_for_path(&document.path) == "json"
-            && !glim_services::text_formats::supports(&document.path))
-        .then(|| {
-            let format = document
-                .path
-                .extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("json")
-                .to_ascii_lowercase();
-            let format = if format == "code-workspace" {
-                "jsonc".to_owned()
-            } else {
-                format
-            };
-            (cx.new(|_| json::JsonTree::new(format)), false)
-        });
-        let csv = document
-            .path
-            .extension()
-            .and_then(|s| s.to_str())
-            .is_some_and(|s| {
-                matches!(
-                    s.to_ascii_lowercase().as_str(),
-                    "csv" | "tsv" | "gpx" | "kml"
-                )
-            })
-            .then(|| (cx.new(|_| csv::CsvTable::new()), false));
+        let json = presentation
+            .json_dialect
+            .map(|format| (cx.new(|_| json::JsonTree::new(format)), false));
+        let csv = presentation
+            .table
+            .map(|_| (cx.new(|_| csv::CsvTable::new()), false));
         let mut reader = Self {
             title: document.path.display().to_string().into(),
-            path: document.path,
-            snapshot: document.text,
+            document: DocumentSession::new(
+                document.path,
+                ContentSnapshot::Text(document.text.into()),
+            ),
             structured_controls: None,
-            draft_directory: None,
-            recovery_key: None,
             json,
             csv,
             renderer,
@@ -201,8 +174,8 @@ impl Reader {
             cx,
         );
         reader.title = name.into();
-        reader.draft_directory = Some(directory);
-        reader.recovery_key = Some(format!(
+        reader.document.draft_directory = Some(directory);
+        reader.document.recovery_key = Some(format!(
             "{}-{}-{number}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -249,13 +222,13 @@ impl Reader {
                 _ => unreachable!("text document has a source editor"),
             }
         }
-        self.path = reader.path;
+        self.document.path = reader.document.path;
         self.title = reader.title;
         self.json = reader.json;
         self.csv = reader.csv;
-        self.draft_directory = None;
+        self.document.draft_directory = None;
         if let Some(editor) = self.editor() {
-            let language = language_for_path(&self.path);
+            let language = language_for_path(&self.document.path);
             editor.update(cx, |editor, cx| {
                 if lexical::supports(language) {
                     editor.set_highlighter_factory(
@@ -336,12 +309,9 @@ impl Reader {
     }
     pub fn from_archive(document: glim_services::archive::Archive, cx: &mut App) -> Self {
         Self {
-            snapshot: String::new(),
             title: document.path.display().to_string().into(),
-            path: document.path.clone(),
+            document: DocumentSession::new(document.path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
-            draft_directory: None,
-            recovery_key: None,
             json: None,
             csv: None,
             renderer: Renderer::Archive(cx.new(|cx| archive::ArchiveReader::new(document, cx))),
@@ -349,12 +319,9 @@ impl Reader {
     }
     pub fn from_sqlite(path: PathBuf, window: &mut Window, cx: &mut App) -> Self {
         Self {
-            snapshot: "sqlite-preview".into(),
             title: path.display().to_string().into(),
-            path: path.clone(),
+            document: DocumentSession::new(path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
-            draft_directory: None,
-            recovery_key: None,
             json: None,
             csv: None,
             renderer: Renderer::Sqlite(cx.new(|cx| sqlite::SqliteReader::new(path, window, cx))),
@@ -371,12 +338,9 @@ impl Reader {
         cx: &mut App,
     ) -> Self {
         Self {
-            snapshot: "native-preview".into(),
             title: path.display().to_string().into(),
-            path: path.clone(),
+            document: DocumentSession::new(path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
-            draft_directory: None,
-            recovery_key: None,
             json: None,
             csv: None,
             renderer: Renderer::Native(cx.new(|cx| {
@@ -392,19 +356,19 @@ impl Reader {
     pub fn from_native_paused(path: PathBuf, folder: bool, shuffle: bool, cx: &mut App) -> Self {
         Self::from_native_playback(path, folder, shuffle, false, cx)
     }
-    pub(crate) fn session_tab(&self, cx: &App) -> glim_core::update::SessionTab {
-        use glim_core::update::SessionTab;
+    pub(crate) fn session_tab(&self, cx: &App) -> glim_core::session::SessionTab {
+        use glim_core::session::SessionTab;
         if let Renderer::Native(native) = &self.renderer
             && let Some(shuffle) = native.read(cx).playlist_shuffle()
         {
             return SessionTab::Playlist {
-                path: self.path.clone(),
+                path: self.document.path.clone(),
                 shuffle,
             };
         }
         SessionTab::File {
-            path: self.path.clone(),
-            preview: self.toggle_label() == "Source",
+            path: self.document.path.clone(),
+            preview: self.mode() == glim_core::ReaderMode::Preview,
         }
     }
 
@@ -428,45 +392,26 @@ impl Reader {
             .map(|source| source.dirty.clone())
             .unwrap_or_default();
         let saving = view.read(cx).saving.clone();
-        let csv = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .filter(|s| {
-                matches!(
-                    s.to_ascii_lowercase().as_str(),
-                    "csv" | "tsv" | "gpx" | "kml"
-                )
-            })
-            .map(|ext| {
-                let delimiter = if ext.eq_ignore_ascii_case("tsv") {
-                    b'\t'
-                } else {
-                    b','
-                };
-                (
-                    cx.new(|_| csv::CsvTable::from_file(path.clone(), delimiter)),
-                    false,
-                )
-            });
-        let html = path
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm"))
-            .then(|| {
-                let active = cx
-                    .try_global::<crate::app::ReaderPreferences>()
-                    .is_none_or(|prefs| prefs.html_preview);
-                (
-                    cx.new(|cx| native::NativeReader::html(path.clone(), None, window, cx)),
-                    active,
-                )
-            });
+        let presentation = TextPresentation::for_path(&path);
+        let csv = presentation.table.map(|format| {
+            (
+                cx.new(|_| csv::CsvTable::from_file(path.clone(), format.delimiter())),
+                false,
+            )
+        });
+        let html = presentation.html.then(|| {
+            let active = cx
+                .try_global::<crate::app::ReaderPreferences>()
+                .is_none_or(|prefs| prefs.html_preview);
+            (
+                cx.new(|cx| native::NativeReader::html(path.clone(), None, window, cx)),
+                active,
+            )
+        });
         let mut reader = Self {
             title: path.display().to_string().into(),
-            path,
-            snapshot,
+            document: DocumentSession::new(path, ContentSnapshot::Fingerprint(snapshot)),
             structured_controls: None,
-            draft_directory: None,
-            recovery_key: None,
             json: None,
             csv,
             renderer: Renderer::Paged {
@@ -496,11 +441,11 @@ impl Reader {
         );
         Self {
             title: document.path.display().to_string().into(),
-            path: document.path,
-            snapshot: document.text,
+            document: DocumentSession::new(
+                document.path,
+                ContentSnapshot::Text(document.text.into()),
+            ),
             structured_controls: None,
-            draft_directory: None,
-            recovery_key: None,
             json: None,
             csv: None,
             renderer: Renderer::Source(source),
@@ -530,11 +475,11 @@ impl Reader {
         };
         Self {
             title: document.path.display().to_string().into(),
-            path: document.path,
-            snapshot: document.fingerprint,
+            document: DocumentSession::new(
+                document.path,
+                ContentSnapshot::Fingerprint(document.fingerprint),
+            ),
             structured_controls: None,
-            draft_directory: None,
-            recovery_key: None,
             json: None,
             csv: None,
             renderer,
@@ -551,11 +496,8 @@ impl Reader {
         let writing = view.read(cx).writing.clone();
         Self {
             title: path.display().to_string().into(),
-            path,
-            snapshot: fingerprint,
+            document: DocumentSession::new(path, ContentSnapshot::Fingerprint(fingerprint)),
             structured_controls: None,
-            draft_directory: None,
-            recovery_key: None,
             json: None,
             csv: None,
             renderer: Renderer::Book(view, writing),
@@ -574,11 +516,11 @@ impl Reader {
     pub fn from_xmind(document: glim_services::xmind::MindMap, cx: &mut App) -> Self {
         Self {
             title: document.path.display().to_string().into(),
-            path: document.path.clone(),
-            snapshot: document.fingerprint.clone(),
+            document: DocumentSession::new(
+                document.path.clone(),
+                ContentSnapshot::Fingerprint(document.fingerprint.clone()),
+            ),
             structured_controls: None,
-            draft_directory: None,
-            recovery_key: None,
             json: None,
             csv: None,
             renderer: Renderer::XMind(cx.new(|_| xmind::XMindReader::new(document))),
@@ -587,11 +529,11 @@ impl Reader {
     pub fn from_opml(document: glim_services::opml::Document, cx: &mut App) -> Self {
         Self {
             title: document.path.display().to_string().into(),
-            path: document.path.clone(),
-            snapshot: document.fingerprint.clone(),
+            document: DocumentSession::new(
+                document.path.clone(),
+                ContentSnapshot::Fingerprint(document.fingerprint.clone()),
+            ),
             structured_controls: None,
-            draft_directory: None,
-            recovery_key: None,
             json: None,
             csv: None,
             renderer: Renderer::Opml(cx.new(|_| opml::OpmlReader::new(document))),
@@ -601,11 +543,8 @@ impl Reader {
         let renderer = Renderer::Unavailable(UnavailableReader::new(&path, reason));
         Self {
             title: path.display().to_string().into(),
-            path,
-            snapshot: String::new(),
+            document: DocumentSession::new(path, ContentSnapshot::Untracked),
             structured_controls: None,
-            draft_directory: None,
-            recovery_key: None,
             json: None,
             csv: None,
             renderer,
@@ -705,35 +644,12 @@ impl Reader {
             _ => false,
         }
     }
-    pub(crate) fn sqlite_source_stamp(
-        &self,
-        cx: &App,
-    ) -> Option<glim_services::sqlite::SourceStamp> {
-        if let Renderer::Sqlite(view) = &self.renderer {
-            view.read(cx).source_stamp()
-        } else {
-            None
-        }
-    }
     pub(crate) fn refresh_sqlite(&self, cx: &mut App) -> bool {
         if let Renderer::Sqlite(view) = &self.renderer {
-            view.update(cx, |view, cx| view.refresh(self.path.clone(), cx));
+            view.update(cx, |view, cx| view.refresh(self.document.path.clone(), cx));
             true
         } else {
             false
-        }
-    }
-    pub fn native_image_stamp(&self, cx: &App) -> Option<(u64, Option<std::time::SystemTime>)> {
-        match &self.renderer {
-            Renderer::Native(view) => view.read(cx).image_stamp(),
-            _ => None,
-        }
-    }
-    pub fn page_refresh_request(&self, cx: &App) -> Option<glim_services::paged::PageRefresh> {
-        if let Renderer::Paged { view, .. } = &self.renderer {
-            view.read(cx).refresh_request()
-        } else {
-            None
         }
     }
     pub fn page_save_request(&self, cx: &mut App) -> Option<glim_services::paged::PageEdit> {
@@ -750,7 +666,11 @@ impl Reader {
         cx: &mut App,
     ) {
         if let Renderer::Paged { view, .. } = &self.renderer {
-            self.snapshot = format!("paged:{}:{:?}", saved.total, saved.modified);
+            self.document
+                .mark_saved(ContentSnapshot::Fingerprint(format!(
+                    "paged:{}:{:?}",
+                    saved.total, saved.modified
+                )));
             view.update(cx, |page, cx| page.saved(text, saved, cx));
             if let Renderer::Paged {
                 html: Some((browser, _)),
@@ -767,7 +687,8 @@ impl Reader {
         }
     }
     pub fn mark_saved(&mut self, text: String, cx: &App) {
-        self.snapshot = text.clone();
+        self.document
+            .mark_saved(ContentSnapshot::Text(text.clone().into()));
         match &mut self.renderer {
             Renderer::Source(s) => s.mark_saved(text, cx),
             Renderer::Markup(m) => m.source.mark_saved(text, cx),
@@ -775,6 +696,7 @@ impl Reader {
         }
     }
     pub fn inherit_view(&mut self, old: &Self, cx: &mut App) {
+        self.document.inherit_identity(&old.document);
         if let Some((_, visible)) = &old.csv {
             self.set_preview(*visible, cx);
         } else if old.json.as_ref().is_some_and(|(_, visible)| *visible) {
@@ -832,21 +754,15 @@ impl Reader {
             source.state.update(cx, |s, cx| s.focus(window, cx));
         }
     }
+    pub fn table_format(&self) -> Option<TableFormat> {
+        self.csv.as_ref()?;
+        TextPresentation::for_path(&self.document.path).table
+    }
     pub fn is_csv(&self) -> bool {
-        self.csv.is_some()
-            && self.path.extension().is_some_and(|extension| {
-                extension.eq_ignore_ascii_case("csv") || extension.eq_ignore_ascii_case("tsv")
-            })
+        self.table_format().is_some_and(TableFormat::is_delimited)
     }
     fn geo_format(&self) -> Option<&'static str> {
-        let extension = self.path.extension()?.to_str()?;
-        if extension.eq_ignore_ascii_case("gpx") {
-            Some("GPX")
-        } else if extension.eq_ignore_ascii_case("kml") {
-            Some("KML")
-        } else {
-            None
-        }
+        self.table_format().and_then(TableFormat::geo_name)
     }
     pub fn is_json(&self) -> bool {
         self.json.is_some()
@@ -891,8 +807,8 @@ impl Reader {
             )
     }
     pub fn set_preview(&mut self, preview: bool, cx: &mut App) {
-        if !preview && glim_services::diagnostics::failure(&self.path).is_some() {
-            glim_services::diagnostics::retry(&self.path);
+        if !preview && glim_services::diagnostics::failure(&self.document.path).is_some() {
+            glim_services::diagnostics::retry(&self.document.path);
         }
         if preview
             && self.is_dirty()
@@ -930,15 +846,9 @@ impl Reader {
                         }
                         view.load(
                             text,
-                            if self
-                                .path
-                                .extension()
-                                .is_some_and(|e| e.eq_ignore_ascii_case("tsv"))
-                            {
-                                b'\t'
-                            } else {
-                                b','
-                            },
+                            TextPresentation::for_path(&self.document.path)
+                                .table
+                                .map_or(b',', TableFormat::delimiter),
                             cx,
                         )
                     });
@@ -970,7 +880,7 @@ impl Reader {
             }
         }
     }
-    pub fn toggle_label(&self) -> &'static str {
+    pub fn mode(&self) -> ReaderMode {
         if self.csv.as_ref().is_some_and(|(_, visible)| *visible)
             || self.json.as_ref().is_some_and(|(_, visible)| *visible)
             || matches!(
@@ -982,9 +892,9 @@ impl Reader {
             )
             || matches!(&self.renderer, Renderer::Markup(m) if m.preview)
         {
-            "Source"
+            ReaderMode::Preview
         } else {
-            "Preview"
+            ReaderMode::Source
         }
     }
     pub fn reveal_anchor(&mut self, anchor: &str, cx: &mut App) {
@@ -1013,19 +923,19 @@ impl Reader {
         }
     }
     pub fn render(&mut self, open: OpenLink, cx: &mut App) -> AnyElement {
-        if let Some(error) = glim_services::diagnostics::failure(&self.path) {
+        if let Some(error) = glim_services::diagnostics::failure(&self.document.path) {
             self.hide_native(cx);
-            return boundary::failed(&self.path, error, cx);
+            return boundary::failed(&self.document.path, error, cx);
         }
-        let _scope = glim_services::diagnostics::FileScope::enter(&self.path, "render");
+        let _scope = glim_services::diagnostics::FileScope::enter(&self.document.path, "render");
         let content = self.render_content(open, cx);
-        let content = if glim_services::graph::supports(&self.path) {
+        let content = if glim_services::graph::supports(&self.document.path) {
             if self.structured_controls.is_none() {
                 let editor = match &self.renderer {
                     Renderer::Source(source) => Some(source.state.clone()),
                     _ => None,
                 };
-                let path = self.path.clone();
+                let path = self.document.path.clone();
                 self.structured_controls =
                     Some(cx.new(|_| json_format::JsonFormat::new(path, editor)));
             }
@@ -1044,7 +954,7 @@ impl Reader {
             content
         };
         boundary::FileBoundary {
-            path: self.path.clone(),
+            path: self.document.path.clone(),
             content,
         }
         .into_any_element()
@@ -1159,9 +1069,12 @@ mod editing_tests {
                 "saved snapshot\nnewer input"
             );
             assert!(reader.is_dirty());
-            assert!(reader.draft_directory.is_none());
-            assert!(reader.recovery_key.is_some());
-            assert_eq!(reader.snapshot, "saved snapshot");
+            assert!(reader.document.draft_directory.is_none());
+            assert!(reader.document.recovery_key.is_some());
+            assert_eq!(
+                reader.document.snapshot.saved_text().as_deref(),
+                Some("saved snapshot")
+            );
         });
     }
     #[gpui_kit::test]
@@ -1253,7 +1166,10 @@ mod editing_tests {
                     .as_str()
                     .contains("Edited heading")
             );
-            assert_eq!(view.read(cx).0.snapshot, "# Original\n");
+            assert_eq!(
+                view.read(cx).0.document.snapshot.saved_text().as_deref(),
+                Some("# Original\n")
+            );
         });
     }
     #[gpui_kit::test]

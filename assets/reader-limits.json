@@ -1525,6 +1525,16 @@
         "description": "Maximum outline nesting depth.",
         "description_zh": "大纲嵌套深度预算。"
       }
+    },
+    "watch": {
+      "pending_paths": {
+        "value": 4096,
+        "type": "usize",
+        "unit": "paths",
+        "effect": "fallback",
+        "description": "Maximum distinct pending filesystem paths. Overflow triggers a full source check instead of dropping changes; document access is unlimited.",
+        "description_zh": "待处理文件变化路径的去重预算。超出后执行完整来源检查，不丢弃变化，也不限制文档访问。"
+      }
     }
   }
 }

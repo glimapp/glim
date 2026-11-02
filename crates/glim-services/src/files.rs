@@ -221,6 +221,13 @@ pub fn save_new_document(
 }
 
 pub fn read_document(path: &Path) -> Result<Document> {
+    read_document_cancellable(path, &crate::work::Cancellation::default())
+}
+pub fn read_document_cancellable(
+    path: &Path,
+    cancel: &crate::work::Cancellation,
+) -> Result<Document> {
+    cancel.check()?;
     ensure!(path.is_file(), "Not a regular file: {}", path.display());
     let file = File::open(path).with_context(|| format!("Cannot open {}", path.display()))?;
     ensure!(
@@ -230,7 +237,12 @@ pub fn read_document(path: &Path) -> Result<Document> {
     );
     // Limit the read itself, so a file growing after metadata inspection is bounded too.
     let mut bytes = Vec::new();
-    file.take(MAX_DOCUMENT_BYTES + 1).read_to_end(&mut bytes)?;
+    crate::work::Reader {
+        inner: file,
+        cancel: cancel.clone(),
+    }
+    .take(MAX_DOCUMENT_BYTES + 1)
+    .read_to_end(&mut bytes)?;
     reader_limits::preview_budget(
         bytes.len() as u64 <= MAX_DOCUMENT_BYTES,
         "Use editable pages for this document",

@@ -285,7 +285,7 @@ fn take_session_at(directory: &Path, current_build: &str) -> Result<Option<Updat
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glim_core::update::{SessionTab, WorkspaceSession};
+    use glim_core::session::{SessionTab, WorkspaceSession};
     #[test]
     fn upgrading_legacy_tabs_preserves_files_and_remaps_active() -> Result<()> {
         let input = serde_json::json!({"schema":1,"source_build":"30","target_build":"31","workspaces":[

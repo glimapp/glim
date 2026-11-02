@@ -90,13 +90,18 @@ impl NativeReader {
         }));
     }
     fn load_html(&mut self) {
-        let configuration = serde_json::json!({
-            "files": [&self.path], "shuffle": false, "htmlContent": &self.html, "htmlFile": self.html_file,
-            "language": glim_services::locale::code(), "localizations": glim_services::locale::translations(),
+        use glim_services::preview::request::{NativeContent, NativeRequest};
+        let request = NativeRequest::new(NativeContent::Html {
+            source: self.path.clone(),
+            text: self.html.clone(),
         });
-        self.preview = Some(super::native_bridge::NativePreview::new(
-            &serde_json::to_vec(&configuration).expect("HTML preview configuration"),
-        ));
+        match request.encode() {
+            Ok(configuration) => {
+                self.preview = Some(super::native_bridge::NativePreview::new(&configuration));
+                self.error = None;
+            }
+            Err(error) => self.error = Some(format!("{error:#}")),
+        }
     }
     pub fn reload_html_file(&mut self, cx: &mut Context<Self>) {
         if self.html_file && self.preview.is_some() {

@@ -1,4 +1,5 @@
 //! Update/session values shared across UI and I/O; no platform dependencies.
+use crate::session::WorkspaceSession;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -53,24 +54,6 @@ impl UpdateSnapshot {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum SessionTab {
-    File { path: PathBuf, preview: bool },
-    Playlist { path: PathBuf, shuffle: bool },
-}
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WorkspaceSession {
-    pub roots: Vec<PathBuf>,
-    pub tabs: Vec<SessionTab>,
-    pub active: Option<usize>,
-    #[serde(default)]
-    pub workspace_id: Option<String>,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub window_group: Option<String>,
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateSession {
     pub schema: u32,

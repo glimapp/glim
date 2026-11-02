@@ -11,7 +11,7 @@ func glimPreviewCreate(_ bytes: UnsafePointer<UInt8>, _ length: Int) -> UnsafeMu
     DispatchQueue.main.async { [weak preview] in
         guard let preview = preview, !preview.closed else { return }
         do {
-            try preview.load(JSONDecoder().decode(Playlist.self, from: data))
+            try preview.load(NativePreviewRequest.decode(data))
         } catch {
             preview.host.subviews.forEach { $0.removeFromSuperview() }
             let label = NSTextField(wrappingLabelWithString: error.localizedDescription)
@@ -82,7 +82,7 @@ func glimPreviewHide(_ handle: UnsafeMutableRawPointer) {
     preview.host.isHidden = true
     preview.host.updateAccessibility()
     preview.pendingPlayback = false
-    preview.player.pause()
+    if preview.mediaLoaded { preview.player.pause() }
     preview.imagePreview?.pause()
 }
 

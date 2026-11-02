@@ -2,6 +2,7 @@ mod about;
 pub mod actions;
 mod assets;
 pub(crate) mod diagram_engine;
+pub(crate) mod document_session;
 pub(crate) mod finder_integration;
 mod image_http;
 pub(crate) mod languages;
@@ -652,19 +653,19 @@ fn open_workspace(path: Option<std::path::PathBuf>, cx: &mut App) {
 }
 fn open_workspace_with_session(
     path: Option<std::path::PathBuf>,
-    session: Option<glim_core::update::WorkspaceSession>,
+    session: Option<glim_core::session::WorkspaceSession>,
     cx: &mut App,
 ) {
     open_workspace_session(path, session, false, cx);
 }
 
-fn open_home_workspace_with_session(session: glim_core::update::WorkspaceSession, cx: &mut App) {
+fn open_home_workspace_with_session(session: glim_core::session::WorkspaceSession, cx: &mut App) {
     open_workspace_session(None, Some(session), true, cx);
 }
 
 fn open_workspace_session(
     path: Option<std::path::PathBuf>,
-    session: Option<glim_core::update::WorkspaceSession>,
+    session: Option<glim_core::session::WorkspaceSession>,
     start_on_home: bool,
     cx: &mut App,
 ) {

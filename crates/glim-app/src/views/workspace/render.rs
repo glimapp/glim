@@ -50,7 +50,7 @@ impl Render for Workspace {
                 let _ = view.update(cx, |v, cx| {
                     v.open_path(path.clone(), window, cx);
                     if let Some(anchor) = anchor {
-                        if let Some(i) = v.active.filter(|i| v.tabs[*i].path == path) {
+                        if let Some(i) = v.active.filter(|i| v.tabs[*i].document.path == path) {
                             v.tabs[i].reveal_anchor(&anchor, cx);
                         } else {
                             v.pending_anchor = Some((path, anchor));
@@ -111,7 +111,8 @@ impl Render for Workspace {
         // toolbar. Text editors keep their selection-aware editing menu.
         let content = if self.page == Page::Document
             && self.active_reader().is_some_and(|reader| {
-                reader.is_archive() || (reader.can_preview() && reader.toggle_label() == "Source")
+                reader.is_archive()
+                    || (reader.can_preview() && reader.mode() == glim_core::ReaderMode::Preview)
             }) {
             let workspace = cx.entity().downgrade();
             div()
@@ -164,7 +165,7 @@ impl Render for Workspace {
                 |view| view.child(tab_bar),
             )
             .when(!self.file_fullscreen && document_page && !self.csv_hint_dismissed
-                && self.active_reader().is_some_and(|reader| reader.is_csv() && reader.toggle_label() == "Preview"), |view| {
+                && self.active_reader().is_some_and(|reader| reader.is_csv() && reader.mode() == glim_core::ReaderMode::Source), |view| {
                 view.child(h_flex().w_full().gap_3().px_3().py_1().items_center()
                     .child(div().flex_1().min_w_0().text_xs().whitespace_normal().text_color(cx.theme().muted_foreground)
                         .child(glim_services::locale::tr("CSV and TSV files can be viewed as a table using the toolbar. Your viewing mode is remembered.")))
@@ -548,7 +549,7 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|v, _: &TogglePreview, w, cx| {
                 if let Some(reader) = v.active_reader().filter(|reader| reader.can_preview()) {
-                    let preview = reader.toggle_label() != "Source";
+                    let preview = reader.mode() != glim_core::ReaderMode::Preview;
                     v.set_reader_preview(preview, w, cx);
                 }
             }))

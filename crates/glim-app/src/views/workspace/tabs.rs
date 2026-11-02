@@ -142,6 +142,7 @@ impl Workspace {
     ) {
         self.workspace_name = Some(
             reader
+                .document
                 .path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
@@ -149,7 +150,7 @@ impl Workspace {
         );
         reader.bind_window(window, cx);
         let editor = reader.editor();
-        let autosave = reader.draft_directory.is_none() && reader.is_dirty();
+        let autosave = reader.document.draft_directory.is_none() && reader.is_dirty();
         self.tabs.push(reader);
         self.observe_autosave(window, cx);
         self.activate_tab(0, window, cx);
@@ -171,10 +172,10 @@ impl Workspace {
 
     pub(super) fn reveal_active_file(&self, cx: &mut Context<Self>) {
         if let (Some(explorer), Some(reader)) = (&self.explorer, self.active_reader())
-            && reader.draft_directory.is_none()
+            && reader.document.draft_directory.is_none()
         {
             explorer.update(cx, |explorer, cx| {
-                explorer.reveal_path(reader.path.clone(), cx)
+                explorer.reveal_path(reader.document.path.clone(), cx)
             });
         }
     }
@@ -186,8 +187,15 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.tabs.get(index).is_some() {
-            glim_services::telemetry::file_event("tab_activated", &self.tabs[index].path, []);
-            log::info!("tab activate file={}", self.tabs[index].path.display());
+            glim_services::telemetry::file_event(
+                "tab_activated",
+                &self.tabs[index].document.path,
+                [],
+            );
+            log::info!(
+                "tab activate file={}",
+                self.tabs[index].document.path.display()
+            );
             self.page = super::Page::Document;
             self.load_task = None;
             self.loading = false;
@@ -195,7 +203,9 @@ impl Workspace {
             self.active = Some(index);
             self.reveal_active_file(cx);
             window.focus(&self.focus, cx);
-            if self.tabs[index].editor().is_some() && self.tabs[index].toggle_label() == "Preview" {
+            if self.tabs[index].editor().is_some()
+                && self.tabs[index].mode() == glim_core::ReaderMode::Source
+            {
                 self.tabs[index].focus_source(window, cx);
             }
             self.tab_scroll.scroll_to_item(index);
@@ -248,7 +258,7 @@ impl Workspace {
             if !keep {
                 glim_services::telemetry::file_event(
                     "tab_closed",
-                    &r.path,
+                    &r.document.path,
                     [("unsaved", glim_services::telemetry::flag(r.is_dirty()))],
                 );
                 r.hide_native(cx);
@@ -299,8 +309,8 @@ impl Workspace {
                 && !crate::app::updates::busy(cx),
         ));
         actions.push(Some(TabMenuAction::Detach(target.clone())));
-        if self.tabs[index].draft_directory.is_none() {
-            let path = self.tabs[index].path.clone();
+        if self.tabs[index].document.draft_directory.is_none() {
+            let path = self.tabs[index].document.path.clone();
             items.push((Some(glim_services::locale::tr("Reveal in Finder")), true));
             actions.push(Some(TabMenuAction::Reveal(path.clone())));
             items.push((Some(glim_services::locale::tr("Copy Absolute Path")), true));
@@ -340,11 +350,11 @@ impl Workspace {
             actions.push(Some(TabMenuAction::Close(targets)));
         }
         let reader = &self.tabs[index];
-        if reader.draft_directory.is_none() {
+        if reader.document.draft_directory.is_none() {
             items.push((None, true));
             actions.push(None);
             items.push((Some(glim_services::locale::tr("Move to Trash…")), true));
-            actions.push(Some(TabMenuAction::Trash(reader.path.clone())));
+            actions.push(Some(TabMenuAction::Trash(reader.document.path.clone())));
         }
         self.context_menu_task = None;
         let Some(menu) = crate::views::native_menu_bridge::NativeMenu::new(&items, window) else {
@@ -394,7 +404,7 @@ impl Workspace {
         self.active = selection_after_close(self.active, index, self.tabs.len());
         glim_services::telemetry::file_event(
             "tab_closed",
-            &self.tabs[index].path,
+            &self.tabs[index].document.path,
             [(
                 "unsaved",
                 glim_services::telemetry::flag(self.tabs[index].is_dirty()),
@@ -467,20 +477,21 @@ impl Workspace {
             .map(|(index, reader)| {
                 let active = self.active == Some(index);
                 let target = super::header::Target::from_reader(reader);
-                let label = if reader.draft_directory.is_some() {
+                let label = if reader.document.draft_directory.is_some() {
                     reader.title.to_string()
                 } else {
                     reader
+                        .document
                         .path
                         .file_name()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .into_owned()
                 };
-                let hint_path = if reader.draft_directory.is_some() {
+                let hint_path = if reader.document.draft_directory.is_some() {
                     glim_services::locale::tr("Not saved to disk")
                 } else {
-                    reader.path.display().to_string()
+                    reader.document.path.display().to_string()
                 };
                 let hint_title = label.clone();
                 let hint_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::default()));
@@ -588,7 +599,10 @@ impl Workspace {
                     .child(
                         h_flex()
                             .gap_2()
-                            .child(crate::views::file_icons::file_icon(&reader.path, cx))
+                            .child(crate::views::file_icons::file_icon(
+                                &reader.document.path,
+                                cx,
+                            ))
                             .child(div().max_w(px(210.)).truncate().text_xs().child(label)),
                     )
                     .child(

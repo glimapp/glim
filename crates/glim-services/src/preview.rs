@@ -1,5 +1,7 @@
 //! Prepare native preview data off the UI thread; launch the settings helper only.
+pub mod request;
 use anyhow::{Context, Result, ensure};
+use request::{ImageSize, MediaPreparation, NativeContent, NativeRequest};
 use std::path::{Path, PathBuf};
 
 pub fn is_media(path: &Path) -> bool {
@@ -183,10 +185,6 @@ pub fn prepare_cancellable(
         None
     };
     let paths = playlist(path, folder, cancel)?;
-    let files = paths
-        .iter()
-        .map(|path| path.to_str().context("Native preview requires UTF-8 paths"))
-        .collect::<Result<Vec<_>>>()?;
     let mut matroska = Vec::new();
     for path in paths.iter().filter(|p| is_media(p)) {
         cancel.check()?;
@@ -236,47 +234,58 @@ pub fn prepare_cancellable(
     } else {
         None
     };
-    let mut configuration = serde_json::json!({"files": files, "shuffle": shuffle, "autoplay": autoplay, "office": !folder && is_office(path), "font": !folder && is_font(path),
-        "sqlite": spreadsheet.as_ref().map(|s| s.database.as_path()).and_then(|p| p.to_str()),
-        "sqliteInfo": spreadsheet.as_ref().map(|s| &s.information)});
-    configuration["wordImagePages"] =
-        serde_json::json!(word_reading.as_ref().is_some_and(|r| r.image_pages));
-    configuration["wordReading"] = serde_json::json!(
-        word_reading
-            .as_ref()
-            .and_then(|reading| reading.html.to_str())
-    );
-    configuration["fileBytes"] = serde_json::json!(!folder && !is_image(path) && !is_iwork(path));
-    configuration["spreadsheetCache"] =
-        serde_json::json!(spreadsheet.as_ref().and_then(|sheet| sheet.cache.to_str()));
-    if spreadsheet.is_some() {
-        configuration["spreadsheetHelper"] = serde_json::json!(std::env::current_exe()?.to_str());
-    }
-    configuration["spreadsheetIndex"] = serde_json::json!(spreadsheet.is_some());
-    configuration["image"] = serde_json::json!(!folder && is_image(path));
-    configuration["imageWidth"] = serde_json::json!(image_size.map(|size| size.0));
-    configuration["imageHeight"] = serde_json::json!(image_size.map(|size| size.1));
-    configuration["imagePath"] =
-        serde_json::json!(image.as_ref().and_then(|image| image.path().to_str()));
-    configuration["matroskaFiles"] = serde_json::json!(matroska);
-    if let Some(directory) = &media_directory {
-        configuration["mediaDirectory"] = serde_json::json!(
-            directory
-                .path()
-                .to_str()
-                .context("Invalid media directory")?
-        );
-        configuration["mediaHelper"] = serde_json::json!(
-            std::env::current_exe()?
-                .to_str()
-                .context("Invalid helper path")?
-        );
-    }
-    configuration["language"] = serde_json::json!(crate::locale::code());
-    configuration["localizations"] = crate::locale::translations();
+    let source = path.to_path_buf();
+    let content = if let Some(sheet) = &spreadsheet {
+        NativeContent::Workbook {
+            source,
+            database: sheet.database.clone(),
+            cache: sheet.cache.clone(),
+            helper: std::env::current_exe()?,
+            information: sheet.information.clone(),
+        }
+    } else if !folder && is_image(path) {
+        NativeContent::Image {
+            source,
+            prepared: image.as_ref().map(|file| file.path().to_path_buf()),
+            size: image_size.map(|(width, height)| ImageSize { width, height }),
+        }
+    } else if !folder && is_font(path) {
+        NativeContent::Font { source }
+    } else if !folder && is_office(path) {
+        NativeContent::Office {
+            source,
+            reading: word_reading.as_ref().map(|reading| reading.html.clone()),
+            image_pages: word_reading
+                .as_ref()
+                .is_some_and(|reading| reading.image_pages),
+        }
+    } else if !folder
+        && path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+    {
+        NativeContent::Pdf { source }
+    } else {
+        NativeContent::Media {
+            files: paths,
+            shuffle,
+            autoplay,
+            preparation: media_directory
+                .as_ref()
+                .map(|directory| {
+                    Ok::<_, anyhow::Error>(MediaPreparation {
+                        files: matroska,
+                        helper: std::env::current_exe()?,
+                        directory: directory.path().to_path_buf(),
+                    })
+                })
+                .transpose()?,
+        }
+    };
+    let configuration = NativeRequest::new(content).encode()?;
     Ok(PreparedPreview {
         image_stamp,
-        configuration: serde_json::to_vec(&configuration)?,
+        configuration,
         _spreadsheet: spreadsheet,
         _word_reading: word_reading,
         _media_directory: media_directory,
@@ -308,18 +317,17 @@ pub fn open_associations(cancelled: std::sync::Arc<std::sync::atomic::AtomicBool
         "Install Glim.app before configuring default applications"
     );
     launch(
-        serde_json::json!({"files": [], "shuffle": false, "associations": bundle.to_str().context("Invalid application path")?}),
+        NativeRequest::new(NativeContent::Associations {
+            bundle: bundle.to_path_buf(),
+        }),
         cancelled,
     )
 }
 
 fn launch(
-    mut configuration: serde_json::Value,
+    configuration: NativeRequest,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
-    configuration["language"] = serde_json::json!(crate::locale::code());
-    configuration["localizations"] = crate::locale::translations();
-
     use std::{
         os::unix::fs::PermissionsExt,
         process::{Command, Stdio},
@@ -354,7 +362,7 @@ fn launch(
     )?;
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))?;
     let manifest = directory.path().join("request.json");
-    std::fs::write(&manifest, serde_json::to_vec(&configuration)?)?;
+    std::fs::write(&manifest, configuration.encode()?)?;
     // Keep the temporary executable and manifest alive until its window closes.
     let mut child = Command::new(executable)
         .arg(manifest)

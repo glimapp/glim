@@ -41,9 +41,10 @@ impl Workspace {
             .active_reader()
             .and_then(|reader| {
                 reader
+                    .document
                     .draft_directory
                     .clone()
-                    .or_else(|| reader.path.parent().map(Path::to_path_buf))
+                    .or_else(|| reader.document.path.parent().map(Path::to_path_buf))
             })
             .or_else(|| self.root.clone())
             .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
@@ -82,7 +83,9 @@ impl Workspace {
 
     pub(crate) fn has_unsaved_in(&self, path: &Path) -> bool {
         self.tabs.iter().any(|reader| {
-            reader.draft_directory.is_none() && reader.path.starts_with(path) && reader.is_dirty()
+            reader.document.draft_directory.is_none()
+                && reader.document.path.starts_with(path)
+                && reader.is_dirty()
         })
     }
 
@@ -184,7 +187,10 @@ impl Workspace {
         self.incoming_files
             .retain(|queued| !queued.starts_with(path));
         self.results.retain(|result| !result.starts_with(path));
-        if !self.tabs.iter().any(|reader| reader.path.starts_with(path))
+        if !self
+            .tabs
+            .iter()
+            .any(|reader| reader.document.path.starts_with(path))
             && !self.roots.iter().any(|root| root.starts_with(path))
         {
             return;
@@ -197,7 +203,7 @@ impl Workspace {
         let targets = self
             .tabs
             .iter()
-            .filter(|reader| reader.path.starts_with(path))
+            .filter(|reader| reader.document.path.starts_with(path))
             .map(super::header::Target::from_reader)
             .collect();
         self.close_tabs_unchecked(targets, window, cx);

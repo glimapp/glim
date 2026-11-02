@@ -1,5 +1,5 @@
 use super::*;
-use glim_core::update::{SessionTab, WorkspaceSession};
+use glim_core::session::{SessionTab, WorkspaceSession};
 use std::collections::BTreeMap;
 
 pub(crate) fn save(

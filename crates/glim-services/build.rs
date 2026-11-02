@@ -42,6 +42,7 @@ fn main() {
     )
     .expect("embed locale catalogs");
     println!("cargo:rerun-if-changed=../../native/Preview.swift");
+    println!("cargo:rerun-if-changed=../../native/PreviewRequest.swift");
     println!("cargo:rerun-if-changed=../../native/ImagePreview.swift");
     println!("cargo:rerun-if-changed=../../native/ImageTextExtraction.swift");
     println!("cargo:rerun-if-changed=../../native/PreviewCopy.swift");
@@ -96,6 +97,7 @@ fn main() {
             "../../native/WorkbookPreview.swift",
             "../../native/WordPreview.swift",
             "../../native/Preview.swift",
+            "../../native/PreviewRequest.swift",
             "../../native/ImagePreview.swift",
             "../../native/ImageTextExtraction.swift",
             "../../native/PreviewCopy.swift",
