@@ -119,8 +119,16 @@ final class ImagePreview: NSObject {
     private var task: DispatchWorkItem?
     private var closed = false
     private var svgPreview: HTMLPreview?
+    private var svgCanNavigateHistory = false
     private var svgCopyPreview: HTMLPreview?
     private var contextMenuRouter: ReaderContextMenu?
+    var canNavigateHistory: Bool {
+        guard !closed else { return false }
+        if svgPreview != nil { return svgCanNavigateHistory }
+        guard imageView.image != nil else { return false }
+        let pixel = 1 / ((view.window?.backingScaleFactor ?? 1) * scroll.magnification)
+        return imageView.bounds.width - scroll.contentView.bounds.width <= pixel
+    }
     init(url: URL, sourceSize: NSSize? = nil) {
         self.url = url; self.sourceSize = sourceSize
         super.init()
@@ -245,7 +253,7 @@ final class ImagePreview: NSObject {
             else if (name === 'actual') { fitting = false; apply(1); }
             else if (name === 'in') { fitting = false; apply(scale * Math.SQRT2); }
             else if (name === 'out') { fitting = false; apply(scale / Math.SQRT2); }
-            return scale;
+            return { scale, horizontalScrollable: viewport.scrollWidth - viewport.clientWidth > 1 };
         }};
         new ResizeObserver(() => { if (ready) { if (fitting) fit(); else apply(scale); } }).observe(viewport);
         image.src = labels.source;
@@ -387,9 +395,11 @@ final class ImagePreview: NSObject {
         textExtraction.extract(image, in: parent)
     }
     private func svgAction(_ command: String) {
-        svgPreview?.imageCommand(command) { [weak self] scale in
+        if command != "status" { svgCanNavigateHistory = false }
+        svgPreview?.imageCommand(command) { [weak self] scale, horizontalScrollable in
             guard let self = self, !self.closed else { return }
             let ready = scale != nil
+            self.svgCanNavigateHistory = ready && !horizontalScrollable
             [self.zoomOutButton, self.zoomInButton, self.fitButton, self.resolution].forEach { $0.isEnabled = ready }
             let text = scale.map { String(format: "%.1f%%", $0 * 100) } ?? L("Loading preview…")
             if self.zoomLabel.stringValue != text { self.zoomLabel.stringValue = text }

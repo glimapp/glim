@@ -187,6 +187,8 @@ Mermaid、Graphviz、PlantUML、flowchart.js、WaveDrom 和 MathJax 及许可证
 
 `native/Preview.swift` 和 `EmbeddedPreview.swift` 将 PDFKit、AVKit、Quick Look、CoreText、工作表视图内嵌到标签，不启动独立预览应用或 Dock 图标。app build.rs 编译 Swift 静态库。`reader/native_bridge` 是限定主线程的窄 unsafe FFI 边界，将 NSView 挂到 GPUI AppKit 窗口；原生预览、右键菜单与更新桥接是 app 的限定 unsafe 例外，其余 app deny unsafe，core/services forbid unsafe。
 
+`ReaderHistoryNavigation` 将可见原生宿主中的鼠标前进／后退键和离散 swipe 事件转交 GPUI 现有的工作区导航历史处理；位图或 SVG 视口没有横向溢出时，触摸板滚动也复用同一套手势识别，横向溢出时保留图片平移。原生纵向滚动保持原样，监听器随宿主的窗口挂载和可见状态启停。
+
 `services/matroska` 在后台检查有界 EBML 结构，将 H.264／AAC-LC 样本无损重新封装为临时 MP4，交由 AVKit 播放。AVC 参数集来自轨道配置或 Annex-B 帧，MP4 合成偏移保留帧重排。`services/preview` 保留临时媒体并映射原始路径到播放路径，保持文件身份和显示名称。无需安装或启动 FFmpeg，支持范围及预算见[格式限制](file-format-support.zh-CN.md)。
 
 `services/preview::prepare` 在后台校验文件，准备播放列表、数据库快照和磁盘工作表索引。每个 `reader/native` 实体保留控制器及准备数据。系统框架加载通过主线程队列调度，不在 GPUI render/layout 中读取文件。切换隐藏视图并暂停媒体，保留当前页码／播放位置；关闭先释放原生资源，再清理临时数据。工具包浮层暂时隐藏原生视图，可访问性节点和 responder chain 动作接入主窗口。

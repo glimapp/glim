@@ -441,6 +441,8 @@ private final class SlideshowInput {
 }
 
 final class NativePreviewHost: NSView {
+    private var historyNavigation: ReaderHistoryNavigation?
+    var historySwipeAvailable: (() -> Bool)?
     private var presentationInput: SlideshowInput?
     private var gpuiOpacity: CGFloat = 1
     private var concealedGPUI = false
@@ -452,6 +454,12 @@ final class NativePreviewHost: NSView {
     private(set) var presentingSlides = false
     var presentationChanged: ((Bool) -> Void)?
     override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        historyNavigation = nil
+        if window != nil { historyNavigation = ReaderHistoryNavigation(host: self) }
+    }
 
     func presentSlides() {
         if presentingSlides { stopPresentation(); return }
@@ -829,6 +837,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
             let imageURL = playlist.imagePath.map { URL(fileURLWithPath: $0) } ?? urls[0]
             let sourceSize = playlist.imageWidth.flatMap { width in playlist.imageHeight.map { NSSize(width: width, height: $0) } }
             let preview = ImagePreview(url: imageURL, sourceSize: sourceSize); imagePreview = preview
+            host.historySwipeAvailable = { [weak preview] in preview?.canNavigateHistory ?? false }
             preview.view.frame = host.bounds; preview.view.autoresizingMask = [.width, .height]
             host.addSubview(preview.view); return
         }

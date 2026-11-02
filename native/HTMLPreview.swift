@@ -198,11 +198,12 @@ final class HTMLPreview: NSObject, WKNavigationDelegate {
         web.evaluateJavaScript("(()=>{const id=\(argument)[0];const target=document.getElementById(id)||document.getElementsByName(id)[0];if(target)target.scrollIntoView();else if(!id)window.scrollTo(0,0);})()", completionHandler: nil)
     }
     // Commands are provided by Glim's static image wrapper, never by user SVG.
-    func imageCommand(_ command: String, completion: @escaping (Double?) -> Void) {
+    func imageCommand(_ command: String, completion: @escaping (Double?, Bool) -> Void) {
         guard loaded, let data = try? JSONSerialization.data(withJSONObject: [command]),
-              let argument = String(data: data, encoding: .utf8) else { completion(nil); return }
+              let argument = String(data: data, encoding: .utf8) else { completion(nil, true); return }
         web.evaluateJavaScript("window.glimImageViewer?.command(\(argument)[0])") { result, _ in
-            completion((result as? NSNumber)?.doubleValue)
+            let state = result as? [String: Any]
+            completion((state?["scale"] as? NSNumber)?.doubleValue, state?["horizontalScrollable"] as? Bool ?? true)
         }
     }
     // Snapshot the rendered SVG image, excluding the viewer's controls and margins.

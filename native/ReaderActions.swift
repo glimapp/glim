@@ -152,6 +152,40 @@ final class ReaderContextMenu {
     deinit { if let monitor = monitor { NSEvent.removeMonitor(monitor) } }
 }
 
+// Native readers are siblings of GPUI's surface, so navigation input must cross
+// that boundary before an AppKit/WebKit child consumes it.
+final class ReaderHistoryNavigation {
+    private var monitor: Any?
+    init(host: NativePreviewHost) {
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp, .swipe, .scrollWheel]) { [weak host] event in
+            guard let host = host, !host.isHiddenOrHasHiddenAncestor, !host.presentingSlides,
+                  event.window === host.window, let gpui = host.gpuiView,
+                  let parent = host.superview,
+                  let hit = parent.hitTest(parent.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow),
+                  hit === host || hit.isDescendant(of: host) else { return event }
+            switch event.type {
+            case .otherMouseDown, .otherMouseUp:
+                guard event.buttonNumber == 3 || event.buttonNumber == 4 else { return event }
+                if event.type == .otherMouseDown { gpui.otherMouseDown(with: event) }
+                else { gpui.otherMouseUp(with: event) }
+                return nil
+            case .swipe:
+                gpui.swipe(with: event)
+                return nil
+            case .scrollWheel:
+                guard event.hasPreciseScrollingDeltas, event.momentumPhase.isEmpty,
+                      host.historySwipeAvailable?() == true else { return event }
+                gpui.scrollWheel(with: event)
+                // Vertical scrolling still belongs to the native image viewport.
+                return host.isHiddenOrHasHiddenAncestor ? nil : event
+            default:
+                return event
+            }
+        }
+    }
+    deinit { if let monitor = monitor { NSEvent.removeMonitor(monitor) } }
+}
+
 // Shortcuts share the live toolbar controls, including visibility/enabled state.
 // Local monitors run before GPUI's key dispatch, but only for the focused reader.
 final class ReaderKeyboardShortcuts {
