@@ -60,6 +60,7 @@ Previews focus on viewing; ordinary UTF-8 source can be edited and saved automat
 | Rust, C/C++, Go, Swift, Java, C#, Kotlin, Zig, Python, Ruby, PHP, Lua, Scala, Elixir, shell | Source highlighting, folding, search, Minimap and basic UTF-8 editing |
 | JS/TS/JSX/TSX, HTML, CSS, Astro, Svelte, ERB/EJS, Jinja/Jinja2/Nunjucks/Twig | Source highlighting; some templates use lightweight coloring rather than full grammars |
 | Vue, XML/plist, SCSS/LESS, Cython, CUDA/Metal, GLSL/OSL | Reuse related language highlighting; no dedicated semantic validation |
+| Starlark/Bazel (`.bzl`, `.bazel`, `BUILD`, `WORKSPACE`) | Source highlighting through the bundled Python grammar; basic UTF-8 editing, no Starlark semantic validation or build execution |
 | Dockerfile/Containerfile, Makefile/CMake, Nix, INI, `.env`, ignore files and related configuration | Highlighted or lightly colored text; editing, not execution |
 | HTML/HTM | WebKit browser preview with CSS/JavaScript and editable source; relative local assets within the enclosing Git project (otherwise the document directory) load in streamed chunks |
 | TXT, logs and other UTF-8 text | Basic editing; large or very long-line documents use editable UTF-8 pages |

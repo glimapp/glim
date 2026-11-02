@@ -60,6 +60,7 @@
 | Rust、C/C++、Go、Swift、Java、C#、Kotlin、Zig、Python、Ruby、PHP、Lua、Scala、Elixir、Shell | 源码高亮、折叠、搜索、Minimap 与基础 UTF-8 编辑 |
 | JS/TS/JSX/TSX、HTML、CSS、Astro、Svelte、ERB/EJS、Jinja/Jinja2/Nunjucks/Twig | 源码高亮；部分模板采用轻量着色，并非完整语法解析 |
 | Vue、XML/plist、SCSS/LESS、Cython、CUDA/Metal、GLSL/OSL | 复用相关语言高亮，不提供专用语义校验 |
+| Starlark/Bazel（`.bzl`、`.bazel`、`BUILD`、`WORKSPACE`） | 复用内置 Python 语法高亮，支持基础 UTF-8 编辑，不进行 Starlark 语义校验或执行构建 |
 | Dockerfile/Containerfile、Makefile/CMake、Nix、INI、`.env`、忽略规则及相关配置 | 高亮或轻量着色的文本编辑，不执行内容 |
 | HTML/HTM | WebKit 浏览器预览，支持 CSS/JavaScript 及源码编辑；所属 Git 项目内（无 Git 根目录时为文档目录）的相对本地资源分块加载 |
 | TXT、日志及其他 UTF-8 文本 | 基础编辑；大文件或超长行使用可编辑 UTF-8 分页 |

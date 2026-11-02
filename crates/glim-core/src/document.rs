@@ -93,6 +93,9 @@ pub fn language_for_path(path: &Path) -> &'static str {
     if matches!(name, "Makefile" | "GNUmakefile" | "makefile") {
         return "make";
     }
+    if matches!(name, "BUILD" | "WORKSPACE") {
+        return "python";
+    }
     if matches!(name, ".bashrc" | ".bash_profile" | ".zshrc" | ".zprofile") {
         return "bash";
     }
@@ -119,7 +122,8 @@ pub fn language_for_path(path: &Path) -> &'static str {
         "json" | "jsonc" | "json5" | "ndjson" | "jsonl" | "ipynb" | "geojson"
         | "code-workspace" | "tsbuildinfo" => "json",
         "toml" => "toml",
-        "py" | "pyi" | "pyx" | "pxd" | "pxi" => "python",
+        // Starlark shares Python's syntax; these mappings provide highlighting only.
+        "py" | "pyi" | "pyx" | "pxd" | "pxi" | "bzl" | "bazel" => "python",
         "go" => "go",
         "c" | "h" => "c",
         "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" | "cu" | "cuh" | "metal" => "cpp",
