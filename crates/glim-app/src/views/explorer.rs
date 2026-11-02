@@ -1380,13 +1380,7 @@ fn sticky_rows_with_height(
                 let natural_y = index as f32 * row_height - offset;
                 let end_y = rows[index].subtree_end as f32 * row_height - offset;
                 if natural_y > y || (natural_y == y && candidate.hidden.is_empty()) || end_y <= y {
-                    truncate = ancestors.iter().position(|&ancestor| {
-                        if end_y <= y {
-                            rows[ancestor].subtree_end as f32 * row_height - offset <= y
-                        } else {
-                            ancestor == index
-                        }
-                    });
+                    truncate = ancestors.iter().position(|&ancestor| ancestor == index);
                     break;
                 }
                 candidate.items.push(StickyRow {
