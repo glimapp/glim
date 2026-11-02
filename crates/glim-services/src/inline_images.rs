@@ -64,6 +64,51 @@ pub(crate) fn thumbnail_png_cancellable(
         None
     };
     let path = converted.as_ref().map_or(path, |file| file.path());
+    let output = if sips_thumbnail(path, &output, max_edge, cancel)? {
+        output
+    } else {
+        let svg = crate::svg_preview::prepare(path, cancel)?;
+        // ImageIO needs the SVG extension on streamed downloads. Quick Look
+        // can return a square document canvas instead of the image viewport.
+        if sips_thumbnail(svg.path(), &output, max_edge, cancel)? {
+            output
+        } else {
+            let mut command = Command::new("/usr/bin/qlmanage");
+            command
+                .args(["-t", "-s", &max_edge.to_string(), "-o"])
+                .arg(directory.path())
+                .arg(svg.path())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            let result = crate::work::run(&mut command, cancel)?;
+            ensure!(result.success(), "Cannot prepare image thumbnail");
+            directory
+                .path()
+                .join(svg.path().file_name().context("Missing SVG filename")?)
+                .with_extension("svg.png")
+        }
+    };
+    ensure!(
+        std::fs::metadata(&output)?.len()
+            <= u64::from(max_edge) * u64::from(max_edge) * 4
+                + reader_limits::INLINE_IMAGE_OUTPUT_OVERHEAD_BYTES,
+        "Image thumbnail exceeds output budget"
+    );
+    let (width, height) = image::ImageReader::open(&output)?.into_dimensions()?;
+    ensure!(
+        width > 0 && height > 0 && width <= max_edge && height <= max_edge,
+        "Invalid thumbnail dimensions"
+    );
+    Ok(std::fs::read(output)?)
+}
+
+fn sips_thumbnail(
+    path: &Path,
+    output: &Path,
+    max_edge: u32,
+    cancel: &crate::work::Cancellation,
+) -> Result<bool> {
     let dimensions = image::ImageReader::open(path)
         .ok()
         .and_then(|reader| reader.with_guessed_format().ok())
@@ -86,44 +131,12 @@ pub(crate) fn thumbnail_png_cancellable(
     }
     command
         .args(["--setProperty", "format", "png", "--out"])
-        .arg(&output)
+        .arg(output)
         .arg(std::path::absolute(path)?)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let result =
-        crate::work::run(&mut command, cancel).context("Cannot prepare inline image thumbnail")?;
-    let output = if result.success() {
-        output
-    } else {
-        // Quick Look handles vector/system image formats that ImageIO's CLI does not.
-        let svg = crate::svg_preview::prepare(path, cancel)?;
-        let mut command = Command::new("/usr/bin/qlmanage");
-        command
-            .args(["-t", "-s", &max_edge.to_string(), "-o"])
-            .arg(directory.path())
-            .arg(svg.path())
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let result = crate::work::run(&mut command, cancel)?;
-        ensure!(result.success(), "Cannot prepare image thumbnail");
-        std::fs::read_dir(directory.path())?
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .find(|path| path.extension().is_some_and(|ext| ext == "png"))
-            .context("Thumbnail provider produced no image")?
-    };
-    ensure!(
-        std::fs::metadata(&output)?.len()
-            <= u64::from(max_edge) * u64::from(max_edge) * 4
-                + reader_limits::INLINE_IMAGE_OUTPUT_OVERHEAD_BYTES,
-        "Image thumbnail exceeds output budget"
-    );
-    let (width, height) = image::ImageReader::open(&output)?.into_dimensions()?;
-    ensure!(
-        width > 0 && height > 0 && width <= max_edge && height <= max_edge,
-        "Invalid thumbnail dimensions"
-    );
-    Ok(std::fs::read(output)?)
+    Ok(crate::work::run(&mut command, cancel)
+        .context("Cannot prepare inline image thumbnail")?
+        .success())
 }

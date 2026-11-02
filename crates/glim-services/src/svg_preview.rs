@@ -210,7 +210,7 @@ fn prepare_image(
                         skipped += 1;
                     }
                 } else {
-                    let intrinsic = if browser_image && is_root {
+                    let intrinsic = if is_root {
                         intrinsic_size(&start, reader.decoder())?
                     } else {
                         None

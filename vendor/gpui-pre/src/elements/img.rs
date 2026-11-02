@@ -1,9 +1,9 @@
 use crate::{
-    AnyElement, AnyImageCache, App, Asset, AssetLogger, Bounds, DefiniteLength, Element, ElementId,
-    Entity, GlobalElementId, Hitbox, Image, ImageCache, InspectorElementId, InteractiveElement,
-    Interactivity, IntoElement, LayoutId, Length, ObjectFit, Pixels, RenderImage, Resource,
-    SharedString, SharedUri, StyleRefinement, Styled, Task, Window, decode_static_image,
-    decode_static_image_from_decoder, px,
+    AnyElement, AnyImageCache, App, Asset, AssetLogger, AvailableSpace, Bounds, DefiniteLength,
+    Element, ElementId, Entity, GlobalElementId, Hitbox, Image, ImageCache, InspectorElementId,
+    InteractiveElement, Interactivity, IntoElement, LayoutId, Length, ObjectFit, Pixels,
+    RenderImage, Resource, SharedString, SharedUri, StyleRefinement, Styled, Task, Window,
+    decode_static_image, decode_static_image_from_decoder, size,
 };
 use anyhow::Result;
 
@@ -304,6 +304,7 @@ impl Element for Img {
                 cx,
                 |mut style, window, cx| {
                     let mut replacement_id = None;
+                    let mut auto_height = None;
 
                     match self.source.use_data(
                         self.image_cache
@@ -347,36 +348,25 @@ impl Element for Img {
 
                             let image_size = data.render_size(frame_index);
 
-                            if style.aspect_ratio.is_none() {
-                                style.aspect_ratio = Some(image_size.width / image_size.height);
-                            }
+                            let aspect_ratio = *style
+                                .aspect_ratio
+                                .get_or_insert(image_size.width / image_size.height);
 
                             if let Length::Auto = style.size.width {
                                 style.size.width = match style.size.height {
                                     Length::Definite(DefiniteLength::Absolute(abs_length)) => {
                                         let height_px = abs_length.to_pixels(window.rem_size());
-                                        Length::Definite(
-                                            px(image_size.width.0 * height_px.0
-                                                / image_size.height.0)
-                                            .into(),
-                                        )
+                                        Length::Definite((height_px * aspect_ratio).into())
                                     }
                                     _ => Length::Definite(image_size.width.into()),
                                 };
                             }
 
                             if let Length::Auto = style.size.height {
-                                style.size.height = match style.size.width {
-                                    Length::Definite(DefiniteLength::Absolute(abs_length)) => {
-                                        let width_px = abs_length.to_pixels(window.rem_size());
-                                        Length::Definite(
-                                            px(image_size.height.0 * width_px.0
-                                                / image_size.width.0)
-                                            .into(),
-                                        )
-                                    }
-                                    _ => Length::Definite(image_size.height.into()),
-                                };
+                                // Measure after percentage widths and max-width resolve. A
+                                // preferred aspect ratio derives height before width clamps.
+                                style.aspect_ratio = None;
+                                auto_height = Some((image_size, aspect_ratio));
                             }
 
                             if global_id.is_some()
@@ -422,7 +412,17 @@ impl Element for Img {
                         }
                     }
 
-                    window.request_layout(style, replacement_id, cx)
+                    if let Some((image_size, aspect_ratio)) = auto_height {
+                        window.request_measured_layout(style, move |known, available, _, _| {
+                            let width = match available.width {
+                                AvailableSpace::Definite(width) => width,
+                                _ => known.width.unwrap_or(image_size.width),
+                            };
+                            size(width, known.height.unwrap_or(width / aspect_ratio))
+                        })
+                    } else {
+                        window.request_layout(style, replacement_id, cx)
+                    }
                 },
             );
 
