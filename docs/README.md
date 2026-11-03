@@ -30,6 +30,7 @@ You do not need implementation documents to use Glim. Start with [Contributing](
 | [Update internals](auto-update-design.md) | Trust chain, install protection and recovery |
 | [Telemetry reference](telemetry.md) | Events, metrics and interpretation limits |
 | [Reader policy inventory](reader-limits.md) | Generated paging and resource-budget reference |
-| [Scalable-reader status](reader-limits-migration.md) · [Rendering pipeline](rendering-pipeline.md) | Chinese maintainer references, separating current implementation from future direction |
+| [Resources and rendering](reader-resources.md) | Accounting, eviction, viewport scheduling and remaining coverage |
+| [Format catalog](format-catalog.md) | Generated format, icon and association declarations |
 
 Documentation describes current source. Consult [Release notes](https://github.com/glimapp/glim/releases) for a published build.

@@ -18,6 +18,7 @@ struct State {
     revision: Rc<Cell<u64>>,
     readonly: bool,
     locked: Cell<bool>,
+    memory: glim_services::resources::ResourceLease,
     _subscription: Subscription,
 }
 impl EditSession {
@@ -32,11 +33,20 @@ impl EditSession {
         let saved = baseline.clone();
         let changed = dirty.clone();
         let version = revision.clone();
+        let memory = glim_services::resources::pool().track(
+            (text.len() as u64).saturating_add(baseline.borrow().len() as u64),
+            glim_services::resources::ResourceClass::State,
+        );
+        let tracked = memory.clone();
         let subscription = cx.subscribe(&editor, move |editor, event, cx| {
             if matches!(event, InputEvent::Change) {
                 version.set(version.get().wrapping_add(1));
                 let is_dirty =
                     !readonly && editor.read(cx).value().as_ref() != saved.borrow().as_ref();
+                tracked.resize(
+                    (editor.read(cx).value().len() as u64)
+                        .saturating_add(saved.borrow().len() as u64),
+                );
                 if changed.replace(is_dirty) != is_dirty {
                     cx.refresh_windows();
                 }
@@ -49,6 +59,7 @@ impl EditSession {
             revision,
             readonly,
             locked: Cell::new(false),
+            memory,
             _subscription: subscription,
         }))
     }
@@ -79,5 +90,9 @@ impl EditSession {
             .dirty
             .set(!self.0.readonly && self.0.editor.read(cx).value().as_ref() != text.as_ref());
         *self.0.baseline.borrow_mut() = text;
+        self.0.memory.resize(
+            (self.0.editor.read(cx).value().len() as u64)
+                .saturating_add(self.0.baseline.borrow().len() as u64),
+        );
     }
 }

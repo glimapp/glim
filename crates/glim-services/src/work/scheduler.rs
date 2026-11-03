@@ -32,18 +32,14 @@ impl JobClass {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Priority {
+    Viewport,
     Interactive,
     Background,
 }
 impl Priority {
-    fn other(self) -> Self {
-        match self {
-            Self::Interactive => Self::Background,
-            Self::Background => Self::Interactive,
-        }
-    }
     pub fn name(self) -> &'static str {
         match self {
+            Self::Viewport => "viewport",
             Self::Interactive => "interactive",
             Self::Background => "background",
         }
@@ -57,25 +53,35 @@ struct Waiting {
 struct Lane {
     active: usize,
     limit: usize,
-    next: Priority,
+    next: usize,
     waiting: VecDeque<Waiting>,
 }
+// Visible work gets two turns per cycle; clicks and background work retain progress.
+const PRIORITIES: [Priority; 4] = [
+    Priority::Viewport,
+    Priority::Interactive,
+    Priority::Viewport,
+    Priority::Background,
+];
 impl Lane {
-    fn selected(&self) -> Option<usize> {
-        (self.active < self.limit)
-            .then(|| {
-                self.waiting
-                    .iter()
-                    .position(|job| job.priority == self.next)
-                    .or_else(|| (!self.waiting.is_empty()).then_some(0))
-            })
-            .flatten()
+    fn selected(&self) -> Option<(usize, usize)> {
+        if self.active >= self.limit {
+            return None;
+        }
+        (0..PRIORITIES.len()).find_map(|offset| {
+            let turn = (self.next + offset) % PRIORITIES.len();
+            self.waiting
+                .iter()
+                .position(|job| job.priority == PRIORITIES[turn])
+                .map(|index| (index, turn))
+        })
     }
     fn wake_next(&self) -> Option<Waker> {
         self.selected()
-            .map(|index| self.waiting[index].waker.clone())
+            .map(|(index, _)| self.waiting[index].waker.clone())
     }
 }
+
 struct State {
     lanes: [Lane; 5],
     next_id: u64,
@@ -91,7 +97,7 @@ impl Scheduler {
                 lanes: limits.map(|limit| Lane {
                     limit,
                     active: 0,
-                    next: Priority::Interactive,
+                    next: 0,
                     waiting: VecDeque::new(),
                 }),
                 next_id: 0,
@@ -169,13 +175,15 @@ impl Future for Admission {
             .position(|job| job.id == id)
             .expect("registered admission");
         lane.waiting[index].waker.clone_from(cx.waker());
-        if lane.selected() != Some(index) {
+        let Some((selected, turn)) = lane.selected() else {
+            return Poll::Pending;
+        };
+        if selected != index {
             return Poll::Pending;
         }
         lane.waiting.remove(index);
         lane.active += 1;
-        // Alternating nonempty priorities prevents background refresh starvation.
-        lane.next = self.priority.other();
+        lane.next = (turn + 1) % PRIORITIES.len();
         self.id = None;
         let wake = lane.wake_next();
         drop(state);
@@ -338,6 +346,35 @@ mod tests {
         drop(ready(&mut first_click));
         drop(ready(&mut second_click));
     }
+    #[test]
+    fn viewport_has_two_turns_without_starving_clicks_or_background() {
+        let pool = Scheduler::new([1; 5]);
+        let first = ready(&mut request(&pool, JobClass::Decode, Priority::Background));
+        let mut visible1 = request(&pool, JobClass::Decode, Priority::Viewport);
+        let mut visible2 = request(&pool, JobClass::Decode, Priority::Viewport);
+        let mut visible3 = request(&pool, JobClass::Decode, Priority::Viewport);
+        let mut click = request(&pool, JobClass::Decode, Priority::Interactive);
+        let mut background = request(&pool, JobClass::Decode, Priority::Background);
+        for job in [
+            &mut visible1,
+            &mut visible2,
+            &mut visible3,
+            &mut click,
+            &mut background,
+        ] {
+            assert!(poll(job).is_pending());
+        }
+        drop(first);
+        assert!(poll(&mut visible2).is_pending());
+        drop(ready(&mut visible1));
+        assert!(poll(&mut visible2).is_pending());
+        drop(ready(&mut click));
+        drop(ready(&mut visible2));
+        assert!(poll(&mut visible3).is_pending());
+        drop(ready(&mut background));
+        drop(ready(&mut visible3));
+    }
+
     #[test]
     fn unwinding_a_worker_returns_its_permit() {
         let pool = Scheduler::new([1; 5]);

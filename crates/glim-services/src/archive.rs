@@ -21,16 +21,8 @@ pub struct Archive {
     pub bytes: u64,
 }
 
-const EXTENSIONS: &[&str] = &[
-    "zip", "tar", "tgz", "tbz", "tbz2", "txz", "tlz", "tzst", "taz", "gz", "bz2", "xz", "lzma",
-    "lz", "lz4", "zst", "zstd", "z", "7z", "rar", "cab", "cpio", "ar", "a", "xar", "iso", "lha",
-    "lzh",
-];
-
 pub fn supports(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()))
+    glim_core::formats::FormatSet::Archive.matches(path)
 }
 
 fn stem(path: &Path) -> String {

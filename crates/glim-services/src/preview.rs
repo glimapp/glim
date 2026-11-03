@@ -5,23 +5,7 @@ use request::{ImageSize, MediaPreparation, NativeContent, NativeRequest};
 use std::path::{Path, PathBuf};
 
 pub fn is_media(path: &Path) -> bool {
-    path.extension().and_then(|s| s.to_str()).is_some_and(|s| {
-        matches!(
-            s.to_ascii_lowercase().as_str(),
-            "mp3"
-                | "mp4"
-                | "mkv"
-                | "m4a"
-                | "m4v"
-                | "mov"
-                | "aac"
-                | "wav"
-                | "aif"
-                | "aiff"
-                | "caf"
-                | "flac"
-        )
-    })
+    glim_core::formats::FormatSet::NativeMedia.matches(path)
 }
 pub fn folder_has_media(path: &Path) -> Result<bool> {
     folder_has_media_cancellable(path, &crate::work::Cancellation::default())
@@ -49,37 +33,15 @@ pub fn is_image(path: &Path) -> bool {
 }
 
 pub fn is_font(path: &Path) -> bool {
-    path.extension().and_then(|s| s.to_str()).is_some_and(|s| {
-        matches!(
-            s.to_ascii_lowercase().as_str(),
-            "ttf" | "otf" | "ttc" | "otc" | "dfont"
-        )
-    })
+    glim_core::formats::FormatSet::NativeFont.matches(path)
 }
 
 pub fn is_office(path: &Path) -> bool {
-    path.extension().and_then(|s| s.to_str()).is_some_and(|s| {
-        matches!(
-            s.to_ascii_lowercase().as_str(),
-            "doc"
-                | "docx"
-                | "xls"
-                | "xlsx"
-                | "xlsm"
-                | "ppt"
-                | "pptx"
-                | "rtf"
-                | "key"
-                | "pages"
-                | "numbers"
-        )
-    })
+    glim_core::formats::FormatSet::NativeOffice.matches(path)
 }
 
 pub fn is_iwork(path: &Path) -> bool {
-    path.extension()
-        .and_then(|s| s.to_str())
-        .is_some_and(|s| matches!(s.to_ascii_lowercase().as_str(), "key" | "pages" | "numbers"))
+    glim_core::formats::FormatSet::Iwork.matches(path)
 }
 
 /// `.key` is also used by plain-text cryptographic keys. Only document packages
@@ -114,10 +76,7 @@ pub fn supports(path: &Path) -> bool {
         || is_image(path)
         || is_font(path)
         || is_office(path)
-        || path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|s| s.eq_ignore_ascii_case("pdf"))
+        || glim_core::formats::FormatSet::Pdf.matches(path)
 }
 
 fn playlist(path: &Path, folder: bool, cancel: &crate::work::Cancellation) -> Result<Vec<PathBuf>> {

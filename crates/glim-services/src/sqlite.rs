@@ -9,22 +9,7 @@ use std::{
 };
 
 pub fn supports(path: &Path) -> bool {
-    let name = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    name.ends_with("-wal")
-        || name.ends_with("-shm")
-        || name.ends_with("-journal")
-        || matches!(
-            path.extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase()
-                .as_str(),
-            "db" | "db3" | "sqlite" | "sqlite3" | "s3db" | "wal" | "shm"
-        )
+    glim_core::formats::FormatSet::Sqlite.matches(path)
 }
 pub fn has_header(path: &Path) -> bool {
     let mut header = [0; 16];

@@ -4,9 +4,7 @@ use crate::media::ImageDocument;
 use anyhow::{Context, Result, ensure};
 use std::{fmt::Write as _, io::Read, path::Path};
 pub fn supports(path: &Path) -> bool {
-    path.extension()
-        .and_then(|s| s.to_str())
-        .is_some_and(|s| matches!(s.to_ascii_lowercase().as_str(), "obj" | "stl" | "bdf"))
+    glim_core::formats::FormatSet::Vector.matches(path)
 }
 pub fn read_preview(path: &Path) -> Result<ImageDocument> {
     let mut bytes = Vec::new();

@@ -373,3 +373,9 @@ This page is generated from the same policy. After editing it, run `python3 scri
 | `jobs.decode_concurrency` | 2 | jobs | budget | Process-wide concurrent image and animation decoding jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited. |
 | `jobs.native_concurrency` | 2 | jobs | budget | Process-wide concurrent native document preparation jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited. |
 | `jobs.diagram_concurrency` | 1 | jobs | budget | Process-wide diagram batch preparation concurrency. Waiting batches yield workers and retain their cancellation flag. |
+
+## resources
+
+| Key | Value | Unit | Effect | Behavior |
+| --- | ---: | --- | --- | --- |
+| `resources.cache_bytes` | 256 MiB | bytes | budget | Process-wide budget for tracked reclaimable reader caches; evict background then least recently used unpinned values. Live state and active work are accounted separately and never discarded as cache. Framework allocations are outside this ledger. |

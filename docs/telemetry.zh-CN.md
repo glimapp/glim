@@ -128,4 +128,6 @@ XMind 解析或工作预算失败但源码分页成功时上报 reader_fallback�
 
 ## 阅读器准备调度
 
-`reader_job` 在准入后的准备任务返回时记录 `class`（document/projection/decode/native/diagram）、`priority`（interactive/background）、`queue_ms` 和 `work_ms`，包括返回错误的任务。排队耗时截止到准入，执行耗时测量阻塞操作且不含排队；启动前取消和发生 panic 的任务不产生该事件。它不代表首屏延迟、用户操作次数、单文档内存或完整取消率，采集沿用现有遥测同意与有界投递策略。
+`reader_job` 在准入后的准备任务返回时记录 `class`（document/projection/decode/native/diagram）、`priority`（viewport/interactive/background）、`queue_ms` 和 `work_ms`，包括返回错误的任务。排队耗时截止到准入，执行耗时测量阻塞操作且不含排队；启动前取消和发生 panic 的任务不产生该事件。它不代表首屏延迟、用户操作次数、单文档内存或完整取消率，采集沿用现有遥测同意与有界投递策略。
+
+受管资源另含 `reader_state_bytes`、`reader_working_bytes`、`reader_cache_bytes`、`reader_cache_budget` 和 `reader_cache_evictions`。这些是已接入所有者的字节估算及回收次数，不是进程内存硬上限；覆盖范围见[资源与渲染](reader-resources.zh-CN.md)，不可与系统内存／Metal 指标相加。

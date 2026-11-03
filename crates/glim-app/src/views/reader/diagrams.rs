@@ -145,10 +145,11 @@ impl MarkdownPlugin for AlertPlugin {
             .into_any_element()
     }
 }
+type PreviewResource = Arc<glim_services::resources::ResourceValue<Preview>>;
 type Snapshot = Arc<Mutex<PreviewStore>>;
 static REVISION: AtomicU64 = AtomicU64::new(1);
 struct PreviewEntry {
-    preview: Preview,
+    preview: glim_services::resources::CachedResource<Preview>,
     encoded: usize,
     decoded: u64,
     keys: usize,
@@ -167,11 +168,20 @@ struct PreviewStore {
     keys: usize,
 }
 impl PreviewStore {
-    fn request(&mut self, diagram: &Diagram) -> (Preview, bool) {
+    fn request(&mut self, diagram: &Diagram) -> (Option<PreviewResource>, bool) {
         self.clock = self.clock.wrapping_add(1);
-        if let Some(entry) = self.entries.get_mut(diagram) {
+        if let Some(entry) = self.entries.get_mut(diagram)
+            && let Some(preview) = entry
+                .preview
+                .get(glim_services::resources::Retention::Viewport)
+        {
             entry.used = self.clock;
-            return (entry.preview.clone(), false);
+            return (Some(preview), false);
+        }
+        if let Some(expired) = self.entries.remove(diagram) {
+            self.encoded -= expired.encoded;
+            self.decoded -= expired.decoded;
+            self.keys -= expired.keys;
         }
         let cost = diagram
             .source
@@ -189,7 +199,7 @@ impl PreviewStore {
             self.pending_bytes += cost;
             queued = true;
         }
-        (Preview::Pending, queued)
+        (None, queued)
     }
     fn batch(&mut self) -> Vec<Diagram> {
         self.queue
@@ -289,7 +299,13 @@ impl PreviewStore {
         self.entries.insert(
             diagram,
             PreviewEntry {
-                preview,
+                preview: glim_services::resources::pool().cache(
+                    preview,
+                    (encoded as u64)
+                        .saturating_add(decoded)
+                        .saturating_add(keys as u64),
+                    glim_services::resources::Retention::Viewport,
+                ),
                 encoded,
                 decoded,
                 keys,
@@ -378,7 +394,7 @@ impl DiagramPreview {
                     let outcome = reader_jobs::run(
                         executor,
                         JobClass::Diagram,
-                        Priority::Interactive,
+                        Priority::Viewport,
                         token,
                         move |_cancel| {
                             let result = markdown_preview::render_batch(
@@ -463,7 +479,7 @@ struct DiagramNode {
     inline: bool,
 }
 impl DiagramPlugin {
-    fn preview(&self, diagram: &Diagram, cx: &mut App) -> Preview {
+    fn preview(&self, diagram: &Diagram, cx: &mut App) -> Option<PreviewResource> {
         let (preview, queued) = self.snapshot.lock().unwrap().request(diagram);
         if queued {
             let owner = self.owner.clone();
@@ -513,7 +529,11 @@ impl MarkdownPlugin for DiagramPlugin {
             return div().into_any_element();
         };
         let preview = self.preview(&data.diagram, cx);
-        match &preview {
+        let content = match preview
+            .as_deref()
+            .map(|value| &**value)
+            .unwrap_or(&Preview::Pending)
+        {
             Preview::Image(image, width, height, _) => {
                 if data.inline {
                     img(image.clone())
@@ -587,7 +607,12 @@ impl MarkdownPlugin for DiagramPlugin {
                         .child(glim_services::locale::tr("Rendering diagram…")),
                 )
                 .into_any_element(),
+        };
+        PinnedPreview {
+            content,
+            _resource: preview,
         }
+        .into_any_element()
     }
     fn render_inline(
         &self,
@@ -598,19 +623,77 @@ impl MarkdownPlugin for DiagramPlugin {
     ) -> Option<InlineElement> {
         let data = node.data::<DiagramNode>()?;
         let preview = self.preview(&data.diagram, cx);
-        if let Preview::Image(image, width, height, baseline) = &preview {
+        if let Some(Preview::Image(image, width, height, baseline)) =
+            preview.as_deref().map(|value| &**value)
+        {
             let scale = context.font_size() / px(16.0);
             Some(
-                InlineElement::new(
-                    img(image.clone())
+                InlineElement::new(PinnedPreview {
+                    content: img(image.clone())
                         .w(px(*width as f32 / 2.0) * scale)
                         .h(px(*height as f32 / 2.0) * scale)
-                        .object_fit(ObjectFit::Contain),
-                )
+                        .object_fit(ObjectFit::Contain)
+                        .into_any_element(),
+                    _resource: preview.clone(),
+                })
                 .with_baseline(px(*baseline / 2.0) * scale),
             )
         } else {
             Some(InlineElement::new(self.render(node, window, cx)))
         }
+    }
+}
+
+// Keep the cache charge pinned for as long as a rendered element owns its image.
+struct PinnedPreview {
+    content: AnyElement,
+    _resource: Option<PreviewResource>,
+}
+impl IntoElement for PinnedPreview {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
+    }
+}
+impl Element for PinnedPreview {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        (self.content.request_layout(window, cx), ())
+    }
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.content.prepaint(window, cx);
+    }
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.content.paint(window, cx);
     }
 }

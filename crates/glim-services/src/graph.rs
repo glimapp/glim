@@ -10,14 +10,7 @@ use serde::Deserialize;
 use std::{io::Read, path::Path};
 
 pub fn supports(path: &Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase()
-            .as_str(),
-        "json" | "jsonc" | "json5" | "jsonl" | "ndjson" | "yaml" | "yml" | "csv" | "tsv" | "xml"
-    )
+    glim_core::formats::FormatSet::StructuredGraph.matches(path)
 }
 pub fn read(path: &Path, text: Option<String>, cancel: &Cancellation) -> Result<MindMap> {
     cancel.check()?;

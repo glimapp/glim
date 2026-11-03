@@ -1,6 +1,9 @@
 //! UI-independent values shared by the application and its services.
 
 mod document;
+pub mod formats;
+pub mod outline;
+pub mod resources;
 pub mod session;
 pub mod update;
 mod workspace;

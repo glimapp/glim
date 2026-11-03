@@ -71,10 +71,7 @@ pub(super) const READERS: &[FormatReader] = &[
     },
     FormatReader {
         id: "safetensors",
-        accepts: |p| {
-            p.extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("safetensors"))
-        },
+        accepts: |p| glim_core::formats::FormatSet::Safetensors.matches(p),
         open: |p, c| safetensors::read_preview_cancellable(p, c).map(Content::Page),
     },
     FormatReader {

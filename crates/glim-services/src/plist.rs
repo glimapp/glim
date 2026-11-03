@@ -8,10 +8,7 @@ use std::{
 };
 
 pub fn is_binary(path: &Path) -> bool {
-    if !path
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("plist"))
-    {
+    if !glim_core::formats::FormatSet::BinaryPlist.matches(path) {
         return false;
     }
     let mut header = [0; 8];

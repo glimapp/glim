@@ -30,6 +30,7 @@ Glim 帮助你在 Mac 上查看工作、学习和项目中的各种文件，也�
 | [更新实现](auto-update-design.zh-CN.md) | 更新信任链、安装保护与恢复机制 |
 | [统计技术说明](telemetry.zh-CN.md) | 事件、指标及分析边界 |
 | [阅读器策略清单](reader-limits.zh-CN.md) | 自动生成的分页和资源预算参考 |
-| [可扩展处理状态](reader-limits-migration.md) · [渲染管线](rendering-pipeline.md) | 中文维护资料，区分当前实现与后续方向 |
+| [资源与渲染](reader-resources.zh-CN.md) | 资源记账、缓存淘汰、视口调度与未完成覆盖 |
+| [格式能力目录](format-catalog.zh-CN.md) | 生成的格式、图标和系统关联声明 |
 
 文档对应当前源码；已发布版本的能力以 [Release 更新说明](https://github.com/glimapp/glim/releases)为准。

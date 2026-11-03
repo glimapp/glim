@@ -68,7 +68,7 @@ pub(super) fn preview_loading(cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-pub type ArchiveAction = Arc<dyn Fn(&mut Window, &mut App) + Send + Sync>;
+pub use glim_reader_ui::ArchiveAction;
 
 pub type OpenLink = Arc<dyn Fn(PathBuf, Option<String>, &mut Window, &mut App) + Send + Sync>;
 
@@ -89,6 +89,12 @@ enum Renderer {
     Surface(Box<dyn surface::ReaderSurface>),
 }
 impl Renderer {
+    fn entity<T: 'static>(view: Entity<T>) -> Self
+    where
+        surface::SurfaceEntity<T>: surface::ReaderSurface,
+    {
+        Self::surface(surface::SurfaceEntity(view))
+    }
     fn surface(view: impl surface::ReaderSurface + 'static) -> Self {
         Self::Surface(Box::new(view))
     }
@@ -117,21 +123,26 @@ impl Reader {
         }
     }
     pub fn copy_image(&self, cx: &mut App) -> bool {
-        matches!(&self.renderer, Renderer::Surface(view) if view.copy_image(cx))
+        matches!(&self.renderer, Renderer::Surface(view) if view.operations().image_copy.is_some_and(|copy| copy.copy_image(cx)))
     }
     pub fn set_archive_action(&mut self, label: String, action: ArchiveAction, cx: &mut App) {
-        if let Renderer::Surface(view) = &self.renderer {
-            view.set_archive_action(label, action, cx);
+        if let Renderer::Surface(view) = &self.renderer
+            && let Some(archive) = view.operations().archive
+        {
+            archive.set_extract_action(label, action, cx);
         }
     }
     pub fn is_archive(&self) -> bool {
-        matches!(&self.renderer, Renderer::Surface(view) if view.is_archive())
+        matches!(&self.renderer, Renderer::Surface(view) if view.operations().archive.is_some())
     }
 
     pub(crate) fn session_tab(&self, cx: &App) -> glim_core::session::SessionTab {
         use glim_core::session::SessionTab;
         if let Renderer::Surface(view) = &self.renderer
-            && let Some(shuffle) = view.playlist_shuffle(cx)
+            && let Some(shuffle) = view
+                .operations()
+                .playback
+                .and_then(|playback| playback.playlist_shuffle(cx))
         {
             return SessionTab::Playlist {
                 path: self.document.path.clone(),
@@ -145,11 +156,14 @@ impl Reader {
     }
 
     pub fn is_persisting(&self) -> bool {
-        matches!(&self.renderer, Renderer::Surface(view) if view.is_persisting())
+        matches!(&self.renderer, Renderer::Surface(view) if view.operations().persistence.is_some_and(|write| write.is_persisting()))
     }
     pub(crate) fn take_reader_write(&mut self, cx: &mut App) -> Option<Task<()>> {
         match &self.renderer {
-            Renderer::Surface(view) => view.take_write(cx),
+            Renderer::Surface(view) => view
+                .operations()
+                .persistence
+                .and_then(|write| write.take_write(cx)),
             _ => None,
         }
     }

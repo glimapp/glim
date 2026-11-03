@@ -1,28 +1,11 @@
 //! Local, read-only OPML outlines; subscription URLs are never fetched.
 use crate::{limits, work::Cancellation};
 use anyhow::{Result, ensure};
-use std::{
-    io::Read,
-    path::{Path, PathBuf},
-};
+use std::{io::Read, path::Path};
 
-pub struct Outline {
-    pub title: String,
-    pub description: String,
-    pub feed: Option<String>,
-    pub website: Option<String>,
-    pub children: Vec<usize>,
-}
-pub struct Document {
-    pub path: PathBuf,
-    pub fingerprint: String,
-    pub title: String,
-    pub nodes: Vec<Outline>,
-    pub roots: Vec<usize>,
-}
+pub use glim_core::outline::{Document, Outline};
 pub fn supports(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("opml"))
+    glim_core::formats::FormatSet::Opml.matches(path)
 }
 fn web_url(value: Option<&str>) -> Option<String> {
     let value = value?.trim();
@@ -106,4 +89,21 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<Document> {
         nodes,
         roots,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn prepared_outline_matches_independent_reader_contract() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/reader-contracts");
+        let mut actual = read(&root.join("outline.opml"), &Cancellation::default()).unwrap();
+        let expected: Document = serde_json::from_str(include_str!(
+            "../../../assets/reader-contracts/outline.json"
+        ))
+        .unwrap();
+        actual.path = expected.path.clone();
+        actual.fingerprint = expected.fingerprint.clone();
+        assert_eq!(actual, expected);
+    }
 }

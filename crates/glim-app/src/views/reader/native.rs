@@ -387,12 +387,12 @@ impl Render for NativeReader {
     }
 }
 
-impl super::surface::ReaderSurface for Entity<NativeReader> {
+impl glim_reader_ui::ReaderView for super::surface::SurfaceEntity<NativeReader> {
     fn kind(&self) -> &'static str {
         "native"
     }
     fn render(&mut self, _cx: &mut App) -> AnyElement {
-        self.clone().into_any_element()
+        self.0.clone().into_any_element()
     }
     fn can_move_to_window(&self, cx: &App) -> bool {
         self.read(cx).can_move_to_window(cx)
@@ -403,9 +403,14 @@ impl super::surface::ReaderSurface for Entity<NativeReader> {
             |view, cx| if active { view.open(cx) } else { view.hide() },
         );
     }
-    fn playlist_shuffle(&self, cx: &App) -> Option<bool> {
-        self.read(cx).playlist_shuffle()
+    fn operations(&self) -> glim_reader_ui::ReaderOperations<'_> {
+        glim_reader_ui::ReaderOperations {
+            playback: Some(self),
+            ..Default::default()
+        }
     }
+}
+impl super::surface::ReaderSurface for super::surface::SurfaceEntity<NativeReader> {
     fn refresh_request(
         &self,
         path: &std::path::Path,
@@ -418,5 +423,10 @@ impl super::surface::ReaderSurface for Entity<NativeReader> {
                 stamp,
             }
         })
+    }
+}
+impl glim_reader_ui::PlaybackState for super::surface::SurfaceEntity<NativeReader> {
+    fn playlist_shuffle(&self, cx: &App) -> Option<bool> {
+        self.read(cx).playlist_shuffle()
     }
 }

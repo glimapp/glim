@@ -80,16 +80,32 @@ impl ImageReader {
     }
 }
 
-fn release_image(frame: Arc<RenderImage>, cx: &mut App) {
+struct ManagedFrame {
+    image: Arc<RenderImage>,
+    _lease: glim_services::resources::ResourceLease,
+}
+impl ManagedFrame {
+    fn new(image: Arc<RenderImage>, bytes: u64) -> Self {
+        Self {
+            image,
+            _lease: glim_services::resources::pool()
+                .track(bytes, glim_services::resources::ResourceClass::Working),
+        }
+    }
+}
+fn release_image(frame: ManagedFrame, cx: &mut App) {
     // During render the current window is temporarily absent from App.windows.
     // Defer eviction until it has been reinserted so its atlas is cleared too.
-    cx.defer(move |cx| cx.drop_image(frame, None));
+    cx.defer(move |cx| {
+        cx.drop_image(frame.image, None);
+        drop(frame._lease);
+    });
 }
 
-/// A bounded inline preview whose pixels and texture are released when its document is hidden.
+/// A bounded inline preview that releases pixels and texture when no longer requested.
 pub(super) struct InlineImageReader {
     url: url::Url,
-    frame: Option<Arc<RenderImage>>,
+    frame: Option<ManagedFrame>,
     error: Option<String>,
     active: bool,
     task: Option<Task<()>>,
@@ -171,7 +187,7 @@ impl InlineImageReader {
         let work = reader_jobs::run(
             cx.background_executor().clone(),
             JobClass::Decode,
-            Priority::Interactive,
+            Priority::Viewport,
             cancel,
             move |cancel| {
                 let stamp = url
@@ -196,7 +212,11 @@ impl InlineImageReader {
                 for pixel in frame.buffer_mut().as_chunks_mut::<4>().0 {
                     pixel.swap(0, 2);
                 }
-                Ok::<_, anyhow::Error>((Arc::new(RenderImage::new(vec![frame])), stamp))
+                let bytes = frame.buffer().len() as u64;
+                Ok::<_, anyhow::Error>((
+                    ManagedFrame::new(Arc::new(RenderImage::new(vec![frame])), bytes),
+                    stamp,
+                ))
             },
         );
         self.task = Some(cx.spawn(async move |view, cx| {
@@ -228,7 +248,7 @@ impl InlineImageReader {
     pub fn image(&self) -> Option<Result<Arc<RenderImage>, ImageCacheError>> {
         self.frame
             .as_ref()
-            .map(|frame| Ok(frame.clone()))
+            .map(|frame| Ok(frame.image.clone()))
             .or_else(|| {
                 self.error.as_ref().map(|error| {
                     Err(ImageCacheError::Other(Arc::new(anyhow::anyhow!(
@@ -239,69 +259,29 @@ impl InlineImageReader {
     }
 }
 
+enum GifSource {
+    File(std::path::PathBuf),
+    Url(url::Url),
+}
 /// Keeps one displayed frame and two small, byte-bounded lookahead batches.
-/// Hidden animations retain compressed bytes, releasing their decoder and displayed texture.
+/// Hidden animations release decoded pixels; disk-backed input can be replayed on activation.
 pub(super) struct GifReader {
-    frame: Option<Arc<RenderImage>>,
+    source: GifSource,
+    frame: Option<ManagedFrame>,
     error: Option<String>,
     input: Option<glim_services::media::GifInput>,
     active: bool,
-    finished: bool,
     load_task: Option<Task<()>>,
     task: Option<Task<()>>,
 }
 impl GifReader {
     pub fn from_file(path: std::path::PathBuf, cx: &mut Context<Self>) -> Self {
-        let data = async move { Ok(glim_services::media::GifInput::File(path)) };
-        Self::with_data(data, None, cx)
+        Self::new(GifSource::File(path), cx)
     }
     pub fn from_url(url: url::Url, cx: &mut Context<Self>) -> Self {
-        let (cancel, guard) = glim_services::work::Cancellation::task();
-        let data = reader_jobs::run(
-            cx.background_executor().clone(),
-            JobClass::Decode,
-            Priority::Interactive,
-            cancel,
-            move |cancel| match url.scheme() {
-                "http" | "https" => {
-                    glim_services::markup_images::fetch_image_file(url.as_str(), cancel)
-                        .map(|file| glim_services::media::GifInput::Temporary(Arc::new(file)))
-                }
-                "file" => {
-                    let path = url
-                        .to_file_path()
-                        .map_err(|_| anyhow::anyhow!("Invalid image path"))?;
-                    Ok(glim_services::media::GifInput::File(path))
-                }
-                _ => anyhow::bail!("Unsupported GIF URL"),
-            },
-        );
-        Self::with_data(data, Some(guard), cx)
+        Self::new(GifSource::Url(url), cx)
     }
-
-    fn with_data(
-        data: impl std::future::Future<Output = anyhow::Result<glim_services::media::GifInput>>
-        + 'static,
-        guard: Option<glim_services::work::CancelOnDrop>,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let load_task = cx.spawn(async move |view, cx| {
-            let _guard = guard;
-            let result = data.await;
-            let _ = view.update(cx, |view, cx| {
-                view.load_task = None;
-                match result {
-                    Ok(bytes) => {
-                        view.input = Some(bytes);
-                        if view.active {
-                            view.start_playback(cx);
-                        }
-                    }
-                    Err(error) => view.error = Some(format!("{error:#}")),
-                }
-                cx.notify();
-            });
-        });
+    fn new(source: GifSource, cx: &mut Context<Self>) -> Self {
         cx.on_release(|view, cx| {
             view.load_task = None;
             view.task = None;
@@ -311,14 +291,65 @@ impl GifReader {
         })
         .detach();
         Self {
+            source,
             frame: None,
             error: None,
             input: None,
             active: false,
-            finished: false,
-            load_task: Some(load_task),
+            load_task: None,
             task: None,
         }
+    }
+
+    fn start_load(&mut self, cx: &mut Context<Self>) {
+        if self.input.is_some() {
+            self.start_playback(cx);
+            return;
+        }
+        let url = match &self.source {
+            GifSource::File(path) => {
+                self.input = Some(glim_services::media::GifInput::File(path.clone()));
+                self.start_playback(cx);
+                return;
+            }
+            GifSource::Url(url) => url.clone(),
+        };
+        self.error = None;
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        let data = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Decode,
+            Priority::Viewport,
+            cancel,
+            move |cancel| match url.scheme() {
+                "http" | "https" => {
+                    glim_services::markup_images::fetch_image_file(url.as_str(), cancel)
+                        .map(|file| glim_services::media::GifInput::Temporary(Arc::new(file)))
+                }
+                "file" => Ok(glim_services::media::GifInput::File(
+                    url.to_file_path()
+                        .map_err(|_| anyhow::anyhow!("Invalid image path"))?,
+                )),
+                _ => anyhow::bail!("Unsupported GIF URL"),
+            },
+        );
+        self.load_task = Some(cx.spawn(async move |view, cx| {
+            let _guard = guard;
+            let result = data.await;
+            let _ = view.update(cx, |view, cx| {
+                view.load_task = None;
+                match result {
+                    Ok(input) => {
+                        view.input = Some(input);
+                        if view.active {
+                            view.start_playback(cx);
+                        }
+                    }
+                    Err(error) => view.error = Some(format!("{error:#}")),
+                }
+                cx.notify();
+            });
+        }));
     }
 
     fn start_playback(&mut self, cx: &mut Context<Self>) {
@@ -334,7 +365,7 @@ impl GifReader {
                 let playback = reader_jobs::run(
                     executor.clone(),
                     JobClass::Decode,
-                    Priority::Interactive,
+                    Priority::Viewport,
                     cancel.clone(),
                     move |cancel| {
                         glim_services::media::GifPlayback::from_input_cancellable(
@@ -353,7 +384,7 @@ impl GifReader {
                     reader_jobs::spawn(
                         executor.clone(),
                         JobClass::Decode,
-                        Priority::Interactive,
+                        Priority::Viewport,
                         cancel.clone(),
                         move |_cancel| {
                             let mut frames = std::collections::VecDeque::new();
@@ -366,8 +397,12 @@ impl GifReader {
                                     for pixel in frame.buffer_mut().as_chunks_mut::<4>().0 {
                                         pixel.swap(0, 2);
                                     }
+                                    let bytes = frame.buffer().len() as u64;
                                     frames.push_back((
-                                        Arc::new(RenderImage::new(vec![frame])),
+                                        ManagedFrame::new(
+                                            Arc::new(RenderImage::new(vec![frame])),
+                                            bytes,
+                                        ),
                                         delay,
                                     ));
                                 }
@@ -420,7 +455,7 @@ impl GifReader {
             let _ = view.update(cx, |view, cx| {
                 view.task = None;
                 match result {
-                    Ok(()) => view.finished = true,
+                    Ok(()) => {}
                     Err(error) => view.error = Some(format!("{error:#}")),
                 }
                 cx.notify();
@@ -430,7 +465,7 @@ impl GifReader {
 
     pub fn image(&self) -> Option<Result<Arc<RenderImage>, ImageCacheError>> {
         if let Some(frame) = &self.frame {
-            Some(Ok(frame.clone()))
+            Some(Ok(frame.image.clone()))
         } else {
             self.error.as_ref().map(|error| {
                 Err(ImageCacheError::Other(Arc::new(anyhow::anyhow!(
@@ -446,16 +481,12 @@ impl GifReader {
         }
         self.active = active;
         if active {
-            if !self.finished {
-                self.start_playback(cx);
-            }
+            self.start_load(cx);
         } else {
             self.task = None;
-            if self.finished {
-                if let Some(frame) = &self.frame {
-                    release_image(frame.clone(), cx);
-                }
-            } else if let Some(frame) = self.frame.take() {
+            self.load_task = None;
+            self.error = None;
+            if let Some(frame) = self.frame.take() {
                 release_image(frame, cx);
             }
             cx.notify();
@@ -468,7 +499,7 @@ impl Render for GifReader {
         if let Some(frame) = &self.frame {
             content = content.child(
                 div().absolute().inset(px(24.)).overflow_hidden().child(
-                    img(frame.clone())
+                    img(frame.image.clone())
                         .size_full()
                         .min_w_0()
                         .min_h_0()
@@ -533,13 +564,22 @@ impl UnavailableReader {
     }
 }
 
-impl super::surface::ReaderSurface for ImageReader {
+impl glim_reader_ui::ReaderView for ImageReader {
     fn kind(&self) -> &'static str {
         "image"
     }
     fn render(&mut self, cx: &mut App) -> AnyElement {
         ImageReader::render(self, cx)
     }
+    fn operations(&self) -> glim_reader_ui::ReaderOperations<'_> {
+        glim_reader_ui::ReaderOperations {
+            image_copy: Some(self),
+            ..Default::default()
+        }
+    }
+}
+impl super::surface::ReaderSurface for ImageReader {}
+impl glim_reader_ui::CopyImage for ImageReader {
     fn copy_image(&self, cx: &mut App) -> bool {
         if let Some(page) = self.pages.get(*self.page.read(cx)) {
             cx.write_to_clipboard(ClipboardItem::new_image(page));
@@ -549,19 +589,20 @@ impl super::surface::ReaderSurface for ImageReader {
         }
     }
 }
-impl super::surface::ReaderSurface for Entity<GifReader> {
+impl glim_reader_ui::ReaderView for super::surface::SurfaceEntity<GifReader> {
     fn kind(&self) -> &'static str {
         "animated_image"
     }
     fn render(&mut self, cx: &mut App) -> AnyElement {
         self.update(cx, |view, cx| view.set_active(true, cx));
-        self.clone().into_any_element()
+        self.0.clone().into_any_element()
     }
     fn set_active(&self, active: bool, cx: &mut App) {
         self.update(cx, |view, cx| view.set_active(active, cx));
     }
 }
-impl super::surface::ReaderSurface for UnavailableReader {
+impl super::surface::ReaderSurface for super::surface::SurfaceEntity<GifReader> {}
+impl glim_reader_ui::ReaderView for UnavailableReader {
     fn kind(&self) -> &'static str {
         "unavailable"
     }
@@ -572,6 +613,7 @@ impl super::surface::ReaderSurface for UnavailableReader {
         true
     }
 }
+impl super::surface::ReaderSurface for UnavailableReader {}
 
 #[cfg(test)]
 mod tests {

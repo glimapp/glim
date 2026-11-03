@@ -16,27 +16,7 @@ pub struct ImageDocument {
     pub pages: Vec<Vec<u8>>,
 }
 pub fn supports(path: &Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase()
-            .as_str(),
-        "qoi"
-            | "png"
-            | "jpg"
-            | "jpeg"
-            | "webp"
-            | "gif"
-            | "bmp"
-            | "tif"
-            | "tiff"
-            | "ico"
-            | "icns"
-            | "svg"
-            | "exr"
-            | "hdr"
-    )
+    glim_core::formats::FormatSet::Image.matches(path)
 }
 pub fn read_image(path: &Path) -> Result<ImageDocument> {
     if path
@@ -83,6 +63,7 @@ impl GifInput {
     }
 }
 pub struct GifPlayback {
+    memory: glim_core::resources::ResourceLease,
     input: GifInput,
     cancel: crate::work::Cancellation,
     decoder: gif::Decoder<Box<dyn Read + Send>>,
@@ -120,6 +101,10 @@ impl GifPlayback {
         let width = ((f64::from(logical.0) * scale).floor() as u32).max(1);
         let height = ((f64::from(logical.1) * scale).floor() as u32).max(1);
         Ok(Self {
+            memory: crate::resources::pool().track(
+                u64::from(width) * u64::from(height) * 4,
+                glim_core::resources::ResourceClass::Working,
+            ),
             input,
             cancel,
             decoder,
@@ -240,7 +225,13 @@ impl GifPlayback {
             (frame.dispose == gif::DisposalMethod::Previous).then(|| self.canvas.clone());
         // GIF's row width is a format-bounded u16. Decode one row at a time,
         // including interlace passes, instead of allocating a complete frame.
+        self.memory
+            .resize(self.canvas.len() as u64 + self.restore.as_ref().map_or(0, |v| v.len() as u64));
         let mut row = vec![0; width as usize * 4];
+        let _row_memory = crate::resources::pool().track(
+            row.len() as u64,
+            glim_core::resources::ResourceClass::Working,
+        );
         let passes: &[(u32, u32)] = if frame.interlaced {
             &[(0, 8), (4, 8), (2, 4), (1, 2)]
         } else {

@@ -1,0 +1,1014 @@
+{
+  "version": 1,
+  "sets": {
+    "BinaryPlist": {
+      "suffixes": [
+        "plist"
+      ]
+    },
+    "Opml": {
+      "suffixes": [
+        "opml"
+      ]
+    },
+    "Drawio": {
+      "suffixes": [
+        "drawio"
+      ]
+    },
+    "Book": {
+      "suffixes": [
+        "epub",
+        "fb2",
+        "fb2.zip",
+        "cbz"
+      ],
+      "match": "filename-suffix"
+    },
+    "Xmind": {
+      "suffixes": [
+        "xmind"
+      ]
+    },
+    "Vector": {
+      "suffixes": [
+        "obj",
+        "stl",
+        "bdf"
+      ]
+    },
+    "Archive": {
+      "suffixes": [
+        "zip",
+        "tar",
+        "tgz",
+        "tbz",
+        "tbz2",
+        "txz",
+        "tlz",
+        "tzst",
+        "taz",
+        "gz",
+        "bz2",
+        "xz",
+        "lzma",
+        "lz",
+        "lz4",
+        "zst",
+        "zstd",
+        "z",
+        "7z",
+        "rar",
+        "cab",
+        "cpio",
+        "ar",
+        "a",
+        "xar",
+        "iso",
+        "lha",
+        "lzh"
+      ]
+    },
+    "ContainerReport": {
+      "suffixes": [
+        "zip",
+        "tar",
+        "gz",
+        "bz2",
+        "xz",
+        "epub",
+        "odt",
+        "ods",
+        "odp",
+        "npy"
+      ]
+    },
+    "Sqlite": {
+      "suffixes": [
+        "db",
+        "db3",
+        "sqlite",
+        "sqlite3",
+        "s3db",
+        "wal",
+        "shm"
+      ],
+      "tails": [
+        "-wal",
+        "-shm",
+        "-journal"
+      ]
+    },
+    "NativeMedia": {
+      "suffixes": [
+        "mp3",
+        "mp4",
+        "mkv",
+        "m4a",
+        "m4v",
+        "mov",
+        "aac",
+        "wav",
+        "aif",
+        "aiff",
+        "caf",
+        "flac"
+      ]
+    },
+    "NativeFont": {
+      "suffixes": [
+        "ttf",
+        "otf",
+        "ttc",
+        "otc",
+        "dfont"
+      ]
+    },
+    "NativeOffice": {
+      "suffixes": [
+        "doc",
+        "docx",
+        "xls",
+        "xlsx",
+        "xlsm",
+        "ppt",
+        "pptx",
+        "rtf",
+        "key",
+        "pages",
+        "numbers"
+      ]
+    },
+    "Iwork": {
+      "suffixes": [
+        "key",
+        "pages",
+        "numbers"
+      ]
+    },
+    "Pdf": {
+      "suffixes": [
+        "pdf"
+      ]
+    },
+    "Safetensors": {
+      "suffixes": [
+        "safetensors"
+      ]
+    },
+    "Image": {
+      "suffixes": [
+        "qoi",
+        "png",
+        "jpg",
+        "jpeg",
+        "webp",
+        "gif",
+        "bmp",
+        "tif",
+        "tiff",
+        "ico",
+        "icns",
+        "svg",
+        "exr",
+        "hdr"
+      ]
+    },
+    "Markdown": {
+      "suffixes": [
+        "md",
+        "markdown"
+      ]
+    },
+    "Html": {
+      "suffixes": [
+        "html",
+        "htm"
+      ]
+    },
+    "ConvertedMarkup": {
+      "suffixes": [
+        "vega.json",
+        "adoc",
+        "org",
+        "rst",
+        "srt",
+        "vtt",
+        "gpx",
+        "kml",
+        "d2",
+        "pikchr"
+      ]
+    },
+    "TableCsv": {
+      "suffixes": [
+        "csv"
+      ]
+    },
+    "TableTsv": {
+      "suffixes": [
+        "tsv"
+      ]
+    },
+    "TableGpx": {
+      "suffixes": [
+        "gpx"
+      ]
+    },
+    "TableKml": {
+      "suffixes": [
+        "kml"
+      ]
+    },
+    "StructuredGraph": {
+      "suffixes": [
+        "json",
+        "jsonc",
+        "json5",
+        "jsonl",
+        "ndjson",
+        "yaml",
+        "yml",
+        "csv",
+        "tsv",
+        "xml"
+      ]
+    },
+    "PlainText": {
+      "suffixes": [
+        "txt",
+        "log"
+      ]
+    }
+  },
+  "languages": {
+    "jinja": [
+      "jinja",
+      "jinja2",
+      "j2",
+      "njk",
+      "nunjucks",
+      "twig"
+    ],
+    "ini": [
+      "ini",
+      "cfg",
+      "conf",
+      "properties",
+      "service",
+      "desktop"
+    ],
+    "dotenv": [
+      "env"
+    ],
+    "nix": [
+      "nix"
+    ],
+    "structured": [
+      "hcl",
+      "dhall",
+      "kdl",
+      "stan",
+      "m",
+      "http",
+      "d2",
+      "pikchr",
+      "obj",
+      "stl",
+      "bdf",
+      "srt",
+      "vtt",
+      "adoc",
+      "org",
+      "rst"
+    ],
+    "rust": [
+      "rs"
+    ],
+    "javascript": [
+      "js",
+      "mjs",
+      "cjs",
+      "jsx"
+    ],
+    "typescript": [
+      "ts",
+      "mts",
+      "cts"
+    ],
+    "tsx": [
+      "tsx"
+    ],
+    "json": [
+      "json",
+      "jsonc",
+      "json5",
+      "ndjson",
+      "jsonl",
+      "ipynb",
+      "geojson",
+      "code-workspace",
+      "tsbuildinfo"
+    ],
+    "toml": [
+      "toml"
+    ],
+    "python": [
+      "py",
+      "pyi",
+      "pyx",
+      "pxd",
+      "pxi",
+      "bzl",
+      "bazel"
+    ],
+    "go": [
+      "go"
+    ],
+    "c": [
+      "c",
+      "h",
+      "glsl",
+      "vert",
+      "frag",
+      "geom",
+      "osl"
+    ],
+    "cpp": [
+      "cpp",
+      "cc",
+      "cxx",
+      "hpp",
+      "hh",
+      "hxx",
+      "cu",
+      "cuh",
+      "metal"
+    ],
+    "css": [
+      "css",
+      "less",
+      "scss"
+    ],
+    "html": [
+      "opml",
+      "drawio",
+      "gpx",
+      "kml",
+      "html",
+      "htm",
+      "vue",
+      "xml",
+      "xsd",
+      "xsl",
+      "plist",
+      "mtlx",
+      "tmx",
+      "hbs"
+    ],
+    "yaml": [
+      "yml",
+      "yaml",
+      "ocio"
+    ],
+    "bash": [
+      "sh",
+      "bash",
+      "zsh",
+      "command"
+    ],
+    "swift": [
+      "swift"
+    ],
+    "java": [
+      "java"
+    ],
+    "ruby": [
+      "rb",
+      "rake",
+      "gemspec",
+      "ru",
+      "podspec"
+    ],
+    "php": [
+      "php",
+      "php3",
+      "php4",
+      "php5",
+      "phtml"
+    ],
+    "csharp": [
+      "cs",
+      "csx"
+    ],
+    "kotlin": [
+      "kt",
+      "kts"
+    ],
+    "lua": [
+      "lua"
+    ],
+    "scala": [
+      "scala",
+      "sc",
+      "sbt"
+    ],
+    "elixir": [
+      "ex",
+      "exs"
+    ],
+    "zig": [
+      "zig",
+      "zon"
+    ],
+    "graphql": [
+      "graphql",
+      "gql"
+    ],
+    "proto": [
+      "proto"
+    ],
+    "cmake": [
+      "cmake"
+    ],
+    "astro": [
+      "astro"
+    ],
+    "svelte": [
+      "svelte"
+    ],
+    "erb": [
+      "erb"
+    ],
+    "ejs": [
+      "ejs"
+    ],
+    "sql": [
+      "sql"
+    ],
+    "make": [
+      "mk"
+    ],
+    "markdown": [
+      "md",
+      "markdown"
+    ]
+  },
+  "providers": [
+    {
+      "id": "binary-plist",
+      "sets": [
+        "BinaryPlist"
+      ],
+      "probe": "required"
+    },
+    {
+      "id": "opml",
+      "sets": [
+        "Opml"
+      ],
+      "probe": "none"
+    },
+    {
+      "id": "drawio",
+      "sets": [
+        "Drawio"
+      ],
+      "probe": "none"
+    },
+    {
+      "id": "executable",
+      "sets": [],
+      "probe": "any-file"
+    },
+    {
+      "id": "book",
+      "sets": [
+        "Book"
+      ],
+      "probe": "none"
+    },
+    {
+      "id": "xmind",
+      "sets": [
+        "Xmind"
+      ],
+      "probe": "none"
+    },
+    {
+      "id": "vector",
+      "sets": [
+        "Vector"
+      ],
+      "probe": "none"
+    },
+    {
+      "id": "archive",
+      "sets": [
+        "Archive"
+      ],
+      "probe": "none"
+    },
+    {
+      "id": "container-report",
+      "sets": [
+        "ContainerReport"
+      ],
+      "probe": "none"
+    },
+    {
+      "id": "sqlite",
+      "sets": [
+        "Sqlite"
+      ],
+      "probe": "any-file"
+    },
+    {
+      "id": "native",
+      "sets": [
+        "NativeMedia",
+        "NativeFont",
+        "NativeOffice",
+        "Pdf",
+        "Image"
+      ],
+      "probe": "required",
+      "exclude": [
+        "gif"
+      ]
+    },
+    {
+      "id": "safetensors",
+      "sets": [
+        "Safetensors"
+      ],
+      "probe": "none"
+    },
+    {
+      "id": "image",
+      "sets": [
+        "Image"
+      ],
+      "probe": "none"
+    }
+  ],
+  "associations": [
+    {
+      "name": "Markdown",
+      "extensions": [
+        "md",
+        "markdown"
+      ]
+    },
+    {
+      "name": "Plain Text",
+      "extensions": [
+        "txt",
+        "log"
+      ]
+    },
+    {
+      "name": "JSON",
+      "extensions": [
+        "json",
+        "jsonl",
+        "geojson"
+      ]
+    },
+    {
+      "name": "YAML / TOML",
+      "extensions": [
+        "yaml",
+        "yml",
+        "toml"
+      ]
+    },
+    {
+      "name": "HTML",
+      "extensions": [
+        "html",
+        "htm"
+      ]
+    },
+    {
+      "name": "XML",
+      "extensions": [
+        "xml"
+      ]
+    },
+    {
+      "name": "Source Code",
+      "extensions": [
+        "rs",
+        "py",
+        "js",
+        "jsx",
+        "ts",
+        "tsx",
+        "c",
+        "h",
+        "cpp",
+        "hpp",
+        "go",
+        "swift",
+        "java",
+        "kt",
+        "rb",
+        "php",
+        "sh",
+        "sql",
+        "css"
+      ]
+    },
+    {
+      "name": "SQLite",
+      "extensions": [
+        "sqlite",
+        "sqlite3",
+        "db",
+        "db3"
+      ]
+    },
+    {
+      "name": "Fonts",
+      "extensions": [
+        "ttf",
+        "otf",
+        "ttc",
+        "otc",
+        "dfont"
+      ]
+    },
+    {
+      "name": "PDF",
+      "extensions": [
+        "pdf"
+      ]
+    },
+    {
+      "name": "Mind maps",
+      "extensions": [
+        "xmind"
+      ]
+    },
+    {
+      "name": "Ebooks",
+      "extensions": [
+        "epub",
+        "fb2",
+        "cbz"
+      ]
+    },
+    {
+      "name": "Archives",
+      "extensions": [
+        "zip",
+        "7z",
+        "rar",
+        "tar",
+        "tgz",
+        "tbz",
+        "tbz2",
+        "txz",
+        "tlz",
+        "tzst",
+        "taz",
+        "gz",
+        "bz2",
+        "xz",
+        "lzma",
+        "lz",
+        "lz4",
+        "zst",
+        "zstd",
+        "Z",
+        "cab",
+        "cpio",
+        "ar",
+        "a",
+        "xar",
+        "iso",
+        "lha",
+        "lzh"
+      ]
+    },
+    {
+      "name": "Images",
+      "extensions": [
+        "png",
+        "jpg",
+        "jpeg",
+        "webp",
+        "gif",
+        "svg",
+        "bmp",
+        "tiff"
+      ]
+    },
+    {
+      "name": "Audio",
+      "extensions": [
+        "mp3",
+        "m4a",
+        "wav",
+        "aac",
+        "flac",
+        "aiff",
+        "caf"
+      ]
+    },
+    {
+      "name": "Video",
+      "extensions": [
+        "mp4",
+        "mov",
+        "m4v",
+        "mkv"
+      ]
+    },
+    {
+      "name": "Keynote",
+      "extensions": [
+        "key"
+      ]
+    },
+    {
+      "name": "Pages",
+      "extensions": [
+        "pages"
+      ]
+    },
+    {
+      "name": "Numbers",
+      "extensions": [
+        "numbers"
+      ]
+    },
+    {
+      "name": "Word",
+      "extensions": [
+        "doc",
+        "docx",
+        "rtf"
+      ]
+    },
+    {
+      "name": "Excel",
+      "extensions": [
+        "xls",
+        "xlsx",
+        "xlsm"
+      ]
+    },
+    {
+      "name": "PowerPoint",
+      "extensions": [
+        "ppt",
+        "pptx"
+      ]
+    }
+  ],
+  "bundle_types": [
+    {
+      "CFBundleTypeName": "Glim Documents",
+      "CFBundleTypeRole": "Viewer",
+      "LSHandlerRank": "Alternate",
+      "CFBundleTypeExtensions": [
+        "adoc",
+        "org",
+        "rst",
+        "srt",
+        "vtt",
+        "m",
+        "stan",
+        "tsv",
+        "ndjson",
+        "http",
+        "hcl",
+        "dhall",
+        "kdl",
+        "json5",
+        "d2",
+        "pikchr",
+        "obj",
+        "stl",
+        "gpx",
+        "kml",
+        "bdf",
+        "zip",
+        "tar",
+        "tgz",
+        "tbz",
+        "tbz2",
+        "txz",
+        "tlz",
+        "tzst",
+        "taz",
+        "7z",
+        "rar",
+        "cab",
+        "cpio",
+        "ar",
+        "a",
+        "xar",
+        "iso",
+        "lha",
+        "lzh",
+        "lzma",
+        "lz",
+        "lz4",
+        "zst",
+        "zstd",
+        "Z",
+        "gz",
+        "bz2",
+        "xz",
+        "epub",
+        "odt",
+        "ods",
+        "odp",
+        "npy",
+        "qoi",
+        "md",
+        "markdown",
+        "txt",
+        "log",
+        "json",
+        "jsonl",
+        "geojson",
+        "yaml",
+        "yml",
+        "toml",
+        "html",
+        "htm",
+        "xml",
+        "rs",
+        "py",
+        "js",
+        "jsx",
+        "ts",
+        "tsx",
+        "c",
+        "h",
+        "cpp",
+        "hpp",
+        "go",
+        "swift",
+        "java",
+        "kt",
+        "rb",
+        "php",
+        "sh",
+        "sql",
+        "css",
+        "pdf",
+        "png",
+        "jpg",
+        "jpeg",
+        "webp",
+        "gif",
+        "svg",
+        "xmind",
+        "fb2",
+        "cbz",
+        "bmp",
+        "tiff",
+        "mp3",
+        "m4a",
+        "wav",
+        "aac",
+        "flac",
+        "aiff",
+        "caf",
+        "mp4",
+        "mkv",
+        "mov",
+        "m4v",
+        "doc",
+        "docx",
+        "rtf",
+        "xls",
+        "xlsx",
+        "xlsm",
+        "ppt",
+        "pptx",
+        "safetensors",
+        "db",
+        "db3",
+        "sqlite",
+        "sqlite3",
+        "s3db",
+        "wal",
+        "shm",
+        "db-wal",
+        "sqlite-wal",
+        "sqlite3-wal",
+        "db-shm",
+        "sqlite-shm",
+        "sqlite3-shm",
+        "ttf",
+        "otf",
+        "ttc",
+        "otc",
+        "dfont"
+      ]
+    },
+    {
+      "CFBundleTypeName": "Apple iWork Documents",
+      "CFBundleTypeRole": "Viewer",
+      "LSHandlerRank": "Alternate",
+      "LSTypeIsPackage": true,
+      "CFBundleTypeExtensions": [
+        "key",
+        "pages",
+        "numbers"
+      ]
+    }
+  ],
+  "icon_fallbacks": {
+    "ar": {
+      "dark": "file",
+      "light": "file"
+    },
+    "bdf": {
+      "dark": "file",
+      "light": "file"
+    },
+    "cbz": {
+      "dark": "file",
+      "light": "file"
+    },
+    "d2": {
+      "dark": "file",
+      "light": "file"
+    },
+    "desktop": {
+      "dark": "file",
+      "light": "file"
+    },
+    "fb2": {
+      "dark": "file",
+      "light": "file"
+    },
+    "fb2.zip": {
+      "dark": "zip",
+      "light": "zip"
+    },
+    "hdr": {
+      "dark": "file",
+      "light": "file"
+    },
+    "kdl": {
+      "dark": "file",
+      "light": "file"
+    },
+    "metal": {
+      "dark": "file",
+      "light": "file"
+    },
+    "npy": {
+      "dark": "file",
+      "light": "file"
+    },
+    "osl": {
+      "dark": "file",
+      "light": "file"
+    },
+    "php3": {
+      "dark": "file",
+      "light": "file"
+    },
+    "pikchr": {
+      "dark": "file",
+      "light": "file"
+    },
+    "pxd": {
+      "dark": "file",
+      "light": "file"
+    },
+    "pxi": {
+      "dark": "file",
+      "light": "file"
+    },
+    "pyx": {
+      "dark": "file",
+      "light": "file"
+    },
+    "qoi": {
+      "dark": "file",
+      "light": "file"
+    },
+    "safetensors": {
+      "dark": "file",
+      "light": "file"
+    },
+    "service": {
+      "dark": "file",
+      "light": "file"
+    },
+    "vega.json": {
+      "dark": "json",
+      "light": "json"
+    }
+  }
+}

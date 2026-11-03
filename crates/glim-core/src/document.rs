@@ -8,14 +8,10 @@ pub enum DocumentKind {
 
 impl DocumentKind {
     pub fn from_path(path: &Path) -> Self {
-        match path.extension().and_then(|extension| extension.to_str()) {
-            Some(extension)
-                if extension.eq_ignore_ascii_case("md")
-                    || extension.eq_ignore_ascii_case("markdown") =>
-            {
-                Self::Markdown
-            }
-            _ => Self::Text,
+        if crate::formats::FormatSet::Markdown.matches(path) {
+            Self::Markdown
+        } else {
+            Self::Text
         }
     }
 }
@@ -102,61 +98,11 @@ pub fn language_for_path(path: &Path) -> &'static str {
     if matches!(name, ".eslintrc" | ".babelrc" | ".czrc") {
         return "json";
     }
-    match path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "jinja" | "jinja2" | "j2" | "njk" | "nunjucks" | "twig" => "jinja",
-        "ini" | "cfg" | "conf" | "properties" | "service" | "desktop" => "ini",
-        "env" => "dotenv",
-        "nix" => "nix",
-        "hcl" | "dhall" | "kdl" | "stan" | "m" | "http" | "d2" | "pikchr" | "obj" | "stl"
-        | "bdf" | "srt" | "vtt" | "adoc" | "org" | "rst" => "structured",
-        "rs" => "rust",
-        "js" | "mjs" | "cjs" | "jsx" => "javascript",
-        "ts" | "mts" | "cts" => "typescript",
-        "tsx" => "tsx",
-        "json" | "jsonc" | "json5" | "ndjson" | "jsonl" | "ipynb" | "geojson"
-        | "code-workspace" | "tsbuildinfo" => "json",
-        "toml" => "toml",
-        // Starlark shares Python's syntax; these mappings provide highlighting only.
-        "py" | "pyi" | "pyx" | "pxd" | "pxi" | "bzl" | "bazel" => "python",
-        "go" => "go",
-        "c" | "h" => "c",
-        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" | "cu" | "cuh" | "metal" => "cpp",
-        "css" | "less" | "scss" => "css",
-        // HTML provides basic tag highlighting, not full Vue/XML language semantics.
-        "opml" | "drawio" | "gpx" | "kml" | "html" | "htm" | "vue" | "xml" | "xsd" | "xsl"
-        | "plist" | "mtlx" | "tmx" | "hbs" => "html",
-        "yml" | "yaml" | "ocio" => "yaml",
-        "sh" | "bash" | "zsh" | "command" => "bash",
-        "swift" => "swift",
-        "java" => "java",
-        "rb" | "rake" | "gemspec" | "ru" | "podspec" => "ruby",
-        "php" | "php3" | "php4" | "php5" | "phtml" => "php",
-        "cs" | "csx" => "csharp",
-        "kt" | "kts" => "kotlin",
-        "lua" => "lua",
-        "scala" | "sc" | "sbt" => "scala",
-        "ex" | "exs" => "elixir",
-        "zig" | "zon" => "zig",
-        "graphql" | "gql" => "graphql",
-        "proto" => "proto",
-        "cmake" => "cmake",
-        "astro" => "astro",
-        "svelte" => "svelte",
-        "erb" => "erb",
-        "ejs" => "ejs",
-        "sql" => "sql",
-        "mk" => "make",
-        // C-like syntax only; these retain shader-specific tokens as plain text.
-        "glsl" | "vert" | "frag" | "geom" | "osl" => "c",
-        "md" | "markdown" => "markdown",
-        _ => "plain",
-    }
+    crate::formats::language_for_extension(
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or_default(),
+    )
 }
 
 /// Saved contents and derived fingerprints occupy separate domains.

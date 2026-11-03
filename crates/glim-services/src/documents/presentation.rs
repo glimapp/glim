@@ -1,4 +1,5 @@
 //! Text projections shared by full-buffer and paged readers.
+use glim_core::formats::FormatSet;
 use glim_core::{DocumentKind, language_for_path};
 use std::path::Path;
 
@@ -45,15 +46,16 @@ impl TextPresentation {
             .and_then(|v| v.to_str())
             .unwrap_or_default()
             .to_ascii_lowercase();
-        let html = matches!(extension.as_str(), "html" | "htm");
+        let html = FormatSet::Html.matches(path);
         let projected = crate::text_formats::supports(path);
-        let table = match extension.as_str() {
-            "csv" => Some(TableFormat::Csv),
-            "tsv" => Some(TableFormat::Tsv),
-            "gpx" => Some(TableFormat::Gpx),
-            "kml" => Some(TableFormat::Kml),
-            _ => None,
-        };
+        let table = [
+            (FormatSet::TableCsv, TableFormat::Csv),
+            (FormatSet::TableTsv, TableFormat::Tsv),
+            (FormatSet::TableGpx, TableFormat::Gpx),
+            (FormatSet::TableKml, TableFormat::Kml),
+        ]
+        .into_iter()
+        .find_map(|(set, format)| set.matches(path).then_some(format));
         let json_dialect = (language_for_path(path) == "json" && !projected).then(|| {
             if extension == "code-workspace" {
                 "jsonc".into()

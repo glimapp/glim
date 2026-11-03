@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0"><head><title>阅读清单</title></head><body>
+<outline text="Engineering"><outline text="Rust &amp; systems" description="Updates" xmlUrl="https://example.com/feed.xml" htmlUrl="https://example.com/"/><outline title="Notes" url="file:///private/ignored"/></outline>
+<outline text="独立条目" xmlUrl="javascript:ignored"/>
+</body></opml>

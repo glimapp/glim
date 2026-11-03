@@ -284,43 +284,51 @@ pub struct DiagramImage {
 }
 // Compressed results are reusable within this process. Source, engine kind and
 // raster edge form the key; eviction bounds cache memory independently of files.
-type CachedDiagram = (Diagram, u32, Arc<DiagramImage>);
+type CachedDiagram = (Diagram, u32, crate::resources::CachedResource<DiagramImage>);
 static IMAGE_CACHE: Mutex<VecDeque<CachedDiagram>> = Mutex::new(VecDeque::new());
-fn cached_image(diagram: &Diagram, edge: u32) -> Option<Arc<DiagramImage>> {
+fn cached_image(
+    diagram: &Diagram,
+    edge: u32,
+) -> Option<Arc<crate::resources::ResourceValue<DiagramImage>>> {
     let mut cache = IMAGE_CACHE.lock().ok()?;
+    cache.retain(|(_, _, image)| image.is_resident());
     let index = cache
         .iter()
         .position(|(key, size, _)| key == diagram && *size == edge)?;
     let entry = cache.remove(index)?;
-    let image = entry.2.clone();
+    let image = entry.2.get(crate::resources::Retention::Background);
     cache.push_back(entry);
-    Some(image)
+    image
 }
 fn remember_image(diagram: &Diagram, edge: u32, image: &DiagramImage) {
-    let cost = |diagram: &Diagram, image: &DiagramImage| {
-        diagram
-            .source
-            .len()
-            .saturating_add(diagram.kind.len())
-            .saturating_add(image.png.len())
-            .saturating_add(std::mem::size_of::<CachedDiagram>())
-    };
-    let bytes = cost(diagram, image);
-    if bytes as u64 > reader_limits::IO_CACHE_BYTES {
+    let bytes = diagram
+        .source
+        .len()
+        .saturating_add(diagram.kind.len())
+        .saturating_add(image.png.len())
+        .saturating_add(std::mem::size_of::<CachedDiagram>()) as u64;
+    if bytes > reader_limits::IO_CACHE_BYTES {
         return;
     }
     let Ok(mut cache) = IMAGE_CACHE.lock() else {
         return;
     };
-    cache.retain(|(key, size, _)| key != diagram || *size != edge);
-    let mut used: usize = cache.iter().map(|(key, _, image)| cost(key, image)).sum();
-    while used.saturating_add(bytes) as u64 > reader_limits::IO_CACHE_BYTES {
-        let Some((key, _, image)) = cache.pop_front() else {
+    cache.retain(|(key, size, image)| image.is_resident() && (key != diagram || *size != edge));
+    let mut used: u64 = cache.iter().map(|(_, _, image)| image.bytes()).sum();
+    while used.saturating_add(bytes) > reader_limits::IO_CACHE_BYTES {
+        let Some((_, _, image)) = cache.pop_front() else {
             break;
         };
-        used = used.saturating_sub(cost(&key, &image));
+        used = used.saturating_sub(image.bytes());
     }
-    cache.push_back((diagram.clone(), edge, Arc::new(image.clone())));
+    let image = crate::resources::pool().cache(
+        image.clone(),
+        bytes,
+        crate::resources::Retention::Background,
+    );
+    if image.is_resident() {
+        cache.push_back((diagram.clone(), edge, image));
+    }
 }
 
 /// Common LaTeX display delimiters are escaped punctuation to the GFM parser.
@@ -460,7 +468,7 @@ pub fn render_batch(
             if bytes_used <= reader_limits::DIAGRAM_AGGREGATE_ENCODED_BYTES
                 && pixels_used <= reader_limits::DIAGRAM_AGGREGATE_DECODED_BYTES
             {
-                publish(diagram.clone(), Ok((*image).clone()));
+                publish(diagram.clone(), Ok((**image).clone()));
                 return false;
             }
             bytes_used -= image.png.len();

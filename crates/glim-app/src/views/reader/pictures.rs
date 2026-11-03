@@ -1,17 +1,16 @@
 use super::media::{GifReader, InlineImageReader};
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::markup_images::{self, PictureSources};
-use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 pub(super) struct Pictures {
     pub sources: Arc<HashMap<String, PictureSources>>,
     pub animations: Arc<HashMap<String, Entity<GifReader>>>,
     pub stills: Arc<HashMap<String, Entity<InlineImageReader>>>,
-    references: HashSet<String>,
+    pub requested: Arc<Mutex<HashSet<String>>>,
     animation_subscriptions: Vec<Subscription>,
     still_subscriptions: Vec<Subscription>,
     base: url::Url,
@@ -25,7 +24,7 @@ impl Pictures {
             animations: Arc::new(HashMap::new()),
             animation_subscriptions: Vec::new(),
             stills: Arc::new(HashMap::new()),
-            references: HashSet::new(),
+            requested: Arc::new(Mutex::new(HashSet::new())),
             still_subscriptions: Vec::new(),
             base,
             active: true,
@@ -49,13 +48,13 @@ impl Pictures {
                 for variants in sources.values() {
                     images.extend(variants.light.iter().chain(variants.dark.iter()).cloned());
                 }
-                Ok((sources, images, references))
+                Ok((sources, images))
             },
         );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
-            let Ok((sources, images, references)) = result else {
+            let Ok((sources, images)) = result else {
                 let _ = view.update(cx, |view, _| view.task = None);
                 return;
             };
@@ -94,7 +93,6 @@ impl Pictures {
                         .get(&key)
                         .cloned()
                         .unwrap_or_else(|| cx.new(|cx| GifReader::from_url(url, cx)));
-                    animation.update(cx, |animation, cx| animation.set_active(view.active, cx));
                     view.animation_subscriptions
                         .push(cx.observe(&animation, |_, _, cx| cx.notify()));
                     animations.insert(key, animation);
@@ -102,7 +100,6 @@ impl Pictures {
                 view.animations = Arc::new(animations);
                 view.sources = Arc::new(sources);
                 view.stills = Arc::new(stills);
-                view.references = references;
                 view.set_active(view.active, cx);
                 view.task = None;
                 cx.notify();
@@ -120,34 +117,84 @@ impl Pictures {
     }
     pub fn set_active(&mut self, active: bool, cx: &mut App) {
         self.active = active;
-        let dark = cx.theme().is_dark();
-        let selected = self
-            .references
-            .iter()
-            .filter_map(|uri| {
-                let uri = self
-                    .sources
-                    .get(uri)
-                    .and_then(|sources| {
-                        if dark {
-                            sources.dark.as_deref()
-                        } else {
-                            sources.light.as_deref()
-                        }
-                    })
-                    .unwrap_or(uri);
-                self.base.join(uri).ok().map(|url| url.to_string())
-            })
-            .collect::<HashSet<_>>();
+        if !active {
+            self.finish_frame(&HashSet::new(), cx);
+        }
+    }
+    fn finish_frame(&mut self, requested: &HashSet<String>, cx: &mut App) {
         for (uri, animation) in self.animations.iter() {
-            animation.update(cx, |animation, cx| {
-                animation.set_active(active && selected.contains(uri), cx)
-            });
+            if !self.active || !requested.contains(uri) {
+                animation.update(cx, |animation, cx| animation.set_active(false, cx));
+            }
         }
         for (uri, image) in self.stills.iter() {
-            image.update(cx, |image, cx| {
-                image.set_active(active && selected.contains(uri), cx)
-            });
+            if !self.active || !requested.contains(uri) {
+                image.update(cx, |image, cx| image.set_active(false, cx));
+            }
         }
+    }
+}
+
+/// Collect actual image requests from the virtualized subtree each painted frame.
+pub(super) struct PictureViewport {
+    pub owner: Entity<Pictures>,
+    pub content: AnyElement,
+}
+impl IntoElement for PictureViewport {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
+    }
+}
+impl Element for PictureViewport {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        let mut style = Style::default();
+        style.size.width = relative(1.).into();
+        style.size.height = relative(1.).into();
+        (window.request_layout(style, [], cx), ())
+    }
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.owner.read(cx).requested.lock().unwrap().clear();
+        self.content
+            .prepaint_as_root(bounds.origin, bounds.size.into(), window, cx);
+    }
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.content.paint(window, cx);
+        let requested = std::mem::take(&mut *self.owner.read(cx).requested.lock().unwrap());
+        let owner = self.owner.downgrade();
+        cx.defer(move |cx| {
+            let _ = owner.update(cx, |view, cx| view.finish_frame(&requested, cx));
+        });
     }
 }

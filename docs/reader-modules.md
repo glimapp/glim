@@ -2,58 +2,44 @@
 
 **English** · [简体中文](reader-modules.zh-CN.md) · [Architecture](architecture.md)
 
-Glim's extension boundary is an internal, statically linked reader module. Modules share document identity, editing, task admission and workspace actions. They can reuse a presentation without creating a new renderer for every extension. Scenario pages compose these capabilities for users; scenarios do not introduce a second dispatch system.
+The extension unit is an internal, statically linked reader package. New formats can reuse existing presentations. Scenario pages compose document, data, media and editing capabilities without introducing a second dispatcher. External plugin installation/loading is deferred.
 
-## Where changes belong
+## Dependency and ownership boundaries
 
-| Responsibility | Owner | Extension rule |
-| --- | --- | --- |
-| Pure values and state transitions | `glim-core` | No I/O or UI dependencies |
-| Detection, parsing, preparation and source access | `glim-services` | No GPUI entities or window state |
-| Ordered built-in routing | `services/documents/registry.rs` | Stable, unique provider ID; preserve detection precedence |
-| Text presentation classification | `services/documents/presentation.rs` | Classify markup, table, JSON dialect and structured controls once |
-| Document identity and editing | `app/document_session.rs`, `app/edit_session.rs` | Reuse the live session across source and preview views |
-| Prepared-content construction | `views/reader/construction.rs` | Assemble retained entities here; no format dispatch in Workspace |
-| Read-only presentation lifecycle | `views/reader/surface.rs`, concrete reader module | Implement required rendering/kind and only supported optional operations |
-| Text/source/preview behavior | `views/reader/text.rs`, `editing.rs`, `projection.rs` | Share saves and editor state; projections do not own another editor |
-| Navigation, tabs, saves and restoration | `views/workspace` | Coordinate readers through their operations |
-| Toolbar and content menus | `workspace/reader_actions.rs`, `native/ReaderActions.swift` | Reuse live actions and the existing native menu bridge |
+```mermaid
+flowchart TD
+  App[glim-app: workspace and composition] --> Services[glim-services: detection and preparation]
+  Services --> Core[glim-core: pure values and resource ownership]
+  App --> Core
+  App --> Outline[glim-reader-outline: OPML view]
+  App --> UI[glim-reader-ui: lifecycle and optional operations]
+  Outline --> Core
+  Outline --> UI
+  UI --> GPUI[Pinned GPUI]
+  Outline --> GPUI
+```
 
-`ReaderSurface` currently includes format-specific optional operations such as archive extraction and playlist state. It is an app-internal lifecycle boundary, not a stable public SDK. The source, markup and paged variants still have explicit composition because their editing and preview transitions are coupled. Do not move those transitions into opaque callbacks merely to remove an enum.
+Core has no runtime I/O or UI dependencies. Services own source access, parsing, preparation and persistence, never views. Reader-ui depends only on GPUI and exports `ReaderView`, `ReaderHost` and optional operation traits. Outline is a real independently compiled presentation, not a placeholder: its only workspace dependencies are core and reader-ui. These are workspace packages, not published artifacts or a stable external SDK.
 
-## Adding a format
+`ReaderView` requires kind and rendering, and offers activation/window hooks. `ReaderOperations` borrows only supported image-copy, extraction, playback-state and persistence traits. App-local `ReaderSurface` adds refresh policy; native/SQLite implementations can retain in-place state. `SurfaceEntity` adapts app-owned GPUI entities without violating Rust's orphan rules. The shared source/markup/paged path remains explicit because it owns editing transitions.
 
-1. Implement detection and preparation in a service module. Reuse an existing `documents::Content` representation when possible. Container-specific formats must precede the general archive provider; ambiguous extensions need content probes. Keep ordinary text and byte fallback reachable.
-2. Register the provider with a unique kebab-case ID. The registry performs ordered routing, not independent plugin discovery. Text formats that reuse existing presentations usually extend `TextPresentation` or an existing provider rather than add a surface.
-3. For a new presentation, add its prepared payload and a construction branch, then implement `ReaderSurface` in the concrete view module. Retain GPUI entities and task handles. `render` must not read files, scan directories or run blocking commands.
-4. Define actual actions through the shared action path. Optional surface operations have unsupported/default behavior; do not advertise controls whose implementation is absent. Window-bound native surfaces must implement window binding and movement restrictions.
-5. For native preparation, use the typed Rust/Swift preview request protocol. Update both decoders and the shared protocol fixtures when the payload changes. Retain prepared resource ownership until the native controller closes.
-6. Update support documentation, architecture boundaries and relevant regression coverage. File icons, syntax highlighting and macOS associations describe different domains; an icon match does not prove the file is readable or editable.
+`ReaderHost` injects translation and static module/action telemetry callbacks. Independent presentation code does not reach into app globals or service payloads. `glim-core::outline::Document` is the prepared OPML value; services reexport it, and the app factory constructs `OutlineSurface`. The source fixture and expected payload in `assets/reader-contracts/outline.*` cover hierarchy/order, Unicode, entity decoding and URL filtering. Producer and presentation regression cases consume the same expected payload, including collapse/expand behavior. Changes to the payload require updating both consumers and fixtures together; no binary compatibility is promised between internal revisions.
 
-## State and publication
+## Adding or extracting a reader
 
-`DocumentSession` owns identity, path, content snapshot, revision, draft/recovery metadata and the optional `EditSession`. `EditSession` retains the live editor, saved baseline, dirty flag, edit revision, lock state and change subscription. Source/minimap/preview objects own presentation state. Replacing a presentation must not detach the session's dirty tracking or erase undo history when adopting a draft's first saved path.
+1. Declare suffix sets, provider claims and relevant association/icon expectations in `assets/format-catalog.json`. Run `python3 scripts/generate-format-catalog.py --write`. Filename-specific language rules and content probes remain code. Catalog claims are not edit permissions.
+2. Implement detection/preparation in services. Keep dedicated containers before generic archive routing, preserve ambiguous-format probes, cancellation and complete-source fallbacks. Reuse existing `documents::Content`/`TextPresentation` values when appropriate.
+3. Assemble retained entities in `reader/construction`. A package owns its presentation state and implements the narrow UI contract; the app adapter owns refresh/session integration. Keep filesystem work and blocking commands out of render/layout.
+4. Expose actions through `workspace/reader_actions` or native `ReaderActions`; content menus use the same live actions. Unsupported optional traits remain absent. Retain tasks and resource leases until their real owners finish.
+5. Add representative producer/consumer contract fixtures when crossing a package boundary. For native requests, update both sides of the versioned Rust/Swift protocol and `native/tests/fixtures`.
+6. Update the architecture dependency guard and current behavior documentation. Run catalog/architecture checks and native Cargo compilation. Runtime tests and UI verification are separate from all-targets compilation.
 
-Save completion records the snapshot actually written. If typing continued during the write, the newer buffer stays dirty. Read-only images and document surfaces do not acquire an edit session. Text projections operate on editor snapshots; paged previews request a save before reading changed source from disk.
+Do not split every suffix into a crate. Extract when a coherent payload/view can compile without app globals and the maintenance benefit exceeds the additional interface. OPML demonstrates this boundary; source editing, native document adapters and other readers still live in their existing packages.
 
-Refresh preparation publishes only when document identity, generation and relevant editor/page revisions still match. Dirty content stays protected; obsolete work must not replace a newer document. Keep the readable old view on refresh errors. A surface can supply in-place refresh when retaining its entity is necessary, as SQLite does.
+## State, work and publication
 
-## Background work and cancellation
+`DocumentSession` owns identity, path, saved-content snapshot, revision and optional `EditSession`. The edit session retains the editor, saved baseline, dirty/locked state and subscriptions. Source and preview share it; first save or window transfer preserves undo/history identity. Saving records the snapshot actually written, so typing during a save remains dirty. Read-only surfaces do not acquire an edit session.
 
-Use `app/reader_jobs` for expensive reader preparation. It awaits `services/work/scheduler` admission before spawning blocking work, and holds the permit inside that work until it exits. The lanes are document preparation, projections/pages/queries, image decoding, native preparation and diagram batches. Their concurrency budgets live in `assets/reader-limits.json`.
+Refresh publication checks document identity, generation and relevant edit/page revisions. Dirty content is protected; failed refresh retains the readable old view. SQLite supplies in-place refresh through the adapter. Use `app/reader_jobs` for preparation with retained cancellation; viewport/interactive/background admission, resource leases and cache reconstruction follow [resources and rendering](reader-resources.md).
 
-Choose interactive priority for user-triggered work and background priority for inactive refresh/count preparation. Each priority is FIFO; occupied priorities alternate to avoid starvation. Priority does not preempt running work. Admit one operation or bounded batch, never the entire life of a tab or animation. Do not acquire another permit while holding one and synchronously waiting for it; same-lane nesting can deadlock, and cyclic cross-lane dependencies have the same risk.
-
-Retain the owning task and cancellation guard. Dropping a queued admission removes its waiter. Cancellation tokens are cooperative: changing the flag alone does not wake an admission future; dropping its owning task removes it immediately, while a later poll observes the flag. Running loops check cancellation between chunks. Some SDK/parser calls finish before cancellation is observed; retain their permit until they return and discard obsolete output. `reader_job` telemetry reports queue and worker time under the existing consent policy.
-
-Directory browsing, timers, metadata-only checks and persistence writes have separate ownership and are outside these preparation lanes. The scheduler limits concurrent work, not aggregate retained memory. Continue using per-reader streaming, paging and working-buffer budgets. Do not add total-file-size rejection limits. Regenerate policy inventories with `python3 scripts/generate-reader-limits.py --docs` after budget changes.
-
-## Boundary checks and remaining work
-
-Run `python3 scripts/check-architecture.py` to check workspace dependency direction, known UI dependencies in non-UI crates, provider IDs and common prepared-content dispatch regressions in Workspace. Its source scan is a lightweight guard, not a Rust semantic checker; it cannot prove that core code performs no I/O or that every operation is cancellable. Native Cargo check/clippy remain necessary. An all-targets compilation checks test code but does not execute it; runtime regression tests and macOS interactions are separate validation.
-
-The current architecture leaves three concrete follow-up areas:
-
-- Admission does not account for retained views/caches by bytes or prioritize individual visible blocks. Add a global memory policy and viewport scheduling only with measured workloads and eviction/reconstruction rules.
-- Routing, syntax metadata, icons and system associations remain separate inventories. Cross-check shared claims before attempting a single catalog; preserve intentional differences between recognition, preview and editing.
-- The app-internal surface contract and prepared-content factory still change with the application. Independent module packages would need narrower capability contracts and compatibility fixtures before extracting crates. External dynamic plugins additionally require an ABI/protocol, permissions, crash isolation and version negotiation; none is currently implemented.
+`scripts/check-architecture.py` checks workspace dependency direction, known UI dependencies in non-UI crates, provider ordering/identity, generated catalog consistency and common workspace-dispatch regressions. It is a source guard, not a proof that arbitrary Rust performs no I/O or is cancellable. Remaining work is incremental extraction of coherent readers and broader resource coverage. External plugins additionally need version negotiation, permissions and failure isolation before any loading mechanism is added.

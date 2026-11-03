@@ -11,10 +11,7 @@ use std::{
     path::Path,
 };
 pub fn supports(path: &Path) -> bool {
-    matches!(
-        extension(path).as_str(),
-        "zip" | "tar" | "gz" | "bz2" | "xz" | "epub" | "odt" | "ods" | "odp" | "npy"
-    )
+    glim_core::formats::FormatSet::ContainerReport.matches(path)
 }
 fn extension(path: &Path) -> String {
     path.extension()

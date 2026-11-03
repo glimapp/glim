@@ -31,9 +31,7 @@ pub struct Topic {
     pub children: Vec<usize>,
 }
 pub fn supports(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("xmind"))
+    glim_core::formats::FormatSet::Xmind.matches(path)
 }
 pub fn read(path: &Path) -> Result<MindMap> {
     read_cancellable(path, &crate::work::Cancellation::default())

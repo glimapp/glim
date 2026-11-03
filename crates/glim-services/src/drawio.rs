@@ -25,8 +25,7 @@ struct Cell<'a> {
     rect: Rect,
 }
 pub fn supports(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("drawio"))
+    glim_core::formats::FormatSet::Drawio.matches(path)
 }
 fn number(node: Node<'_, '_>, name: &str, default: f64) -> f64 {
     node.attribute(name)

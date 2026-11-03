@@ -1,0 +1,42 @@
+{
+  "path": "outline.opml",
+  "fingerprint": "fixture-v1",
+  "title": "阅读清单",
+  "nodes": [
+    {
+      "title": "Engineering",
+      "description": "",
+      "feed": null,
+      "website": null,
+      "children": [
+        1,
+        2
+      ]
+    },
+    {
+      "title": "Rust & systems",
+      "description": "Updates",
+      "feed": "https://example.com/feed.xml",
+      "website": "https://example.com/",
+      "children": []
+    },
+    {
+      "title": "Notes",
+      "description": "",
+      "feed": null,
+      "website": null,
+      "children": []
+    },
+    {
+      "title": "独立条目",
+      "description": "",
+      "feed": null,
+      "website": null,
+      "children": []
+    }
+  ],
+  "roots": [
+    0,
+    3
+  ]
+}

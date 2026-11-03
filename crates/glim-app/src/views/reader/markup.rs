@@ -350,6 +350,7 @@ impl MarkupReader {
         });
         let image_base = self.base.clone();
         let pictures = self.pictures.read(cx).sources.clone();
+        let requested_images = self.pictures.read(cx).requested.clone();
         let animations = self.pictures.read(cx).animations.clone();
         let stills = self.pictures.read(cx).stills.clone();
         let dark = cx.theme().is_dark();
@@ -434,18 +435,32 @@ impl MarkupReader {
                                         // Stay pending until background parsing has registered
                                         // the player; never start GPUI's whole-GIF loader.
                                         let animation = animations.get(url.as_str()).cloned();
+                                        let requested = requested_images.clone();
+                                        let key = url.to_string();
                                         ImageSource::from(move |_: &mut Window, cx: &mut App| {
-                                            animation
-                                                .as_ref()
-                                                .and_then(|view| view.read(cx).image())
+                                            requested.lock().unwrap().insert(key.clone());
+                                            animation.as_ref().and_then(|view| {
+                                                view.update(cx, |view, cx| {
+                                                    view.set_active(true, cx);
+                                                    view.image()
+                                                })
+                                            })
                                         })
                                     }
                                     Ok(url)
                                         if matches!(url.scheme(), "file" | "http" | "https") =>
                                     {
                                         let image = stills.get(url.as_str()).cloned();
+                                        let requested = requested_images.clone();
+                                        let key = url.to_string();
                                         ImageSource::from(move |_: &mut Window, cx: &mut App| {
-                                            image.as_ref().and_then(|image| image.read(cx).image())
+                                            requested.lock().unwrap().insert(key.clone());
+                                            image.as_ref().and_then(|image| {
+                                                image.update(cx, |image, cx| {
+                                                    image.set_active(true, cx);
+                                                    image.image()
+                                                })
+                                            })
                                         })
                                     }
                                     Ok(url) => SharedUri::from(url.to_string()).into(),
@@ -479,12 +494,16 @@ impl MarkupReader {
                     )
                 },
             );
-        gpui_kit::component::v_flex()
-            .size_full()
-            .min_h_0()
-            .relative()
-            .child(div().flex_1().min_h_0().w_full().child(body))
-            .into_any_element()
+        super::pictures::PictureViewport {
+            owner: self.pictures.clone(),
+            content: gpui_kit::component::v_flex()
+                .size_full()
+                .min_h_0()
+                .relative()
+                .child(div().flex_1().min_h_0().w_full().child(body))
+                .into_any_element(),
+        }
+        .into_any_element()
     }
 }
 pub(super) fn follow_link(

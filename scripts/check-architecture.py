@@ -7,13 +7,16 @@ import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parent.parent
+subprocess.run([os.environ.get('PYTHON', 'python3'), str(ROOT / 'scripts/generate-format-catalog.py'), '--check'], check=True)
 metadata = json.loads(subprocess.check_output(
     [os.environ.get('CARGO', 'cargo'), 'metadata', '--no-deps', '--locked', '--format-version', '1'],
     cwd=ROOT, text=True))
 allowed = {
     'glim-core': set(),
     'glim-services': {'glim-core'},
-    'glim-app': {'glim-core', 'glim-services'},
+    'glim-reader-ui': set(),
+    'glim-reader-outline': {'glim-core', 'glim-reader-ui'},
+    'glim-app': {'glim-core', 'glim-services', 'glim-reader-ui', 'glim-reader-outline'},
 }
 packages = {p['name']: p for p in metadata['packages'] if p['id'] in metadata['workspace_members']}
 errors = []
@@ -25,7 +28,7 @@ for name, package in packages.items():
         target = dependency['name']
         if target in packages and target not in allowed[name]:
             errors.append(f'{name} must not depend on {target}')
-        if name != 'glim-app' and (target.startswith('gpui') or target in ('wry', 'tao')):
+        if name in ('glim-core', 'glim-services') and (target.startswith('gpui') or target in ('wry', 'tao')):
             errors.append(f'{name}: UI dependency {target} belongs in glim-app')
 
 registry = (ROOT / 'crates/glim-services/src/documents/registry.rs').read_text()

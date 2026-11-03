@@ -107,7 +107,7 @@ impl Reader {
             document: DocumentSession::new(document.path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
             projection: None,
-            renderer: Renderer::surface(cx.new(|cx| archive::ArchiveReader::new(document, cx))),
+            renderer: Renderer::entity(cx.new(|cx| archive::ArchiveReader::new(document, cx))),
         }
     }
     pub fn from_sqlite(path: PathBuf, window: &mut Window, cx: &mut App) -> Self {
@@ -116,7 +116,7 @@ impl Reader {
             document: DocumentSession::new(path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
             projection: None,
-            renderer: Renderer::surface(cx.new(|cx| sqlite::SqliteReader::new(path, window, cx))),
+            renderer: Renderer::entity(cx.new(|cx| sqlite::SqliteReader::new(path, window, cx))),
         }
     }
     pub(super) fn from_native_playback(
@@ -131,7 +131,7 @@ impl Reader {
             document: DocumentSession::new(path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
             projection: None,
-            renderer: Renderer::surface(cx.new(|cx| {
+            renderer: Renderer::entity(cx.new(|cx| {
                 if autoplay {
                     native::NativeReader::new(path, folder, shuffle, cx)
                 } else {
@@ -210,7 +210,7 @@ impl Reader {
         cx: &mut App,
     ) -> Self {
         let renderer = if document.gif {
-            Renderer::surface(cx.new(|cx| GifReader::from_file(document.path.clone(), cx)))
+            Renderer::entity(cx.new(|cx| GifReader::from_file(document.path.clone(), cx)))
         } else {
             let pages = if document.pages.is_empty() {
                 vec![document.png]
@@ -263,7 +263,7 @@ impl Reader {
             ),
             structured_controls: None,
             projection: None,
-            renderer: Renderer::surface(cx.new(|_| xmind::XMindReader::new(document))),
+            renderer: Renderer::entity(cx.new(|_| xmind::XMindReader::new(document))),
         }
     }
     pub fn from_opml(document: glim_services::opml::Document, cx: &mut App) -> Self {
@@ -275,7 +275,16 @@ impl Reader {
             ),
             structured_controls: None,
             projection: None,
-            renderer: Renderer::surface(cx.new(|_| opml::OpmlReader::new(document))),
+            renderer: Renderer::surface(opml::OutlineSurface::new(
+                document,
+                glim_reader_ui::ReaderHost {
+                    translate: glim_services::locale::tr,
+                    action: |module, action| {
+                        glim_services::telemetry::reader_feature(module, action, [])
+                    },
+                },
+                cx,
+            )),
         }
     }
     pub fn unavailable(path: PathBuf, reason: String, _: &mut Window, _: &mut App) -> Self {

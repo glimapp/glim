@@ -1,13 +1,7 @@
 //! Conservative first-pass document projection. Original text stays editable.
 use std::path::Path;
 pub fn supports(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|n| n.to_ascii_lowercase().ends_with(".vega.json"))
-        || matches!(
-            extension(path).as_str(),
-            "adoc" | "org" | "rst" | "srt" | "vtt" | "gpx" | "kml" | "d2" | "pikchr"
-        )
+    glim_core::formats::FormatSet::ConvertedMarkup.matches(path)
 }
 fn extension(path: &Path) -> String {
     path.extension()

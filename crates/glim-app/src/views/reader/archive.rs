@@ -372,17 +372,23 @@ impl Render for ArchiveReader {
     }
 }
 
-impl super::surface::ReaderSurface for Entity<ArchiveReader> {
+impl glim_reader_ui::ReaderView for super::surface::SurfaceEntity<ArchiveReader> {
     fn kind(&self) -> &'static str {
         "zip"
     }
     fn render(&mut self, _cx: &mut App) -> AnyElement {
-        self.clone().into_any_element()
+        self.0.clone().into_any_element()
     }
-    fn is_archive(&self) -> bool {
-        true
+    fn operations(&self) -> glim_reader_ui::ReaderOperations<'_> {
+        glim_reader_ui::ReaderOperations {
+            archive: Some(self),
+            ..Default::default()
+        }
     }
-    fn set_archive_action(&self, label: String, action: super::ArchiveAction, cx: &mut App) {
+}
+impl super::surface::ReaderSurface for super::surface::SurfaceEntity<ArchiveReader> {}
+impl glim_reader_ui::ArchiveControls for super::surface::SurfaceEntity<ArchiveReader> {
+    fn set_extract_action(&self, label: String, action: super::ArchiveAction, cx: &mut App) {
         self.update(cx, |view, _| view.extract = Some((label, action)));
     }
 }

@@ -1577,6 +1577,16 @@
         "description": "Process-wide diagram batch preparation concurrency. Waiting batches yield workers and retain their cancellation flag.",
         "description_zh": "进程内图表批次准备的并发预算。排队批次不占工作线程，并保留取消标志。"
       }
+    },
+    "resources": {
+      "cache_bytes": {
+        "value": 268435456,
+        "type": "u64",
+        "unit": "bytes",
+        "effect": "budget",
+        "description": "Process-wide budget for tracked reclaimable reader caches; evict background then least recently used unpinned values. Live state and active work are accounted separately and never discarded as cache. Framework allocations are outside this ledger.",
+        "description_zh": "进程级可回收阅读器缓存预算；先回收后台缓存，再回收最近最少使用且无使用者持有的值。存活状态与活动工作另行记账，不作为缓存丢弃；框架内部内存不在此账本内。"
+      }
     }
   }
 }

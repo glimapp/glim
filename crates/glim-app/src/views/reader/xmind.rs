@@ -612,11 +612,12 @@ impl Render for XMindReader {
     }
 }
 
-impl super::surface::ReaderSurface for Entity<XMindReader> {
+impl glim_reader_ui::ReaderView for super::surface::SurfaceEntity<XMindReader> {
     fn kind(&self) -> &'static str {
         "xmind"
     }
     fn render(&mut self, _cx: &mut App) -> AnyElement {
-        self.clone().into_any_element()
+        self.0.clone().into_any_element()
     }
 }
+impl super::surface::ReaderSurface for super::surface::SurfaceEntity<XMindReader> {}

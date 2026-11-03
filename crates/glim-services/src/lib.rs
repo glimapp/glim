@@ -25,6 +25,7 @@ pub mod preferences;
 pub mod preview;
 mod qoi;
 mod report;
+pub mod resources;
 pub mod safetensors;
 pub mod spreadsheet;
 pub mod sqlite;

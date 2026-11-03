@@ -61,13 +61,7 @@ pub struct ChapterContent {
     pub page: Option<crate::paged::TextPage>,
 }
 pub fn supports(path: &Path) -> bool {
-    path.file_name().and_then(|v| v.to_str()).is_some_and(|v| {
-        let name = v.to_ascii_lowercase();
-        name.ends_with(".epub")
-            || name.ends_with(".fb2")
-            || name.ends_with(".fb2.zip")
-            || name.ends_with(".cbz")
-    })
+    glim_core::formats::FormatSet::Book.matches(path)
 }
 fn bounded(reader: impl Read, limit: u64) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();

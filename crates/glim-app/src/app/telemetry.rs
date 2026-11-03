@@ -157,6 +157,14 @@ fn start_resource_sampling(cx: &mut App) {
                 ("low_power_available", flag(available & 8 != 0)),
             ];
             if available & 1 != 0 {
+                let readers = glim_services::resources::pool().snapshot();
+                props.extend([
+                    ("reader_state_bytes", number(readers.state_bytes)),
+                    ("reader_working_bytes", number(readers.working_bytes)),
+                    ("reader_cache_bytes", number(readers.cache_bytes)),
+                    ("reader_cache_budget", number(readers.cache_budget)),
+                    ("reader_cache_evictions", number(readers.evictions)),
+                ]);
                 for (key, index) in [
                     ("resident_bytes", 0),
                     ("physical_footprint_bytes", 1),
