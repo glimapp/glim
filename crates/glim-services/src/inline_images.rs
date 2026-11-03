@@ -2,7 +2,6 @@
 use crate::limits as reader_limits;
 use anyhow::{Context, Result, ensure};
 use std::{
-    io::Write,
     path::Path,
     process::{Command, Stdio},
     sync::Mutex,
@@ -12,13 +11,10 @@ const MAX_EDGE: u32 = reader_limits::INLINE_IMAGE_PREVIEW_EDGE;
 // Avoid simultaneous full-size native decode work for a document containing many images.
 static PREPARATION: Mutex<()> = Mutex::new(());
 
-pub fn from_file(path: &Path) -> Result<image::Frame> {
-    from_file_cancellable(path, &crate::work::Cancellation::default())
-}
 pub fn from_file_cancellable(
     path: &Path,
     cancel: &crate::work::Cancellation,
-) -> Result<image::Frame> {
+) -> Result<crate::media::RasterFrame> {
     cancel.check()?;
     let _guard = PREPARATION
         .lock()
@@ -27,21 +23,12 @@ pub fn from_file_cancellable(
     native_thumbnail(path, cancel)
 }
 
-pub fn from_bytes(bytes: &[u8]) -> Result<image::Frame> {
-    let mut file = tempfile::NamedTempFile::new()?;
-    file.write_all(bytes)?;
-    from_file(file.path())
-}
-
-fn native_thumbnail(path: &Path, cancel: &crate::work::Cancellation) -> Result<image::Frame> {
+fn native_thumbnail(
+    path: &Path,
+    cancel: &crate::work::Cancellation,
+) -> Result<crate::media::RasterFrame> {
     let png = thumbnail_png_cancellable(path, MAX_EDGE, cancel)?;
-    let mut reader = image::ImageReader::new(std::io::Cursor::new(png)).with_guessed_format()?;
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(MAX_EDGE);
-    limits.max_image_height = Some(MAX_EDGE);
-    limits.max_alloc = Some(reader_limits::INLINE_IMAGE_DECODED_BYTES);
-    reader.limits(limits);
-    Ok(image::Frame::new(reader.decode()?.into_rgba8()))
+    crate::media::decode_png(&png, cancel)
 }
 
 pub(crate) fn thumbnail_png(path: &Path, max_edge: u32) -> Result<Vec<u8>> {

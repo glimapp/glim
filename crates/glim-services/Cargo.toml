@@ -6,6 +6,11 @@ publish.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[[bench]]
+name = "raster_memory"
+path = "benches/raster_memory.rs"
+harness = false
+
 [dependencies]
 chrono = "=0.4.45"
 log = { version = "0.4", features = ["std"] }

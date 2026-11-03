@@ -23,6 +23,8 @@ flowchart TD
 
 Prepared table results cross the service/view boundary as immutable `glim-core::resources::TextRows`, retaining their working admission with the cells. CSV/TSV, geographic and SQLite views do not reconstruct a second resource charge after publication. Text/hex pages similarly retain text, row ranges, widest-row metadata and their reservation in the prepared page.
 
+Raster results cross that boundary through `glim-services::media::RasterFrame`, which owns an `image::Frame` and its working reservation without GPUI types. PNG preparation and GIF playback acquire admission before allocating pixels; the app converts channels in place and transfers both pixels and reservation into its display owner. GIF playback also accepts an explicit resource pool for independent preparation and measurement. This isolates buffer ownership; media views still use application scheduling and service entry points.
+
 Workspace owns navigation and session coordination. `DocumentSession` owns identity, path, saved snapshot, revision and optional `EditSession`; source and preview share the editor, baseline, dirty/locked state and subscriptions. First save/window transfer preserves undo and recovery identity. Save completion confirms the snapshot actually written; newer typing remains dirty. Refresh publication checks identity/generation and relevant edit/page revisions, protecting dirty content and preserving readable views on failure.
 
 ## Adding a format

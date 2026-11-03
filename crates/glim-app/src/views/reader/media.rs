@@ -1,6 +1,7 @@
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::limits as reader_limits;
 use gpui_kit::base::Disableable;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
@@ -41,6 +42,8 @@ impl ImageReader {
         let previous = self.page.clone();
         let next = self.page.clone();
         let count = self.pages.len();
+        let retry = self.pages[page].clone();
+        let failed = retry.read(cx).error.is_some();
         div()
             .relative()
             .size_full()
@@ -97,20 +100,35 @@ impl ImageReader {
             } else {
                 div().into_any_element()
             })
+            .when(failed, |root| {
+                root.child(
+                    div().absolute().top(px(24.)).right(px(24.)).child(
+                        Button::new("image-retry")
+                            .label(glim_services::locale::tr("Retry"))
+                            .on_click(move |_, _, cx| {
+                                retry.update(cx, |view, cx| {
+                                    view.error = None;
+                                    view.request(cx);
+                                    cx.notify();
+                                })
+                            }),
+                    ),
+                )
+            })
             .into_any_element()
     }
 }
 
 struct ManagedFrame {
     image: Arc<RenderImage>,
-    _lease: glim_services::resources::ResourceLease,
+    _lease: glim_core::resources::WorkingReservation,
 }
 impl ManagedFrame {
-    fn new(image: Arc<RenderImage>, bytes: u64) -> Self {
+    fn new(frame: glim_services::media::RasterFrame) -> Self {
+        let (frame, memory) = frame.into_bgra();
         Self {
-            image,
-            _lease: glim_services::resources::pool()
-                .track(bytes, glim_services::resources::ResourceClass::Working),
+            image: Arc::new(RenderImage::new(vec![frame])),
+            _lease: memory,
         }
     }
 }
@@ -176,20 +194,15 @@ impl PreparedImage {
         }
         let encoded = self.encoded.clone();
         let input_memory = self.encoded_memory.clone();
-        let renderer = cx.svg_renderer();
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let work = reader_jobs::run(
             cx.background_executor().clone(),
             JobClass::Decode,
             Priority::Viewport,
             cancel,
-            move |_| {
+            move |cancel| {
                 let _input_memory = input_memory;
-                let image = encoded.to_image_data(renderer)?;
-                let bytes = (0..image.frame_count())
-                    .map(|frame| image.as_bytes(frame).map_or(0, |bytes| bytes.len() as u64))
-                    .sum();
-                Ok(ManagedFrame::new(image, bytes))
+                glim_services::media::decode_png(encoded.bytes(), cancel).map(ManagedFrame::new)
             },
         );
         self.task = Some(cx.spawn(async move |view, cx| {
@@ -260,6 +273,10 @@ impl InlineImageReader {
     // Workspace change notifications also cover referenced local image files.
     // Compare metadata on a worker; retain the current frame until its replacement is ready.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        if self.active && self.error.is_some() && self.task.is_none() {
+            self.start_load(cx);
+            return;
+        }
         if !self.active
             || self.task.is_some()
             || self.refresh_task.is_some()
@@ -300,7 +317,7 @@ impl InlineImageReader {
                     .ok()
                     .and_then(|path| std::fs::metadata(path).ok())
                     .map(|m| (m.len(), m.modified().ok()));
-                let mut frame = match url.scheme() {
+                let frame = match url.scheme() {
                     "file" => glim_services::inline_images::from_file_cancellable(
                         &url.to_file_path()
                             .map_err(|_| anyhow::anyhow!("Invalid inline image path"))?,
@@ -314,14 +331,7 @@ impl InlineImageReader {
                     }
                     _ => anyhow::bail!("Unsupported inline image URL"),
                 }?;
-                for pixel in frame.buffer_mut().as_chunks_mut::<4>().0 {
-                    pixel.swap(0, 2);
-                }
-                let bytes = frame.buffer().len() as u64;
-                Ok::<_, anyhow::Error>((
-                    ManagedFrame::new(Arc::new(RenderImage::new(vec![frame])), bytes),
-                    stamp,
-                ))
+                Ok::<_, anyhow::Error>((ManagedFrame::new(frame), stamp))
             },
         );
         self.task = Some(cx.spawn(async move |view, cx| {
@@ -495,21 +505,20 @@ impl GifReader {
                             let mut frames = std::collections::VecDeque::new();
                             let result = (|| {
                                 for _ in 0..batch_size {
-                                    let Some((mut frame, delay)) = playback.next_preview_frame()?
-                                    else {
+                                    let next = match playback.next_preview_frame() {
+                                        Err(error)
+                                            if error
+                                                .is::<glim_core::resources::WorkingPressure>()
+                                                && !frames.is_empty() =>
+                                        {
+                                            break;
+                                        }
+                                        next => next?,
+                                    };
+                                    let Some((frame, delay)) = next else {
                                         break;
                                     };
-                                    for pixel in frame.buffer_mut().as_chunks_mut::<4>().0 {
-                                        pixel.swap(0, 2);
-                                    }
-                                    let bytes = frame.buffer().len() as u64;
-                                    frames.push_back((
-                                        ManagedFrame::new(
-                                            Arc::new(RenderImage::new(vec![frame])),
-                                            bytes,
-                                        ),
-                                        delay,
-                                    ));
+                                    frames.push_back((ManagedFrame::new(frame), delay));
                                 }
                                 Ok::<_, anyhow::Error>(frames)
                             })();
@@ -599,7 +608,7 @@ impl GifReader {
     }
 }
 impl Render for GifReader {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut content = div().relative().size_full().overflow_hidden();
         if let Some(frame) = &self.frame {
             content = content.child(
@@ -614,11 +623,21 @@ impl Render for GifReader {
         }
         if let Some(error) = &self.error {
             content = content.child(
-                div()
-                    .absolute()
-                    .bottom(px(8.))
-                    .left(px(24.))
-                    .child(error.clone()),
+                div().absolute().bottom(px(8.)).left(px(24.)).child(
+                    h_flex().gap_3().child(error.clone()).child(
+                        Button::new("gif-retry")
+                            .label(glim_services::locale::tr("Retry"))
+                            .on_click(cx.listener(|view, _, _, cx| {
+                                view.task = None;
+                                view.load_task = None;
+                                if let Some(frame) = view.frame.take() {
+                                    release_image(frame, cx);
+                                }
+                                view.start_load(cx);
+                                cx.notify();
+                            })),
+                    ),
+                ),
             );
         }
         content

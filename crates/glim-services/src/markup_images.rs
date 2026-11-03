@@ -236,13 +236,10 @@ pub fn fetch_image_cancellable(url: &str, cancel: &crate::work::Cancellation) ->
         cancel,
     )
 }
-pub fn fetch_inline_image(url: &str) -> Result<image::Frame> {
-    fetch_inline_image_cancellable(url, &crate::work::Cancellation::default())
-}
 pub fn fetch_inline_image_cancellable(
     url: &str,
     cancel: &crate::work::Cancellation,
-) -> Result<image::Frame> {
+) -> Result<crate::media::RasterFrame> {
     let file = fetch_image_file(url, cancel)?;
     crate::inline_images::from_file_cancellable(file.path(), cancel)
 }

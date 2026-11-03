@@ -1,12 +1,15 @@
 //! Bounded image decoding, kept off the UI executor.
 use crate::limits as reader_limits;
+mod raster;
 use anyhow::{Context, Result, ensure};
+pub use raster::{RasterFrame, decode_png};
 use std::{
     io::{Cursor, Read},
     path::{Path, PathBuf},
 };
 
-const GIF_COMPOSITING_BUFFERS: u64 = 5;
+// Two lookahead batches and the displayed frame, plus canvas and restore.
+const GIF_RESIDENT_BUFFERS: u64 = (2 * reader_limits::GIF_BATCH_FRAMES + 1 + 2) as u64;
 
 pub struct ImageDocument {
     pub path: PathBuf,
@@ -63,7 +66,7 @@ impl GifInput {
     }
 }
 pub struct GifPlayback {
-    memory: glim_core::resources::ResourceLease,
+    pool: crate::resources::ResourcePool,
     input: GifInput,
     cancel: crate::work::Cancellation,
     decoder: gif::Decoder<Box<dyn Read + Send>>,
@@ -75,6 +78,9 @@ pub struct GifPlayback {
     frames: usize,
     loops: u32,
     finished: bool,
+    pending_frame: bool,
+    // Buffer ownership is destroyed before its admission is released.
+    _memory: glim_core::resources::WorkingReservation,
 }
 impl GifPlayback {
     pub fn new(bytes: std::sync::Arc<[u8]>) -> Result<Self> {
@@ -90,21 +96,36 @@ impl GifPlayback {
         input: GifInput,
         cancel: crate::work::Cancellation,
     ) -> Result<Self> {
+        Self::from_input_with_pool(input, cancel, crate::resources::pool())
+    }
+    pub fn from_input_with_pool(
+        input: GifInput,
+        cancel: crate::work::Cancellation,
+        pool: &crate::resources::ResourcePool,
+    ) -> Result<Self> {
         let decoder = Self::decoder(&input, &cancel)?;
         let logical = (u32::from(decoder.width()), u32::from(decoder.height()));
         ensure!(logical.0 > 0 && logical.1 > 0, "GIF has an empty canvas");
-        let budget_pixels =
-            (reader_limits::GIF_CANVAS_BYTES / (4 * GIF_COMPOSITING_BUFFERS)).max(1);
-        let scale = (budget_pixels as f64 / (f64::from(logical.0) * f64::from(logical.1)))
-            .sqrt()
-            .min(1.);
-        let width = ((f64::from(logical.0) * scale).floor() as u32).max(1);
-        let height = ((f64::from(logical.1) * scale).floor() as u32).max(1);
+        // Reserve both compositing canvases before creating either of them.
+        // Include pipeline headroom when selecting their resolution, so a small
+        // grant is not consumed entirely before the first output/row can fit.
+        // gif's RGBA converter retains an indexed row and may double its Vec
+        // while the old allocation is still live. Its metadata is separate.
+        let conversion_bytes = u64::from(logical.0) * 3;
+        let row_bytes = u64::from(logical.0) * 4;
+        let overhead = conversion_bytes + row_bytes;
+        let desired = (u64::from(logical.0) * u64::from(logical.1) * 4 * GIF_RESIDENT_BUFFERS)
+            .min(reader_limits::GIF_CANVAS_BYTES);
+        let mut memory =
+            pool.reserve_working(overhead + 4 * GIF_RESIDENT_BUFFERS, overhead + desired)?;
+        let (width, height) = raster::fitted_dimensions(
+            logical.0,
+            logical.1,
+            (memory.bytes() - overhead) / (4 * GIF_RESIDENT_BUFFERS),
+        );
+        memory.shrink_to(conversion_bytes + u64::from(width) * u64::from(height) * 8);
         Ok(Self {
-            memory: crate::resources::pool().track(
-                u64::from(width) * u64::from(height) * 4,
-                glim_core::resources::ResourceClass::Working,
-            ),
+            pool: pool.clone(),
             input,
             cancel,
             decoder,
@@ -116,6 +137,8 @@ impl GifPlayback {
             frames: 0,
             loops: 0,
             finished: false,
+            pending_frame: false,
+            _memory: memory,
         })
     }
     fn decoder(
@@ -153,21 +176,60 @@ impl GifPlayback {
         }
     }
 
-    pub fn next_frame(&mut self) -> Result<Option<(image::Frame, std::time::Duration)>> {
+    pub fn next_frame(&mut self) -> Result<Option<(RasterFrame, std::time::Duration)>> {
         self.decode_frame(false)
     }
 
-    pub fn next_preview_frame(&mut self) -> Result<Option<(image::Frame, std::time::Duration)>> {
+    pub fn next_preview_frame(&mut self) -> Result<Option<(RasterFrame, std::time::Duration)>> {
         self.decode_frame(true)
     }
 
     fn decode_frame(
         &mut self,
         preview: bool,
-    ) -> Result<Option<(image::Frame, std::time::Duration)>> {
+    ) -> Result<Option<(RasterFrame, std::time::Duration)>> {
         if self.finished {
             return Ok(None);
         }
+        self.cancel.check()?;
+        if !self.pending_frame {
+            if self.decoder.next_frame_info()?.is_none() {
+                ensure!(self.frames > 0, "GIF contains no frames");
+                self.loops = self.loops.saturating_add(1);
+                if let gif::Repeat::Finite(repeats) = self.decoder.repeat()
+                    && self.loops > u32::from(repeats)
+                {
+                    self.finished = true;
+                    return Ok(None);
+                }
+                self.decoder = Self::decoder(&self.input, &self.cancel)?;
+                self.canvas.fill(0);
+                self.restore = None;
+                self.disposal = gif::DisposalMethod::Keep;
+                self.frames = 0;
+                ensure!(
+                    self.decoder.next_frame_info()?.is_some(),
+                    "GIF contains no frames"
+                );
+            }
+            self.pending_frame = true;
+        }
+        // A denied grant leaves this header pending, without skipping its pixels.
+        // EOF needs no allocation, even while displayed frames pin the pool.
+        let row_bytes = u64::from(self.logical.0) * 4;
+        let _row_memory = self.pool.reserve_working(row_bytes, row_bytes)?;
+        let (width, height) = if preview {
+            self.preview_dimensions()
+        } else {
+            self.canvas.dimensions()
+        };
+        let desired = u64::from(width) * u64::from(height) * 4;
+        let memory = self
+            .pool
+            .reserve_working(if preview { 4 } else { desired }, desired)?;
+        let (output_width, output_height) =
+            raster::fitted_dimensions(width, height, memory.bytes() / 4);
+        self.pending_frame = false;
         match self.disposal {
             gif::DisposalMethod::Background => {
                 let (left, top, width, height) = self.rectangle;
@@ -184,24 +246,6 @@ impl GifPlayback {
                 }
             }
             _ => {}
-        }
-        if self.decoder.next_frame_info()?.is_none() {
-            ensure!(self.frames > 0, "GIF contains no frames");
-            self.loops = self.loops.saturating_add(1);
-            if let gif::Repeat::Finite(repeats) = self.decoder.repeat()
-                && self.loops > u32::from(repeats)
-            {
-                self.finished = true;
-                return Ok(None);
-            }
-            self.decoder = Self::decoder(&self.input, &self.cancel)?;
-            self.canvas.fill(0);
-            self.restore = None;
-            self.frames = 0;
-            ensure!(
-                self.decoder.next_frame_info()?.is_some(),
-                "GIF contains no frames"
-            );
         }
         let frame = self
             .decoder
@@ -221,17 +265,12 @@ impl GifPlayback {
         let right = scaled(source_left + width, cw, self.logical.0);
         let top = scaled(source_top, ch, self.logical.1);
         let bottom = scaled(source_top + height, ch, self.logical.1);
+        self.restore = None;
         self.restore =
             (frame.dispose == gif::DisposalMethod::Previous).then(|| self.canvas.clone());
         // GIF's row width is a format-bounded u16. Decode one row at a time,
         // including interlace passes, instead of allocating a complete frame.
-        self.memory
-            .resize(self.canvas.len() as u64 + self.restore.as_ref().map_or(0, |v| v.len() as u64));
         let mut row = vec![0; width as usize * 4];
-        let _row_memory = crate::resources::pool().track(
-            row.len() as u64,
-            glim_core::resources::ResourceClass::Working,
-        );
         let passes: &[(u32, u32)] = if frame.interlaced {
             &[(0, 8), (4, 8), (2, 4), (1, 2)]
         } else {
@@ -272,21 +311,14 @@ impl GifPlayback {
             u32::from(frame.delay) * 10
         };
         Ok(Some((
-            image::Frame::new(
-                if preview
-                    && self.canvas.width().max(self.canvas.height())
-                        > reader_limits::GIF_PREVIEW_EDGE
-                {
-                    let (width, height) = self.preview_dimensions();
-                    image::imageops::resize(
-                        &self.canvas,
-                        width,
-                        height,
-                        image::imageops::FilterType::Nearest,
-                    )
-                } else {
-                    self.canvas.clone()
-                },
+            RasterFrame::new(
+                image::Frame::new(raster::sample_nearest(
+                    &self.canvas,
+                    output_width,
+                    output_height,
+                    &self.cancel,
+                )?),
+                memory,
             ),
             std::time::Duration::from_millis(u64::from(delay_ms)),
         )))
@@ -324,6 +356,44 @@ mod tests {
             }
         }
         Ok(bytes)
+    }
+
+    #[test]
+    fn denied_frame_admission_does_not_advance_and_frames_outlive_the_decoder() -> Result<()> {
+        let input = gif_bytes(
+            &[
+                (0, vec![0; 3], gif::DisposalMethod::Previous),
+                (0, vec![1; 3], gif::DisposalMethod::Keep),
+            ],
+            gif::Repeat::Finite(0),
+        )?;
+        let pool = crate::resources::ResourcePool::with_budgets(0, 100);
+        let mut playback = GifPlayback::from_input_with_pool(
+            GifInput::Bytes(input.into()),
+            crate::work::Cancellation::default(),
+            &pool,
+        )?;
+        let available = 100 - pool.snapshot().working_bytes;
+        let blocker = pool.reserve_working(available, available)?;
+        assert!(
+            matches!(playback.next_preview_frame(), Err(error) if error.is::<crate::resources::WorkingPressure>())
+        );
+        assert_eq!(playback.frames, 0);
+        drop(blocker);
+        let (first, _) = playback.next_preview_frame()?.unwrap();
+        assert!(first.buffer().pixels().all(|p| p.0 == [255, 0, 0, 255]));
+        let (second, _) = playback.next_preview_frame()?.unwrap();
+        assert!(second.buffer().pixels().all(|p| p.0 == [0, 255, 0, 255]));
+        assert!(pool.snapshot().working_bytes <= 100);
+        drop(playback);
+        assert_eq!(
+            pool.snapshot().working_bytes,
+            (first.buffer().len() + second.buffer().len()) as u64
+        );
+        drop(first);
+        drop(second);
+        assert_eq!(pool.snapshot().working_bytes, 0);
+        Ok(())
     }
 
     #[test]

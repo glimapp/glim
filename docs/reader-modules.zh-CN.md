@@ -25,6 +25,8 @@ flowchart TD
 
 表格结果以不可变的 `glim-core::resources::TextRows` 跨越服务／视图边界，单元格与工作预留一起传递；CSV／TSV、地理坐标和 SQLite 视图无需收到结果后重新记账。文本／十六进制准备页同样持有文本、行范围、最宽行元数据及预留。
 
+像素结果通过 `glim-services::media::RasterFrame` 跨越边界，同时持有 `image::Frame` 和工作预留，不含 GPUI 类型。PNG 准备和 GIF 播放在分配像素前取得额度；应用原地交换颜色通道，再将像素与预留共同交给显示所有者。GIF 播放也接受显式资源池，支持独立准备与测量。这落实了缓冲所有权隔离；媒体视图仍使用应用调度器和服务入口。
+
 ## 新增格式
 
 1. 在 `assets/format-catalog.json` 更新后缀集合、提供者及相关关联／图标预期，运行 `python3 scripts/generate-format-catalog.py --write`。文件名语言规则和内容探测保留代码实现，目录声明不授予编辑权限。
