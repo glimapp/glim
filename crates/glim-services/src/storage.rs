@@ -34,26 +34,30 @@ pub(crate) fn open_at(directory: &Path) -> Result<Connection> {
     db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     ensure!(
-        version <= 2,
+        version <= 3,
         "Glim database was created by a newer application version"
     );
-    if version < 2 {
+    if version < 3 {
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version == 0 {
             tx.execute_batch(include_str!("storage/schema.sql"))?;
             migration::import(&tx, directory)
                 .context("Cannot migrate existing Glim data; original files have been preserved")?;
-        } else if version == 1 {
-            tx.execute_batch(
-                "INSERT INTO records(kind,id,payload)
+        } else if version < 3 {
+            if version == 1 {
+                tx.execute_batch(
+                    "INSERT INTO records(kind,id,payload)
                 SELECT 'migration-source',path,'' FROM imported_files;
                 DROP TABLE imported_files;",
+                )?;
+            }
+            tx.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN window_active INTEGER NOT NULL DEFAULT 0 CHECK(window_active IN (0,1));
+                ALTER TABLE sessions ADD COLUMN show_home INTEGER NOT NULL DEFAULT 0 CHECK(show_home IN (0,1));",
             )?;
         }
-        if version < 2 {
-            tx.execute_batch("PRAGMA user_version=2")?;
-        }
+        tx.execute_batch("PRAGMA user_version=3")?;
         tx.commit()?;
     }
     let mode: String = db.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;
@@ -123,6 +127,48 @@ mod tests {
     use std::collections::BTreeMap;
 
     #[test]
+    fn version_two_sessions_gain_selection_without_changing_tabs_or_recent_order() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let mut db = open_at(directory.path())?;
+        let sessions = BTreeMap::from([(
+            "window".into(),
+            vec![WorkspaceSession {
+                roots: vec!["/dev".into()],
+                workspace_id: Some("dev".into()),
+                ..Default::default()
+            }],
+        )]);
+        let tx = db.transaction()?;
+        sessions::save(&tx, "window", &sessions)?;
+        tx.execute("INSERT INTO recent_workspaces VALUES('dev',NULL,0)", [])?;
+        tx.execute_batch("ALTER TABLE sessions DROP COLUMN window_active; ALTER TABLE sessions DROP COLUMN show_home; PRAGMA user_version=2;")?;
+        tx.commit()?;
+        drop(db);
+        let mut db = open_at(directory.path())?;
+        assert_eq!(sessions::load(&db, "window")?, sessions);
+        let mut selected = sessions.clone();
+        selected.get_mut("window").unwrap()[0].window_active = true;
+        selected.get_mut("window").unwrap()[0].show_home = true;
+        let tx = db.transaction()?;
+        sessions::save(&tx, "window", &selected)?;
+        tx.commit()?;
+        assert_eq!(sessions::load(&db, "window")?, selected);
+        assert_eq!(
+            db.query_row(
+                "SELECT id FROM recent_workspaces ORDER BY position",
+                [],
+                |r| r.get::<_, String>(0)
+            )?,
+            "dev"
+        );
+        assert_eq!(
+            db.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))?,
+            "ok"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn legacy_migration_preserves_window_order_duplicate_roots_and_is_not_reimported() -> Result<()>
     {
         let directory = tempfile::tempdir()?;
@@ -142,6 +188,8 @@ mod tests {
             workspace_id: Some("one".into()),
             name: Some("研究".into()),
             window_group: Some("window".into()),
+            window_active: true,
+            show_home: true,
         };
         let windows = BTreeMap::from([
             (

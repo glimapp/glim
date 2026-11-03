@@ -72,7 +72,12 @@ impl WorkspaceWindow {
             workspace,
         });
         self.active = self.slots.len() - 1;
-        self.reveal_navigation();
+        if !cx
+            .try_global::<crate::app::workspace_sessions::SavedWorkspaces>()
+            .is_some_and(|saved| saved.restoring)
+        {
+            self.reveal_navigation();
+        }
         crate::app::register_workspace(&view, window.window_handle(), cx);
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
@@ -101,7 +106,26 @@ impl WorkspaceWindow {
             .view
             .update(cx, |view, cx| view.resume_workspace(window, cx));
         self.reveal_navigation();
+        self.remember_window(cx);
         cx.notify();
+    }
+
+    pub(crate) fn restore_selection(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(slot) = self.slots.get(index) else {
+            return;
+        };
+        let id = slot.workspace.id.clone();
+        let view = slot.view.clone();
+        let home = view.read(cx).is_home();
+        self.select(&id, window, cx);
+        if home {
+            view.update(cx, |view, cx| view.show_home(cx));
+        }
     }
 
     pub(crate) fn remember_window(&self, cx: &mut App) {
@@ -111,7 +135,8 @@ impl WorkspaceWindow {
         let sessions = self
             .slots
             .iter()
-            .map(|slot| {
+            .enumerate()
+            .map(|(index, slot)| {
                 let mut session = slot
                     .view
                     .read(cx)
@@ -131,6 +156,8 @@ impl WorkspaceWindow {
                     });
                 session.name = slot.workspace.name.clone().or(session.name);
                 session.window_group = Some(self.group.clone());
+                session.window_active = index == self.active;
+                session.show_home = slot.view.read(cx).is_home();
                 session
             })
             .collect();
@@ -242,7 +269,9 @@ impl WorkspaceWindow {
             .find(|slot| !slot.view.read(cx).quit_is_approved())
             .map(|slot| (slot.workspace.id.clone(), slot.view.clone()));
         if let Some((id, view)) = next {
-            self.select(&id, window, cx);
+            if view.read(cx).has_unsaved() || view.read(cx).is_saving() {
+                self.select(&id, window, cx);
+            }
             view.update(cx, |view, cx| {
                 view.confirm_workspace_window_close(window, cx)
             });

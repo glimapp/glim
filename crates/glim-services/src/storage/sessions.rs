@@ -18,7 +18,7 @@ pub(crate) fn save(
                 session.active.is_none_or(|i| i < session.tabs.len()),
                 "Invalid active session tab"
             );
-            db.execute("INSERT INTO sessions(scope,owner,position,workspace_id,name,window_group,active) VALUES(?1,?2,?3,?4,?5,?6,?7)", rusqlite::params![scope,owner,position as i64,session.workspace_id,session.name,session.window_group,session.active.map(|v| v as i64)])?;
+            db.execute("INSERT INTO sessions(scope,owner,position,workspace_id,name,window_group,active,window_active,show_home) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)", rusqlite::params![scope,owner,position as i64,session.workspace_id,session.name,session.window_group,session.active.map(|v| v as i64),session.window_active,session.show_home])?;
             let id = db.last_insert_rowid();
             for (position, path) in session.roots.iter().enumerate() {
                 db.execute(
@@ -52,7 +52,7 @@ pub(crate) fn load(
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut groups = BTreeMap::new();
     for owner in owners {
-        let mut statement = db.prepare("SELECT id,workspace_id,name,window_group,active FROM sessions WHERE scope=?1 AND owner=?2 ORDER BY position")?;
+        let mut statement = db.prepare("SELECT id,workspace_id,name,window_group,active,window_active,show_home FROM sessions WHERE scope=?1 AND owner=?2 ORDER BY position")?;
         let mut rows = statement.query((scope, &owner))?;
         let mut sessions = Vec::new();
         while let Some(row) = rows.next()? {
@@ -92,6 +92,8 @@ pub(crate) fn load(
                 workspace_id: row.get(1)?,
                 name: row.get(2)?,
                 window_group: row.get(3)?,
+                window_active: row.get(5)?,
+                show_home: row.get(6)?,
             });
         }
         groups.insert(owner, sessions);

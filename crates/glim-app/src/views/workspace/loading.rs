@@ -51,7 +51,6 @@ impl Workspace {
                                 crate::app::workspace_sessions::restore(recent.clone(), cx);
                             if !session.tabs.is_empty() {
                                 view.restore_update_session(session, window, cx);
-                                view.show_home(cx);
                                 return;
                             }
                             view.recent_id = recent.id;
@@ -77,11 +76,8 @@ impl Workspace {
                     Err(error) => errors.push(format!("{error:#}")),
                 }
                 view.loading = false;
-                if !view.roots.is_empty()
-                    && cx.try_global::<crate::app::RecentWorkspaces>().is_some()
-                {
-                    view.remember_current_workspace(cx);
-                }
+                view.sync_workspace(cx);
+                view.remember_session(cx);
                 view.load_incoming_file(window, cx);
                 if !errors.is_empty() {
                     view.error =

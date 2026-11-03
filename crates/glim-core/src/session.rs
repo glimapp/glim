@@ -19,4 +19,8 @@ pub struct WorkspaceSession {
     pub name: Option<String>,
     #[serde(default)]
     pub window_group: Option<String>,
+    #[serde(default)]
+    pub window_active: bool,
+    #[serde(default)]
+    pub show_home: bool,
 }

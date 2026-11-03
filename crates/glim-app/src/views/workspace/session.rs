@@ -49,6 +49,8 @@ impl Workspace {
             workspace_id: Some(self.recent_id.clone()),
             name: self.workspace_name.clone(),
             window_group: None,
+            window_active: false,
+            show_home: self.is_home(),
         }
     }
     pub(crate) fn update_session(&self, cx: &App) -> WorkspaceSession {
@@ -60,6 +62,10 @@ impl Workspace {
         {
             let host = host.read(cx);
             session.window_group = Some(host.group.clone());
+            session.window_active = host
+                .slots
+                .get(host.active)
+                .is_some_and(|slot| slot.workspace.id == self.recent_id);
             if session.name.is_none() {
                 session.name = host
                     .slots
@@ -107,7 +113,11 @@ impl Workspace {
             self.recent_id = id.clone();
         }
         self.workspace_name = session.name.clone();
-        self.page = super::Page::Document;
+        self.page = if session.show_home {
+            super::Page::Start
+        } else {
+            super::Page::Document
+        };
         self.loading = true;
         self.loading_preview = false;
         self.restoring_roots = Some(session.roots.clone());
@@ -182,11 +192,7 @@ impl Workspace {
             let _ = view.update_in(cx, |view, window, cx| {
                 view.loading = false;
                 view.restoring_roots = None;
-                if !view.roots.is_empty()
-                    && cx.try_global::<crate::app::RecentWorkspaces>().is_some()
-                {
-                    view.remember_current_workspace(cx);
-                }
+                view.sync_workspace(cx);
                 view.load_incoming_file(window, cx);
                 view.active = session
                     .active
@@ -198,6 +204,7 @@ impl Workspace {
                     view.watch_file_parent(window, cx);
                 }
                 view.record_history(cx);
+                view.remember_session(cx);
                 cx.notify();
             });
         }));

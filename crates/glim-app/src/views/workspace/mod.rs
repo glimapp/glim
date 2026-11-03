@@ -325,11 +325,16 @@ impl Workspace {
 }
 
 impl Workspace {
+    pub(crate) fn is_home(&self) -> bool {
+        self.page == Page::Start
+    }
+
     pub(crate) fn show_home(&mut self, cx: &mut Context<Self>) {
         self.page = Page::Start;
         if let Some(explorer) = &self.explorer {
             explorer.update(cx, |view, cx| view.clear_clicked_selection(cx));
         }
+        self.sync_workspace(cx);
         cx.notify();
     }
 }

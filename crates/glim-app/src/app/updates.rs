@@ -643,9 +643,7 @@ pub(crate) fn start_application(path: Option<PathBuf>, urls: Vec<String>, cx: &m
                 let mut restore_error = false;
                 let restored = match result {
                     Ok(Some(session)) if !session.workspaces.is_empty() => {
-                        for workspace in session.workspaces {
-                            super::open_home_workspace_with_session(workspace, cx);
-                        }
+                        super::workspace_sessions::restore_update_windows(session.workspaces, cx);
                         true
                     }
                     Ok(_) => false,
@@ -660,6 +658,8 @@ pub(crate) fn start_application(path: Option<PathBuf>, urls: Vec<String>, cx: &m
                     }
                 };
                 let restored_windows = super::workspace_sessions::restore_windows(cx);
+                cx.global_mut::<super::workspace_sessions::SavedWorkspaces>()
+                    .restoring = false;
                 if !urls.is_empty() {
                     super::open_system_files(urls, cx);
                 } else if let Some(path) = path {

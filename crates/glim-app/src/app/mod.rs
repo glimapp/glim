@@ -668,17 +668,19 @@ fn open_workspace_with_session(
     session: Option<glim_core::session::WorkspaceSession>,
     cx: &mut App,
 ) {
-    open_workspace_session(path, session, false, cx);
+    open_workspace_session(path, session, cx);
 }
 
-fn open_home_workspace_with_session(session: glim_core::session::WorkspaceSession, cx: &mut App) {
-    open_workspace_session(None, Some(session), true, cx);
+fn open_restored_workspace_with_session(
+    session: glim_core::session::WorkspaceSession,
+    cx: &mut App,
+) {
+    open_workspace_session(None, Some(session), cx);
 }
 
 fn open_workspace_session(
     path: Option<std::path::PathBuf>,
     session: Option<glim_core::session::WorkspaceSession>,
-    start_on_home: bool,
     cx: &mut App,
 ) {
     if let Some(group) = session
@@ -694,10 +696,7 @@ fn open_workspace_session(
             });
         if let Some((host, handle)) = existing {
             let _ = handle.update(cx, |_, window, cx| {
-                let view = host.update(cx, |host, cx| host.append(path, session, window, cx));
-                if start_on_home {
-                    view.update(cx, |view, cx| view.show_home(cx));
-                }
+                host.update(cx, |host, cx| host.append(path, session, window, cx));
             });
             return;
         }
@@ -710,9 +709,6 @@ fn open_workspace_session(
         let workspace = host.update(cx, |host, cx| host.append(path, session, window, cx));
         if restore {
             workspace.update(cx, |view, cx| view.restore_workspace(window, cx));
-        }
-        if start_on_home {
-            workspace.update(cx, |view, cx| view.show_home(cx));
         }
         host
     }) {
