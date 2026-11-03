@@ -510,7 +510,7 @@ impl TextViewState {
         // the exact content height. Larger replacements use the existing
         // background parser, bounding synchronous parser input on the UI thread.
         if parse_synchronously {
-            match parse_content(self.format, ParsedContent::default(), &update_options) {
+            match parse_content(self.format, self.parsed_content.clone(), &update_options) {
                 Ok(content) => {
                     self.reconcile_range_highlights(&content.document, self.revision, false);
                     self.stream_fade.record(
@@ -1131,6 +1131,13 @@ impl Render for TextViewState {
 pub(crate) struct ParsedContent {
     pub(crate) document: ParsedDocument,
     pub(crate) node_cx: node::NodeContext,
+    work: ParseWork,
+}
+
+#[derive(Clone, PartialEq, Default)]
+struct ParseWork {
+    bytes: usize,
+    reused_blocks: usize,
 }
 
 struct UpdateFuture {
@@ -1252,6 +1259,53 @@ fn parse_content(
         markdown_extensions: options.markdown_extensions.clone(),
         ..NodeContext::default()
     };
+    let mut parsed_bytes = 0;
+
+    if format == TextViewFormat::Markdown
+        && !options.append
+        && content
+            .node_cx
+            .markdown_extensions
+            .has_same_parser_configuration(&options.markdown_extensions)
+        && let Some(document) = format::markdown::edit::reparse(
+            &content.document,
+            &options.pending_text,
+            &mut node_cx,
+            &mut parsed_bytes,
+        )
+    {
+        content.work = ParseWork {
+            bytes: parsed_bytes,
+            reused_blocks: document.blocks.len().saturating_sub(1),
+        };
+        content.document = document;
+        content.node_cx.markdown_extensions = options.markdown_extensions.clone();
+        return Ok(content);
+    }
+    // Reference definitions change recognition of links anywhere in the source,
+    // including earlier streamed text. A fragment cannot resolve those links.
+    if format == TextViewFormat::Markdown
+        && options.append
+        && (content.document.source.contains("]:")
+            || options.pending_text.contains("]:")
+            || content.document.source.ends_with(']') && options.pending_text.starts_with(':'))
+    {
+        let source = format!("{}{}", content.document.source, options.pending_text);
+        return parse_content(
+            format,
+            ParsedContent::default(),
+            &UpdateOptions {
+                pending_text: source,
+                append: false,
+                ..options.clone()
+            },
+        );
+    }
+    // A rejected fragment may have advanced its context before falling back.
+    node_cx.offset = 0;
+    if options.append {
+        node_cx.link_refs = content.node_cx.link_refs.clone();
+    }
 
     // Re-parse the last block together with the appended text, so a block the
     // new text continues (an unclosed list, a fenced code block) is not split
@@ -1287,6 +1341,16 @@ fn parse_content(
         TextViewFormat::Html => format::html::parse(&source, &mut node_cx),
     }?;
 
+    content.work = ParseWork {
+        bytes: parsed_bytes + source.len(),
+        reused_blocks: if options.append {
+            content.document.blocks.len()
+        } else {
+            0
+        },
+    };
+    content.node_cx = node_cx;
+
     if options.append {
         content.document.source =
             format!("{}{}", content.document.source, options.pending_text).into();
@@ -1297,6 +1361,93 @@ fn parse_content(
     }
 
     Ok(content)
+}
+
+/// Parser-only measurement entry point; excluded from application builds.
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn measure_markdown_updates(
+    source: &str,
+    revisions: &[String],
+) -> Result<serde_json::Value, SharedString> {
+    // CodeBlock equality compares displayed code, but source selection also
+    // depends on these mappings. Check them separately outside timed work.
+    fn code_ranges(blocks: &[node::BlockNode]) -> Vec<&[node::SourceSegment]> {
+        let mut ranges = Vec::new();
+        for block in blocks {
+            match block {
+                node::BlockNode::CodeBlock(code) => ranges.push(code.source_segments.as_slice()),
+                node::BlockNode::Root { children, .. }
+                | node::BlockNode::Blockquote { children, .. }
+                | node::BlockNode::List { children, .. }
+                | node::BlockNode::ListItem { children, .. } => {
+                    ranges.extend(code_ranges(children))
+                }
+                _ => {}
+            }
+        }
+        ranges
+    }
+    let options = UpdateOptions {
+        revision: 1,
+        pending_text: source.to_owned(),
+        append: false,
+        mode: ParseMode::Replace,
+        markdown_extensions: Arc::default(),
+    };
+    let start = Instant::now();
+    let baseline = parse_content(TextViewFormat::Markdown, ParsedContent::default(), &options)?;
+    let initial = start.elapsed().as_micros();
+    let mut samples = Vec::with_capacity(revisions.len());
+    for (index, revision) in revisions.iter().enumerate() {
+        let options = UpdateOptions {
+            pending_text: revision.clone(),
+            ..options.clone()
+        };
+        let edit_options = match revision.strip_prefix(source).filter(|_| !source.is_empty()) {
+            Some(delta) => UpdateOptions {
+                pending_text: delta.to_owned(),
+                append: true,
+                ..options.clone()
+            },
+            None => options.clone(),
+        };
+        let full = || {
+            let start = Instant::now();
+            let result =
+                parse_content(TextViewFormat::Markdown, ParsedContent::default(), &options);
+            (result, start.elapsed().as_micros())
+        };
+        let edited = || {
+            let start = Instant::now();
+            let result = parse_content(TextViewFormat::Markdown, baseline.clone(), &edit_options);
+            (result, start.elapsed().as_micros())
+        };
+        // Alternate order so a warmed allocator/CPU does not favor one path.
+        let (before, after) = if index % 2 == 0 {
+            (full(), edited())
+        } else {
+            let after = edited();
+            (full(), after)
+        };
+        let (full, before_us) = (before.0?, before.1);
+        let (edited, after_us) = (after.0?, after.1);
+        if full.document != edited.document
+            || full.node_cx.link_refs != edited.node_cx.link_refs
+            || code_ranges(&full.document.blocks) != code_ranges(&edited.document.blocks)
+        {
+            return Err(format!("Replacement {index} differs from full parsing").into());
+        }
+        samples.push(serde_json::json!({
+            "full_us": before_us, "replacement_us": after_us,
+            "parsed_bytes": edited.work.bytes, "reused_blocks": edited.work.reused_blocks,
+            "kind": if edit_options.append { "append" } else { "replace" },
+        }));
+    }
+    Ok(serde_json::json!({
+        "source_bytes": source.len(), "blocks": baseline.document.blocks.len(),
+        "initial_parse_us": initial, "samples": samples,
+    }))
 }
 
 #[cfg(test)]

@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
+pub(crate) mod edit;
+
 use gpui::SharedString;
 use markdown::{
     ParseOptions,

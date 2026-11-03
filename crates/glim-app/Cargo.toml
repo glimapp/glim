@@ -10,6 +10,11 @@ repository.workspace = true
 name = "glim"
 path = "src/main.rs"
 
+[[bench]]
+name = "markdown_edit"
+path = "benches/markdown_edit.rs"
+harness = false
+
 [features]
 macos-updater = []
 

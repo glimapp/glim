@@ -46,10 +46,18 @@ UTF-8 editing uses pages, bounded streaming copies and atomic saving. XLSX/XLSM 
 
 Source size is not an admission limit. The [generated policy inventory](reader-limits.md) describes working buffers, paging and fallback effects. Library/platform constraints remain: ZIP central-directory allocation, SQLite expression evaluation, native conversion and some indexes can require preparation before the first readable view. Changing numeric policy requires `python3 scripts/generate-reader-limits.py --docs`.
 
+## Parser measurement
+
+Run `cargo bench -p glim-app --bench markdown_edit --locked` on macOS. The harness emits JSON to stdout; save measurements outside the repository with machine, toolchain and commit information. It uses the production TextView parse/update functions, comparing the full-parse baseline with block reuse in the same optimized binary and alternating execution order. Timed work includes baseline cloning, edit detection, parsing, source-span rebasing and result construction; request-string preparation and semantic comparison occur outside the interval. Results must match full parsing before a sample is reported.
+
+Fixtures contain 100, 1,000 and 5,000 paragraphs with Chinese, inline code and links. Head/middle/tail insertions and deletions repeat four times each. Smaller cases exercise lists, tables, fences, reference definitions, appends, indentation, blockquotes, Setext headings, CRLF and HTML boundaries. Output reports initial parse time, each update time, bytes sent to the parser (including old-fragment verification and rejected reuse attempts) and reused block counts. Whole-document references and structural changes intentionally use the baseline path. Reused blocks measure AST reuse, not image/diagram cache hits.
+
+This benchmark measures parser wall time, not first readable pixels, scrolling, typing latency, peak process memory or preview preparation. No UI window is opened. Remaining copies and block cloning scale with document size; large individual blocks and layout remeasurement need separate measurement. The test-support measurement entry point is excluded from ordinary application builds.
+
 ## Remaining engineering
 
 - Integrate the remaining native/framework working sets with shared byte admission and pressure reclamation. Current accounting and hidden-view release do not yet bound aggregate working memory across all active readers.
 - Add byte admission or adaptive decode quality if measured workloads exceed the working-memory target; preserve forward progress for a single large operation and protect unsaved state.
-- Markdown already reparses the last block for appended input. Ordinary edit replacements can still parse the entire document, and a large individual block can cost substantial layout time. Parser changes require semantic equivalence for references, lists, fences and source ranges.
+- Extend Markdown's block reuse beyond safe single-line prose edits when measurements justify it. Structural edits, global references and opaque custom-node source ranges still require full parsing; a large individual block can cost substantial layout time. Preserve references, lists, fences and source mappings when expanding reuse.
 - Persistent caches need version invalidation, disk reclamation and privacy cleanup before adoption.
 - Measure first readable content, complete first viewport, scroll/input stalls and cache hits separately from preparation queue/worker duration. Runtime regressions and macOS/Intel interactions require actual execution; compilation cannot establish them.

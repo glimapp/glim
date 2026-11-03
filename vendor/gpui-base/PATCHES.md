@@ -12,4 +12,6 @@ Additional presentation patches in the current source:
 - `src/text/text_view.rs` exposes the installed default style so Glim can override only table sizing and end spacing.
 - `src/text/node.rs` applies authored image height alongside width; automatic-height measurement is handled by the companion gpui-pre patch.
 
-The complete modified Rust-file set is `style.rs`, `document.rs`, `text_view.rs`, `state.rs` and `node.rs` under `src/text/`. Keep these local APIs and behaviors when upgrading; the version number alone does not establish compatibility.
+`src/text/format/markdown/edit.rs` adds replacement-block reuse for safe single-line prose edits, preserving UTF-8 boundaries and rebasing source spans. It verifies the old fragment before reuse and falls back for structural/global-reference changes and opaque custom-node ranges. `state.rs` integrates this into synchronous and background replacements, retains reference context, and reparses complete sources when appended definitions can change earlier links. Its test-support-only measurement entry point drives Glim's `markdown_edit` benchmark; it adds no runtime plugin interface.
+
+Keep the local APIs and behaviors in the text state, node, style, document, text-view and Markdown parser modules when upgrading; the version number alone does not establish compatibility.
