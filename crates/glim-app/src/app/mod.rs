@@ -323,6 +323,8 @@ fn show_about(cx: &mut App) {
 }
 
 pub fn run() -> Result<()> {
+    #[cfg(feature = "reader-measurements")]
+    let startup = reader_measurement::StartupMeasurement::start();
     glim_services::diagnostics::initialize()?;
     let mut arguments = std::env::args_os().skip(1);
     let path = arguments.next();
@@ -380,6 +382,10 @@ pub fn run() -> Result<()> {
         }
     });
     application.run(move |cx| {
+        #[cfg(feature = "reader-measurements")]
+        if let Some(startup) = startup {
+            startup.observe(cx);
+        }
         gpui_kit::init(cx);
         finder_integration::init(cx);
         telemetry::initialize(cx);

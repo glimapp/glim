@@ -72,6 +72,8 @@ UTF-8 编辑采用分页、固定缓冲流式复制和原子保存。XLSX／XLSM
 
 ## 源码交互测量
 
+同一个测量构建也可以观察正常工作区启动：设置 `GLIM_MEASURE_STARTUP=1` 启动应用，从标准输出读取 `workspace-startup` JSON。`to_first_frame_submission_ms` 覆盖应用入口到 GPUI 首帧提交，包括正常偏好加载和工作区恢复任务调度。它不包含进入应用前的进程加载和显示器扫描输出，也不表示所有目录或阅读器已完成加载；测量沿用已有用户状态。观察器在首帧提交后或 30 秒后停止，普通构建不包含该入口。
+
 `reader-measurements` 是显式启用的测量 feature，转发 GPUI 已有的 profiler；普通应用构建不包含测量入口。用原生 Cargo 执行 `cargo build -p glim-app --release --features reader-measurements --locked`，保留各版本二进制，再运行 `python3 scripts/measure-source-reader.py --binary /path/to/candidate --baseline-binary /path/to/baseline --output /outside/repository/source-reader.json`。脚本生成含中文的固定纯文本夹具，默认覆盖 1,000／10,000／50,000 行，每组重复三次并交替版本顺序；报告保存二进制和夹具摘要、机器信息、原始样本与中位数／p95。构建工具链和对应源码版本需与报告一同保留。OS 文件缓存未清空，因此不代表冷磁盘打开。
 
 入口创建隔离的真实 GPUI 窗口，使用生产文档任务、`Reader`、编辑器和缩略图；不初始化工作空间、会话恢复、自动保存和统计上传。打开计时从提交文档任务开始，分别记录排队加读取、构造，以及生产源码子树绘制结束后的首个可读视口；测量用于核对正文的额外快照复制也单列耗时。只有编辑器存在有效文字边界与可见行、该内容绘制匹配 GPUI 的 Draw／Present 事件时才记录帧。普通源码在同次同步布局中完成可见行，首段可读与首屏可读共用同一样本；异步预览须另建内容就绪判定。

@@ -1,4 +1,4 @@
-//! Opt-in real-window measurements. No workspace, persistence or telemetry startup.
+//! Opt-in real-window measurements; the source harness bypasses workspace startup.
 use crate::views::Reader;
 use anyhow::{Context as _, Result, bail, ensure};
 use gpui_kit::{
@@ -17,6 +17,57 @@ use std::{
 
 struct Driver(Option<Task<()>>);
 impl Global for Driver {}
+
+pub(crate) struct StartupMeasurement {
+    started: Instant,
+    collector: FrameTimingCollector,
+}
+
+struct StartupDriver {
+    _task: Task<()>,
+}
+impl Global for StartupDriver {}
+
+impl StartupMeasurement {
+    pub(crate) fn start() -> Option<Self> {
+        if std::env::var_os("GLIM_MEASURE_STARTUP").as_deref() != Some(std::ffi::OsStr::new("1")) {
+            return None;
+        }
+        let started = Instant::now();
+        profiler::set_trace_enabled(true);
+        Some(Self {
+            started,
+            collector: FrameTimingCollector::new(),
+        })
+    }
+
+    pub(crate) fn observe(mut self, cx: &mut App) {
+        let task = cx.spawn(async move |cx| {
+            loop {
+                for event in self.collector.collect_unseen() {
+                    if let FrameEvent::Present(frame) = event {
+                        println!(
+                            "{}",
+                            json!({
+                                "measurement": "workspace-startup",
+                                "to_first_frame_submission_ms": ms(frame.present_end.duration_since(self.started)),
+                            })
+                        );
+                        profiler::set_trace_enabled(false);
+                        return;
+                    }
+                }
+                if self.started.elapsed() >= Duration::from_secs(30) {
+                    eprintln!("workspace-startup: no frame submitted within 30 seconds");
+                    profiler::set_trace_enabled(false);
+                    return;
+                }
+                cx.background_executor().timer(Duration::from_millis(4)).await;
+            }
+        });
+        cx.set_global(StartupDriver { _task: task });
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Paint {

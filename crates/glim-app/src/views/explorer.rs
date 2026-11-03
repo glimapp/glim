@@ -547,6 +547,7 @@ impl Explorer {
             }
         }
         self.rebuild();
+        self.load_expanded(cx);
         if changed {
             self.expansion_changed(cx);
         }
@@ -741,6 +742,7 @@ impl Explorer {
             self.expansion_changed(cx);
         }
         self.rebuild();
+        self.load_expanded(cx);
         cx.notify();
     }
 
@@ -1637,6 +1639,57 @@ mod interaction_tests {
         view.expanded[0].insert(root);
         view.rebuild();
         view
+    }
+
+    #[gpui_kit::test]
+    fn reopening_cached_ancestors_restores_unloaded_expanded_descendants(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_path_buf();
+        let child = root.join("child");
+        let nested = child.join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        let file = nested.join("file.txt");
+        std::fs::write(&file, "contents").unwrap();
+        let entries = glim_services::workspace::list_directory_cancellable(
+            &root,
+            &glim_services::work::Cancellation::default(),
+        )
+        .unwrap();
+        let (handle, view) = cx.update(|cx| {
+            gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| {
+                cx.new(|cx| Explorer::new(root.clone(), entries, cx))
+            })
+            .unwrap()
+        });
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, cx| {
+                view.restore_expanded(
+                    std::collections::BTreeMap::from([(
+                        root.clone(),
+                        vec![child.clone(), nested.clone()],
+                    )]),
+                    cx,
+                );
+                assert!(view.tasks.is_empty());
+                assert_eq!(view.rows.len(), 1);
+                view.activate(0, window, cx);
+                assert!(view.tasks.contains_key(&child));
+            });
+        })
+        .unwrap();
+        for _ in 0..4 {
+            cx.run_until_parked();
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(20));
+        }
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let view = view.read(cx);
+            assert_eq!(view.rows.len(), 4);
+            assert!(view.rows.iter().any(|row| row.entry.path == file));
+            assert!(view.tasks.is_empty());
+        });
     }
 
     #[gpui_kit::test]
