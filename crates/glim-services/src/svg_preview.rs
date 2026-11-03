@@ -169,17 +169,19 @@ pub(crate) fn dimensions(path: &Path, cancel: &Cancellation) -> Result<Option<(f
 pub(crate) fn prepare_thumbnail(
     path: &Path,
     size: (f64, f64),
+    max_edge: u32,
     cancel: &Cancellation,
 ) -> Result<tempfile::NamedTempFile> {
     let prepared = prepare_image(path, cancel, false)?;
     let mut output = tempfile::Builder::new().suffix(".svg").tempfile()?;
     let mut writer = BufWriter::new(output.as_file_mut());
     let side = size.0.max(size.1);
-    // Quick Look fits a square viewport reliably. The caller crops its unused
-    // bottom/right region after rendering, keeping the nested SVG's coordinates.
+    // Quick Look pads small physical viewports before scaling their thumbnail.
+    // Normalize the viewport to the preview edge and retain source coordinates
+    // in the viewBox, so small images fill their requested thumbnail too.
     write!(
         writer,
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{side}\" height=\"{side}\" viewBox=\"0 0 {side} {side}\">"
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{max_edge}\" height=\"{max_edge}\" viewBox=\"0 0 {side} {side}\">"
     )?;
     cancel.copy(prepared.reopen()?, &mut writer)?;
     writer.write_all(b"</svg>")?;

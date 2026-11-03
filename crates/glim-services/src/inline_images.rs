@@ -74,7 +74,7 @@ pub(crate) fn thumbnail_png_cancellable(
         None
     };
     if let Some(size) = svg_size {
-        let svg = crate::svg_preview::prepare_thumbnail(path, size, cancel)?;
+        let svg = crate::svg_preview::prepare_thumbnail(path, size, max_edge, cancel)?;
         let side = size.0.max(size.1);
         let edge = side.ceil().clamp(1., f64::from(max_edge)) as u32;
         let mut command = Command::new("/usr/bin/qlmanage");
