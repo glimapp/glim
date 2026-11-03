@@ -4,7 +4,7 @@ use crate::limits as reader_limits;
 use anyhow::{Context, Result, ensure};
 use markdown::{ParseOptions, mdast::Node};
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     process::{Command, Stdio},
     sync::{
         Arc, Mutex, OnceLock,
@@ -282,53 +282,38 @@ pub struct DiagramImage {
     pub height: u32,
     pub baseline: f32,
 }
-// Compressed results are reusable within this process. Source, engine kind and
-// raster edge form the key; eviction bounds cache memory independently of files.
-type CachedDiagram = (Diagram, u32, crate::resources::CachedResource<DiagramImage>);
-static IMAGE_CACHE: Mutex<VecDeque<CachedDiagram>> = Mutex::new(VecDeque::new());
+pub mod cache;
+static IMAGE_CACHE: OnceLock<Mutex<cache::ImageCache>> = OnceLock::new();
+fn image_cache() -> &'static Mutex<cache::ImageCache> {
+    IMAGE_CACHE.get_or_init(|| {
+        Mutex::new(cache::ImageCache::new(
+            crate::resources::pool().clone(),
+            reader_limits::IO_CACHE_BYTES,
+        ))
+    })
+}
+
+pub fn cache_activity() -> crate::resources::CacheActivitySnapshot {
+    image_cache()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .activity()
+}
+
 fn cached_image(
     diagram: &Diagram,
     edge: u32,
 ) -> Option<Arc<crate::resources::ResourceValue<DiagramImage>>> {
-    let mut cache = IMAGE_CACHE.lock().ok()?;
-    cache.retain(|(_, _, image)| image.is_resident());
-    let index = cache
-        .iter()
-        .position(|(key, size, _)| key == diagram && *size == edge)?;
-    let entry = cache.remove(index)?;
-    let image = entry.2.get(crate::resources::Retention::Background);
-    cache.push_back(entry);
-    image
+    image_cache()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .lookup(diagram, edge)
 }
 fn remember_image(diagram: &Diagram, edge: u32, image: &DiagramImage) {
-    let bytes = diagram
-        .source
-        .len()
-        .saturating_add(diagram.kind.len())
-        .saturating_add(image.png.len())
-        .saturating_add(std::mem::size_of::<CachedDiagram>()) as u64;
-    if bytes > reader_limits::IO_CACHE_BYTES {
-        return;
-    }
-    let Ok(mut cache) = IMAGE_CACHE.lock() else {
-        return;
-    };
-    cache.retain(|(key, size, image)| image.is_resident() && (key != diagram || *size != edge));
-    let mut used: u64 = cache.iter().map(|(_, _, image)| image.bytes()).sum();
-    while used.saturating_add(bytes) > reader_limits::IO_CACHE_BYTES {
-        let Some((_, _, image)) = cache.pop_front() else {
-            break;
-        };
-        used = used.saturating_sub(image.bytes());
-    }
-    let image = crate::resources::pool().cache(
-        image.clone(),
-        bytes,
-        crate::resources::Retention::Background,
-    );
-    if image.is_resident() {
-        cache.push_back((diagram.clone(), edge, image));
-    }
+    image_cache()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remember(diagram, edge, image);
 }
 
 /// Common LaTeX display delimiters are escaped punctuation to the GFM parser.

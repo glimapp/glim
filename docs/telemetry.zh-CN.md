@@ -75,6 +75,8 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 
 `scope=main_process`、`includes_helpers=false`：不包含 WebKit 服务、渲染助手或转换子进程的独立内存。`gpu_counter_scope=metal_device_allocations`、`gpu_total_vram_available=false`：Metal 数值不是整机显存、独占显存、完整 GPU 驻留量或 GPU 使用率；API 返回零也不能证明没有 GPU 资源。不能将它与 RAM 相加。资源样本关联活动格式，但其他标签和缓存也占资源，不能宣称是该格式独自消耗的内存。缺失指标用可用性字段区分，不伪造零。
 
+`resource_sample` 另含区间计数 `diagram_image_cache_hits/misses`、`diagram_view_cache_hits/misses/pending` 和区间长度 `diagram_cache_interval_ms`。每层只统计消费者查找，排除发布和驻留检查；等待中的请求已经排队，不加入命中率分母，缓存错误预览的复用也算驻留命中。这些字段不依赖系统内存查询是否可用。采样重新开始时重置基线，不补发关闭统计或没有工作空间期间的查找。参见[缓存统计口径](reader-resources.zh-CN.md#图表缓存与命中率)。
+
 ### 滚动与快捷键
 
 `reader_scroll` 汇总一次连续滚动，约 700 毫秒无输入结束，最长连续段约 10 秒；记录输入事件数、持续毫秒和横纵位移。GPUI 记录 points、lines×100、正负方向事件数；原生记录 delta×100 与明确的 `delta_unit`。这是滚轮/触控板输入，不能等同于内容实际移动、滚动深度或读完比例；到达边界仍可能收到输入。GPUI 由已有文档捕获路径收集，原生复用现有 `ReaderContextMenu` 路由，重叠原生路由按事件对象去重；不改变滚动行为。原生段只保证存活期间定时刷新，强退可能丢失尾段。原生页面的方向仅保留横纵绝对位移，GPUI 另有正负方向计数。两套捕获能力不同，不能把原始位移数值直接混算。
@@ -85,7 +87,7 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 
 ### 格式操作明细
 
-| 阅读器 | 新增明细 |
+| 阅读器 | 操作明细 |
 | --- | --- |
 | CSV/Geo 表格 | 上/下行页、上/下列页、单元格详情、行列偏移、分页格式类别、加载结果与耗时 |
 | SQLite | 首/末/上/下页、输入跳页、全局/列筛选是否启用、排序方向、表切换、单元格详情、查询超时扩展；打开、列元数据、计数、分页和单元格读取分别计结果与耗时 |
@@ -118,9 +120,9 @@ python3 scripts/telemetry-detail-report.py events.json --output-dir report
 
 两个报表脚本支持 ClickHouse JSONEachRow/CSV 的 string_props、numeric_props、os_version、app_version 列，以及 .jsonl.gz 流式读取。用 --app-id 选择生产应用，避免混入其他产品和 DEBUG；用 --exclude-installations-file 读取本地 UTF-8 安装 ID 清单（每行一个，允许 # 注释），也可重复传 --exclude-installation-id。个人 ID 清单放在仓库之外；缺少身份的事件保持未归属。
 
-格式报表增加成功打开安装数、在导出范围内跨 UTC+8 自然日成功打开的安装数，以及源码回退次数。跨日观察不等于 cohort 留存率。详细报表新增 activity.csv，按安装与 UTC+8 日期统计打开次数、成功次数、有打开的会话数和文档前台片段秒数；resource-peaks.csv 保留每个安装各指标峰值对应的时间、版本、格式和窗口/标签数。Aptabase 会话时长含后台驻留，总事件量含大量资源采样，不用它们替代有效使用；前台片段仍包含空闲，不能证明阅读完成。
+格式报表统计成功打开安装数、在导出范围内跨 UTC+8 自然日成功打开的安装数，以及源码回退次数。跨日观察不等于 cohort 留存率。详细报表生成 activity.csv，按安装与 UTC+8 日期统计打开次数、成功次数、有打开的会话数和文档前台片段秒数；resource-peaks.csv 保留每个安装各指标峰值对应的时间、版本、格式和窗口/标签数。Aptabase 会话时长含后台驻留，总事件量含大量资源采样，不用它们替代有效使用；前台片段仍包含空闲，不能证明阅读完成。
 
-XMind 解析或工作预算失败但源码分页成功时上报 reader_fallback，固定 reason 区分 container/content_entry/decompression/json/xml/structure/unknown，preview_budget 标识工作预算回退。file_open 成功不保证思维导图渲染成功，需同时查看回退事件。operation_failed 新增 reader_stage 并纳入错误签名，均不上传文档或错误原文。telemetry_health 补齐可用的安装 ID、schema、架构、系统构建和独立序号；error_repeated 聚合使用新序号。历史缺失 ID 无法由本次更新补回。
+XMind 解析或工作预算失败但源码分页成功时上报 reader_fallback，固定 reason 区分 container/content_entry/decompression/json/xml/structure/unknown，preview_budget 标识工作预算回退。file_open 成功不保证思维导图渲染成功，需同时查看回退事件。operation_failed 包含 reader_stage 并纳入错误签名，均不上传文档或错误原文。telemetry_health 包含可用的安装 ID、schema、架构、系统构建和独立序号；error_repeated 聚合使用新序号。历史缺失 ID 无法补算。
 
 `process_session_id` 在 Aptabase 满 24 小时轮换 `sessionId` 后仍保留本次启用遥测的会话标识，`session_uptime_s` 记录事件采集时的单调运行时长；遥测重启或关闭后重新开启都会重置。它们用于关联同一进程的持续使用，不能代表人数或证明主动回访。`foreground_segment` 和当前阅读器上下文增加 `untitled`，区分草稿与文件阅读。统计有效使用安装时需包含草稿创建、编辑与保存，仅依赖成功 `file_open` 会漏掉纯记事本使用。
 

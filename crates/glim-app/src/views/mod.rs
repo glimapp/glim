@@ -35,6 +35,7 @@ fn selection_background(cx: &gpui_kit::App) -> gpui_kit::Hsla {
         .opacity(1.)
 }
 
+pub(crate) use reader::diagram_cache_activity;
 pub(crate) use reader::resource_snapshot;
 
 pub(crate) use reader::set_native_telemetry_enabled;

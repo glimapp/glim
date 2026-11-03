@@ -15,7 +15,7 @@ Glim 帮助你在 Mac 上查看工作、学习和项目中的各种文件，也�
 | 某个格式具体支持什么？ | [格式与兼容范围](file-format-support.zh-CN.md) |
 | 如何更新、重启后恢复什么？ | [更新与恢复](updates.zh-CN.md) |
 | 文件会上传吗、哪些内容会联网？ | [隐私与联网](privacy.zh-CN.md) |
-| 哪些地方还在完善？ | [当前能力与待完善事项](TODO.zh-CN.md) |
+| 哪些地方还在完善？ | [待办与验收缺口](TODO.zh-CN.md) |
 | 使用辅助功能或遇到安全问题？ | [可访问性](../ACCESSIBILITY.md#中文说明) · [私密漏洞报告](../SECURITY.md#中文说明) |
 
 ## 参与项目与维护
@@ -25,12 +25,14 @@ Glim 帮助你在 Mac 上查看工作、学习和项目中的各种文件，也�
 | 维护资料 | 内容 |
 | --- | --- |
 | [架构](architecture.zh-CN.md) | 模块、工作空间、文件加载与各阅读器 |
-| [阅读器模块契约](reader-modules.zh-CN.md) | 扩展入口、状态归属、任务准入与待完善边界 |
+| [阅读器模块契约](reader-modules.zh-CN.md) | 扩展入口、状态归属与依赖规则 |
 | [构建与发布](releasing.zh-CN.md) | 工具链、打包、签名和双架构发行 |
 | [更新实现](auto-update-design.zh-CN.md) | 更新信任链、安装保护与恢复机制 |
 | [统计技术说明](telemetry.zh-CN.md) | 事件、指标及分析边界 |
 | [阅读器策略清单](reader-limits.zh-CN.md) | 自动生成的分页和资源预算参考 |
-| [资源与渲染](reader-resources.zh-CN.md) | 资源记账、缓存淘汰、视口调度与未完成覆盖 |
+| [资源与渲染](reader-resources.zh-CN.md) | 资源所有权、准入、回收、测量方法与覆盖边界 |
 | [格式能力目录](format-catalog.zh-CN.md) | 生成的格式、图标和系统关联声明 |
 
 文档对应当前源码；已发布版本的能力以 [Release 更新说明](https://github.com/glimapp/glim/releases)为准。
+
+维护约定：待办及验收缺口集中在 `TODO.zh-CN.md`；架构、契约和策略文档描述当前设计与已落实行为。性能原始报告、会话记录和临时验证产物保存在仓库外；发布变更写入 GitHub Releases。

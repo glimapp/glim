@@ -6,6 +6,7 @@ mod contract;
 mod controls;
 mod csv;
 mod diagrams;
+pub(crate) use diagrams::cache_activity as diagram_cache_activity;
 mod editing;
 mod json;
 mod json_format;

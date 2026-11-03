@@ -37,6 +37,8 @@ scripts/              打包、签名、更新清单与专项原生检查
 
 显式启用 `reader-measurements` 时，`app/reader_measurement` 在隔离窗口中装配生产 `Reader` 并测量源码首个可读视口、输入及滚动。观测包装只存在于测量构建，不改变生产阅读器接口或引入服务层 UI 依赖；时间戳复用 GPUI profiler，并匹配实际源码子树绘制。可重复运行方式及测量范围见[资源与渲染](reader-resources.zh-CN.md#源码交互测量)。
 
+`services/markdown_preview/cache` 通过注入的资源池与预算管理 PNG 复用。服务层与展示层在消费者查找入口分别计数，发布和等待中的准备不算命中。参见[缓存语义与测量](reader-resources.zh-CN.md#图表缓存与命中率)。
+
 ### 本地依赖补丁
 
 `vendor/gpui-base` 和 `vendor/gpui-pre` 保留固定上游版本的最小已修改源码集及所需库文件；补丁用途见各目录的 `PATCHES.md`／`GLIM-PATCH.md`。当前扩展包括文件绘制异常恢复、可见列表测量、任务复选框回写、图片尺寸和阅读末尾间距。删除 path patch 前必须确认替代依赖提供应用正在调用的接口及等价行为。固定 Git 提交的补丁仓库可以替代本地副本，但会增加独立仓库维护与构建获取依赖；未经必要性论证不另建这套流程。

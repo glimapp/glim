@@ -80,10 +80,14 @@ Input uses GPUI keystroke dispatch and simulated text input, alternating inserti
 
 Edit sessions compare the borrowed Rope with the saved baseline and read its byte length directly for accounting. Change notifications and save acknowledgements no longer materialize full strings for these operations. Different lengths immediately establish a change; equal lengths still compare content chunk by chunk. Source minimaps build their required string directly from the Rope, removing the intermediate `value()` copy. This remaining copy and complete minimap geometry reconstruction still scale with document size.
 
-## Remaining engineering
+## Diagram caches and hit rates
 
-- Integrate the remaining native/framework working sets with shared byte admission and pressure reclamation. Current accounting and hidden-view release do not yet bound aggregate working memory across all active readers.
-- Add byte admission or adaptive decode quality if measured workloads exceed the working-memory target; preserve forward progress for a single large operation and protect unsaved state.
-- Extend Markdown's block reuse beyond safe single-line prose edits when measurements justify it. Structural edits, global references and opaque custom-node source ranges still require full parsing; a large individual block can cost substantial layout time. Preserve references, lists, fences and source mappings when expanding reuse.
-- Persistent caches need version invalidation, disk reclamation and privacy cleanup before adoption.
-- Source windows have a first-readable-viewport and input/scroll measurement entry point. Workspace coordination, paging, asynchronous previews and native readers still need coverage, along with cache hits and before/after comparisons for each path. Runtime regressions and macOS/Intel interactions require actual execution; compilation cannot establish them.
+`services/markdown_preview/cache::ImageCache` owns prepared PNG reuse independently, accepting the shared resource pool and local cache budget. Production access retains a process-wide mutex. Keys include engine kind, full source and raster edge. After shared reclamation, the next lookup removes expired entries and the normal preparation path reconstructs them. Live display consumers pin their resources until release.
+
+`CacheActivity` counts hits, misses and pending requests at consumer lookup boundaries. Service image and view preview caches have separate counters; a previously absent key counts as a miss. Publication, pinning, residency peeks and trimming are excluded. A pending preview has already queued preparation and is excluded from the hit-rate denominator; reusing a cached error is still a resident hit. A resident service hit may exceed the current batch's remaining allowance, so it is not a count of rendering avoided.
+
+Local counters accumulate within the process and retain neither text nor cache keys. The existing consent-controlled `resource_sample` exports interval deltas only. Enabling or restarting sampling establishes a new baseline without backfilling disabled periods. Calculate each layer's hit rate as `hits / (hits + misses)`; leave the rate absent when no lookups occurred. The two layers have different denominators and must not be combined into one rate.
+
+Run `cargo bench -p glim-services --bench diagram_cache --locked` to compare a prepared PNG miss plus publication with resident lookup, checking key isolation, pinning, shared pressure reclamation, reconstruction and full release. PNG encoding and content comparisons are outside timing. This excludes diagram engines, WebViews, UI frames and process peak memory. Keep raw samples and environment/source provenance outside the repository.
+
+Remaining engineering is maintained in the [architecture and performance backlog](TODO.md#architecture-and-performance-backlog). The mechanisms and coverage limits above describe current behavior; partial accounting or local measurements do not establish overall completion.

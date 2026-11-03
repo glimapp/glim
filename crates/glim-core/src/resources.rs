@@ -1,6 +1,8 @@
 //! Shared accounting and reclamation for owned buffers, independent of UI and I/O.
+mod cache_activity;
 mod rows;
 mod text;
+pub use cache_activity::{CacheActivity, CacheActivitySnapshot, CacheLookup};
 pub use rows::{TextRows, TextRowsBuilder};
 use std::{
     collections::HashMap,

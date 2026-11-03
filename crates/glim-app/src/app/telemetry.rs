@@ -128,6 +128,9 @@ pub(crate) fn refresh_resource_sampling(cx: &mut App) {
 fn start_resource_sampling(cx: &mut App) {
     use glim_services::telemetry::{flag, number, text, track};
     let mut initial = !cx.global::<Telemetry>().profiled;
+    let mut previous_images = glim_services::markdown_preview::cache_activity();
+    let mut previous_previews = crate::views::diagram_cache_activity();
+    let mut cache_sampled = std::time::Instant::now();
     let task = cx.spawn(async move |cx| {
         let mut previous: Option<(std::time::Instant, u64)> = None;
         loop {
@@ -136,7 +139,33 @@ fn start_resource_sampling(cx: &mut App) {
                 .spawn(async { crate::views::resource_snapshot() })
                 .await;
             let now = std::time::Instant::now();
+            let images = glim_services::markdown_preview::cache_activity();
+            let previews = crate::views::diagram_cache_activity();
             let mut props = vec![
+                (
+                    "diagram_image_cache_hits",
+                    number(images.hits.saturating_sub(previous_images.hits)),
+                ),
+                (
+                    "diagram_image_cache_misses",
+                    number(images.misses.saturating_sub(previous_images.misses)),
+                ),
+                (
+                    "diagram_view_cache_hits",
+                    number(previews.hits.saturating_sub(previous_previews.hits)),
+                ),
+                (
+                    "diagram_view_cache_misses",
+                    number(previews.misses.saturating_sub(previous_previews.misses)),
+                ),
+                (
+                    "diagram_view_cache_pending",
+                    number(previews.pending.saturating_sub(previous_previews.pending)),
+                ),
+                (
+                    "diagram_cache_interval_ms",
+                    number(now.duration_since(cache_sampled).as_millis() as u64),
+                ),
                 ("scope", text("main_process")),
                 ("includes_helpers", flag(false)),
                 ("memory_available", flag(available & 1 != 0)),
@@ -156,6 +185,9 @@ fn start_resource_sampling(cx: &mut App) {
                 ),
                 ("low_power_available", flag(available & 8 != 0)),
             ];
+            previous_images = images;
+            previous_previews = previews;
+            cache_sampled = now;
             if available & 1 != 0 {
                 let readers = glim_services::resources::pool().snapshot();
                 props.extend([
