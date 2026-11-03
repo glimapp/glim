@@ -52,16 +52,19 @@ impl Changes {
         if self.affects(path) {
             return true;
         }
-        let canonical = path.canonicalize().or_else(|_| {
-            let parent = path
-                .parent()
-                .ok_or_else(|| std::io::Error::other("Missing parent"))?;
-            Ok::<_, std::io::Error>(
-                parent
-                    .canonicalize()?
-                    .join(path.file_name().unwrap_or_default()),
-            )
-        });
+        fn canonicalize_file(path: &Path) -> std::io::Result<PathBuf> {
+            path.canonicalize().or_else(|_| {
+                let parent = path
+                    .parent()
+                    .ok_or_else(|| std::io::Error::other("Missing parent"))?;
+                Ok::<_, std::io::Error>(
+                    parent
+                        .canonicalize()?
+                        .join(path.file_name().unwrap_or_default()),
+                )
+            })
+        }
+        let canonical = canonicalize_file(path);
         let Ok(canonical) = canonical else {
             return true;
         };
@@ -69,7 +72,7 @@ impl Changes {
             return true;
         }
         self.paths.iter().any(|changed| {
-            changed.canonicalize().is_ok_and(|changed| {
+            canonicalize_file(changed).is_ok_and(|changed| {
                 canonical.starts_with(&changed) || changed.starts_with(&canonical)
             })
         })
