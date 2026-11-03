@@ -4,5 +4,10 @@ use std::sync::OnceLock;
 
 pub fn pool() -> &'static ResourcePool {
     static POOL: OnceLock<ResourcePool> = OnceLock::new();
-    POOL.get_or_init(|| ResourcePool::new(crate::limits::RESOURCES_CACHE_BYTES))
+    POOL.get_or_init(|| {
+        ResourcePool::with_budgets(
+            crate::limits::RESOURCES_CACHE_BYTES,
+            crate::limits::RESOURCES_WORKING_BYTES,
+        )
+    })
 }

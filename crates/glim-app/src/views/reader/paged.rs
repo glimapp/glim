@@ -24,8 +24,6 @@ pub(super) struct PagedReader {
     revision: u64,
     _source_owner: Option<glim_services::work::CancelOnDrop>,
     report_source: Option<PageSource>,
-    rows: Vec<Range<usize>>,
-    widest_row: Option<usize>,
     previous: Vec<u64>,
     task: Option<Task<()>>,
     error: Option<String>,
@@ -54,11 +52,13 @@ impl PagedReader {
         view
     }
     fn with_editor(mut page: TextPage, source_editor: Option<super::source::SourceReader>) -> Self {
-        let rows = rows(&page.text);
-        let widest_row = widest_row(&page.text, &rows);
-        let reader = Self {
-            memory: glim_services::resources::pool()
-                .track(0, glim_core::resources::ResourceClass::Working),
+        let memory_class = if source_editor.is_some() {
+            glim_core::resources::ResourceClass::State
+        } else {
+            glim_core::resources::ResourceClass::Working
+        };
+        let mut reader = Self {
+            memory: glim_services::resources::pool().track(0, memory_class),
             suspended: false,
             expanded: page.end.saturating_sub(page.start) > glim_services::paged::PAGE_BYTES,
             resume_scroll: point(px(0.), px(0.)),
@@ -68,10 +68,8 @@ impl PagedReader {
             return_to_preview: None,
             saving: std::rc::Rc::new(std::cell::Cell::new(false)),
             report_source: page.source.is_generated().then(|| page.source.clone()),
-            widest_row,
             page,
             revision: 0,
-            rows,
             previous: Vec::new(),
             task: None,
             error: None,
@@ -80,24 +78,31 @@ impl PagedReader {
         reader.account();
         reader
     }
-    fn account(&self) {
-        self.memory.resize(
-            (self.page.text.capacity() + self.rows.capacity() * std::mem::size_of::<Range<usize>>())
-                as u64,
-        );
+    fn account(&mut self) {
+        if self.source_editor.is_some() {
+            self.page.memory = None;
+        }
+        self.memory.resize(if self.page.memory.is_some() {
+            0
+        } else {
+            (self.page.text.capacity()
+                + self.page.rows.capacity() * std::mem::size_of::<Range<usize>>())
+                as u64
+        });
     }
     pub fn suspend(&mut self) {
         if self.source_editor.is_some() || self.suspended {
             return;
         }
-        if !self.rows.is_empty() {
+        if !self.page.rows.is_empty() {
             self.resume_scroll = self.scroll.0.borrow().base_handle.offset();
         }
         self.task = None;
         self.suspended = true;
         self.page.text = String::new();
-        self.rows = Vec::new();
-        self.widest_row = None;
+        self.page.rows = Vec::new();
+        self.page.memory = None;
+        self.page.widest_row = None;
         self.account();
     }
     pub fn resume(&mut self, cx: &mut Context<Self>) {
@@ -122,9 +127,7 @@ impl PagedReader {
                         || (page.total, page.modified, page.identity) == stamp,
                     "File changed on disk. Reopen or refresh before paging."
                 );
-                let rows = rows(&page.text);
-                let widest = widest_row(&page.text, &rows);
-                Ok((page, rows, widest))
+                Ok(page)
             },
         );
         self.task = Some(cx.spawn(async move |view, cx| {
@@ -133,10 +136,8 @@ impl PagedReader {
             let _ = view.update(cx, |view, cx| {
                 view.task = None;
                 match result {
-                    Ok((page, rows, widest)) => {
+                    Ok(page) => {
                         view.page = page;
-                        view.rows = rows;
-                        view.widest_row = widest;
                         view.error = None;
                         view.scroll
                             .0
@@ -200,6 +201,7 @@ impl PagedReader {
         if let Some(editor) = &mut self.source_editor {
             editor.mark_saved(text.clone(), cx);
         }
+        self.page.memory = None;
         self.page.text = text;
         self.page.end = saved.end;
         self.page.total = saved.total;
@@ -229,12 +231,7 @@ impl PagedReader {
             JobClass::Projection,
             Priority::Interactive,
             cancel,
-            move |cancel| {
-                let page = source.read_cancellable(0, false, cancel)?;
-                let rows = rows(&page.text);
-                let widest = widest_row(&page.text, &rows);
-                Ok::<_, anyhow::Error>((page, rows, widest))
-            },
+            move |cancel| source.read_cancellable(0, false, cancel),
         );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
@@ -244,10 +241,8 @@ impl PagedReader {
                 view.task = None;
                 view.revision += 1;
                 match result {
-                    Ok((page, rows, widest)) => {
+                    Ok(page) => {
                         view.page = page;
-                        view.rows = rows;
-                        view.widest_row = widest;
                         view.previous.clear();
                         view.expanded = false;
                         view.error = None;
@@ -319,9 +314,7 @@ impl PagedReader {
                             || (page.total, page.modified, page.identity) == stamp,
                         "File changed on disk. Reopen or refresh before paging."
                     );
-                    let rows = rows(&page.text);
-                    let widest = widest_row(&page.text, &rows);
-                    Ok::<_, anyhow::Error>((page, rows, widest))
+                    Ok::<_, anyhow::Error>(page)
                 },
             )
             .await;
@@ -330,7 +323,7 @@ impl PagedReader {
                 v.task = None;
                 v.revision += 1;
                 match result {
-                    Ok((page, rows, widest)) => {
+                    Ok(page) => {
                         if back {
                             v.previous.pop();
                         } else if page.start != v.page.start {
@@ -342,9 +335,7 @@ impl PagedReader {
                             });
                             editor.mark_saved(page.text.clone(), cx);
                         }
-                        v.widest_row = widest;
                         v.page = page;
-                        v.rows = rows;
                         v.expanded = all;
                         v.error = None;
                         v.scroll = UniformListScrollHandle::new();
@@ -360,29 +351,6 @@ impl PagedReader {
         }));
         cx.notify();
     }
-}
-fn rows(text: &str) -> Vec<Range<usize>> {
-    let mut result = Vec::new();
-    let mut start = 0;
-    // Cap individual layout runs, including minified multi-megabyte JSON lines.
-    for (offset, ch) in text.char_indices() {
-        if ch == '\n' || offset - start >= glim_services::limits::TEXT_LAYOUT_RUN_BYTES {
-            result.push(start..offset);
-            start = if ch == '\n' { offset + 1 } else { offset };
-        }
-    }
-    if start < text.len() {
-        result.push(start..text.len());
-    }
-    result
-}
-// Select once per loaded buffer, outside render. The list measures this row
-// with the active font and padding, and clamps its extent to the viewport.
-fn widest_row(text: &str, rows: &[Range<usize>]) -> Option<usize> {
-    rows.iter()
-        .enumerate()
-        .max_by_key(|(_, range)| text[(*range).clone()].chars().count())
-        .map(|(index, _)| index)
 }
 impl Render for PagedReader {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -405,12 +373,12 @@ impl Render for PagedReader {
             } else {
                 uniform_list(
                     "large-text",
-                    self.rows.len()
+                    self.page.rows.len()
                         + ((f32::from(self.controls_bottom) + 64.) / 22.).ceil() as usize,
                     cx.processor(|v, range: Range<usize>, _, cx| {
                         range
                             .map(|i| {
-                                if i >= v.rows.len() {
+                                if i >= v.page.rows.len() {
                                     return div().h(px(22.));
                                 }
                                 div()
@@ -420,12 +388,12 @@ impl Render for PagedReader {
                                     .font_family("Menlo")
                                     .whitespace_nowrap()
                                     .text_color(cx.theme().foreground)
-                                    .child(v.page.text[v.rows[i].clone()].to_owned())
+                                    .child(v.page.text[v.page.rows[i].clone()].to_owned())
                             })
                             .collect()
                     }),
                 )
-                .with_width_from_item(self.widest_row)
+                .with_width_from_item(self.page.widest_row)
                 .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
                 .track_scroll(&self.scroll)
                 .flex_1()
@@ -453,6 +421,16 @@ impl Render for PagedReader {
                         self.page.total,
                         if self.page.total_known { "" } else { "+" }
                     )))
+                    .when(self.error.is_some(), |bar| {
+                        bar.child(
+                            Button::new("retry-reader-page")
+                                .label(glim_services::locale::tr("Retry"))
+                                .disabled(busy)
+                                .on_click(cx.listener(|view, _, window, cx| {
+                                    view.load(view.page.start, view.expanded, false, window, cx);
+                                })),
+                        )
+                    })
                     .when_some(self.return_to_preview.clone(), |bar, action| {
                         bar.child(
                             Button::new("page-return-preview")
@@ -529,7 +507,6 @@ impl Render for PagedReader {
 #[cfg(test)]
 mod tests {
     use super::PagedReader;
-    use glim_core::resources::{ResourceClass, ResourcePool};
     use gpui_kit::{AppContext, TestAppContext, point, px};
 
     #[gpui_kit::test]
@@ -543,12 +520,10 @@ mod tests {
         let page = original.source.read(140, false).unwrap();
         let expected = page.text.clone();
         drop(original);
-        let pool = ResourcePool::new(0);
         let offset = point(px(0.), px(-64.));
         let view = cx.update(|cx| {
             cx.new(|_| {
                 let mut view = PagedReader::readonly(page);
-                view.memory = pool.track(0, ResourceClass::Working);
                 view.previous.push(0);
                 view.scroll.0.borrow().base_handle.set_offset(offset);
                 view.account();
@@ -557,9 +532,14 @@ mod tests {
         });
         cx.update(|cx| {
             view.update(cx, |view, cx| {
-                assert!(pool.snapshot().working_bytes > 0);
+                assert!(
+                    view.page
+                        .memory
+                        .as_ref()
+                        .is_some_and(|memory| memory.bytes() > 0)
+                );
                 view.suspend();
-                assert_eq!(pool.snapshot().working_bytes, 0);
+                assert!(view.page.memory.is_none());
                 view.resume(cx);
                 view.suspend();
                 view.resume(cx);
@@ -573,7 +553,12 @@ mod tests {
             assert_eq!(view.page.text, expected);
             assert_eq!(view.previous, [0]);
             assert_eq!(view.scroll.0.borrow().base_handle.offset(), offset);
-            assert!(pool.snapshot().working_bytes > 0);
+            assert!(
+                view.page
+                    .memory
+                    .as_ref()
+                    .is_some_and(|memory| memory.bytes() > 0)
+            );
         });
     }
 }

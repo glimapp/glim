@@ -1586,6 +1586,14 @@
         "effect": "budget",
         "description": "Process-wide budget for tracked reclaimable reader caches; evict background then least recently used unpinned values. Live state and active work are accounted separately and never discarded as cache. Framework allocations are outside this ledger.",
         "description_zh": "进程级可回收阅读器缓存预算；先回收后台缓存，再回收最近最少使用且无使用者持有的值。存活状态与活动工作另行记账，不作为缓存丢弃；框架内部内存不在此账本内。"
+      },
+      "working_bytes": {
+        "value": 536870912,
+        "type": "u64",
+        "unit": "bytes",
+        "effect": "budget",
+        "description": "Shared target for reader working buffers. Producers using atomic reservations adapt their output window to remaining capacity before allocation; reservations follow retained results. Legacy tracked allocations count against availability but are not yet constrained by admission. Protected editing state and opaque framework allocations are separate.",
+        "description_zh": "阅读器工作缓冲共享目标。使用原子预留的生产者在分配前按剩余容量缩小输出窗口，预留随驻留结果存活。旧路径已记账的分配占用可用容量，但尚未全部受准入约束。受保护的编辑状态与框架内部内存另计。"
       }
     }
   }

@@ -58,11 +58,14 @@ pub struct TextPage {
     pub total_known: bool,
     pub path: PathBuf,
     pub text: String,
+    pub rows: Vec<std::ops::Range<usize>>,
+    pub widest_row: Option<usize>,
     pub start: u64,
     pub end: u64,
     pub total: u64,
     pub modified: Option<SystemTime>,
     pub identity: (u64, u64),
+    pub memory: Option<crate::resources::WorkingReservation>,
 }
 pub fn read_page(path: &Path, start: u64, all: bool) -> Result<TextPage> {
     read_page_cancellable(path, start, all, &crate::work::Cancellation::default())
@@ -163,6 +166,15 @@ fn read_source_cancellable(
     all: bool,
     cancel: &crate::work::Cancellation,
 ) -> Result<TextPage> {
+    read_source_with_pool(source, start, all, cancel, crate::resources::pool())
+}
+fn read_source_with_pool(
+    source: PageSource,
+    start: u64,
+    all: bool,
+    cancel: &crate::work::Cancellation,
+    pool: &crate::resources::ResourcePool,
+) -> Result<TextPage> {
     cancel.check()?;
     let mut base = 0;
     let mut stream_total = None;
@@ -204,13 +216,61 @@ fn read_source_cancellable(
     } else {
         PAGE_BYTES
     };
-    let mut bytes = Vec::new();
-    (&mut file)
-        .take(limit.min(total - start))
-        .read_to_end(&mut bytes)?;
+    // Each hex row contains an address, 16 hex cells, ASCII and a newline.
+    // Text reserves one range per byte before its actual line count is known.
+    const HEX_INPUT: u64 = 16;
+    const HEX_OUTPUT: u64 = 84;
+    const ROW_BYTES: u64 = std::mem::size_of::<std::ops::Range<usize>>() as u64;
+    let requested = limit.min(total - start);
+    let desired = if requested == 0 {
+        0
+    } else if source.binary {
+        requested.saturating_add(
+            requested
+                .div_ceil(HEX_INPUT)
+                .saturating_mul(HEX_OUTPUT + ROW_BYTES),
+        )
+    } else {
+        requested.saturating_add(3).saturating_mul(1 + ROW_BYTES)
+    };
+    let minimum = if requested == 0 {
+        0
+    } else if source.binary {
+        1 + HEX_OUTPUT + ROW_BYTES
+    } else {
+        4 * (1 + ROW_BYTES)
+    };
+    let mut memory = pool.reserve_working(minimum, desired)?;
+    let capacity = if source.binary {
+        if memory.bytes() >= desired {
+            requested
+        } else {
+            (memory.bytes() / (HEX_INPUT + HEX_OUTPUT + ROW_BYTES))
+                .saturating_mul(HEX_INPUT)
+                .max(1)
+                .min(requested)
+        }
+    } else {
+        (memory.bytes() / (1 + ROW_BYTES))
+            .saturating_sub(3)
+            .min(requested)
+    } as usize;
+    let spare = if !source.binary && requested > 0 {
+        3
+    } else {
+        0
+    };
+    let mut bytes = Vec::with_capacity(capacity + spare);
+    bytes.resize(capacity, 0);
+    crate::work::Reader {
+        inner: &mut file,
+        cancel: cancel.clone(),
+    }
+    .read_exact(&mut bytes)?;
+    cancel.check()?;
     let (text, end) = if source.binary {
         use std::fmt::Write;
-        let mut text = String::new();
+        let mut text = String::with_capacity(bytes.len().div_ceil(16) * 84);
         for (index, row) in bytes.chunks(16).enumerate() {
             write!(text, "{:016x}  ", start + index as u64 * 16)?;
             for column in 0..16 {
@@ -230,7 +290,9 @@ fn read_source_cancellable(
             }));
             text.push('\n');
         }
-        (text, start + bytes.len() as u64)
+        let end = start + bytes.len() as u64;
+        drop(bytes);
+        (text, end)
     } else {
         // Complete UTF-8 at a byte-page boundary; never silently drop a character.
         for _ in 0..3 {
@@ -287,7 +349,20 @@ fn read_source_cancellable(
         after.len() == metadata.len() && after.modified().ok() == metadata.modified().ok(),
         "File changed while reading; retry"
     );
+    cancel.check()?;
+    let rows = page_rows(&text);
+    let widest_row = rows
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, range)| text[(*range).clone()].chars().count())
+        .map(|(index, _)| index);
+    memory.shrink_to(
+        (text.capacity() + rows.capacity() * std::mem::size_of::<std::ops::Range<usize>>()) as u64,
+    );
     Ok(TextPage {
+        memory: Some(memory),
+        rows,
+        widest_row,
         path: source.original.clone(),
         owner: None,
         more: end < total || stream_total.is_some_and(|value| !value.1),
@@ -300,6 +375,34 @@ fn read_source_cancellable(
         modified: metadata.modified().ok(),
         identity: (metadata.dev(), metadata.ino()),
     })
+}
+
+/// Plain ranges travel with the prepared page; constructing a view need not
+/// rescan its source or allocate another line index on the UI thread.
+fn page_rows(text: &str) -> Vec<std::ops::Range<usize>> {
+    let ranges = || {
+        let mut start = 0;
+        text.char_indices().filter_map(move |(offset, ch)| {
+            if ch == '\n' || offset - start >= reader_limits::TEXT_LAYOUT_RUN_BYTES {
+                let range = start..offset;
+                start = if ch == '\n' { offset + 1 } else { offset };
+                Some(range)
+            } else {
+                None
+            }
+        })
+    };
+    let mut rows = Vec::with_capacity(
+        ranges().count() + usize::from(!text.ends_with('\n') && !text.is_empty()),
+    );
+    rows.extend(ranges());
+    let start = rows.last().map_or(0, |range| {
+        range.end + usize::from(text.as_bytes().get(range.end) == Some(&b'\n'))
+    });
+    if start < text.len() {
+        rows.push(start..text.len());
+    }
+    rows
 }
 
 impl TextPage {
@@ -465,4 +568,112 @@ fn zip_member_view(
     drop(entry);
     drop(archive);
     compressed_view(path, compression, binary, cancel)
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    use crate::{resources::ResourcePool, work::Cancellation};
+    use std::io::Write;
+
+    fn source(path: &Path, binary: bool) -> PageSource {
+        PageSource {
+            original: path.into(),
+            binary,
+            backing: None,
+            stream: None,
+        }
+    }
+
+    #[test]
+    fn small_shared_windows_preserve_all_utf8_and_line_ranges() {
+        let text = "a💡\n中文末行".repeat(200);
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(text.as_bytes()).unwrap();
+        let pool = ResourcePool::with_budgets(0, 136);
+        let source = source(file.path(), false);
+        let mut start = 0;
+        let mut reconstructed = String::new();
+        loop {
+            let page =
+                read_source_with_pool(source.clone(), start, true, &Cancellation::default(), &pool)
+                    .unwrap();
+            assert!(page.end > start);
+            assert!(pool.snapshot().working_bytes <= 136);
+            for range in &page.rows {
+                assert!(page.text.get(range.clone()).is_some());
+            }
+            reconstructed.push_str(&page.text);
+            start = page.end;
+            if !page.more {
+                break;
+            }
+        }
+        assert_eq!(reconstructed, text);
+        assert_eq!(pool.snapshot().working_bytes, 0);
+    }
+
+    #[test]
+    fn binary_results_hold_their_capacity_until_the_consumer_drops_them() {
+        let bytes: Vec<u8> = (0..=255).collect();
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(&bytes).unwrap();
+        let source = source(file.path(), true);
+        let pool = ResourcePool::with_budgets(0, 101);
+        for (index, byte) in bytes.iter().enumerate() {
+            let page = read_source_with_pool(
+                source.clone(),
+                index as u64,
+                false,
+                &Cancellation::default(),
+                &pool,
+            )
+            .unwrap();
+            assert_eq!(page.end, index as u64 + 1);
+            assert!(page.text.starts_with(&format!("{index:016x}  {byte:02x} ")));
+            assert_eq!(page.rows.len(), 1);
+            assert!(pool.snapshot().working_bytes <= 101);
+            let error =
+                read_source_with_pool(source.clone(), 0, false, &Cancellation::default(), &pool)
+                    .err()
+                    .unwrap();
+            assert!(error.is::<crate::resources::WorkingPressure>());
+        }
+        assert_eq!(pool.snapshot().working_bytes, 0);
+    }
+
+    #[test]
+    fn invalid_text_and_cancellation_return_reserved_capacity() {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(&[0xff]).unwrap();
+        let pool = ResourcePool::with_budgets(0, 1024);
+        let source = source(file.path(), false);
+        assert!(
+            read_source_with_pool(source.clone(), 0, false, &Cancellation::default(), &pool)
+                .is_err()
+        );
+        assert_eq!(pool.snapshot().working_bytes, 0);
+        let (cancel, owner) = Cancellation::task();
+        drop(owner);
+        assert!(read_source_with_pool(source, 0, false, &cancel, &pool).is_err());
+        assert_eq!(pool.snapshot().working_bytes, 0);
+    }
+
+    #[test]
+    fn an_empty_page_needs_no_working_capacity() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let pool = ResourcePool::with_budgets(0, 0);
+        for binary in [false, true] {
+            let page = read_source_with_pool(
+                source(file.path(), binary),
+                0,
+                false,
+                &Cancellation::default(),
+                &pool,
+            )
+            .unwrap();
+            assert!(page.text.is_empty() && page.rows.is_empty() && !page.more);
+        }
+        assert_eq!(pool.snapshot().working_bytes, 0);
+    }
 }

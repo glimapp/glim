@@ -379,3 +379,4 @@ This page is generated from the same policy. After editing it, run `python3 scri
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
 | `resources.cache_bytes` | 256 MiB | bytes | budget | Process-wide budget for tracked reclaimable reader caches; evict background then least recently used unpinned values. Live state and active work are accounted separately and never discarded as cache. Framework allocations are outside this ledger. |
+| `resources.working_bytes` | 512 MiB | bytes | budget | Shared target for reader working buffers. Producers using atomic reservations adapt their output window to remaining capacity before allocation; reservations follow retained results. Legacy tracked allocations count against availability but are not yet constrained by admission. Protected editing state and opaque framework allocations are separate. |

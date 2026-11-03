@@ -27,6 +27,7 @@ pub enum Retention {
 pub struct ResourceSnapshot {
     pub state_bytes: u64,
     pub working_bytes: u64,
+    pub working_budget: u64,
     pub cache_bytes: u64,
     pub cache_budget: u64,
     pub evictions: u64,
@@ -50,6 +51,7 @@ struct State {
     next_id: u64,
     clock: u64,
     cache_budget: u64,
+    working_budget: u64,
     evictions: u64,
 }
 
@@ -58,18 +60,49 @@ pub struct ResourcePool(Arc<Mutex<State>>);
 
 impl ResourcePool {
     pub fn new(cache_budget: u64) -> Self {
+        Self::with_budgets(cache_budget, u64::MAX)
+    }
+
+    pub fn with_budgets(cache_budget: u64, working_budget: u64) -> Self {
         Self(Arc::new(Mutex::new(State {
             bytes: [0; 3],
             entries: HashMap::new(),
             next_id: 0,
             clock: 0,
             cache_budget,
+            working_budget,
             evictions: 0,
         })))
     }
 
     pub fn track(&self, bytes: u64, class: ResourceClass) -> ResourceLease {
         let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        self.track_locked(&mut state, bytes, class)
+    }
+
+    /// Reserve before allocating. Competing producers cannot claim the same
+    /// capacity; legacy tracked owners also count against available memory.
+    pub fn reserve_working(
+        &self,
+        minimum: u64,
+        desired: u64,
+    ) -> Result<WorkingReservation, WorkingPressure> {
+        assert!(minimum <= desired);
+        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let available = state
+            .working_budget
+            .saturating_sub(state.bytes[ResourceClass::Working.index()]);
+        let bytes = desired.min(available);
+        if bytes < minimum {
+            return Err(WorkingPressure { minimum, available });
+        }
+        Ok(WorkingReservation {
+            lease: self.track_locked(&mut state, bytes, ResourceClass::Working),
+            bytes,
+        })
+    }
+
+    fn track_locked(&self, state: &mut State, bytes: u64, class: ResourceClass) -> ResourceLease {
         let id = state.next_id;
         state.next_id = state.next_id.wrapping_add(1);
         state.clock = state.clock.wrapping_add(1);
@@ -128,6 +161,7 @@ impl ResourcePool {
         ResourceSnapshot {
             state_bytes: state.bytes[ResourceClass::State.index()],
             working_bytes: state.bytes[ResourceClass::Working.index()],
+            working_budget: state.working_budget,
             cache_bytes: state.bytes[ResourceClass::Cache.index()],
             cache_budget: state.cache_budget,
             evictions: state.evictions,
@@ -165,6 +199,37 @@ impl ResourcePool {
                 state.evictions = state.evictions.saturating_add(1);
             }
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct WorkingPressure {
+    pub minimum: u64,
+    pub available: u64,
+}
+impl std::fmt::Display for WorkingPressure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "Preview memory is currently in use. Retry after other previews finish or close.",
+        )
+    }
+}
+impl std::error::Error for WorkingPressure {}
+
+/// The reservation follows its result through publication and display. It can
+/// shrink, but growth requires another admission rather than an unchecked resize.
+pub struct WorkingReservation {
+    lease: ResourceLease,
+    bytes: u64,
+}
+impl WorkingReservation {
+    pub fn bytes(&self) -> u64 {
+        self.bytes
+    }
+    pub fn shrink_to(&mut self, bytes: u64) {
+        assert!(bytes <= self.bytes);
+        self.lease.resize(bytes);
+        self.bytes = bytes;
     }
 }
 
@@ -295,6 +360,51 @@ pub fn text_rows_bytes(rows: &[Vec<String>]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reservations_include_existing_owners_and_follow_retained_results() {
+        let pool = ResourcePool::with_budgets(0, 12);
+        let protected = pool.track(100, ResourceClass::State);
+        let legacy = pool.track(3, ResourceClass::Working);
+        let mut result = pool.reserve_working(4, 20).unwrap();
+        assert_eq!(result.bytes(), 9);
+        assert!(pool.reserve_working(1, 1).is_err());
+        result.shrink_to(4);
+        let next = pool.reserve_working(1, 20).unwrap();
+        assert_eq!(next.bytes(), 5);
+        assert_eq!(pool.snapshot().working_bytes, 12);
+        drop(result);
+        assert_eq!(pool.snapshot().working_bytes, 8);
+        drop((next, legacy));
+        assert_eq!(pool.snapshot().working_bytes, 0);
+        assert_eq!(pool.snapshot().state_bytes, 100);
+        drop(protected);
+    }
+
+    #[test]
+    fn concurrent_producers_cannot_reserve_the_same_capacity() {
+        let pool = ResourcePool::with_budgets(0, 32);
+        let start = Arc::new(std::sync::Barrier::new(8));
+        let results = std::thread::scope(|scope| {
+            (0..8)
+                .map(|_| {
+                    let pool = &pool;
+                    let start = &start;
+                    scope.spawn(move || {
+                        start.wait();
+                        pool.reserve_working(8, 8)
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|thread| thread.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 4);
+        assert_eq!(pool.snapshot().working_bytes, 32);
+        drop(results);
+        assert_eq!(pool.snapshot().working_bytes, 0);
+    }
 
     #[test]
     fn eviction_is_shared_and_preserves_live_users_and_unsaved_state() {

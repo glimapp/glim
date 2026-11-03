@@ -161,6 +161,10 @@ fn start_resource_sampling(cx: &mut App) {
                 props.extend([
                     ("reader_state_bytes", number(readers.state_bytes)),
                     ("reader_working_bytes", number(readers.working_bytes)),
+                    (
+                        "reader_working_budget_bytes",
+                        number(readers.working_budget),
+                    ),
                     ("reader_cache_bytes", number(readers.cache_bytes)),
                     ("reader_cache_budget", number(readers.cache_budget)),
                     ("reader_cache_evictions", number(readers.evictions)),
