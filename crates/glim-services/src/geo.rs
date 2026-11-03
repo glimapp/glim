@@ -26,7 +26,7 @@ pub fn read_page(input: impl Read, start: usize, cancel: &Cancellation) -> Resul
     let input = crate::work::RecordReader::new(input, limits::IO_RECORD_BYTES, cancel);
     let mut reader = Reader::from_reader(BufReader::with_capacity(limits::IO_BUFFER_BYTES, input));
     let mut buffer = Vec::new();
-    let mut rows = Vec::new();
+    let mut rows = crate::resources::TextRowsBuilder::new(crate::resources::pool());
     let (mut seen, mut bytes) = (0, 0);
     let mut in_coordinates = false;
     let mut token = String::new();
@@ -45,7 +45,12 @@ pub fn read_page(input: impl Read, start: usize, cancel: &Cancellation) -> Resul
                 "Coordinate record exceeds table working memory; complete XML remains in Source",
             )?;
             bytes += length;
-            rows.push(row);
+            if let Err(error) = rows.try_push(row.iter().map(String::as_str)) {
+                if rows.is_empty() {
+                    return Err(error.into());
+                }
+                return Ok(true);
+            }
         }
         seen += 1;
         Ok(false)
@@ -68,7 +73,7 @@ pub fn read_page(input: impl Read, start: usize, cancel: &Cancellation) -> Resul
                             && emit(row)?
                         {
                             return Ok(TablePage {
-                                rows,
+                                rows: rows.finish(),
                                 columns: 3,
                                 more: true,
                             });
@@ -121,7 +126,7 @@ pub fn read_page(input: impl Read, start: usize, cancel: &Cancellation) -> Resul
                             if empty {
                                 if emit(row)? {
                                     return Ok(TablePage {
-                                        rows,
+                                        rows: rows.finish(),
                                         columns: 3,
                                         more: true,
                                     });
@@ -140,7 +145,7 @@ pub fn read_page(input: impl Read, start: usize, cancel: &Cancellation) -> Resul
                         && emit(row)?
                     {
                         return Ok(TablePage {
-                            rows,
+                            rows: rows.finish(),
                             columns: 3,
                             more: true,
                         });
@@ -154,7 +159,7 @@ pub fn read_page(input: impl Read, start: usize, cancel: &Cancellation) -> Resul
                         && emit(row)?
                     {
                         return Ok(TablePage {
-                            rows,
+                            rows: rows.finish(),
                             columns: 3,
                             more: true,
                         });
@@ -168,7 +173,7 @@ pub fn read_page(input: impl Read, start: usize, cancel: &Cancellation) -> Resul
         }
     }
     Ok(TablePage {
-        rows,
+        rows: rows.finish(),
         columns: 3,
         more: false,
     })

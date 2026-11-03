@@ -65,7 +65,7 @@ README／专题通过共享能力组合文档阅读、数据检查、媒体浏�
 
 ### 阅读边界统一管理
 
-`assets/reader-limits.json` 是应用阅读阈值的唯一数值来源，按阅读器分类，注明类型、单位、超限效果和说明。`scripts/generate-reader-limits.py` 校验配置，在各 Cargo OUT_DIR 生成 Rust 常量、Swift ReaderLimits 和嵌入式 JSON。`glim-services::limits` 导出 Rust 值，应用展示层直接使用；原生预览编译生成的 Swift，私有图表 WebView 接收同一份值映射。构建跟踪配置及生成器变更，CI 路径过滤也覆盖两者，阅读器不在运行时读配置文件。见[自动生成清单](reader-limits.zh-CN.md)，用生成器的 `--docs` 更新。阅读器以流式、分页或完整源后备替代文件总量门槛；工作预算约束活动处理，不限制完整文件访问。
+`assets/reader-limits.json` 是应用阅读阈值的唯一数值来源，按阅读器分类，注明类型、单位、超限效果和说明。`scripts/generate-reader-limits.py` 校验配置，在各 Cargo OUT_DIR 生成 Rust 常量、Swift ReaderLimits 和嵌入式 JSON。`glim-services::limits` 导出 Rust 值，应用展示层直接使用；原生预览编译生成的 Swift，私有图表 WebView 接收同一份值映射。构建跟踪配置及生成器变更，CI 路径过滤也覆盖两者，阅读器不在运行时读配置文件。见[自动生成清单](reader-limits.zh-CN.md)，用生成器的 `--docs` 更新。阅读器以流式、分页或完整源后备替代文件总量门槛；工作预算约束活动处理，不限制完整文件访问。 共享资源池提供原子工作字节预留；文本／十六进制准备页持有已准入的文本、行范围和最宽行索引，服务按获准容量调整源窗口，视图保留所有权直到替换或隐藏。可编辑页的基线转交受保护状态。CSV／TSV、地理坐标和 SQLite 结果通过 `glim-core::resources::TextRows` 传递；服务在构造行及扩容前准入，视图直接消费不可变行缓冲。CSV 解析工作区和 SQLite 文本转换暂存另行预留。可变行窗口可在压力下缩短，固定 SQLite 页整次失败以保持偏移语义。其他工作资源仍待接入，因此共享目标尚非全部阅读器的总量上限。
 
 ### 阅读器的可扩展处理
 

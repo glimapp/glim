@@ -29,9 +29,22 @@ pub struct Columns {
     pub order: Vec<String>,
 }
 pub struct Page {
-    pub rows: Vec<Vec<String>>,
+    pub rows: crate::resources::TextRows,
     pub more: bool,
     pub start_column: usize,
+}
+fn preview_text(value: &[u8]) -> std::borrow::Cow<'_, str> {
+    if let Ok(text) = std::str::from_utf8(value) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut text = String::with_capacity(value.len() * 3);
+    for chunk in value.utf8_chunks() {
+        text.push_str(chunk.valid());
+        if !chunk.invalid().is_empty() {
+            text.push('\u{fffd}');
+        }
+    }
+    std::borrow::Cow::Owned(text)
 }
 pub fn open(path: &Path, cancel: &Cancellation) -> Result<Arc<Database>> {
     let snapshot = super::prepare_cancellable(path, cancel)?;
@@ -192,6 +205,14 @@ impl Database {
         (tail, values)
     }
     pub fn page(&self, query: &Query, cancel: &Cancellation) -> Result<Page> {
+        self.page_with_pool(query, cancel, crate::resources::pool())
+    }
+    fn page_with_pool(
+        &self,
+        query: &Query,
+        cancel: &Cancellation,
+        pool: &crate::resources::ResourcePool,
+    ) -> Result<Page> {
         let connection = self.connection(cancel, query.seconds)?;
         ensure!(!query.columns.is_empty(), "Table has no readable columns");
         let start = query.start_column.min(query.columns.len() - 1);
@@ -208,25 +229,31 @@ impl Database {
         );
         let mut statement = connection.prepare(&sql)?;
         let count = statement.column_count();
+        // Lossy UTF-8 conversion can expand each input byte into three bytes.
+        // This covers the temporary row; retained output has its own admission.
+        let scratch = count
+            * (std::mem::size_of::<std::borrow::Cow<'_, str>>()
+                + 3 * limits::SQLITE_TEXT_BYTES.max(5 + 2 * limits::SQLITE_BLOB_BYTES));
+        let _conversion_memory = pool.reserve_working(scratch as u64, scratch as u64)?;
         let mut cursor = statement.query(params_from_iter(values.iter()))?;
-        let mut rows = Vec::new();
+        let mut rows = crate::resources::TextRowsBuilder::new(pool);
+        let mut more = false;
         while let Some(row) = cursor.next()? {
             cancel.check()?;
-            rows.push(
-                (0..count)
-                    .map(|index| match row.get_ref(index) {
-                        Ok(rusqlite::types::ValueRef::Text(value)) => {
-                            String::from_utf8_lossy(value).into_owned()
-                        }
-                        _ => String::new(),
-                    })
-                    .collect(),
-            );
+            if rows.len() == limits::SQLITE_PAGE_ROWS {
+                more = true;
+                break;
+            }
+            let values = (0..count)
+                .map(|index| match row.get_ref(index) {
+                    Ok(rusqlite::types::ValueRef::Text(value)) => preview_text(value),
+                    _ => std::borrow::Cow::Borrowed(""),
+                })
+                .collect::<Vec<_>>();
+            rows.try_push(values.iter().map(|value| value.as_ref()))?;
         }
-        let more = rows.len() > limits::SQLITE_PAGE_ROWS;
-        rows.truncate(limits::SQLITE_PAGE_ROWS);
         Ok(Page {
-            rows,
+            rows: rows.finish(),
             more,
             start_column: start,
         })
@@ -277,5 +304,53 @@ impl Database {
             },
             more,
         ))
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    use crate::resources::ResourcePool;
+
+    #[test]
+    fn preview_conversion_matches_lossy_utf8_with_bounded_storage() {
+        for value in [
+            b"plain".as_slice(),
+            "中文".as_bytes(),
+            &[0xff, 0xfe, b'a'],
+            &[0xf0, 0x9f, 0x92],
+            &[0xed, 0xa0, 0x80],
+            &[0xe2, b'a', 0x80],
+        ] {
+            assert_eq!(preview_text(value), String::from_utf8_lossy(value));
+        }
+    }
+
+    #[test]
+    fn a_fixed_query_page_never_publishes_a_partial_page_on_pressure() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let connection = Connection::open(file.path()).unwrap();
+        connection.execute_batch("CREATE TABLE items(value TEXT); WITH RECURSIVE rows(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM rows WHERE n<20) INSERT INTO items SELECT 'value ' || n FROM rows;").unwrap();
+        drop(connection);
+        let cancel = Cancellation::default();
+        let database = open(file.path(), &cancel).unwrap();
+        let columns = database.columns("items", &cancel).unwrap();
+        let query = Query {
+            table: "items".into(),
+            columns: columns.names,
+            order: columns.order,
+            ..Query::default()
+        };
+        let pool = ResourcePool::with_budgets(0, 2048);
+        let failed = database.page_with_pool(&query, &cancel, &pool);
+        assert!(matches!(failed, Err(error) if error.is::<crate::resources::WorkingPressure>()));
+        assert_eq!(pool.snapshot().working_bytes, 0);
+        let pool = ResourcePool::with_budgets(0, 64 * 1024);
+        let page = database.page_with_pool(&query, &cancel, &pool).unwrap();
+        assert_eq!(page.rows.len(), 20);
+        assert!(!page.more);
+        assert!(pool.snapshot().working_bytes > 0);
+        drop(page);
+        assert_eq!(pool.snapshot().working_bytes, 0);
     }
 }

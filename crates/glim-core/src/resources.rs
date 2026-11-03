@@ -1,4 +1,6 @@
 //! Shared accounting and reclamation for owned buffers, independent of UI and I/O.
+mod rows;
+pub use rows::{TextRows, TextRowsBuilder};
 use std::{
     collections::HashMap,
     ops::Deref,
@@ -231,6 +233,34 @@ impl WorkingReservation {
         self.lease.resize(bytes);
         self.bytes = bytes;
     }
+
+    pub fn try_grow_to(&mut self, bytes: u64) -> Result<(), WorkingPressure> {
+        let additional = bytes.saturating_sub(self.bytes);
+        if additional == 0 {
+            return Ok(());
+        }
+        let pool = self.lease.0.pool.upgrade().ok_or(WorkingPressure {
+            minimum: additional,
+            available: 0,
+        })?;
+        let mut state = pool.lock().unwrap_or_else(|error| error.into_inner());
+        let used = state.bytes[ResourceClass::Working.index()];
+        let available = state.working_budget.saturating_sub(used);
+        if additional > available {
+            return Err(WorkingPressure {
+                minimum: additional,
+                available,
+            });
+        }
+        state
+            .entries
+            .get_mut(&self.lease.0.id)
+            .expect("live reservation")
+            .bytes = bytes;
+        state.bytes[ResourceClass::Working.index()] = used + additional;
+        self.bytes = bytes;
+        Ok(())
+    }
 }
 
 struct Charge {
@@ -343,18 +373,6 @@ impl<T> CachedResource<T> {
         }
         Some(value)
     }
-}
-
-/// Owned cell storage, excluding allocator metadata and spare outer-vector capacity.
-pub fn text_rows_bytes(rows: &[Vec<String>]) -> u64 {
-    std::mem::size_of_val(rows) as u64
-        + rows
-            .iter()
-            .map(|row| {
-                (row.capacity() * std::mem::size_of::<String>()) as u64
-                    + row.iter().map(|cell| cell.capacity() as u64).sum::<u64>()
-            })
-            .sum::<u64>()
 }
 
 #[cfg(test)]

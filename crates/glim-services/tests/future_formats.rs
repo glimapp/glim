@@ -33,7 +33,15 @@ fn documents_and_structured_data_keep_source_separate() {
     assert_eq!(nodes[0].children.len(), 2);
     assert!(glim_services::json::parse_format("{}\ninvalid", "ndjson").is_err());
     assert_eq!(
-        glim_services::csv::parse_delimited("a\tb\n1\t\"two\tthree\"", b'\t').unwrap()[1][1],
+        glim_services::csv::read_page(
+            "a\tb\n1\t\"two\tthree\"".as_bytes(),
+            b'\t',
+            0,
+            0,
+            &glim_services::work::Cancellation::default()
+        )
+        .unwrap()
+        .rows[1][1],
         "two\tthree"
     );
     let coordinates = text_formats::markdown(

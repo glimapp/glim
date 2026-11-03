@@ -10,18 +10,33 @@ use std::{path::PathBuf, sync::Arc};
 
 #[derive(Clone)]
 enum Source {
-    Text(Arc<String>),
+    Text(Arc<SourceText>),
     File(PathBuf),
-    GeoText(Arc<String>),
+    GeoText(Arc<SourceText>),
     GeoFile(PathBuf),
 }
+struct SourceText {
+    text: String,
+    _memory: glim_core::resources::ResourceLease,
+}
+impl SourceText {
+    fn new(text: String, pool: &glim_core::resources::ResourcePool) -> Self {
+        let memory = pool.track(
+            text.capacity() as u64,
+            glim_core::resources::ResourceClass::Working,
+        );
+        Self {
+            text,
+            _memory: memory,
+        }
+    }
+}
 pub(super) struct CsvTable {
-    memory: glim_services::resources::ResourceLease,
     suspended: bool,
     resume_scroll: Option<(Point<Pixels>, Point<Pixels>)>,
     source: Option<Source>,
     delimiter: u8,
-    rows: Vec<Vec<String>>,
+    rows: glim_core::resources::TextRows,
     columns: usize,
     format: &'static str,
     row_start: usize,
@@ -36,13 +51,11 @@ pub(super) struct CsvTable {
 impl CsvTable {
     pub fn new() -> Self {
         Self {
-            memory: glim_services::resources::pool()
-                .track(0, glim_services::resources::ResourceClass::Working),
             suspended: false,
             resume_scroll: None,
             source: None,
             delimiter: b',',
-            rows: Vec::new(),
+            rows: Default::default(),
             columns: 0,
             format: "CSV",
             row_start: 0,
@@ -75,21 +88,27 @@ impl CsvTable {
         table
     }
     pub fn load(&mut self, text: String, delimiter: u8, cx: &mut Context<Self>) {
-        if matches!(&self.source, Some(Source::Text(old)) if old.as_str() == text) {
+        if matches!(&self.source, Some(Source::Text(old)) if old.text.as_str() == text) {
             self.resume(cx);
             return;
         }
-        self.source = Some(Source::Text(Arc::new(text)));
+        self.source = Some(Source::Text(Arc::new(SourceText::new(
+            text,
+            glim_services::resources::pool(),
+        ))));
         self.delimiter = delimiter;
         self.format = if delimiter == b'\t' { "TSV" } else { "CSV" };
         self.reload(cx);
     }
     pub fn load_geo(&mut self, text: String, format: &'static str, cx: &mut Context<Self>) {
-        if matches!(&self.source, Some(Source::GeoText(old)) if old.as_str() == text) {
+        if matches!(&self.source, Some(Source::GeoText(old)) if old.text.as_str() == text) {
             self.resume(cx);
             return;
         }
-        self.source = Some(Source::GeoText(Arc::new(text)));
+        self.source = Some(Source::GeoText(Arc::new(SourceText::new(
+            text,
+            glim_services::resources::pool(),
+        ))));
         self.format = format;
         self.reload(cx);
     }
@@ -109,21 +128,12 @@ impl CsvTable {
         }
         self.suspended = true;
         self.task = None;
-        self.rows = Vec::new();
-        self.account();
+        self.rows = Default::default();
     }
     pub fn resume(&mut self, cx: &mut Context<Self>) {
         if self.suspended {
             self.load_page(cx);
         }
-    }
-    fn account(&self) {
-        let source = match &self.source {
-            Some(Source::Text(text) | Source::GeoText(text)) => text.capacity() as u64,
-            _ => 0,
-        };
-        self.memory
-            .resize(source + glim_services::resources::text_rows_bytes(&self.rows));
     }
     fn load_page(&mut self, cx: &mut Context<Self>) {
         self.suspended = false;
@@ -154,8 +164,7 @@ impl CsvTable {
         };
         self.task = None;
         self.error = None;
-        self.rows.clear();
-        self.account();
+        self.rows = Default::default();
         self.more = false;
         let (delimiter, row, column) = (self.delimiter, self.row_start, self.column_start);
         let (cancel, guard) = glim_services::work::Cancellation::task();
@@ -167,14 +176,18 @@ impl CsvTable {
             cancel,
             move |cancel| match source {
                 Source::GeoText(text) => {
-                    glim_services::geo::read_page(text.as_bytes(), row, cancel)
+                    glim_services::geo::read_page(text.text.as_bytes(), row, cancel)
                 }
                 Source::GeoFile(path) => {
                     glim_services::geo::read_page(std::fs::File::open(path)?, row, cancel)
                 }
-                Source::Text(text) => {
-                    glim_services::csv::read_page(text.as_bytes(), delimiter, row, column, cancel)
-                }
+                Source::Text(text) => glim_services::csv::read_page(
+                    text.text.as_bytes(),
+                    delimiter,
+                    row,
+                    column,
+                    cancel,
+                ),
                 Source::File(path) => glim_services::csv::read_page(
                     std::fs::File::open(path)?,
                     delimiter,
@@ -207,7 +220,6 @@ impl CsvTable {
                         view.error = Some(format!("Cannot show {} table: {error:#}", view.format))
                     }
                 }
-                view.account();
                 cx.notify();
             });
         }));
@@ -311,6 +323,10 @@ impl Render for CsvTable {
                     self.error.clone().unwrap_or_else(|| format!("{} · rows {}–{} · columns {}–{}", self.format,
                         self.row_start + 1, self.row_start + self.rows.len(), self.column_start + 1, self.column_start + columns))
                 }))
+                .when(self.error.is_some(), |bar| bar.child(
+                    Button::new("csv-retry").label(glim_services::locale::tr("Retry"))
+                        .on_click(cx.listener(|view, _, _, cx| view.load_page(cx)))
+                ))
                 .when(!self.previous.is_empty() || self.more, |bar| bar
                 .child(Button::new("csv-prev").label(glim_services::locale::tr("Previous"))
                     .disabled(busy || self.previous.is_empty()).on_click(cx.listener(|view, _, _, cx| {
@@ -335,20 +351,35 @@ impl Render for CsvTable {
 
 #[cfg(test)]
 mod tests {
-    use super::{CsvTable, Source};
-    use glim_core::resources::{ResourceClass, ResourcePool};
+    use super::{CsvTable, Source, SourceText};
+    use glim_core::resources::{ResourcePool, TextRowsBuilder};
     use std::sync::Arc;
+    #[test]
+    fn a_running_projection_retains_source_accounting_after_its_view_closes() {
+        let pool = ResourcePool::new(0);
+        let mut table = CsvTable::new();
+        table.source = Some(Source::Text(Arc::new(SourceText::new(
+            "a,b".repeat(1024),
+            &pool,
+        ))));
+        let running_input = table.source.clone();
+        drop(table);
+        assert!(pool.snapshot().working_bytes > 0);
+        drop(running_input);
+        assert_eq!(pool.snapshot().working_bytes, 0);
+    }
     #[test]
     fn suspension_releases_cells_and_preserves_reconstruction_and_page() {
         let pool = ResourcePool::new(0);
         let mut table = CsvTable::new();
-        table.memory = pool.track(0, ResourceClass::Working);
-        table.source = Some(Source::Text(Arc::new("a,b".into())));
+        table.source = Some(Source::Text(Arc::new(SourceText::new("a,b".into(), &pool))));
         table.row_start = 120;
         table.column_start = 4;
         table.previous = vec![0, 60];
-        table.rows = vec![vec!["long cell".repeat(100)]];
-        table.account();
+        let mut rows = TextRowsBuilder::new(&pool);
+        rows.try_push(["long cell".repeat(100).as_str()].into_iter())
+            .unwrap();
+        table.rows = rows.finish();
         let before = pool.snapshot().working_bytes;
         table.suspend();
         assert!(table.rows.is_empty());

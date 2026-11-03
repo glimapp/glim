@@ -23,20 +23,12 @@ use gpui_kit::{
 use std::{ops::Range, path::PathBuf, sync::Arc};
 
 struct Grid {
-    memory: glim_core::resources::ResourceLease,
     owner: WeakEntity<SqliteReader>,
     columns: Vec<String>,
-    rows: Vec<Vec<String>>,
+    rows: glim_core::resources::TextRows,
     start: usize,
     offset: usize,
     busy: bool,
-}
-impl Grid {
-    fn replace_rows(&mut self, rows: Vec<Vec<String>>) {
-        self.rows = rows;
-        self.memory
-            .resize(glim_core::resources::text_rows_bytes(&self.rows));
-    }
 }
 impl TableDelegate for Grid {
     fn columns_count(&self, _: &App) -> usize {
@@ -185,11 +177,9 @@ impl SqliteReader {
         let grid = cx.new(|cx| {
             TableState::new(
                 Grid {
-                    memory: glim_services::resources::pool()
-                        .track(0, glim_core::resources::ResourceClass::Working),
                     owner,
                     columns: vec![],
-                    rows: vec![],
+                    rows: Default::default(),
                     start: 0,
                     offset: 0,
                     busy: true,
@@ -393,7 +383,7 @@ impl SqliteReader {
                             let changed_columns = grid.columns != query.columns;
                             grid.columns = query.columns.clone();
                             grid.start = page.as_ref().map_or(0, |p| p.start_column);
-                            grid.replace_rows(page.map(|p| p.rows).unwrap_or_default());
+                            grid.rows = page.map(|p| p.rows).unwrap_or_default();
                             grid.offset = query.page.saturating_mul(limits::SQLITE_PAGE_ROWS);
                             grid.busy = false;
                             if changed_columns {
@@ -468,7 +458,7 @@ impl SqliteReader {
             }
             self.grid.update(cx, |state, cx| {
                 let grid = state.delegate_mut();
-                grid.replace_rows(Vec::new());
+                grid.rows = Default::default();
                 grid.busy = false;
                 cx.notify();
             });
@@ -523,7 +513,7 @@ impl SqliteReader {
         self.grid.update(cx, |state, cx| {
             let grid = state.delegate_mut();
             grid.columns.clear();
-            grid.replace_rows(Vec::new());
+            grid.rows = Default::default();
             grid.start = 0;
             grid.busy = true;
             state.refresh(cx);
@@ -566,7 +556,7 @@ impl SqliteReader {
                         view.grid.update(cx, |s, cx| {
                             let d = s.delegate_mut();
                             d.columns = columns.names;
-                            d.replace_rows(Vec::new());
+                            d.rows = Default::default();
                             d.start = 0;
                             s.refresh(cx);
                         });
@@ -671,7 +661,7 @@ impl SqliteReader {
         }
         self.grid.update(cx, |s, cx| {
             let d = s.delegate_mut();
-            d.replace_rows(Vec::new());
+            d.rows = Default::default();
             d.busy = true;
             cx.notify();
         });
@@ -698,7 +688,7 @@ impl SqliteReader {
                     d.busy = false;
                     match result {
                         Ok(page) => {
-                            d.replace_rows(page.rows);
+                            d.rows = page.rows;
                             d.start = page.start_column;
                             d.offset = offset;
                             view.more = page.more;

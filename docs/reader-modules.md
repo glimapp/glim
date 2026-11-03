@@ -21,6 +21,8 @@ flowchart TD
 
 `ReaderHost` supplies translation, typed numeric action metadata and the shared resource pool. OPML and graph presentations use this host and pure `glim-core::outline`/`graph` payloads, without importing service implementations or application globals. The graph presentation serves XMind and structured-data visualization. Both have source/payload fixtures in `assets/reader-contracts`, shared by producer and presentation regression cases. Fixtures cover hierarchy/order, Unicode, URLs and fold behavior. They are internal contracts, not a serialized external plugin protocol.
 
+Prepared table results cross the service/view boundary as immutable `glim-core::resources::TextRows`, retaining their working admission with the cells. CSV/TSV, geographic and SQLite views do not reconstruct a second resource charge after publication. Text/hex pages similarly retain text, row ranges, widest-row metadata and their reservation in the prepared page.
+
 Workspace owns navigation and session coordination. `DocumentSession` owns identity, path, saved snapshot, revision and optional `EditSession`; source and preview share the editor, baseline, dirty/locked state and subscriptions. First save/window transfer preserves undo and recovery identity. Save completion confirms the snapshot actually written; newer typing remains dirty. Refresh publication checks identity/generation and relevant edit/page revisions, protecting dirty content and preserving readable views on failure.
 
 ## Adding a format
