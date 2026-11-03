@@ -45,6 +45,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../../native/FormatCatalog.swift");
     println!("cargo:rerun-if-changed=../../native/PreviewRequest.swift");
     println!("cargo:rerun-if-changed=../../native/ImagePreview.swift");
+    println!("cargo:rerun-if-changed=../../native/ReaderResources.swift");
     println!("cargo:rerun-if-changed=../../native/ImageTextExtraction.swift");
     println!("cargo:rerun-if-changed=../../native/PreviewCopy.swift");
     println!("cargo:rerun-if-changed=../../native/FloatingReaderToolbar.swift");
@@ -101,6 +102,7 @@ fn main() {
             "../../native/FormatCatalog.swift",
             "../../native/PreviewRequest.swift",
             "../../native/ImagePreview.swift",
+            "../../native/ReaderResources.swift",
             "../../native/ImageTextExtraction.swift",
             "../../native/PreviewCopy.swift",
             "../../native/FloatingReaderToolbar.swift",

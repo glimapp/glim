@@ -1117,8 +1117,8 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 let factor = edge / max(1, max(bounds.width, bounds.height))
                 self.copyRasterQueue.async {
                     let image = page.thumbnail(of: NSSize(width: bounds.width * factor, height: bounds.height * factor), for: .cropBox)
-                    let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
-                    DispatchQueue.main.async { completion(cgImage) }
+                    let raster = image.cgImage(forProposedRect: nil, context: nil, hints: nil).map(NativeRaster.init)
+                    DispatchQueue.main.async { completion(raster) }
                 }
             }
         } else if ["doc", "rtf"].contains(source.pathExtension.lowercased()) {

@@ -6,6 +6,42 @@ use gpui_kit::{Bounds, Pixels, Window};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{ffi::c_void, marker::PhantomData, ptr::NonNull, rc::Rc};
 
+// Native owners retain numeric handles, never Rust pointers. The registry may
+// be called by decode/OCR workers as well as the main-thread preview controller.
+extern "C" fn reader_resource(id: u64, bytes: u64) -> u64 {
+    use glim_services::resources::{self, ResourceClass, ResourceLease};
+    use std::{
+        collections::HashMap,
+        sync::{Mutex, OnceLock},
+    };
+    struct Registry {
+        next: u64,
+        leases: HashMap<u64, ResourceLease>,
+    }
+    static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
+    let mut registry = REGISTRY
+        .get_or_init(|| {
+            Mutex::new(Registry {
+                next: 0,
+                leases: HashMap::new(),
+            })
+        })
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if id != 0 {
+        registry.leases.remove(&id);
+        return 0;
+    }
+    let Some(id) = registry.next.checked_add(1) else {
+        return 0;
+    };
+    registry.next = id;
+    registry
+        .leases
+        .insert(id, resources::pool().track(bytes, ResourceClass::Working));
+    id
+}
+
 extern "C" fn reader_telemetry(
     kind: i32,
     action: i32,
@@ -130,6 +166,7 @@ pub(crate) fn resource_snapshot() -> (i32, [u64; 16]) {
     (available, values)
 }
 unsafe extern "C" {
+    fn glim_set_reader_resources(callback: Option<extern "C" fn(u64, u64) -> u64>);
     fn glim_set_telemetry_enabled(enabled: i32);
     fn glim_telemetry_resources(output: *mut u64, capacity: usize) -> i32;
     fn glim_set_reader_telemetry(
@@ -161,6 +198,7 @@ impl NativePreview {
     pub fn new(configuration: &[u8]) -> Self {
         // SAFETY: Swift copies this valid slice before returning a retained handle.
         let handle = unsafe {
+            glim_set_reader_resources(Some(reader_resource));
             glim_set_reader_telemetry(Some(reader_telemetry));
             glim_preview_create(configuration.as_ptr(), configuration.len())
         };

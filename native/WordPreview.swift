@@ -144,13 +144,13 @@ final class WordPreview: NSObject, WKNavigationDelegate {
         guard readingMode && reading != nil && !readingFailed else { completion(PreviewCopy.text(in: body)); return }
         web.evaluateJavaScript("window.getSelection()?.toString() || document.body.innerText") { value, _ in completion(value as? String ?? "") }
     }
-    func recognizeVisiblePage(_ completion: @escaping (CGImage?) -> Void) {
+    func recognizeVisiblePage(_ completion: @escaping (NativeRaster?) -> Void) {
         guard readingMode && reading != nil && !readingFailed else { completion(nil); return }
         let configuration = WKSnapshotConfiguration()
         configuration.rect = web.bounds
         configuration.snapshotWidth = NSNumber(value: min(Double(ReaderLimits.IMAGE_PREVIEW_EDGE), Double(web.bounds.width)))
         web.takeSnapshot(with: configuration) { image, _ in
-            completion(image?.cgImage(forProposedRect: nil, context: nil, hints: nil))
+            completion(image?.cgImage(forProposedRect: nil, context: nil, hints: nil).map(NativeRaster.init))
         }
     }
     deinit { if let monitor = copyMonitor { NSEvent.removeMonitor(monitor) } }

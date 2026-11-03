@@ -14,7 +14,7 @@ final class PreviewCopy: NSObject {
     private let nextImage = NSButton(title: L("Next image"), target: nil, action: nil)
     private let recognize = NSButton(title: L("Recognize Image Text"), target: nil, action: nil)
     var textProvider: ((@escaping (String) -> Void) -> Void)?
-    var rasterProvider: ((@escaping (CGImage?) -> Void) -> Void)?
+    var rasterProvider: ((@escaping (NativeRaster?) -> Void) -> Void)?
     init(root: NSView, source: URL) {
         self.root = root; self.source = source
         super.init()
@@ -186,7 +186,7 @@ private final class OfficeImageStream {
             buffer.append(data)
         }
     }
-    func next() throws -> (String, CGImage)? {
+    func next() throws -> (String, NativeRaster)? {
         try prepare()
         while true {
             try check()
@@ -214,7 +214,7 @@ private final class OfficeImageStream {
             if let image = autoreleasepool(invoking: { () -> CGImage? in
                 guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
                 return CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: edge, kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
-            }) { try check(); return (name, image) }
+            }) { try check(); return (name, NativeRaster(image)) }
         }
     }
     deinit {

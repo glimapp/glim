@@ -88,6 +88,7 @@ final class ImagePreview: NSObject {
     let view: NSView = ImagePreviewHost()
     private let scroll = NSScrollView()
     private let imageView = PannableImageView()
+    private var displayedRaster: NativeRaster?
     private static let copyQueue = DispatchQueue(label: "glim.image.copy", qos: .userInitiated)
     private var copyMonitor: Any?
     private var copyTask: DispatchWorkItem?
@@ -343,18 +344,18 @@ final class ImagePreview: NSObject {
                         }
                         return
                     }
-                    self.writeImageCopy(raster: cgImage, generation: generation, changeCount: changeCount, svg: true)
+                    self.writeImageCopy(raster: NativeRaster(cgImage), generation: generation, changeCount: changeCount, svg: true)
                 }
             }
             return
         }
-        let raster = imageView.image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
-        guard let raster = raster else { return }
+        guard let raster = displayedRaster else { return }
         writeImageCopy(raster: raster, generation: generation, changeCount: changeCount, svg: false)
     }
-    private func writeImageCopy(raster: CGImage, generation: Int, changeCount: Int, svg: Bool) {
+    private func writeImageCopy(raster: NativeRaster, generation: Int, changeCount: Int, svg: Bool) {
         let singlePage = count == 1, url = url
         let work = DispatchWorkItem { [weak self] in
+            defer { withExtendedLifetime(raster) {} }
             let result: Data?
             let type: NSPasteboard.PasteboardType
             let svgData = svg ? try? Data(contentsOf: url, options: .mappedIfSafe) : nil
@@ -366,12 +367,14 @@ final class ImagePreview: NSObject {
             } else {
                 let data = NSMutableData()
                 if let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) {
-                    CGImageDestinationAddImage(destination, raster, nil)
+                    CGImageDestinationAddImage(destination, raster.image, nil)
                     result = CGImageDestinationFinalize(destination) ? (data as Data) : nil
                 } else { result = nil }
                 type = .png
             }
+            let resultLease = NativeResourceLease(bytes: UInt64(result?.count ?? 0) + UInt64(svgData?.count ?? 0))
             DispatchQueue.main.async { [weak self] in
+                defer { withExtendedLifetime(resultLease) {} }
                 guard let self = self, !self.closed, self.copyGeneration == generation,
                       NSPasteboard.general.changeCount == changeCount else { return }
                 self.copyTask = nil
@@ -391,8 +394,8 @@ final class ImagePreview: NSObject {
     private func cancelImageCopy() { copyGeneration += 1; copyTask?.cancel(); copyTask = nil; svgCopyPreview?.close(); svgCopyPreview = nil }
     @objc private func extractText() { ReaderTelemetry.record(1, 8, 0);
         guard let parent = view.window,
-              let image = imageView.image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
-        textExtraction.extract(image, in: parent)
+              let raster = displayedRaster else { return }
+        textExtraction.extract(raster, in: parent)
     }
     private func svgAction(_ command: String) {
         if command != "status" { svgCanNavigateHistory = false }
@@ -465,7 +468,7 @@ final class ImagePreview: NSObject {
         decodeToken?.cancel(); task?.cancel(); generation += 1
         let token = ImageDecodeToken(); decodeToken = token
         let generation = generation, page = page, original = original, url = url, sourceSize = sourceSize
-        needsInitialFit = false; imageView.image = nil
+        needsInitialFit = false; imageView.image = nil; displayedRaster = nil
         loadingLabel.stringValue = L("Loading preview…")
         loading.isHidden = false; progress.startAnimation(nil)
         status.stringValue = L("Loading preview…"); controls(true)
@@ -482,22 +485,25 @@ final class ImagePreview: NSObject {
             let edge = min(max(rasterWidth, rasterHeight), budgetEdge, original ? budgetEdge : Double(ReaderLimits.IMAGE_PREVIEW_EDGE))
             guard !token.cancelled else { return }
             let image = source.flatMap { CGImageSourceCreateThumbnailAtIndex($0, page, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: edge, kCGImageSourceShouldCacheImmediately: true, kCGImageSourceShouldAllowFloat: false] as CFDictionary) }
+            let raster = image.map(NativeRaster.init)
             guard !token.cancelled else { return }
             DispatchQueue.main.async { [weak self] in
                 guard let self = self, !self.closed, self.generation == generation else { return }
                 self.task = nil
-                guard let image = image else {
+                guard let raster = raster else {
                     self.status.stringValue = L("Cannot open image")
                     self.loadingLabel.stringValue = L("Cannot open image")
                     self.progress.stopAnimation(nil)
                     self.controls(false); return
                 }
+                self.displayedRaster = raster
+                let image = raster.image
                 self.count = count
                 let scale = max(width, height) / Double(max(image.width, image.height))
                 let size = sourceSize ?? NSSize(width: Double(image.width) * scale, height: Double(image.height) * scale)
                 self.imageView.image = NSImage(cgImage: image, size: size)
                 self.imageView.frame = NSRect(origin: .zero, size: size)
-                if #available(macOS 13.0, *) { (self.liveText as? LiveImageText)?.analyze(image) }
+                if #available(macOS 13.0, *) { (self.liveText as? LiveImageText)?.analyze(raster) }
                 self.needsInitialFit = true
                 self.view.layoutSubtreeIfNeeded()
                 self.fitWhenReady()
@@ -507,7 +513,7 @@ final class ImagePreview: NSObject {
         }
         task = work; Self.decodeQueue.async(execute: work)
     }
-    func pause() { cancelImageCopy(); if #available(macOS 13.0, *) { MainActor.assumeIsolated { (liveText as? LiveImageText)?.cancel() } }; textExtraction.cancel(); extractTextButton.isEnabled = false; decodeToken?.cancel(); decodeToken = nil; task?.cancel(); task = nil; generation += 1; needsInitialFit = false; progress.stopAnimation(nil); imageView.image = nil }
+    func pause() { cancelImageCopy(); if #available(macOS 13.0, *) { MainActor.assumeIsolated { (liveText as? LiveImageText)?.cancel() } }; textExtraction.cancel(); extractTextButton.isEnabled = false; decodeToken?.cancel(); decodeToken = nil; task?.cancel(); task = nil; generation += 1; needsInitialFit = false; progress.stopAnimation(nil); imageView.image = nil; displayedRaster = nil }
     func resume() { if svgPreview != nil { return }; if !closed && task == nil && imageView.image == nil { load() } }
     func close() { contextMenuRouter = nil; if let monitor = copyMonitor { NSEvent.removeMonitor(monitor); copyMonitor = nil }; NotificationCenter.default.removeObserver(self); closed = true; pause(); svgPreview?.close(); svgPreview = nil }
 }

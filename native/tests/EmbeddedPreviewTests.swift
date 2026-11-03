@@ -40,6 +40,7 @@ struct EmbeddedPreviewTests {
         }
     }
     static func main() throws {
+        readerResourceOwnership()
         try requestContract()
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -14,7 +14,7 @@ final class ImageTextExtraction: NSObject, NSWindowDelegate {
     private let message = NSTextField(labelWithString: "")
     private let copyButton = NSButton(title: L("Copy All"), target: nil, action: nil)
 
-    func extract(_ image: CGImage, in parent: NSWindow, extraControls: [NSView] = []) {
+    func extract(_ raster: NativeRaster, in parent: NSWindow, extraControls: [NSView] = []) {
         cancel()
         generation += 1
         let generation = generation
@@ -60,6 +60,7 @@ final class ImageTextExtraction: NSObject, NSWindowDelegate {
         if #available(macOS 13.0, *) { request.automaticallyDetectsLanguage = true }
         self.request = request
         let work = DispatchWorkItem { [weak self] in
+            defer { withExtendedLifetime(raster) {} }
             do {
                 // Supported languages vary with OS and request revision.
                 let supported: [String]
@@ -69,7 +70,7 @@ final class ImageTextExtraction: NSObject, NSWindowDelegate {
                     supported = try VNRecognizeTextRequest.supportedRecognitionLanguages(for: .accurate, revision: request.revision)
                 }
                 request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US"].filter { supported.contains($0) }
-                try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+                try VNImageRequestHandler(cgImage: raster.image, options: [:]).perform([request])
                 let result = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self, self.generation == generation, self.panel != nil else { return }
@@ -131,6 +132,7 @@ private final class LiveTextSurface: NSView {
 final class LiveImageText: NSObject, ImageAnalysisOverlayViewDelegate {
     private let surface = LiveTextSurface()
     private let analyzer = ImageAnalyzer()
+    private var analyzedRaster: NativeRaster?
     private var task: Task<Void, Never>?
     private var generation = 0
     private weak var imageView: NSImageView?
@@ -164,15 +166,17 @@ final class LiveImageText: NSObject, ImageAnalysisOverlayViewDelegate {
         NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: surface.overlay)
         return true
     }
-    func analyze(_ image: CGImage) {
+    func analyze(_ raster: NativeRaster) {
         cancel()
         guard ImageAnalyzer.isSupported else { return }
         let generation = generation
         let analyzer = analyzer
         task = Task { @MainActor [weak self] in
+            defer { withExtendedLifetime(raster) {} }
             do {
-                let analysis = try await analyzer.analyze(image, orientation: .up, configuration: ImageAnalyzer.Configuration(.text))
+                let analysis = try await analyzer.analyze(raster.image, orientation: .up, configuration: ImageAnalyzer.Configuration(.text))
                 guard !Task.isCancelled, let self = self, self.generation == generation else { return }
+                self.analyzedRaster = raster
                 self.surface.overlay.analysis = analysis
                 self.surface.overlay.setContentsRectNeedsUpdate()
                 self.task = nil
@@ -185,6 +189,7 @@ final class LiveImageText: NSObject, ImageAnalysisOverlayViewDelegate {
         generation += 1
         task?.cancel(); task = nil
         surface.overlay.analysis = nil
+        analyzedRaster = nil
         surface.overlay.resetSelection()
     }
     func contentView(for overlayView: ImageAnalysisOverlayView) -> NSView? { imageView }
