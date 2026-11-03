@@ -3,30 +3,32 @@ use crate::limits as reader_limits;
 use anyhow::{Result, ensure};
 use serde_json::Value;
 
-pub struct JsonNode {
-    pub key: String,
-    pub full_key: String,
-    pub full_value: Option<String>,
-    pub value: String,
-    pub kind: &'static str,
-    pub children: Vec<usize>,
+use crate::work::Cancellation;
+pub use glim_core::structured::Tree;
+use glim_core::{resources::ResourcePool, structured::TreeBuilder};
+
+pub fn parse(text: &str) -> Result<Tree> {
+    parse_format(text, "json")
 }
-pub fn parse(text: &str) -> Result<Vec<JsonNode>> {
-    ensure!(
-        text.len() <= reader_limits::JSON_INPUT_BYTES,
-        "Tree input exceeds the preview size limit; use Source for larger JSON."
-    );
-    let value: Value = serde_json::from_str(text)?;
-    nodes_for_value(value)
-}
-pub(crate) fn nodes_for_value(value: Value) -> Result<Vec<JsonNode>> {
-    let mut nodes = Vec::new();
-    fn add(key: String, value: Value, nodes: &mut Vec<JsonNode>) -> Result<usize> {
+
+pub(crate) fn nodes_for_value(
+    value: Value,
+    cancel: &Cancellation,
+    pool: &ResourcePool,
+) -> Result<Tree> {
+    let mut nodes = TreeBuilder::new(pool);
+    fn add(
+        key: String,
+        value: Value,
+        parent: Option<usize>,
+        nodes: &mut TreeBuilder,
+        cancel: &Cancellation,
+    ) -> Result<usize> {
+        cancel.check()?;
         ensure!(
             nodes.len() < reader_limits::JSON_NODES,
             "Tree node count exceeds the preview limit; use Source."
         );
-        let index = nodes.len();
         let (kind, label) = match &value {
             Value::Object(v) => {
                 let description = v
@@ -86,48 +88,52 @@ pub(crate) fn nodes_for_value(value: Value) -> Result<Vec<JsonNode>> {
         };
         let full_value = match &value {
             Value::Object(_) | Value::Array(_) => None,
-            Value::String(text) => Some(text.clone()),
-            _ => Some(value.to_string()),
+            Value::String(text) => Some(text.as_str()),
+            _ => Some(label.as_str()),
         };
-        nodes.push(JsonNode {
-            full_key: key.clone(),
-            full_value,
-            key: key.chars().take(reader_limits::JSON_FIELD_CHARS).collect(),
-            value: label,
-            kind,
-            children: Vec::new(),
-        });
+        let display_key: String = key.chars().take(reader_limits::JSON_FIELD_CHARS).collect();
+        let index = nodes.push(&display_key, &key, &label, full_value, kind, parent)?;
+        drop(display_key);
+        drop(label);
+        drop(key);
         match value {
             Value::Object(values) => {
                 for (key, value) in values {
-                    let child = add(key, value, nodes)?;
-                    nodes[index].children.push(child);
+                    add(key, value, Some(index), nodes, cancel)?;
                 }
             }
             Value::Array(values) => {
                 for (i, value) in values.into_iter().enumerate() {
-                    let child = add(format!("[{i}]"), value, nodes)?;
-                    nodes[index].children.push(child);
+                    add(format!("[{i}]"), value, Some(index), nodes, cancel)?;
                 }
             }
             _ => {}
         }
         Ok(index)
     }
-    add("$".into(), value, &mut nodes)?;
-    Ok(nodes)
+    add("$".into(), value, None, &mut nodes, cancel)?;
+    Ok(nodes.finish())
 }
 
 /// Strip JSONC comments and trailing commas outside strings without changing offsets.
-pub fn parse_jsonc(text: &str) -> Result<Vec<JsonNode>> {
+pub fn parse_jsonc(text: &str) -> Result<Tree> {
+    parse_format(text, "jsonc")
+}
+fn parse_jsonc_with(text: &str, cancel: &Cancellation, pool: &ResourcePool) -> Result<Tree> {
     ensure!(
         text.len() <= reader_limits::JSON_INPUT_BYTES,
         "Tree input exceeds the preview size limit; use Source."
     );
+    let _memory = pool.reserve_working(text.len() as u64, text.len() as u64)?;
     let mut bytes = text.as_bytes().to_vec();
     let mut i = 0;
+    let mut checkpoint = 0;
     let mut string = false;
     while i < bytes.len() {
+        if i >= checkpoint {
+            cancel.check()?;
+            checkpoint = i.saturating_add(reader_limits::IO_BUFFER_BYTES);
+        }
         if string {
             if bytes[i] == b'\\' {
                 i += 2;
@@ -142,6 +148,10 @@ pub fn parse_jsonc(text: &str) -> Result<Vec<JsonNode>> {
             i += 1;
         } else if bytes.get(i..i + 2) == Some(b"//") {
             while i < bytes.len() && bytes[i] != b'\n' {
+                if i >= checkpoint {
+                    cancel.check()?;
+                    checkpoint = i.saturating_add(reader_limits::IO_BUFFER_BYTES);
+                }
                 bytes[i] = b' ';
                 i += 1;
             }
@@ -150,6 +160,10 @@ pub fn parse_jsonc(text: &str) -> Result<Vec<JsonNode>> {
             bytes[i + 1] = b' ';
             i += 2;
             while i < bytes.len() && bytes.get(i..i + 2) != Some(b"*/") {
+                if i >= checkpoint {
+                    cancel.check()?;
+                    checkpoint = i.saturating_add(reader_limits::IO_BUFFER_BYTES);
+                }
                 if !matches!(bytes[i], b'\n' | b'\r') {
                     bytes[i] = b' ';
                 }
@@ -164,8 +178,13 @@ pub fn parse_jsonc(text: &str) -> Result<Vec<JsonNode>> {
         }
     }
     i = 0;
+    checkpoint = 0;
     string = false;
     while i < bytes.len() {
+        if i >= checkpoint {
+            cancel.check()?;
+            checkpoint = i.saturating_add(reader_limits::IO_BUFFER_BYTES);
+        }
         if string && bytes[i] == b'\\' {
             i += 2;
             continue;
@@ -176,6 +195,10 @@ pub fn parse_jsonc(text: &str) -> Result<Vec<JsonNode>> {
         if !string && bytes[i] == b',' {
             let mut next = i + 1;
             while next < bytes.len() && bytes[next].is_ascii_whitespace() {
+                if next >= checkpoint {
+                    cancel.check()?;
+                    checkpoint = next.saturating_add(reader_limits::IO_BUFFER_BYTES);
+                }
                 next += 1;
             }
             if bytes.get(next).is_some_and(|b| matches!(b, b'}' | b']')) {
@@ -184,27 +207,44 @@ pub fn parse_jsonc(text: &str) -> Result<Vec<JsonNode>> {
         }
         i += 1;
     }
-    parse(std::str::from_utf8(&bytes)?)
+    parse_format_cancellable(std::str::from_utf8(&bytes)?, "json", cancel, pool)
 }
 
-pub fn parse_format(text: &str, format: &str) -> Result<Vec<JsonNode>> {
+pub fn parse_format(text: &str, format: &str) -> Result<Tree> {
+    parse_format_cancellable(
+        text,
+        format,
+        &Cancellation::default(),
+        crate::resources::pool(),
+    )
+}
+
+pub fn parse_format_cancellable(
+    text: &str,
+    format: &str,
+    cancel: &Cancellation,
+    pool: &ResourcePool,
+) -> Result<Tree> {
+    cancel.check()?;
     ensure!(
         text.len() <= reader_limits::JSON_INPUT_BYTES,
         "Tree input exceeds the preview size limit"
     );
-    match format {
-        "json5" => nodes_for_value(json5::from_str(text)?),
+    let value = match format {
+        "json5" => json5::from_str(text)?,
         "ndjson" | "jsonl" => {
-            let values = text
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .map(serde_json::from_str)
-                .collect::<std::result::Result<Vec<Value>, _>>()?;
-            nodes_for_value(Value::Array(values))
+            let mut values = Vec::new();
+            for line in text.lines().filter(|line| !line.trim().is_empty()) {
+                cancel.check()?;
+                values.push(serde_json::from_str(line)?);
+            }
+            Value::Array(values)
         }
-        "jsonc" => parse_jsonc(text),
-        _ => parse(text),
-    }
+        "jsonc" => return parse_jsonc_with(text, cancel, pool),
+        _ => serde_json::from_str(text)?,
+    };
+    cancel.check()?;
+    nodes_for_value(value, cancel, pool)
 }
 
 /// Whitespace-only formatting preserves key order, duplicate keys and numeric literals.

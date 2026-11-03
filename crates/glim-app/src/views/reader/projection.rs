@@ -1,12 +1,15 @@
 //! Optional data views share a source editor and one selected projection.
 use super::{csv::CsvTable, json::JsonTree};
+use glim_core::resources::{TextSnapshot, WorkingPressure};
 use glim_services::documents::presentation::{TableFormat, TextPresentation};
 use gpui_kit::*;
 use std::path::Path;
+use std::sync::Arc;
 
 pub(super) struct Projection {
     view: View,
     visible: bool,
+    error: Option<String>,
 }
 enum View {
     Table {
@@ -27,13 +30,14 @@ impl Projection {
             }
         } else if file.is_none() {
             let dialect = presentation.json_dialect.clone()?;
-            View::Json(cx.new(|_| JsonTree::new(dialect)))
+            View::Json(cx.new(|cx| JsonTree::new(dialect, cx)))
         } else {
             return None;
         };
         Some(Self {
             view,
             visible: false,
+            error: None,
         })
     }
     pub fn table_format(&self) -> Option<TableFormat> {
@@ -48,12 +52,42 @@ impl Projection {
     pub fn visible(&self) -> bool {
         self.visible
     }
-    pub fn set_visible(&mut self, visible: bool, text: Option<String>, cx: &mut App) {
+    pub fn snapshot<'a>(
+        &self,
+        chunks: impl Iterator<Item = &'a str> + Clone,
+        cx: &App,
+    ) -> Result<Arc<TextSnapshot>, WorkingPressure> {
+        let current = match &self.view {
+            View::Table { view, .. } => view.read(cx).input_snapshot(),
+            View::Json(view) => view.read(cx).input_snapshot(),
+        };
+        if let Some(current) = current
+            && current.matches_chunks(chunks.clone())
+        {
+            return Ok(current.clone());
+        }
+        TextSnapshot::from_chunks(chunks, glim_services::resources::pool()).map(Arc::new)
+    }
+    pub fn set_visible(
+        &mut self,
+        visible: bool,
+        text: Option<Result<Arc<TextSnapshot>, WorkingPressure>>,
+        cx: &mut App,
+    ) {
         self.visible = visible;
         if !visible {
             self.set_active(false, cx);
             return;
         }
+        self.error = None;
+        let text = match text.transpose() {
+            Ok(text) => text,
+            Err(error) => {
+                self.error = Some(format!("{error}. Switch to Source and retry the preview."));
+                self.set_active(false, cx);
+                return;
+            }
+        };
         match &self.view {
             View::Table { view, format } => view.update(cx, |table, cx| match text {
                 Some(text) => match format.geo_name() {
@@ -70,7 +104,7 @@ impl Projection {
         }
     }
     pub fn set_active(&self, active: bool, cx: &mut App) {
-        let active = active && self.visible;
+        let active = active && self.visible && self.error.is_none();
         match &self.view {
             View::Table { view, .. } => view.update(cx, |table, cx| {
                 if active {
@@ -83,15 +117,20 @@ impl Projection {
                 if active {
                     tree.resume(cx);
                 } else {
-                    tree.suspend();
+                    tree.suspend(cx);
                 }
             }),
         }
     }
     pub fn render(&self) -> Option<AnyElement> {
-        self.visible.then(|| match &self.view {
-            View::Table { view, .. } => view.clone().into_any_element(),
-            View::Json(view) => view.clone().into_any_element(),
+        self.visible.then(|| {
+            if let Some(error) = &self.error {
+                return div().p_4().child(error.clone()).into_any_element();
+            }
+            match &self.view {
+                View::Table { view, .. } => view.clone().into_any_element(),
+                View::Json(view) => view.clone().into_any_element(),
+            }
         })
     }
 }

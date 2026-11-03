@@ -5,6 +5,7 @@ pub mod formats;
 pub mod outline;
 pub mod resources;
 pub mod session;
+pub mod structured;
 pub mod update;
 mod workspace;
 

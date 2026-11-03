@@ -169,9 +169,12 @@ impl Reader {
                 browser.update(cx, |browser, _| browser.hide());
             }
         }
-        let text = if preview && self.projection.is_some() {
-            self.source()
-                .map(|source| source.edit.editor().read(cx).value().to_string())
+        let text = if preview {
+            self.projection.as_ref().and_then(|projection| {
+                self.source().map(|source| {
+                    projection.snapshot(source.edit.editor().read(cx).text().chunks(), cx)
+                })
+            })
         } else {
             None
         };

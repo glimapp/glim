@@ -1,11 +1,13 @@
 //! Shared accounting and reclamation for owned buffers, independent of UI and I/O.
 mod rows;
+mod text;
 pub use rows::{TextRows, TextRowsBuilder};
 use std::{
     collections::HashMap,
     ops::Deref,
     sync::{Arc, Mutex, Weak},
 };
+pub use text::TextSnapshot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResourceClass {

@@ -27,6 +27,8 @@ flowchart TD
 
 像素结果通过 `glim-services::media::RasterFrame` 跨越边界，同时持有 `image::Frame` 和工作预留，不含 GPUI 类型。PNG 准备和 GIF 播放在分配像素前取得额度；应用原地交换颜色通道，再将像素与预留共同交给显示所有者。GIF 播放也接受显式资源池，支持独立准备与测量。这落实了缓冲所有权隔离；媒体视图仍使用应用调度器和服务入口。
 
+结构树载荷位于 `glim-core::structured`。`TreeBuilder` 在分配前为节点字符串、节点槽位、子节点索引和向量扩容重叠申请预算；不可变 `Tree` 在交付后继续持有预留。JSON／JSONC／JSON5／JSONL 与结构化交互图的中间节点共用该表示。`reader/json/view` 只消费载荷、宿主操作、详情对话回调和注入的展开策略；`reader/json` 负责准备、取消、输入重建与重试。展示模块不引用服务或应用全局。
+
 ## 新增格式
 
 1. 在 `assets/format-catalog.json` 更新后缀集合、提供者及相关关联／图标预期，运行 `python3 scripts/generate-format-catalog.py --write`。文件名语言规则和内容探测保留代码实现，目录声明不授予编辑权限。
@@ -39,4 +41,4 @@ flowchart TD
 
 单独 crate 需要真实的独立版本、依赖隔离或复用需求。接口数量、支持扩展名数量、目录看起来整齐，都不足以证明需要拆包。拆分前需证明模块可通过准备数据和宿主操作运行，明确独立维护／版本责任，并说明新增构建与适配成本的收益。当前阅读器保留在 app crate 内。
 
-`scripts/check-architecture.py` 检查三层依赖、core／services 中的已知 UI 依赖、提供者／目录一致性及工作区分发回流；同时检查契约、共享控件、OPML 和图结构模块不直接引用服务、应用全局或文件系统。源码守卫补充原生 Cargo 编译，不能证明任意 Rust 不执行 I/O 或始终可取消。全目标编译只检查测试代码，不执行测试；运行回归及 macOS 交互需单独验证。
+`scripts/check-architecture.py` 检查三层依赖、core／services 中的已知 UI 依赖、提供者／目录一致性及工作区分发回流；同时检查契约、共享控件、OPML、图结构及结构树展示模块不直接引用服务、应用全局或文件系统。源码守卫补充原生 Cargo 编译，不能证明任意 Rust 不执行 I/O 或始终可取消。全目标编译只检查测试代码，不执行测试；运行回归及 macOS 交互需单独验证。

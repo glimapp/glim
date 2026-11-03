@@ -11,6 +11,11 @@ name = "raster_memory"
 path = "benches/raster_memory.rs"
 harness = false
 
+[[bench]]
+name = "structured_tree"
+path = "benches/structured_tree.rs"
+harness = false
+
 [dependencies]
 chrono = "=0.4.45"
 log = { version = "0.4", features = ["std"] }

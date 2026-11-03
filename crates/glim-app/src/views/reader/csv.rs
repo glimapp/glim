@@ -1,4 +1,5 @@
 use crate::app::reader_jobs::{self, JobClass, Priority};
+use glim_core::resources::TextSnapshot;
 use glim_services::limits as reader_limits;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -10,26 +11,10 @@ use std::{path::PathBuf, sync::Arc};
 
 #[derive(Clone)]
 enum Source {
-    Text(Arc<SourceText>),
+    Text(Arc<TextSnapshot>),
     File(PathBuf),
-    GeoText(Arc<SourceText>),
+    GeoText(Arc<TextSnapshot>),
     GeoFile(PathBuf),
-}
-struct SourceText {
-    text: String,
-    _memory: glim_core::resources::ResourceLease,
-}
-impl SourceText {
-    fn new(text: String, pool: &glim_core::resources::ResourcePool) -> Self {
-        let memory = pool.track(
-            text.capacity() as u64,
-            glim_core::resources::ResourceClass::Working,
-        );
-        Self {
-            text,
-            _memory: memory,
-        }
-    }
 }
 pub(super) struct CsvTable {
     suspended: bool,
@@ -87,28 +72,35 @@ impl CsvTable {
         }
         table
     }
-    pub fn load(&mut self, text: String, delimiter: u8, cx: &mut Context<Self>) {
-        if matches!(&self.source, Some(Source::Text(old)) if old.text.as_str() == text) {
+    pub fn input_snapshot(&self) -> Option<&Arc<TextSnapshot>> {
+        match &self.source {
+            Some(Source::Text(text) | Source::GeoText(text)) => Some(text),
+            _ => None,
+        }
+    }
+    pub fn load(&mut self, text: Arc<TextSnapshot>, delimiter: u8, cx: &mut Context<Self>) {
+        if matches!(&self.source, Some(Source::Text(old)) if Arc::ptr_eq(old, &text) || old.as_str() == text.as_str())
+        {
             self.resume(cx);
             return;
         }
-        self.source = Some(Source::Text(Arc::new(SourceText::new(
-            text,
-            glim_services::resources::pool(),
-        ))));
+        self.source = Some(Source::Text(text));
         self.delimiter = delimiter;
         self.format = if delimiter == b'\t' { "TSV" } else { "CSV" };
         self.reload(cx);
     }
-    pub fn load_geo(&mut self, text: String, format: &'static str, cx: &mut Context<Self>) {
-        if matches!(&self.source, Some(Source::GeoText(old)) if old.text.as_str() == text) {
+    pub fn load_geo(
+        &mut self,
+        text: Arc<TextSnapshot>,
+        format: &'static str,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(&self.source, Some(Source::GeoText(old)) if Arc::ptr_eq(old, &text) || old.as_str() == text.as_str())
+        {
             self.resume(cx);
             return;
         }
-        self.source = Some(Source::GeoText(Arc::new(SourceText::new(
-            text,
-            glim_services::resources::pool(),
-        ))));
+        self.source = Some(Source::GeoText(text));
         self.format = format;
         self.reload(cx);
     }
@@ -176,13 +168,13 @@ impl CsvTable {
             cancel,
             move |cancel| match source {
                 Source::GeoText(text) => {
-                    glim_services::geo::read_page(text.text.as_bytes(), row, cancel)
+                    glim_services::geo::read_page(text.as_str().as_bytes(), row, cancel)
                 }
                 Source::GeoFile(path) => {
                     glim_services::geo::read_page(std::fs::File::open(path)?, row, cancel)
                 }
                 Source::Text(text) => glim_services::csv::read_page(
-                    text.text.as_bytes(),
+                    text.as_str().as_bytes(),
                     delimiter,
                     row,
                     column,
@@ -351,17 +343,16 @@ impl Render for CsvTable {
 
 #[cfg(test)]
 mod tests {
-    use super::{CsvTable, Source, SourceText};
+    use super::{CsvTable, Source, TextSnapshot};
     use glim_core::resources::{ResourcePool, TextRowsBuilder};
     use std::sync::Arc;
     #[test]
     fn a_running_projection_retains_source_accounting_after_its_view_closes() {
         let pool = ResourcePool::new(0);
         let mut table = CsvTable::new();
-        table.source = Some(Source::Text(Arc::new(SourceText::new(
-            "a,b".repeat(1024),
-            &pool,
-        ))));
+        table.source = Some(Source::Text(Arc::new(
+            TextSnapshot::from_chunks(std::iter::once("a,b".repeat(1024).as_str()), &pool).unwrap(),
+        )));
         let running_input = table.source.clone();
         drop(table);
         assert!(pool.snapshot().working_bytes > 0);
@@ -372,7 +363,9 @@ mod tests {
     fn suspension_releases_cells_and_preserves_reconstruction_and_page() {
         let pool = ResourcePool::new(0);
         let mut table = CsvTable::new();
-        table.source = Some(Source::Text(Arc::new(SourceText::new("a,b".into(), &pool))));
+        table.source = Some(Source::Text(Arc::new(
+            TextSnapshot::from_chunks(std::iter::once("a,b"), &pool).unwrap(),
+        )));
         table.row_start = 120;
         table.column_start = 4;
         table.previous = vec![0, 60];

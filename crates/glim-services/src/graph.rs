@@ -1,6 +1,5 @@
 //! Local structured-data graph projection. No network, embedded scripts or source writes.
 use crate::{
-    json::JsonNode,
     limits,
     work::Cancellation,
     xmind::{MindMap, Sheet, Topic},
@@ -51,7 +50,7 @@ pub fn read(path: &Path, text: Option<String>, cancel: &Cancellation) -> Result<
             } else {
                 serde_json::Value::Array(documents)
             };
-            crate::json::nodes_for_value(value)?
+            crate::json::nodes_for_value(value, cancel, crate::resources::pool())?
         }
         "csv" | "tsv" => {
             // Keep every column and duplicate header by representing records as arrays.
@@ -76,10 +75,16 @@ pub fn read(path: &Path, text: Option<String>, cancel: &Cancellation) -> Result<
                         .collect(),
                 ));
             }
-            crate::json::nodes_for_value(serde_json::Value::Array(rows))?
+            crate::json::nodes_for_value(
+                serde_json::Value::Array(rows),
+                cancel,
+                crate::resources::pool(),
+            )?
         }
         "xml" => xml_nodes(text, cancel)?,
-        _ => crate::json::parse_format(text, &format)?,
+        _ => {
+            crate::json::parse_format_cancellable(text, &format, cancel, crate::resources::pool())?
+        }
     };
     cancel.check()?;
     ensure!(
@@ -157,9 +162,9 @@ pub fn read(path: &Path, text: Option<String>, cancel: &Cancellation) -> Result<
         }],
     })
 }
-fn xml_nodes(text: &str, cancel: &Cancellation) -> Result<Vec<JsonNode>> {
+fn xml_nodes(text: &str, cancel: &Cancellation) -> Result<glim_core::structured::Tree> {
     let document = roxmltree::Document::parse(text)?;
-    let mut nodes: Vec<JsonNode> = Vec::new();
+    let mut nodes = glim_core::structured::TreeBuilder::new(crate::resources::pool());
     let mut pending = vec![(document.root_element(), None::<usize>, 0usize)];
     while let Some((element, parent, depth)) = pending.pop() {
         cancel.check()?;
@@ -171,19 +176,8 @@ fn xml_nodes(text: &str, cancel: &Cancellation) -> Result<Vec<JsonNode>> {
             nodes.len() < limits::XMIND_TOPICS,
             "Graph node budget exceeded; use Source."
         );
-        let index = nodes.len();
-        let name = element.tag_name().name().to_owned();
-        nodes.push(JsonNode {
-            key: name.clone(),
-            full_key: name,
-            full_value: None,
-            value: "element".into(),
-            kind: "element",
-            children: Vec::new(),
-        });
-        if let Some(parent) = parent {
-            nodes[parent].children.push(index);
-        }
+        let name = element.tag_name().name();
+        let index = nodes.push(name, name, "element", None, "element", parent)?;
         for (key, value) in element
             .attributes()
             .map(|a| (format!("@{}", a.name()), a.value()))
@@ -200,16 +194,8 @@ fn xml_nodes(text: &str, cancel: &Cancellation) -> Result<Vec<JsonNode>> {
                 nodes.len() < limits::XMIND_TOPICS,
                 "Graph node budget exceeded; use Source."
             );
-            let child = nodes.len();
-            nodes.push(JsonNode {
-                key: key.clone(),
-                full_key: key,
-                full_value: Some(value.into()),
-                value: value.chars().take(limits::JSON_FIELD_CHARS).collect(),
-                kind: "string",
-                children: Vec::new(),
-            });
-            nodes[index].children.push(child);
+            let label: String = value.chars().take(limits::JSON_FIELD_CHARS).collect();
+            nodes.push(&key, &key, &label, Some(value), "string", Some(index))?;
         }
         pending.extend(
             element
@@ -219,5 +205,5 @@ fn xml_nodes(text: &str, cancel: &Cancellation) -> Result<Vec<JsonNode>> {
                 .map(|n| (n, Some(index), depth + 1)),
         );
     }
-    Ok(nodes)
+    Ok(nodes.finish())
 }
