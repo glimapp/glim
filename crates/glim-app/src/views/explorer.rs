@@ -576,14 +576,19 @@ impl Explorer {
         changes: &glim_services::watch::Changes,
         cx: &mut Context<Self>,
     ) {
-        self.media_tasks.clear();
-        self.media_presence.clear();
+        self.media_tasks.retain(|path, _| !changes.affects(path));
+        self.media_presence.retain(|path, _| !changes.affects(path));
         // Saved descendants are discovered from their loaded parents during restore.
-        let mut paths = self.directories.keys().cloned().collect::<Vec<_>>();
-        paths.extend(self.roots.iter().cloned());
+        let mut paths = self
+            .directories
+            .keys()
+            .chain(&self.roots)
+            .filter(|path| changes.affects(path))
+            .cloned()
+            .collect::<Vec<_>>();
         paths.sort();
         paths.dedup();
-        for path in paths.into_iter().filter(|path| changes.affects(path)) {
+        for path in paths {
             self.refresh_directory(path, cx);
         }
     }

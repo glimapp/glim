@@ -9,7 +9,7 @@ impl Workspace {
         self.watch_task = Some(cx.spawn_in(window, async move |view, cx| {
             loop {
                 cx.background_executor()
-                    .timer(Duration::from_millis(500))
+                    .timer(Duration::from_millis(100))
                     .await;
                 if view
                     .update_in(cx, |view, window, cx| {
