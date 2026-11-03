@@ -17,7 +17,7 @@ impl Workspace {
                             let changes = watch.take_changes();
                             if !changes.is_empty() {
                                 if let Some(explorer) = &view.explorer {
-                                    explorer.update(cx, |v, cx| v.refresh(cx));
+                                    explorer.update(cx, |v, cx| v.refresh_changed(&changes, cx));
                                 }
                                 view.pending_refresh.merge(changes);
                             }

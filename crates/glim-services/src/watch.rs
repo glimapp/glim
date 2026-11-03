@@ -31,6 +31,14 @@ impl Changes {
             *self = Self::all();
         }
     }
+    fn insert_watched_path(&mut self, path: PathBuf, aliases: &[(PathBuf, PathBuf)]) {
+        for (canonical, alias) in aliases {
+            if let Ok(relative) = path.strip_prefix(canonical) {
+                self.insert(alias.join(relative));
+            }
+        }
+        self.insert(path);
+    }
     pub fn merge(&mut self, other: Self) {
         if other.rescan {
             *self = Self::all();
@@ -82,11 +90,22 @@ impl Changes {
 pub struct WorkspaceWatch {
     _watcher: RecommendedWatcher,
     pending: Arc<Mutex<Changes>>,
+    aliases: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
 }
 impl WorkspaceWatch {
     pub fn new(root: &Path) -> Result<Self> {
         let pending = Arc::new(Mutex::new(Changes::default()));
         let events = pending.clone();
+        let aliases = Arc::new(Mutex::new(Vec::<(PathBuf, PathBuf)>::new()));
+        if let Ok(canonical) = root.canonicalize()
+            && canonical != root
+        {
+            aliases
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push((canonical, root.to_path_buf()));
+        }
+        let event_aliases = aliases.clone();
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
                 let mut pending = events.lock().unwrap_or_else(|e| e.into_inner());
@@ -97,7 +116,10 @@ impl WorkspaceWatch {
                             *pending = Changes::all();
                         } else {
                             for path in event.paths {
-                                pending.insert(path);
+                                pending.insert_watched_path(
+                                    path,
+                                    &event_aliases.lock().unwrap_or_else(|e| e.into_inner()),
+                                );
                             }
                         }
                     }
@@ -109,9 +131,19 @@ impl WorkspaceWatch {
         Ok(Self {
             _watcher: watcher,
             pending,
+            aliases,
         })
     }
     pub fn add_path(&mut self, path: &Path) -> Result<()> {
+        if let Ok(canonical) = path.canonicalize()
+            && canonical != path
+        {
+            let mut aliases = self.aliases.lock().unwrap_or_else(|e| e.into_inner());
+            let alias = (canonical, path.to_path_buf());
+            if !aliases.contains(&alias) {
+                aliases.push(alias);
+            }
+        }
         self._watcher.watch(path, RecursiveMode::Recursive)?;
         Ok(())
     }
@@ -123,6 +155,22 @@ impl WorkspaceWatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn watcher_aliases_preserve_targeted_refresh_after_removal() {
+        let mut changes = Changes::default();
+        changes.insert_watched_path(
+            "/private/var/project/nested/deleted.txt".into(),
+            &[
+                ("/private/var/project".into(), "/var/project".into()),
+                ("/private/var/project".into(), "/workspace/link".into()),
+            ],
+        );
+        assert!(changes.affects(Path::new("/var/project/nested")));
+        assert!(changes.affects(Path::new("/workspace/link/nested")));
+        assert!(changes.affects(Path::new("/private/var/project/nested")));
+        assert!(!changes.affects(Path::new("/workspace/link/other")));
+    }
 
     #[test]
     fn coalescing_retains_directory_invalidation_and_bounds_event_storms() {

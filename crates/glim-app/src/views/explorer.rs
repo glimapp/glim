@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
 };
 
@@ -27,6 +27,8 @@ pub enum ExplorerEvent {
 }
 
 gpui_kit::actions!(explorer, [Up, Down, Expand, Collapse, OpenSelected]);
+
+const DIRECTORY_SCAN_CONCURRENCY: usize = 32;
 
 #[derive(Clone)]
 struct Row {
@@ -96,6 +98,8 @@ pub struct Explorer {
     tasks: HashMap<PathBuf, Task<()>>,
     expansion_tasks: HashMap<u64, Task<()>>,
     pending_refresh: HashSet<PathBuf>,
+    directory_update: Option<Task<()>>,
+    expansion_dirty: bool,
     media_presence: HashMap<PathBuf, bool>,
     media_tasks: HashMap<PathBuf, Task<()>>,
     rows: Vec<Row>,
@@ -136,6 +140,8 @@ impl Explorer {
             tasks: HashMap::new(),
             expansion_tasks: HashMap::new(),
             pending_refresh: HashSet::new(),
+            directory_update: None,
+            expansion_dirty: false,
             media_presence: HashMap::new(),
             media_tasks: HashMap::new(),
             rows: Vec::new(),
@@ -283,25 +289,46 @@ impl Explorer {
 
     fn load_expanded(&mut self, cx: &mut Context<Self>) {
         let paths = self
-            .expanded
+            .rows
             .iter()
-            .flatten()
-            .filter(|path| {
-                self.roots.contains(path)
-                    || path
-                        .parent()
-                        .and_then(|parent| self.directories.get(parent))
-                        .is_some_and(|entries| {
-                            entries
-                                .iter()
-                                .any(|entry| entry.path == **path && entry.is_dir)
-                        })
+            .filter(|row| {
+                row.entry.is_dir
+                    && self.expanded[row.root_index].contains(&row.entry.path)
+                    && !self
+                        .expansion_tasks
+                        .contains_key(&self.root_ids[row.root_index])
+                    && !self.directories.contains_key(&row.entry.path)
+                    && !self.tasks.contains_key(&row.entry.path)
             })
-            .cloned()
+            .take(DIRECTORY_SCAN_CONCURRENCY.saturating_sub(self.tasks.len()))
+            .map(|row| row.entry.path.clone())
             .collect::<Vec<_>>();
         for path in paths {
             self.load_directory(path, cx);
         }
+    }
+
+    fn schedule_directory_update(&mut self, cx: &mut Context<Self>) {
+        if self.directory_update.is_some() {
+            return;
+        }
+        // Directory completions share one rebuild instead of rebuilding per entry.
+        self.directory_update = Some(cx.spawn(async move |view, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(16))
+                .await;
+            let _ = view.update(cx, |view, cx| {
+                view.directory_update = None;
+                view.start_pending_directories(cx);
+                view.rebuild();
+                view.advance_reveal(cx);
+                view.load_expanded(cx);
+                if std::mem::take(&mut view.expansion_dirty) {
+                    view.expansion_changed(cx);
+                }
+                cx.notify();
+            });
+        }));
     }
 
     fn toggle_all_folders(&mut self, root_id: u64, cx: &mut Context<Self>) {
@@ -321,29 +348,28 @@ impl Explorer {
             let (cancel, guard) = glim_services::work::Cancellation::task();
             let task = cx.spawn(async move |view, cx| {
                 let _guard = guard;
-                let mut paths = vec![root];
+                let mut paths = VecDeque::from([root]);
                 while !paths.is_empty() {
-                    let read_cancel = cancel.clone();
-                    // Read one level at a time, with one active directory scan per root.
-                    let batch = cx
-                        .background_executor()
-                        .spawn(async move {
-                            paths
-                                .into_iter()
-                                .take_while(|_| read_cancel.check().is_ok())
-                                .map(|path| {
-                                    let entries = list_directory_cancellable(&path, &read_cancel);
-                                    (path, entries)
-                                })
-                                .collect::<Vec<_>>()
+                    let reads = (0..DIRECTORY_SCAN_CONCURRENCY)
+                        .filter_map(|_| paths.pop_front())
+                        .map(|path| {
+                            let read_cancel = cancel.clone();
+                            cx.background_executor().spawn(async move {
+                                let entries = list_directory_cancellable(&path, &read_cancel);
+                                (path, entries)
+                            })
                         })
-                        .await;
+                        .collect::<Vec<_>>();
+                    let mut batch = Vec::with_capacity(reads.len());
+                    for read in reads {
+                        batch.push(read.await);
+                    }
                     let Ok(next) = view.update(cx, |view, cx| {
                         let Some(root_index) = view.root_ids.iter().position(|id| *id == root_id)
                         else {
-                            return Vec::new();
+                            return VecDeque::new();
                         };
-                        let mut next = Vec::new();
+                        let mut next = paths;
                         let mut first_error = None;
                         for (path, entries) in batch {
                             match entries {
@@ -363,17 +389,19 @@ impl Explorer {
                                 }
                             }
                         }
-                        view.rebuild();
-                        view.expansion_changed(cx);
+                        view.expansion_dirty = true;
+                        view.schedule_directory_update(cx);
                         if let Some(error) = first_error {
                             cx.emit(ExplorerEvent::Error(format!("{error:#}")));
                         }
-                        cx.notify();
                         next
                     }) else {
                         return;
                     };
                     paths = next;
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(16))
+                        .await;
                 }
                 let _ = view.update(cx, |view, cx| {
                     view.expansion_tasks.remove(&root_id);
@@ -391,47 +419,21 @@ impl Explorer {
         if self.directories.contains_key(&path) || self.tasks.contains_key(&path) {
             return;
         }
-        let read_path = path.clone();
-        let (cancel, guard) = glim_services::work::Cancellation::task();
-        let read = cx
-            .background_executor()
-            .spawn(async move { list_directory_cancellable(&read_path, &cancel) });
-        let key = path.clone();
-        let task = cx.spawn(async move |view, cx| {
-            let _guard = guard;
-            let result = read.await;
-            let _ = view.update(cx, |view, cx| {
-                view.tasks.remove(&path);
-                match result {
-                    Ok(entries) => {
-                        view.directories.insert(path.clone(), entries);
-                    }
-                    Err(error) => {
-                        for expanded in &mut view.expanded {
-                            expanded.remove(&path);
-                        }
-                        if view
-                            .pending_reveal
-                            .as_ref()
-                            .is_some_and(|target| target.starts_with(&path))
-                        {
-                            view.pending_reveal = None;
-                            view.pending_reveal_root = None;
-                        }
-                        view.expansion_changed(cx);
-                        cx.emit(ExplorerEvent::Error(format!("{error:#}")));
-                    }
-                }
-                view.rebuild();
-                view.advance_reveal(cx);
-                view.load_expanded(cx);
-                if view.pending_refresh.remove(&path) {
-                    view.refresh_directory(path, cx);
-                }
-                cx.notify();
-            });
-        });
-        self.tasks.insert(key, task);
+        self.refresh_directory(path, cx);
+    }
+
+    fn start_pending_directories(&mut self, cx: &mut Context<Self>) {
+        let paths = self
+            .pending_refresh
+            .iter()
+            .filter(|path| !self.tasks.contains_key(*path))
+            .take(DIRECTORY_SCAN_CONCURRENCY.saturating_sub(self.tasks.len()))
+            .cloned()
+            .collect::<Vec<_>>();
+        for path in paths {
+            self.pending_refresh.remove(&path);
+            self.refresh_directory(path, cx);
+        }
     }
 
     pub fn reveal_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
@@ -566,20 +568,29 @@ impl Explorer {
     }
 
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.refresh_changed(&glim_services::watch::Changes::all(), cx);
+    }
+
+    pub fn refresh_changed(
+        &mut self,
+        changes: &glim_services::watch::Changes,
+        cx: &mut Context<Self>,
+    ) {
         self.media_tasks.clear();
         self.media_presence.clear();
-        let mut paths = self.expanded.iter().flatten().cloned().collect::<Vec<_>>();
+        // Saved descendants are discovered from their loaded parents during restore.
+        let mut paths = self.directories.keys().cloned().collect::<Vec<_>>();
         paths.extend(self.roots.iter().cloned());
         paths.sort();
         paths.dedup();
-        for path in paths {
+        for path in paths.into_iter().filter(|path| changes.affects(path)) {
             self.refresh_directory(path, cx);
         }
     }
 
     fn refresh_directory(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         // Finish the current scan before replaying changes received during it.
-        if self.tasks.contains_key(&path) {
+        if self.tasks.contains_key(&path) || self.tasks.len() >= DIRECTORY_SCAN_CONCURRENCY {
             self.pending_refresh.insert(path);
             return;
         }
@@ -593,19 +604,30 @@ impl Explorer {
             let _guard = guard;
             let result = read.await;
             let _ = view.update(cx, |view, cx| {
-                if let Ok(entries) = result {
-                    view.directories.insert(path.clone(), entries);
-                } else {
-                    view.directories.remove(&path);
+                match result {
+                    Ok(entries) => {
+                        view.directories.insert(path.clone(), entries);
+                    }
+                    Err(error) => {
+                        view.directories.remove(&path);
+                        view.pending_refresh.remove(&path);
+                        for expanded in &mut view.expanded {
+                            expanded.remove(&path);
+                        }
+                        if view
+                            .pending_reveal
+                            .as_ref()
+                            .is_some_and(|target| target.starts_with(&path))
+                        {
+                            view.pending_reveal = None;
+                            view.pending_reveal_root = None;
+                        }
+                        view.expansion_dirty = true;
+                        cx.emit(ExplorerEvent::Error(format!("{error:#}")));
+                    }
                 }
                 view.tasks.remove(&path);
-                view.rebuild();
-                view.advance_reveal(cx);
-                view.load_expanded(cx);
-                if view.pending_refresh.remove(&path) {
-                    view.refresh_directory(path, cx);
-                }
-                cx.notify();
+                view.schedule_directory_update(cx);
             });
         });
         self.tasks.insert(key, task);
@@ -1610,6 +1632,145 @@ mod interaction_tests {
         view.expanded[0].insert(root);
         view.rebuild();
         view
+    }
+
+    #[gpui_kit::test]
+    fn large_restore_only_reads_discovered_directories_and_bounds_scans(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_path_buf();
+        let mut saved = vec![root.clone()];
+        for i in 0..128 {
+            let child = root.join(format!("folder-{i:04}"));
+            std::fs::create_dir(&child).unwrap();
+            std::fs::write(child.join("file.txt"), "contents").unwrap();
+            saved.push(child);
+        }
+        saved.extend((0..10_000).map(|i| root.join(format!("missing/old-{i}"))));
+        let entries = glim_services::workspace::list_directory_cancellable(
+            &root,
+            &glim_services::work::Cancellation::default(),
+        )
+        .unwrap();
+        let view = cx.update(|cx| {
+            let view = cx.new(|cx| Explorer::new(root.clone(), entries, cx));
+            view.update(cx, |view, cx| {
+                view.restore_expanded(
+                    std::collections::BTreeMap::from([(root.clone(), saved)]),
+                    cx,
+                );
+                view.refresh(cx);
+                assert!(view.tasks.len() <= super::DIRECTORY_SCAN_CONCURRENCY);
+                assert!(view.pending_refresh.len() <= 1);
+            });
+            view
+        });
+        for _ in 0..12 {
+            cx.run_until_parked();
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(20));
+        }
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let view = view.read(cx);
+            assert_eq!(view.directories.len(), 129);
+            assert_eq!(view.rows.len(), 257);
+            assert_eq!(view.expanded[0].len(), 10_129);
+            assert!(view.tasks.is_empty());
+            assert!(view.pending_refresh.is_empty());
+            assert!(view.directory_update.is_none());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn expand_all_batches_wide_trees_and_remains_cancellable(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_path_buf();
+        for i in 0..10_000 {
+            let child = root.join(format!("folder-{i:04}"));
+            std::fs::create_dir(&child).unwrap();
+            std::fs::write(child.join("file.txt"), "contents").unwrap();
+        }
+        let entries = glim_services::workspace::list_directory_cancellable(
+            &root,
+            &glim_services::work::Cancellation::default(),
+        )
+        .unwrap();
+        let view = cx.update(|cx| {
+            let view = cx.new(|cx| Explorer::new(root, entries, cx));
+            view.update(cx, |view, cx| {
+                view.toggle_all_folders(0, cx);
+                view.toggle_all_folders(0, cx);
+            });
+            view
+        });
+        for _ in 0..800 {
+            cx.run_until_parked();
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(20));
+        }
+        cx.run_until_parked();
+        cx.update(|cx| {
+            view.update(cx, |view, cx| {
+                assert_eq!(view.expanded[0].len(), 10_001);
+                assert_eq!(view.rows.len(), 20_001);
+                assert!(view.expansion_tasks.is_empty());
+                view.toggle_all_folders(0, cx);
+                view.toggle_all_folders(0, cx);
+                view.toggle_all_folders(0, cx);
+            })
+        });
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(20));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let view = view.read(cx);
+            assert!(view.expanded[0].is_empty());
+            assert_eq!(view.rows.len(), 1);
+            assert!(view.expansion_tasks.is_empty());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_directory_with_ten_thousand_files_renders_and_keeps_selection(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let started = std::time::Instant::now();
+        let (handle, view) = cx.update(|cx| {
+            gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| {
+                cx.new(|cx| {
+                    Explorer::new(
+                        "/fixture".into(),
+                        (0..10_000)
+                            .map(|i| DirectoryEntry {
+                                path: format!("/fixture/file-{i:05}.txt").into(),
+                                is_dir: false,
+                                is_symlink: false,
+                            })
+                            .collect(),
+                        cx,
+                    )
+                })
+            })
+            .unwrap()
+        });
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            view.update(cx, |view, cx| {
+                view.reveal_path("/fixture/file-09999.txt".into(), cx)
+            });
+            window.render_frame(cx);
+            let view = view.read(cx);
+            assert_eq!(view.rows.len(), 10_001);
+            assert_eq!(view.selected, Some(10_000));
+            assert!(view.tasks.is_empty());
+        })
+        .unwrap();
+        eprintln!(
+            "10,000-file tree construction, two frames and selection: {:?}",
+            started.elapsed()
+        );
     }
 
     #[gpui_kit::test]
