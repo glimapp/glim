@@ -101,6 +101,7 @@ fn playlist(path: &Path, folder: bool, cancel: &crate::work::Cancellation) -> Re
 }
 
 pub struct PreparedPreview {
+    _memory: crate::resources::ResourceLease,
     pub image_stamp: Option<(u64, Option<std::time::SystemTime>)>,
     pub configuration: Vec<u8>,
     // The native SQLite view must close before its private snapshot is removed.
@@ -242,7 +243,18 @@ pub fn prepare_cancellable(
         }
     };
     let configuration = NativeRequest::new(content).encode()?;
+    let metadata_bytes = configuration.capacity() as u64
+        + spreadsheet.as_ref().map_or(0, |sheet| {
+            (sheet.database.as_os_str().len()
+                + sheet.cache.as_os_str().len()
+                + sheet.information.capacity()) as u64
+        })
+        + word_reading
+            .as_ref()
+            .map_or(0, |reading| reading.html.as_os_str().len() as u64);
     Ok(PreparedPreview {
+        _memory: crate::resources::pool()
+            .track(metadata_bytes, crate::resources::ResourceClass::State),
         image_stamp,
         configuration,
         _spreadsheet: spreadsheet,

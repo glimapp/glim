@@ -10,17 +10,23 @@ Glim combines format-specific data representations with shared admission and res
 
 | Class | Integrated owners | Release/reconstruction |
 | --- | --- | --- |
-| State | Edit-session text/baseline; OPML/graph payload and expansion-index estimates | Session lifetime; never evicted as cache |
-| Working | CSV/JSON projections and input snapshots, current SQLite grids; inline image/GIF displayed and lookahead pixels; GIF canvas, restore and row buffers | Canceled work drops its buffers; displayed images defer atlas removal until the window is available |
+| State | Edit-session text/baseline; OPML/graph payload and expansion-index estimates; book metadata and embedded resources; native request/index metadata | Session lifetime; never evicted as cache |
+| Working | CSV/JSON projections and input snapshots, current SQLite grids, paged text/row indexes, book chapter HTML/anchors and prepared PNGs; static preview/book/inline image/GIF displayed and lookahead pixels; GIF canvas, restore and row buffers | Canceled work drops its buffers; displayed images defer atlas removal until the window is available |
 | Cache | Service diagram PNG reuse and view diagram images/errors | Shared budget; background entries first, then least recently accessed entries within each retention class |
 
 `CachedResource` keeps a key that can become empty. A reader treats an empty entry as a miss and reconstructs it from its original content. `ResourceValue` pins a cache value while a caller owns it; diagram elements retain that pin during rendering. Reclamation runs outside the pool lock and skips busy or pinned entries. The current shared cache target is defined only in `assets/reader-limits.json`; existing local encoded/decoded/key budgets still apply. Allocation triggers reclamation, and explicitly calling `trim` can reclaim newly unpinned entries. Pinned values and newly published results may temporarily exceed the target; a new result stays resident through its initial reclamation pass so cache pressure cannot discard it before publication.
 
-This is accounting for integrated owners, not a hard process-memory ceiling. Text capacity/undo history, all retained projections, GPUI asset/atlas caches, ImageIO, WebKit, Quick Look, parser internals and helper-process allocations are not fully represented. Diagram decoded bytes are an estimate. Do not add these counters to OS footprint or Metal counters: they overlap and have different scopes. `resource_sample` includes state, working, cache, cache target and eviction counters under existing telemetry consent.
+This is accounting for integrated owners, not a hard process-memory ceiling. Text capacity/undo history, all retained projections, book HTML parse trees, GPUI asset/atlas caches, ImageIO, WebKit, Quick Look, parser internals and helper-process allocations are not fully represented. Diagram decoded bytes are an estimate. Do not add these counters to OS footprint or Metal counters: they overlap and have different scopes. `resource_sample` includes state, working, cache, cache target and eviction counters under existing telemetry consent.
 
 CSV/JSON projections cancel work and release derived rows/nodes when switching to source or hiding a tab, retaining reconstruction input and necessary query/fold state. Activation rebuilds only the selected projection; the editor session remains independent. Closing a structured graph releases its entity; explicitly reopening it prepares a fresh graph.
 
 Hiding SQLite cancels page, count, detail and snapshot-refresh tasks and releases grid cells. Its private disk snapshot, filter/sort/page, scroll position and open read-only detail remain owned by the reader. Activation reconstructs the current page and restarts only unfinished counts; file refreshes received while hidden wait until activation. A failed refresh during restoration reconstructs the grid from the retained snapshot and reports the error. Open details use editor-state ownership; cancelled detail requests are not automatically replayed.
+
+Hiding a book cancels chapter preparation and releases its HTML view, anchors and image entities while retaining the book metadata, preferences, chapter and position. A nonempty text selection pins the HTML view and encoded chapter images so returning does not lose the selection; decoded images are still released. Restoration does not save default preferences; interrupted initial loading rereads saved preferences. Reading-position writes have an independent lifetime. A book's source fallback retains the same paged entity and source handle, releasing only reconstructible text/row indexes. Other read-only pages follow the same lifecycle; editable pages keep their edit session and save baseline.
+
+`media::PreparedImage` is shared by static preview pages and book images, with separate leases for encoded PNGs and on-demand decoded pixels. Decode jobs use the existing scheduler and draw pixels directly without GPUI's implicit image asset cache. Hiding, changing pages or disposing the owner cancels work and defers window-atlas cleanup. Static preview pages retain encoded PNGs for reconstruction and copying; leaving a book chapter releases its encoded images and rereads the chapter when needed.
+
+Native prepared results retain disk indexes, converted files and their cleanup ownership. Accounting includes resident configuration/metadata, not disk file sizes. Hiding a tab cancels unfinished preparation while established system controllers retain navigation state. Menu occlusion only hides previews. ImageIO/WebKit/Quick Look allocations still need native ownership and budget integration.
 
 ## Visible work and cancellation
 
@@ -38,7 +44,7 @@ Source size is not an admission limit. The [generated policy inventory](reader-l
 
 ## Remaining engineering
 
-- Extend ownership accounting to book chapters, static image pages and native prepared resources; each integration needs a real release/reconstruction contract. Byte accounting alone does not bound aggregate working memory across all active readers.
+- Integrate native decoded pixels and framework working sets with shared byte admission and pressure reclamation. Current accounting and hidden-view release do not yet bound aggregate working memory across all active readers.
 - Add byte admission or adaptive decode quality if measured workloads exceed the working-memory target; preserve forward progress for a single large operation and protect unsaved state.
 - Markdown already reparses the last block for appended input. Ordinary edit replacements can still parse the entire document, and a large individual block can cost substantial layout time. Parser changes require semantic equivalence for references, lists, fences and source ranges.
 - Persistent caches need version invalidation, disk reclamation and privacy cleanup before adoption.

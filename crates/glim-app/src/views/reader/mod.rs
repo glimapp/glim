@@ -194,12 +194,15 @@ impl Reader {
         if let Some(projection) = &self.projection {
             projection.set_active(false, cx);
         }
+        if let Renderer::Paged { view, .. } = &self.renderer {
+            view.update(cx, |view, _| view.suspend());
+        }
         if let Renderer::Paged {
             html: Some((view, _)),
             ..
         } = &self.renderer
         {
-            view.update(cx, |view, _| view.hide());
+            view.update(cx, |view, cx| view.set_active(false, cx));
         }
         if let Renderer::Markup(view) = &self.renderer {
             view.set_images_active(false, cx);
@@ -215,6 +218,9 @@ impl Reader {
         }
         if let Some(projection) = &self.projection {
             projection.set_active(true, cx);
+        }
+        if let Renderer::Paged { view, .. } = &self.renderer {
+            view.update(cx, |view, cx| view.resume(cx));
         }
         if let Renderer::Paged {
             html: Some((view, true)),

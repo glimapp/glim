@@ -223,14 +223,7 @@ impl Reader {
             } else {
                 document.pages
             };
-            let images = pages
-                .into_iter()
-                .map(|bytes| Arc::new(Image::from_bytes(ImageFormat::Png, bytes)))
-                .collect();
-            Renderer::surface(ImageReader {
-                pages: images,
-                page: cx.new(|_| 0_usize),
-            })
+            Renderer::surface(ImageReader::new(pages, cx))
         };
         Self {
             active: std::cell::Cell::new(None),

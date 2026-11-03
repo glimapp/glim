@@ -1,3 +1,4 @@
+use super::media::PreparedImage;
 use crate::app::actions::{
     BookContents, BookNextChapter, BookNextPage, BookPreviousChapter, BookPreviousPage,
 };
@@ -40,13 +41,17 @@ fn book_label(text: &str) -> String {
     label
 }
 pub(super) struct BookReader {
+    active: bool,
+    initialized: bool,
+    _book_memory: glim_core::resources::ResourceLease,
+    chapter_memory: glim_core::resources::ResourceLease,
     book: Arc<Book>,
     state: ReadingState,
     text: Option<Entity<TextViewState>>,
     paged: Option<Entity<super::paged::PagedReader>>,
-    images: Arc<HashMap<String, Arc<Image>>>,
-    missing: Arc<Image>,
-    comic: Option<Arc<Image>>,
+    images: Arc<HashMap<String, Entity<PreparedImage>>>,
+    missing: Entity<PreparedImage>,
+    comic: Option<Entity<PreparedImage>>,
     comic_ratio: f32,
     anchors: HashMap<String, std::ops::Range<usize>>,
     restore: Option<f32>,
@@ -63,53 +68,31 @@ pub(super) struct BookReader {
     writes: Arc<Mutex<Option<ReadingState>>>,
     pub writing: Arc<AtomicBool>,
     _subscription: Option<Subscription>,
+    _image_subscriptions: Vec<Subscription>,
+    _missing_subscription: Subscription,
 }
 impl BookReader {
     pub fn new(book: Book, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let book = Arc::new(book);
-        let initial = book.clone();
-        let (cancel, guard) = glim_services::work::Cancellation::task();
-        let telemetry_started = std::time::Instant::now();
-        let work = reader_jobs::run(
-            cx.background_executor().clone(),
-            JobClass::Projection,
-            Priority::Interactive,
-            cancel,
-            move |cancel| {
-                let mut state = books::preferences::read(&initial.fingerprint).unwrap_or_default();
-                state.chapter = state.chapter.min(initial.chapters.len() - 1);
-                let content = books::chapter_cancellable(&initial, state.chapter, cancel)?;
-                Ok::<_, anyhow::Error>((state, content))
-            },
-        );
-        let task = cx.spawn(async move |view, cx| {
-            let _guard = guard;
-            let result = work.await;
-            glim_services::telemetry::result("books_load", None, telemetry_started, &result);
-            let _ = view.update(cx, |view, cx| {
-                view.loading = false;
-                match result {
-                    Ok((state, content)) => {
-                        view.state = state;
-                        view.install(content, cx);
-                    }
-                    Err(error) => {
-                        glim_services::telemetry::operation_failed("books_load", None, &error);
-                        view.error = Some(format!("{error:#}"));
-                    }
-                }
-                cx.notify();
-            });
-        });
-        Self {
+        let missing = cx.new(|cx| PreparedImage::new(books::missing_image(), cx));
+        let missing_subscription = cx.observe(&missing, |_, _, cx| cx.notify());
+        let mut reader = Self {
+            active: true,
+            initialized: false,
+            _book_memory: glim_services::resources::pool().track(
+                book.heap_bytes(),
+                glim_core::resources::ResourceClass::State,
+            ),
+            chapter_memory: glim_services::resources::pool()
+                .track(0, glim_core::resources::ResourceClass::Working),
             book,
             state: ReadingState::default(),
             text: None,
             paged: None,
             images: Arc::new(HashMap::new()),
-            missing: Arc::new(Image::from_bytes(ImageFormat::Png, books::missing_image())),
+            missing,
             comic: None,
             comic_ratio: 1.,
             anchors: HashMap::new(),
@@ -122,14 +105,72 @@ impl BookReader {
             bookmarks: false,
             loading: true,
             error: None,
-            task: Some(task),
+            task: None,
             write_task: None,
             writes: Arc::new(Mutex::new(None)),
             writing: Arc::new(AtomicBool::new(false)),
             _subscription: None,
-        }
+            _image_subscriptions: Vec::new(),
+            _missing_subscription: missing_subscription,
+        };
+        cx.on_release(|view, cx| view.release_layout(cx)).detach();
+        reader.load_initial(cx);
+        reader
+    }
+    fn load_initial(&mut self, cx: &mut Context<Self>) {
+        self.loading = true;
+        self.error = None;
+        let initial = self.book.clone();
+        let book_memory = self._book_memory.clone();
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        let telemetry_started = std::time::Instant::now();
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| {
+                let _book_memory = book_memory;
+                let mut state = books::preferences::read(&initial.fingerprint).unwrap_or_default();
+                state.chapter = state.chapter.min(initial.chapters.len() - 1);
+                let content = books::chapter_cancellable(&initial, state.chapter, cancel)?;
+                Ok::<_, anyhow::Error>((state, content))
+            },
+        );
+        self.task = Some(cx.spawn(async move |view, cx| {
+            let _guard = guard;
+            let result = work.await;
+            glim_services::telemetry::result("books_load", None, telemetry_started, &result);
+            let _ = view.update(cx, |view, cx| {
+                view.task = None;
+                view.loading = false;
+                match result {
+                    Ok((state, content)) => {
+                        view.initialized = true;
+                        view.state = state;
+                        view.install(content, cx);
+                    }
+                    Err(error) => {
+                        glim_services::telemetry::operation_failed("books_load", None, &error);
+                        view.error = Some(format!("{error:#}"));
+                    }
+                }
+                cx.notify();
+            });
+        }));
     }
     fn install(&mut self, mut content: ChapterContent, cx: &mut Context<Self>) {
+        self.chapter_memory.resize(
+            content.html.len() as u64
+                + (content.anchors.capacity()
+                    * std::mem::size_of::<(String, std::ops::Range<usize>)>())
+                    as u64
+                + content
+                    .anchors
+                    .keys()
+                    .map(|key| key.capacity() as u64)
+                    .sum::<u64>(),
+        );
         self.paged = content.page.take().map(|page| {
             cx.new(|_| {
                 let mut reader = super::paged::PagedReader::readonly(page);
@@ -142,7 +183,7 @@ impl BookReader {
                 .images
                 .into_iter()
                 .filter(|(_, data)| !data.is_empty())
-                .map(|(name, data)| (name, Arc::new(Image::from_bytes(ImageFormat::Png, data))))
+                .map(|(name, data)| (name, cx.new(|cx| PreparedImage::new(data, cx))))
                 .collect(),
         );
         self.comic_ratio = content
@@ -156,7 +197,13 @@ impl BookReader {
             .unwrap_or(1.);
         self.comic = content
             .comic
-            .map(|data| Arc::new(Image::from_bytes(ImageFormat::Png, data)));
+            .map(|data| cx.new(|cx| PreparedImage::new(data, cx)));
+        self._image_subscriptions = self
+            .images
+            .values()
+            .chain(self.comic.iter())
+            .map(|image| cx.observe(image, |_, _, cx| cx.notify()))
+            .collect();
         self.anchors = content.anchors;
         let text = cx.new(|cx| TextViewState::html(&content.html, cx));
         self._subscription = Some(cx.observe(&text, |_, _, cx| cx.notify()));
@@ -176,7 +223,17 @@ impl BookReader {
         self.loading = true;
         self.error = None;
         self.save(cx);
+        self.initialized = true;
+        self.paged = None;
+        self.load_current(cx);
+    }
+    fn load_current(&mut self, cx: &mut Context<Self>) {
+        self.loading = true;
+        self.error = None;
+        self.release_layout(cx);
+        let index = self.state.chapter;
         let book = self.book.clone();
+        let book_memory = self._book_memory.clone();
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let telemetry_started = std::time::Instant::now();
         let work = reader_jobs::run(
@@ -184,7 +241,10 @@ impl BookReader {
             JobClass::Projection,
             Priority::Interactive,
             cancel,
-            move |cancel| books::chapter_cancellable(&book, index, cancel),
+            move |cancel| {
+                let _book_memory = book_memory;
+                books::chapter_cancellable(&book, index, cancel)
+            },
         );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
@@ -203,6 +263,57 @@ impl BookReader {
                 cx.notify();
             });
         }));
+        cx.notify();
+    }
+    fn release_layout(&mut self, cx: &mut App) {
+        self._subscription = None;
+        self.text = None;
+        self.suspend_images(cx);
+        self._image_subscriptions.clear();
+        self.images = Arc::new(HashMap::new());
+        self.comic = None;
+        self.anchors = HashMap::new();
+        self.chapter_memory.resize(0);
+    }
+    fn suspend_images(&self, cx: &mut App) {
+        for image in self
+            .images
+            .values()
+            .chain(self.comic.iter())
+            .chain(std::iter::once(&self.missing))
+        {
+            image.update(cx, |image, cx| image.suspend(cx));
+        }
+    }
+    fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if self.active == active {
+            return;
+        }
+        self.active = active;
+        if !active {
+            self.position(cx);
+            self.task = None;
+            let selected = self
+                .text
+                .as_ref()
+                .is_some_and(|text| !text.read(cx).selected_text().is_empty());
+            if selected {
+                self.suspend_images(cx);
+            } else {
+                self.release_layout(cx);
+            }
+            if let Some(page) = &self.paged {
+                page.update(cx, |page, _| page.suspend());
+            }
+        } else if let Some(page) = &self.paged {
+            page.update(cx, |page, cx| page.resume(cx));
+        } else if self.text.is_none() {
+            if self.initialized {
+                self.load_current(cx);
+            } else {
+                self.load_initial(cx);
+            }
+        }
         cx.notify();
     }
     fn follow(&mut self, href: &str, cx: &mut Context<Self>) {
@@ -395,7 +506,7 @@ impl Render for BookReader {
                 .child(error.clone())
                 .into_any_element();
         } else if let Some(image) = &self.comic {
-            content = img(image.clone())
+            content = img(PreparedImage::source(image))
                 .w_full()
                 .h(px((self.state.page_width - 64.) / self.comic_ratio))
                 .aspect_ratio(self.comic_ratio)
@@ -428,11 +539,7 @@ impl Render for BookReader {
                         .with_paragraph_gap(rems(1.2)),
                 )
                 .image_source(move |uri| {
-                    images
-                        .get(uri.as_ref())
-                        .cloned()
-                        .unwrap_or_else(|| fallback.clone())
-                        .into()
+                    PreparedImage::source(images.get(uri.as_ref()).unwrap_or(&fallback))
                 })
                 .on_reveal(move |line, _, _| {
                     let bounds = scroll_reveal.bounds();
@@ -893,6 +1000,9 @@ impl crate::views::reader::contract::ReaderView for BookSurface {
     }
     fn render(&mut self, _cx: &mut App) -> AnyElement {
         self.view.clone().into_any_element()
+    }
+    fn set_active(&self, active: bool, cx: &mut App) {
+        self.view.update(cx, |view, cx| view.set_active(active, cx));
     }
     fn operations(&self) -> crate::views::reader::contract::ReaderOperations<'_> {
         crate::views::reader::contract::ReaderOperations {

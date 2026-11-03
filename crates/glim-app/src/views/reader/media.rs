@@ -11,12 +11,33 @@ use gpui_kit::{
 use std::{path::Path, sync::Arc};
 
 pub(super) struct ImageReader {
-    pub pages: Vec<Arc<Image>>,
-    pub page: Entity<usize>,
+    pages: Vec<Entity<PreparedImage>>,
+    page: Entity<usize>,
+    _subscriptions: Vec<Subscription>,
 }
 impl ImageReader {
+    pub fn new(pages: Vec<Vec<u8>>, cx: &mut App) -> Self {
+        let pages: Vec<_> = pages
+            .into_iter()
+            .map(|bytes| cx.new(|cx| PreparedImage::new(bytes, cx)))
+            .collect();
+        let subscriptions = pages
+            .iter()
+            .map(|page| cx.observe(page, |_, cx| cx.refresh_windows()))
+            .collect();
+        Self {
+            pages,
+            page: cx.new(|_| 0),
+            _subscriptions: subscriptions,
+        }
+    }
     pub fn render(&self, cx: &mut App) -> AnyElement {
         let page = *self.page.read(cx);
+        for (index, image) in self.pages.iter().enumerate() {
+            if index != page {
+                image.update(cx, |image, cx| image.suspend(cx));
+            }
+        }
         let previous = self.page.clone();
         let next = self.page.clone();
         let count = self.pages.len();
@@ -35,7 +56,7 @@ impl ImageReader {
                     .justify_center()
                     .overflow_hidden()
                     .child(
-                        img(self.pages[page].clone())
+                        img(PreparedImage::source(&self.pages[page]))
                             .size_full()
                             .min_w_0()
                             .min_h_0()
@@ -100,6 +121,90 @@ fn release_image(frame: ManagedFrame, cx: &mut App) {
         cx.drop_image(frame.image, None);
         drop(frame._lease);
     });
+}
+
+/// Encoded preview data and its on-demand raster have the same reader owner.
+pub(super) struct PreparedImage {
+    encoded: Arc<Image>,
+    encoded_memory: glim_services::resources::ResourceLease,
+    frame: Option<ManagedFrame>,
+    task: Option<Task<()>>,
+    error: Option<String>,
+}
+impl PreparedImage {
+    pub fn new(bytes: Vec<u8>, cx: &mut Context<Self>) -> Self {
+        cx.on_release(|view, cx| view.suspend(cx)).detach();
+        Self {
+            encoded_memory: glim_services::resources::pool().track(
+                bytes.capacity() as u64,
+                glim_services::resources::ResourceClass::Working,
+            ),
+            encoded: Arc::new(Image::from_bytes(ImageFormat::Png, bytes)),
+            frame: None,
+            task: None,
+            error: None,
+        }
+    }
+    pub fn source(entity: &Entity<Self>) -> ImageSource {
+        let entity = entity.clone();
+        ImageSource::Custom(Arc::new(move |_, cx| {
+            entity.update(cx, |view, cx| {
+                view.request(cx);
+                view.frame
+                    .as_ref()
+                    .map(|frame| Ok(frame.image.clone()))
+                    .or_else(|| {
+                        view.error.as_ref().map(|error| {
+                            Err(ImageCacheError::Other(Arc::new(anyhow::anyhow!(
+                                error.clone()
+                            ))))
+                        })
+                    })
+            })
+        }))
+    }
+    pub fn suspend(&mut self, cx: &mut App) {
+        self.task = None;
+        self.error = None;
+        if let Some(frame) = self.frame.take() {
+            release_image(frame, cx);
+        }
+    }
+    fn request(&mut self, cx: &mut Context<Self>) {
+        if self.frame.is_some() || self.task.is_some() || self.error.is_some() {
+            return;
+        }
+        let encoded = self.encoded.clone();
+        let input_memory = self.encoded_memory.clone();
+        let renderer = cx.svg_renderer();
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Decode,
+            Priority::Viewport,
+            cancel,
+            move |_| {
+                let _input_memory = input_memory;
+                let image = encoded.to_image_data(renderer)?;
+                let bytes = (0..image.frame_count())
+                    .map(|frame| image.as_bytes(frame).map_or(0, |bytes| bytes.len() as u64))
+                    .sum();
+                Ok(ManagedFrame::new(image, bytes))
+            },
+        );
+        self.task = Some(cx.spawn(async move |view, cx| {
+            let _guard = guard;
+            let result = work.await;
+            let _ = view.update(cx, |view, cx| {
+                view.task = None;
+                match result {
+                    Ok(frame) => view.frame = Some(frame),
+                    Err(error) => view.error = Some(format!("{error:#}")),
+                }
+                cx.notify();
+            });
+        }));
+    }
 }
 
 /// A bounded inline preview that releases pixels and texture when no longer requested.
@@ -577,12 +682,19 @@ impl crate::views::reader::contract::ReaderView for ImageReader {
             ..Default::default()
         }
     }
+    fn set_active(&self, active: bool, cx: &mut App) {
+        if !active {
+            for image in &self.pages {
+                image.update(cx, |image, cx| image.suspend(cx));
+            }
+        }
+    }
 }
 impl super::surface::ReaderSurface for ImageReader {}
 impl crate::views::reader::contract::CopyImage for ImageReader {
     fn copy_image(&self, cx: &mut App) -> bool {
         if let Some(page) = self.pages.get(*self.page.read(cx)) {
-            cx.write_to_clipboard(ClipboardItem::new_image(page));
+            cx.write_to_clipboard(ClipboardItem::new_image(&page.read(cx).encoded));
             true
         } else {
             false

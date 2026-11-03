@@ -53,6 +53,42 @@ pub struct Book {
     binaries: HashMap<String, Vec<u8>>,
     source_pages: bool,
 }
+impl Book {
+    pub fn heap_bytes(&self) -> u64 {
+        (self.path.as_os_str().len()
+            + self.fingerprint.capacity()
+            + self.title.capacity()
+            + self.author.capacity()
+            + self.chapters.capacity() * std::mem::size_of::<Chapter>()
+            + self.toc.capacity() * std::mem::size_of::<TocEntry>()) as u64
+            + self
+                .cover
+                .as_ref()
+                .map_or(0, |cover| cover.capacity() as u64)
+            + self
+                .chapters
+                .iter()
+                .map(|chapter| {
+                    (chapter.href.capacity() + chapter.title.capacity()) as u64
+                        + chapter
+                            .html
+                            .as_ref()
+                            .map_or(0, |html| html.capacity() as u64)
+                })
+                .sum::<u64>()
+            + self
+                .toc
+                .iter()
+                .map(|entry| (entry.title.capacity() + entry.href.capacity()) as u64)
+                .sum::<u64>()
+            + self
+                .binaries
+                .iter()
+                .map(|(key, data)| (key.capacity() + data.capacity()) as u64)
+                .sum::<u64>()
+            + (self.binaries.capacity() * std::mem::size_of::<(String, Vec<u8>)>()) as u64
+    }
+}
 pub struct ChapterContent {
     pub html: String,
     pub images: HashMap<String, Vec<u8>>,

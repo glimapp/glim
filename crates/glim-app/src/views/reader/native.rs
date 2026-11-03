@@ -292,6 +292,21 @@ impl NativeReader {
             preview.hide();
         }
     }
+    pub(super) fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if !active {
+            self.task = None;
+            self.hide();
+            if let Some(raw) = &self.raw {
+                raw.update(cx, |raw, _| raw.suspend());
+            }
+        } else if self.loading_bytes {
+            self.open_bytes(cx);
+        } else if let Some(raw) = &self.raw {
+            raw.update(cx, |raw, cx| raw.resume(cx));
+        } else {
+            self.open(cx);
+        }
+    }
 }
 impl Render for NativeReader {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -398,10 +413,7 @@ impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntit
         self.read(cx).can_move_to_window(cx)
     }
     fn set_active(&self, active: bool, cx: &mut App) {
-        self.update(
-            cx,
-            |view, cx| if active { view.open(cx) } else { view.hide() },
-        );
+        self.update(cx, |view, cx| view.set_active(active, cx));
     }
     fn operations(&self) -> crate::views::reader::contract::ReaderOperations<'_> {
         crate::views::reader::contract::ReaderOperations {

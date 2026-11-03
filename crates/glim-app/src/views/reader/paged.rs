@@ -12,6 +12,10 @@ type PreviewAction = std::rc::Rc<dyn Fn(&mut App)>;
 /// Virtual rows contain slices into one buffer, not one allocation per line.
 /// Paging replaces the buffer, so browsing an unbounded file stays bounded.
 pub(super) struct PagedReader {
+    memory: glim_core::resources::ResourceLease,
+    suspended: bool,
+    expanded: bool,
+    resume_scroll: Point<Pixels>,
     pub source_editor: Option<super::source::SourceReader>,
     pub controls_bottom: Pixels,
     pub return_to_preview: Option<PreviewAction>,
@@ -52,7 +56,12 @@ impl PagedReader {
     fn with_editor(mut page: TextPage, source_editor: Option<super::source::SourceReader>) -> Self {
         let rows = rows(&page.text);
         let widest_row = widest_row(&page.text, &rows);
-        Self {
+        let reader = Self {
+            memory: glim_services::resources::pool()
+                .track(0, glim_core::resources::ResourceClass::Working),
+            suspended: false,
+            expanded: page.end.saturating_sub(page.start) > glim_services::paged::PAGE_BYTES,
+            resume_scroll: point(px(0.), px(0.)),
             _source_owner: page.owner.take(),
             source_editor,
             controls_bottom: px(16.),
@@ -67,7 +76,81 @@ impl PagedReader {
             task: None,
             error: None,
             scroll: UniformListScrollHandle::new(),
+        };
+        reader.account();
+        reader
+    }
+    fn account(&self) {
+        self.memory.resize(
+            (self.page.text.capacity() + self.rows.capacity() * std::mem::size_of::<Range<usize>>())
+                as u64,
+        );
+    }
+    pub fn suspend(&mut self) {
+        if self.source_editor.is_some() || self.suspended {
+            return;
         }
+        if !self.rows.is_empty() {
+            self.resume_scroll = self.scroll.0.borrow().base_handle.offset();
+        }
+        self.task = None;
+        self.suspended = true;
+        self.page.text = String::new();
+        self.rows = Vec::new();
+        self.widest_row = None;
+        self.account();
+    }
+    pub fn resume(&mut self, cx: &mut Context<Self>) {
+        if !self.suspended {
+            return;
+        }
+        self.suspended = false;
+        let source = self.page.source.clone();
+        let start = self.page.start;
+        let expanded = self.expanded;
+        let stamp = (self.page.total, self.page.modified, self.page.identity);
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| {
+                let page = source.read_cancellable(start, expanded, cancel)?;
+                anyhow::ensure!(
+                    page.source.is_generated()
+                        || (page.total, page.modified, page.identity) == stamp,
+                    "File changed on disk. Reopen or refresh before paging."
+                );
+                let rows = rows(&page.text);
+                let widest = widest_row(&page.text, &rows);
+                Ok((page, rows, widest))
+            },
+        );
+        self.task = Some(cx.spawn(async move |view, cx| {
+            let _guard = guard;
+            let result = work.await;
+            let _ = view.update(cx, |view, cx| {
+                view.task = None;
+                match result {
+                    Ok((page, rows, widest)) => {
+                        view.page = page;
+                        view.rows = rows;
+                        view.widest_row = widest;
+                        view.error = None;
+                        view.scroll
+                            .0
+                            .borrow()
+                            .base_handle
+                            .set_offset(view.resume_scroll);
+                    }
+                    Err(error) => view.error = Some(format!("{error:#}")),
+                }
+                view.account();
+                cx.notify();
+            });
+        }));
+        cx.notify();
     }
     pub(super) fn can_move_to_window(&self) -> bool {
         self.task.is_none()
@@ -122,6 +205,7 @@ impl PagedReader {
         self.page.total = saved.total;
         self.page.modified = saved.modified;
         self.page.identity = saved.identity;
+        self.account();
         cx.notify();
     }
     fn toggle_raw(&mut self, cx: &mut Context<Self>) {
@@ -165,6 +249,7 @@ impl PagedReader {
                         view.rows = rows;
                         view.widest_row = widest;
                         view.previous.clear();
+                        view.expanded = false;
                         view.error = None;
                         view.scroll = UniformListScrollHandle::new();
                     }
@@ -173,6 +258,7 @@ impl PagedReader {
                         view.error = Some(format!("{error:#}"));
                     }
                 }
+                view.account();
                 cx.notify();
             });
         }));
@@ -259,6 +345,7 @@ impl PagedReader {
                         v.widest_row = widest;
                         v.page = page;
                         v.rows = rows;
+                        v.expanded = all;
                         v.error = None;
                         v.scroll = UniformListScrollHandle::new();
                     }
@@ -267,6 +354,7 @@ impl PagedReader {
                         v.error = Some(format!("{e:#}"));
                     }
                 }
+                v.account();
                 cx.notify();
             });
         }));
@@ -435,5 +523,57 @@ impl Render for PagedReader {
                 self.controls_bottom,
                 cx,
             ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PagedReader;
+    use glim_core::resources::{ResourceClass, ResourcePool};
+    use gpui_kit::{AppContext, TestAppContext, point, px};
+
+    #[gpui_kit::test]
+    fn cancelled_restoration_preserves_generated_source_and_position(cx: &mut TestAppContext) {
+        let content = "αβ\n".repeat(512);
+        let original = glim_services::paged::text_value(
+            &content,
+            &glim_services::work::Cancellation::default(),
+        )
+        .unwrap();
+        let page = original.source.read(140, false).unwrap();
+        let expected = page.text.clone();
+        drop(original);
+        let pool = ResourcePool::new(0);
+        let offset = point(px(0.), px(-64.));
+        let view = cx.update(|cx| {
+            cx.new(|_| {
+                let mut view = PagedReader::readonly(page);
+                view.memory = pool.track(0, ResourceClass::Working);
+                view.previous.push(0);
+                view.scroll.0.borrow().base_handle.set_offset(offset);
+                view.account();
+                view
+            })
+        });
+        cx.update(|cx| {
+            view.update(cx, |view, cx| {
+                assert!(pool.snapshot().working_bytes > 0);
+                view.suspend();
+                assert_eq!(pool.snapshot().working_bytes, 0);
+                view.resume(cx);
+                view.suspend();
+                view.resume(cx);
+            })
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let view = view.read(cx);
+            assert!(view.error.is_none(), "{:?}", view.error);
+            assert_eq!(view.page.start, 140);
+            assert_eq!(view.page.text, expected);
+            assert_eq!(view.previous, [0]);
+            assert_eq!(view.scroll.0.borrow().base_handle.offset(), offset);
+            assert!(pool.snapshot().working_bytes > 0);
+        });
     }
 }
