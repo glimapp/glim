@@ -18,8 +18,6 @@ Read module boundaries first, then workspaces and editing, file loading and read
 crates/
   glim-core/src/       document, session and update values; no I/O or GPUI
   glim-services/src/   filesystem, watchers, format parsing, backups and preferences; no UI
-  glim-reader-ui/src/       narrow UI lifecycle and optional capability contracts
-  glim-reader-outline/src/  independent OPML presentation
   glim-app/src/
     app/              startup, actions, menus, locale, diagram engine and updater coordination
     views/
@@ -35,7 +33,11 @@ scripts/              packaging, signing, feed generation and focused native che
 
 Dependencies are one-way: `glim-app → glim-services → glim-core`; app may also use core directly. GPUI Kit is pinned and Cargo.lock retained. Blocking file work runs on the background executor. Render methods compose cached state, not filesystem scans or commands. Views retain their entities, subscriptions and cancellable task handles.
 
-Additional UI dependencies are `glim-app → glim-reader-outline → glim-reader-ui`; the outline package also depends on core, and the app may use reader-ui directly. Reader-ui depends only on pinned GPUI. Core/services must never depend on UI packages. Extract packages along real ownership boundaries; a new extension does not require a new crate.
+Reader boundaries use ordinary modules: `reader/contract` defines narrow interfaces, `reader/construction` composes them, and each view owns its state. OPML and graph views receive translation, numeric action metrics and the shared resource pool through `ReaderHost`, consuming pure core values. Extract a crate only for a concrete independent-version, dependency-isolation or cross-product reuse requirement; extension count alone is not a reason.
+
+### Local dependency patches
+
+`vendor/gpui-base` and `vendor/gpui-pre` retain pinned upstream library sources with local changes documented in `PATCHES.md`/`GLIM-PATCH.md`. Current extensions cover file-frame panic recovery, visible-list measurement, task-checkbox editing, image dimensions and end spacing. Before removing a path patch, verify that its replacement supplies the APIs used by the app and equivalent behavior. A fixed Git revision in a patch repository can replace local sources, but introduces separate repository maintenance and build fetching; introduce that workflow only for a demonstrated need.
 
 ### Document sessions and built-in format modules
 
@@ -45,7 +47,7 @@ The composition boundary is `Workspace → Reader → DocumentSession + retained
 
 `services/documents/registry` is the ordered, statically linked entry point for identification and loading. Dedicated containers precede generic archives; SQLite headers and ambiguous `.key` files retain content probes; unknown text/bytes use bounded fallbacks. Providers receive cancellation and return `documents::Content`, preserving format-specific representations. `documents/presentation` classifies text projections once: markup kind, JSON dialect, table format and structured controls. Markup/table views consume this classification without another extension whitelist.
 
-`reader/construction` is the prepared-content factory, including paused playback during restoration. `glim-reader-ui::ReaderView` provides retained rendering, activation and window binding. Image copying, extraction controls, playback state and persistence are separate optional capability traits. App-local `reader/surface::ReaderSurface` adds refresh policy; `SurfaceEntity` adapts existing GPUI entities. `glim-reader-outline` independently implements OPML presentation, receives translation/action hooks through `ReaderHost`, and consumes pure `glim-core::outline` values without app or services dependencies. Source, markup and paging still share editing sessions. New read-only views join the factory without adding workspace type dispatch; non-image native documents retain their existing reload limitations.
+`reader/construction` is the prepared-content factory, including paused playback during restoration. `reader/contract::ReaderView` provides retained rendering, activation and window binding. Image copying, extraction controls, playback state and persistence are optional capability traits. `reader/surface::ReaderSurface` adds refresh policy; `SurfaceEntity` adapts existing GPUI entities. `reader/opml` and `reader/xmind` consume `glim-core::outline` and `glim-core::graph`; the graph view serves both XMind and structured-text projections. Source, markup and paging share editing sessions, and workspace does not dispatch specific formats. Non-image native documents retain their existing reload limitations.
 
 `reader/editing` bridges document sessions to existing saving; `reader/text` handles source/preview transitions; `reader/projection` owns one optional table or JSON projection. Structured controls are retained at construction rather than created during render. Workspace coordinates navigation, tab ordering, saves and session persistence. Toolbar/context actions continue through `workspace/reader_actions` and native `ReaderActions`; data views do not acquire independent save pipelines.
 
@@ -59,7 +61,7 @@ Watchers coalesce affected paths with `watch.pending_paths`; unknown events, err
 
 `services/preview/request` and `native/PreviewRequest.swift` define version 1 of the Rust/Swift request protocol. Tagged payloads require their own fields; Swift rejects unknown versions/kinds and missing required fields. Prepared files stay owned by `PreparedPreview` until the native controller closes. Native resources initialize on demand. Rust serialization and Swift decoding share fixtures in `native/tests/fixtures`.
 
-README/topic scenarios compose shared document reading, data inspection, media browsing and editing capabilities without adding another format dispatcher. New modules follow [Reader module contracts](reader-modules.md). `assets/format-catalog.json` declares 13 ordered providers, 232 suffixes, classifications, languages, associations and icon expectations; it generates Rust/Swift tables and the [bilingual catalog](format-catalog.md). Parsers retain content probes; icons and associations do not grant editability. `scripts/check-architecture.py` checks dependency direction, generated catalog outputs, provider order and workspace dispatch boundaries in CI. Internal modules are statically linked. External installation, dynamic loading, permissions and a cross-process plugin protocol are deferred.
+README/topic scenarios compose shared document reading, data inspection, media browsing and editing capabilities without adding another format dispatcher. New modules follow [Reader module contracts](reader-modules.md). `assets/format-catalog.json` declares 13 ordered providers, 232 suffixes, classifications, languages, associations and icon expectations; it generates Rust/Swift tables and the [bilingual catalog](format-catalog.md). Parsers retain content probes; icons and associations do not grant editability. `scripts/check-architecture.py` checks dependency direction, generated catalog outputs, provider order and workspace dispatch boundaries in CI. Internal modules compile with the app through explicit data and host interfaces. External installation, dynamic loading, permissions and a cross-process plugin protocol are deferred.
 
 ### Shared reader policy
 

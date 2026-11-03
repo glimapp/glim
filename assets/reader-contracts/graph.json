@@ -1,0 +1,55 @@
+{
+  "path": "map.xmind",
+  "fingerprint": "fixture-v1",
+  "sheets": [
+    {
+      "title": "计划",
+      "topics": [
+        {
+          "title": "Root",
+          "notes": "Overview",
+          "labels": [
+            "draft"
+          ],
+          "link": "https://example.com/",
+          "children": [
+            1,
+            3
+          ]
+        },
+        {
+          "title": "Branch",
+          "notes": "",
+          "labels": [],
+          "link": null,
+          "children": [
+            2
+          ]
+        },
+        {
+          "title": "Leaf",
+          "notes": "",
+          "labels": [],
+          "link": null,
+          "children": []
+        },
+        {
+          "title": "Second",
+          "notes": "",
+          "labels": [],
+          "link": null,
+          "children": []
+        }
+      ],
+      "roots": [
+        0
+      ],
+      "relationships": [
+        [
+          1,
+          3
+        ]
+      ]
+    }
+  ]
+}

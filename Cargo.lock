@@ -2559,8 +2559,6 @@ version = "0.2.18"
 dependencies = [
  "anyhow",
  "glim-core",
- "glim-reader-outline",
- "glim-reader-ui",
  "glim-services",
  "gpui-kit",
  "log",
@@ -2577,23 +2575,6 @@ name = "glim-core"
 version = "0.2.18"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "glim-reader-outline"
-version = "0.2.18"
-dependencies = [
- "glim-core",
- "glim-reader-ui",
- "gpui-kit",
- "serde_json",
-]
-
-[[package]]
-name = "glim-reader-ui"
-version = "0.2.18"
-dependencies = [
- "gpui-kit",
 ]
 
 [[package]]

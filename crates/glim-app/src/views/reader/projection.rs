@@ -51,6 +51,7 @@ impl Projection {
     pub fn set_visible(&mut self, visible: bool, text: Option<String>, cx: &mut App) {
         self.visible = visible;
         if !visible {
+            self.set_active(false, cx);
             return;
         }
         match &self.view {
@@ -66,6 +67,25 @@ impl Projection {
                     view.update(cx, |tree, cx| tree.load(text, cx));
                 }
             }
+        }
+    }
+    pub fn set_active(&self, active: bool, cx: &mut App) {
+        let active = active && self.visible;
+        match &self.view {
+            View::Table { view, .. } => view.update(cx, |table, cx| {
+                if active {
+                    table.resume(cx);
+                } else {
+                    table.suspend();
+                }
+            }),
+            View::Json(view) => view.update(cx, |tree, cx| {
+                if active {
+                    tree.resume(cx);
+                } else {
+                    tree.suspend();
+                }
+            }),
         }
     }
     pub fn render(&self) -> Option<AnyElement> {

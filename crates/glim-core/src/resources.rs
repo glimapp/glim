@@ -280,6 +280,18 @@ impl<T> CachedResource<T> {
     }
 }
 
+/// Owned cell storage, excluding allocator metadata and spare outer-vector capacity.
+pub fn text_rows_bytes(rows: &[Vec<String>]) -> u64 {
+    std::mem::size_of_val(rows) as u64
+        + rows
+            .iter()
+            .map(|row| {
+                (row.capacity() * std::mem::size_of::<String>()) as u64
+                    + row.iter().map(|cell| cell.capacity() as u64).sum::<u64>()
+            })
+            .sum::<u64>()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -912,7 +912,7 @@ impl Render for SqliteReader {
     }
 }
 
-impl glim_reader_ui::ReaderView for super::surface::SurfaceEntity<SqliteReader> {
+impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntity<SqliteReader> {
     fn kind(&self) -> &'static str {
         "sqlite"
     }

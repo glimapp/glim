@@ -18,8 +18,6 @@
 crates/
   glim-core/src/       文档、会话与更新数据；无 I/O 和 GPUI
   glim-services/src/   文件系统、监听、格式解析、备份和偏好；无 UI
-  glim-reader-ui/src/       窄 UI 生命周期与可选能力契约
-  glim-reader-outline/src/  独立 OPML 视图
   glim-app/src/
     app/              启动、动作、菜单、语言、图表引擎和更新协调
     views/
@@ -35,7 +33,11 @@ scripts/              打包、签名、更新清单与专项原生检查
 
 依赖单向：`glim-app → glim-services → glim-core`，app 也可直接依赖 core。固定 GPUI Kit、保留 Cargo.lock。阻塞文件工作走后台执行器；render 只组合缓存状态，不扫描目录或执行命令。视图持有实体、订阅和可取消任务句柄。
 
-视图包的附加依赖是 `glim-app → glim-reader-outline → glim-reader-ui`，大纲包同时依赖 `glim-core`；应用可直接使用 UI 契约。`glim-reader-ui` 仅依赖固定版本 GPUI，任何 UI 包不得成为 core/services 的依赖。独立包按真实职责拆分，格式数量增长不要求每个扩展名单独建 crate。
+阅读器边界先通过普通模块建立：`reader/contract` 定义窄接口，`reader/construction` 负责装配，具体视图拥有自己的状态。OPML 与图结构视图通过 `ReaderHost` 接收翻译、数值动作记录和共享资源池，消费 core 纯数据。只有出现明确的独立版本、依赖隔离或跨产品复用需求时才拆 crate；扩展名数量不作为拆包依据。
+
+### 本地依赖补丁
+
+`vendor/gpui-base` 和 `vendor/gpui-pre` 保留固定上游版本的最小已修改源码集及所需库文件；补丁用途见各目录的 `PATCHES.md`／`GLIM-PATCH.md`。当前扩展包括文件绘制异常恢复、可见列表测量、任务复选框回写、图片尺寸和阅读末尾间距。删除 path patch 前必须确认替代依赖提供应用正在调用的接口及等价行为。固定 Git 提交的补丁仓库可以替代本地副本，但会增加独立仓库维护与构建获取依赖；未经必要性论证不另建这套流程。
 
 ### 文档会话与内置格式模块
 
@@ -45,7 +47,7 @@ scripts/              打包、签名、更新清单与专项原生检查
 
 `services/documents/registry` 是有明确优先级、静态链接的格式识别与加载入口。专用容器优先于通用压缩包，SQLite 文件头和歧义 `.key` 保留内容探测；未知文本／二进制使用有界后备。提供者接收取消令牌，返回 `documents::Content`，保留格式自己的表示。`documents/presentation` 一次确定文本投影：排版类型、JSON 方言、表格格式和结构操作能力；排版、表格视图消费这些类型，不再各自维护扩展名白名单。
 
-`reader/construction` 是准备内容的统一装配入口，同时处理会话恢复时的暂停播放。`glim-reader-ui::ReaderView` 提供持久视图、激活和窗口绑定；图片复制、解压控制、播放状态和持久化拆为可选能力接口。应用内 `reader/surface::ReaderSurface` 只补充刷新策略，`SurfaceEntity` 适配现有 GPUI 实体。`glim-reader-outline` 已独立实现 OPML 视图，通过 `ReaderHost` 接收翻译和动作记录，消费 `glim-core::outline` 纯数据，不依赖应用或服务层。普通源码、排版和分页继续共用编辑会话。新增只读视图接入装配入口，无需向工作区增加类型分发；原生非图片文档保留已有重载限制。
+`reader/construction` 是准备内容的统一装配入口，同时处理会话恢复时的暂停播放。`reader/contract::ReaderView` 提供持久视图、激活和窗口绑定；图片复制、解压控制、播放状态和持久化拆为可选能力接口。`reader/surface::ReaderSurface` 补充刷新策略，`SurfaceEntity` 适配现有 GPUI 实体。`reader/opml` 与 `reader/xmind` 分别消费 `glim-core::outline`、`glim-core::graph`；图视图同时用于 XMind 和结构化文本投影。普通源码、排版和分页继续共用编辑会话，工作区不参与具体格式分发；原生非图片文档保留已有重载限制。
 
 `reader/editing` 将文档会话接到现有保存流程，`reader/text` 处理源码／预览切换，`reader/projection` 持有一个可选表格或 JSON 投影。结构操作控件在装配时创建并持续保留，render 不再创建它们。Workspace 协调导航、标签排序、保存和持久化；工具栏／右键菜单继续通过 `workspace/reader_actions` 和原生 `ReaderActions`，数据投影不另建保存通道。
 
@@ -59,7 +61,7 @@ scripts/              打包、签名、更新清单与专项原生检查
 
 `services/preview/request` 与 `native/PreviewRequest.swift` 定义 Rust／Swift 协议第 1 版。带标签载荷要求自身字段，Swift 拒绝未知版本、类型及缺少必填字段的请求。准备文件由 `PreparedPreview` 持有到原生控制器关闭，原生资源按需创建；Rust 编码与 Swift 解码共用 `native/tests/fixtures` 的协议样例。
 
-README／专题通过共享能力组合文档阅读、数据检查、媒体浏览和基础编辑，场景不另建格式分发。新模块遵循[阅读器模块契约](reader-modules.zh-CN.md)。`assets/format-catalog.json` 管理 13 个有序提供者、232 个后缀及分类、语言、系统关联和图标对应声明；生成 Rust／Swift 表和[双语格式目录](format-catalog.zh-CN.md)。内容探测仍由解析器负责，图标或系统关联不授予编辑权限。`scripts/check-architecture.py` 在 CI 校验依赖方向、目录生成结果、提供者顺序和工作区分发边界。内部模块静态链接；外部安装、动态加载、权限与跨进程插件协议留待后续。
+README／专题通过共享能力组合文档阅读、数据检查、媒体浏览和基础编辑，场景不另建格式分发。新模块遵循[阅读器模块契约](reader-modules.zh-CN.md)。`assets/format-catalog.json` 管理 13 个有序提供者、232 个后缀及分类、语言、系统关联和图标对应声明；生成 Rust／Swift 表和[双语格式目录](format-catalog.zh-CN.md)。内容探测仍由解析器负责，图标或系统关联不授予编辑权限。`scripts/check-architecture.py` 在 CI 校验依赖方向、目录生成结果、提供者顺序和工作区分发边界。内部模块随应用静态编译，保留清晰的数据与宿主接口；外部安装、动态加载、权限与跨进程插件协议留待后续。
 
 ### 阅读边界统一管理
 

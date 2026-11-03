@@ -16,6 +16,9 @@ enum Source {
     GeoFile(PathBuf),
 }
 pub(super) struct CsvTable {
+    memory: glim_services::resources::ResourceLease,
+    suspended: bool,
+    resume_scroll: Option<(Point<Pixels>, Point<Pixels>)>,
     source: Option<Source>,
     delimiter: u8,
     rows: Vec<Vec<String>>,
@@ -33,6 +36,10 @@ pub(super) struct CsvTable {
 impl CsvTable {
     pub fn new() -> Self {
         Self {
+            memory: glim_services::resources::pool()
+                .track(0, glim_services::resources::ResourceClass::Working),
+            suspended: false,
+            resume_scroll: None,
             source: None,
             delimiter: b',',
             rows: Vec::new(),
@@ -69,6 +76,7 @@ impl CsvTable {
     }
     pub fn load(&mut self, text: String, delimiter: u8, cx: &mut Context<Self>) {
         if matches!(&self.source, Some(Source::Text(old)) if old.as_str() == text) {
+            self.resume(cx);
             return;
         }
         self.source = Some(Source::Text(Arc::new(text)));
@@ -78,6 +86,7 @@ impl CsvTable {
     }
     pub fn load_geo(&mut self, text: String, format: &'static str, cx: &mut Context<Self>) {
         if matches!(&self.source, Some(Source::GeoText(old)) if old.as_str() == text) {
+            self.resume(cx);
             return;
         }
         self.source = Some(Source::GeoText(Arc::new(text)));
@@ -85,12 +94,39 @@ impl CsvTable {
         self.reload(cx);
     }
     pub fn reload(&mut self, cx: &mut Context<Self>) {
+        self.resume_scroll = None;
         self.row_start = 0;
         self.column_start = 0;
         self.previous.clear();
         self.load_page(cx);
     }
+    pub fn suspend(&mut self) {
+        if !self.suspended && self.task.is_none() && self.error.is_none() {
+            self.resume_scroll = Some((
+                self.scroll.0.borrow().base_handle.offset(),
+                self.horizontal_scroll.offset(),
+            ));
+        }
+        self.suspended = true;
+        self.task = None;
+        self.rows = Vec::new();
+        self.account();
+    }
+    pub fn resume(&mut self, cx: &mut Context<Self>) {
+        if self.suspended {
+            self.load_page(cx);
+        }
+    }
+    fn account(&self) {
+        let source = match &self.source {
+            Some(Source::Text(text) | Source::GeoText(text)) => text.capacity() as u64,
+            _ => 0,
+        };
+        self.memory
+            .resize(source + glim_services::resources::text_rows_bytes(&self.rows));
+    }
     fn load_page(&mut self, cx: &mut Context<Self>) {
+        self.suspended = false;
         glim_services::telemetry::track(
             "csv_page_requested",
             [
@@ -119,6 +155,7 @@ impl CsvTable {
         self.task = None;
         self.error = None;
         self.rows.clear();
+        self.account();
         self.more = false;
         let (delimiter, row, column) = (self.delimiter, self.row_start, self.column_start);
         let (cancel, guard) = glim_services::work::Cancellation::task();
@@ -158,13 +195,19 @@ impl CsvTable {
                         view.rows = page.rows;
                         view.columns = page.columns;
                         view.more = page.more;
+                        view.scroll = UniformListScrollHandle::new();
+                        if let Some((vertical, horizontal)) = view.resume_scroll.take() {
+                            view.scroll.0.borrow().base_handle.set_offset(vertical);
+                            view.horizontal_scroll.set_offset(horizontal);
+                        } else {
+                            view.horizontal_scroll.set_offset(point(px(0.), px(0.)));
+                        }
                     }
                     Err(error) => {
                         view.error = Some(format!("Cannot show {} table: {error:#}", view.format))
                     }
                 }
-                view.scroll = UniformListScrollHandle::new();
-                view.horizontal_scroll.set_offset(point(px(0.), px(0.)));
+                view.account();
                 cx.notify();
             });
         }));
@@ -287,5 +330,35 @@ impl Render for CsvTable {
                     .disabled(busy || self.column_start + columns >= self.columns).on_click(cx.listener(|view, _, _, cx| {
                         glim_services::telemetry::reader_feature("csv", "next_columns", []); view.column_start += reader_limits::CSV_COLUMNS; view.load_page(cx);
                     })))), cx)).into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CsvTable, Source};
+    use glim_core::resources::{ResourceClass, ResourcePool};
+    use std::sync::Arc;
+    #[test]
+    fn suspension_releases_cells_and_preserves_reconstruction_and_page() {
+        let pool = ResourcePool::new(0);
+        let mut table = CsvTable::new();
+        table.memory = pool.track(0, ResourceClass::Working);
+        table.source = Some(Source::Text(Arc::new("a,b".into())));
+        table.row_start = 120;
+        table.column_start = 4;
+        table.previous = vec![0, 60];
+        table.rows = vec![vec!["long cell".repeat(100)]];
+        table.account();
+        let before = pool.snapshot().working_bytes;
+        table.suspend();
+        assert!(table.rows.is_empty());
+        assert_eq!(table.row_start, 120);
+        assert_eq!(table.column_start, 4);
+        assert_eq!(table.previous, [0, 60]);
+        assert!(matches!(table.source, Some(Source::Text(_))));
+        assert!(pool.snapshot().working_bytes > 0);
+        assert!(pool.snapshot().working_bytes < before);
+        drop(table);
+        assert_eq!(pool.snapshot().working_bytes, 0);
     }
 }

@@ -564,22 +564,22 @@ impl UnavailableReader {
     }
 }
 
-impl glim_reader_ui::ReaderView for ImageReader {
+impl crate::views::reader::contract::ReaderView for ImageReader {
     fn kind(&self) -> &'static str {
         "image"
     }
     fn render(&mut self, cx: &mut App) -> AnyElement {
         ImageReader::render(self, cx)
     }
-    fn operations(&self) -> glim_reader_ui::ReaderOperations<'_> {
-        glim_reader_ui::ReaderOperations {
+    fn operations(&self) -> crate::views::reader::contract::ReaderOperations<'_> {
+        crate::views::reader::contract::ReaderOperations {
             image_copy: Some(self),
             ..Default::default()
         }
     }
 }
 impl super::surface::ReaderSurface for ImageReader {}
-impl glim_reader_ui::CopyImage for ImageReader {
+impl crate::views::reader::contract::CopyImage for ImageReader {
     fn copy_image(&self, cx: &mut App) -> bool {
         if let Some(page) = self.pages.get(*self.page.read(cx)) {
             cx.write_to_clipboard(ClipboardItem::new_image(page));
@@ -589,7 +589,7 @@ impl glim_reader_ui::CopyImage for ImageReader {
         }
     }
 }
-impl glim_reader_ui::ReaderView for super::surface::SurfaceEntity<GifReader> {
+impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntity<GifReader> {
     fn kind(&self) -> &'static str {
         "animated_image"
     }
@@ -602,7 +602,7 @@ impl glim_reader_ui::ReaderView for super::surface::SurfaceEntity<GifReader> {
     }
 }
 impl super::surface::ReaderSurface for super::surface::SurfaceEntity<GifReader> {}
-impl glim_reader_ui::ReaderView for UnavailableReader {
+impl crate::views::reader::contract::ReaderView for UnavailableReader {
     fn kind(&self) -> &'static str {
         "unavailable"
     }

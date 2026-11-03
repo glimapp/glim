@@ -10,3 +10,5 @@ mod workspace;
 
 pub use document::{ContentSnapshot, Document, DocumentKind, ReaderMode, language_for_path};
 pub use workspace::DirectoryEntry;
+
+pub mod graph;

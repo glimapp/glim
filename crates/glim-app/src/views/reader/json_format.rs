@@ -8,7 +8,7 @@ use gpui_kit::{
 pub(super) struct JsonFormat {
     editor: Option<Entity<EditorState>>,
     path: std::path::PathBuf,
-    graph: Option<Entity<super::xmind::XMindReader>>,
+    graph: Option<Entity<super::xmind::GraphReader>>,
     visible: bool,
     focus: Option<FocusHandle>,
     pub(super) blocked: bool,
@@ -90,6 +90,7 @@ impl JsonFormat {
     fn toggle_graph(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.visible {
             self.visible = false;
+            self.graph = None;
             self.cancel = None;
             self.graph_task = None;
             if let Some(editor) = &self.editor {
@@ -134,7 +135,7 @@ impl JsonFormat {
                         return;
                 }
                 match result {
-                    Ok(document) => view.graph = Some(cx.new(|_| super::xmind::XMindReader::embedded(document))),
+                    Ok(document) => view.graph = Some(cx.new(|_| super::xmind::GraphReader::embedded(document, super::host()))),
                     Err(_) => view.error = Some(tr("Cannot visualize this content. Check syntax or use Source for larger files.")),
                 }
                 cx.notify();

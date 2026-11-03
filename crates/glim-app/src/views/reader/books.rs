@@ -887,22 +887,22 @@ pub(super) struct BookSurface {
     pub view: Entity<BookReader>,
     pub writing: Arc<AtomicBool>,
 }
-impl glim_reader_ui::ReaderView for BookSurface {
+impl crate::views::reader::contract::ReaderView for BookSurface {
     fn kind(&self) -> &'static str {
         "ebook"
     }
     fn render(&mut self, _cx: &mut App) -> AnyElement {
         self.view.clone().into_any_element()
     }
-    fn operations(&self) -> glim_reader_ui::ReaderOperations<'_> {
-        glim_reader_ui::ReaderOperations {
+    fn operations(&self) -> crate::views::reader::contract::ReaderOperations<'_> {
+        crate::views::reader::contract::ReaderOperations {
             persistence: Some(self),
             ..Default::default()
         }
     }
 }
 impl super::surface::ReaderSurface for BookSurface {}
-impl glim_reader_ui::ReaderPersistence for BookSurface {
+impl crate::views::reader::contract::ReaderPersistence for BookSurface {
     fn is_persisting(&self) -> bool {
         self.writing.load(Ordering::SeqCst)
     }

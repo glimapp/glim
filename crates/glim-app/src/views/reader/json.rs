@@ -10,6 +10,10 @@ use gpui_kit::{
 use std::collections::HashSet;
 
 pub(super) struct JsonTree {
+    memory: glim_services::resources::ResourceLease,
+    suspended: bool,
+    initialized: bool,
+    resume_scroll: Option<Point<Pixels>>,
     nodes: Vec<JsonNode>,
     expanded: HashSet<usize>,
     rows: Vec<(usize, usize)>,
@@ -22,6 +26,11 @@ pub(super) struct JsonTree {
 impl JsonTree {
     pub fn new(format: String) -> Self {
         Self {
+            memory: glim_services::resources::pool()
+                .track(0, glim_services::resources::ResourceClass::Working),
+            suspended: false,
+            initialized: false,
+            resume_scroll: None,
             nodes: Vec::new(),
             expanded: HashSet::new(),
             rows: Vec::new(),
@@ -33,15 +42,25 @@ impl JsonTree {
         }
     }
     pub fn load(&mut self, text: String, cx: &mut Context<Self>) {
-        if self.loaded_text.as_deref() == Some(text.as_str()) {
+        let same = self.loaded_text.as_deref() == Some(text.as_str());
+        if same && !self.suspended {
             return;
+        }
+        self.suspended = false;
+        let preserve_expansion = same && self.initialized;
+        if !same {
+            self.resume_scroll = None;
+            self.initialized = false;
         }
         self.loaded_text = Some(text.clone());
         let format = self.format.clone();
         self.nodes.clear();
         self.rows.clear();
-        self.expanded.clear();
+        if !same {
+            self.expanded.clear();
+        }
         self.error = None;
+        self.account();
         self.scroll = UniformListScrollHandle::new();
         let telemetry_started = std::time::Instant::now();
         let (cancel, guard) = glim_services::work::Cancellation::task();
@@ -61,8 +80,11 @@ impl JsonTree {
                 match result {
                     Ok(nodes) => {
                         v.nodes = nodes;
-                        v.expanded.insert(0);
-                        if let Some(root) = v.nodes.first() {
+                        v.initialized = true;
+                        if !preserve_expansion {
+                            v.expanded.insert(0);
+                        }
+                        if !preserve_expansion && let Some(root) = v.nodes.first() {
                             for &child in root
                                 .children
                                 .iter()
@@ -76,6 +98,9 @@ impl JsonTree {
                             }
                         }
                         v.rebuild();
+                        if let Some(offset) = v.resume_scroll.take() {
+                            v.scroll.0.borrow().base_handle.set_offset(offset);
+                        }
                     }
                     Err(e) => {
                         v.error = Some(format!(
@@ -83,10 +108,46 @@ impl JsonTree {
                         ))
                     }
                 }
+                v.account();
                 cx.notify();
             });
         }));
         cx.notify();
+    }
+    pub fn suspend(&mut self) {
+        if !self.suspended && self.task.is_none() && self.error.is_none() {
+            self.resume_scroll = Some(self.scroll.0.borrow().base_handle.offset());
+        }
+        self.suspended = true;
+        self.task = None;
+        self.nodes = Vec::new();
+        self.rows = Vec::new();
+        self.account();
+    }
+    pub fn resume(&mut self, cx: &mut Context<Self>) {
+        if self.suspended
+            && let Some(text) = self.loaded_text.clone()
+        {
+            self.load(text, cx);
+        }
+    }
+    fn account(&self) {
+        let nodes = (self.nodes.capacity() * std::mem::size_of::<JsonNode>()) as u64
+            + self
+                .nodes
+                .iter()
+                .map(|node| {
+                    (node.key.capacity() + node.full_key.capacity() + node.value.capacity()) as u64
+                        + node.full_value.as_ref().map_or(0, |v| v.capacity() as u64)
+                        + (node.children.capacity() * std::mem::size_of::<usize>()) as u64
+                })
+                .sum::<u64>();
+        self.memory.resize(
+            nodes
+                + self.loaded_text.as_ref().map_or(0, |v| v.capacity() as u64)
+                + (self.rows.capacity() * std::mem::size_of::<(usize, usize)>()) as u64
+                + (self.expanded.capacity() * std::mem::size_of::<usize>()) as u64,
+        );
     }
     fn rebuild(&mut self) {
         self.rows.clear();
@@ -106,6 +167,7 @@ impl JsonTree {
                 );
             }
         }
+        self.account();
     }
 }
 impl Render for JsonTree {
@@ -230,5 +292,32 @@ impl Render for JsonTree {
                 .min_h_0()
                 .w_full(),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JsonTree;
+    use glim_core::resources::{ResourceClass, ResourcePool};
+    #[test]
+    fn suspension_releases_nodes_but_preserves_source_and_fold_state() {
+        let pool = ResourcePool::new(0);
+        let mut tree = JsonTree::new("json".into());
+        tree.memory = pool.track(0, ResourceClass::Working);
+        let source = r#"{"group":[1,2,3]}"#.to_owned();
+        tree.nodes = glim_services::json::parse(&source).unwrap();
+        tree.loaded_text = Some(source.clone());
+        tree.initialized = true;
+        tree.expanded.insert(0);
+        tree.rebuild();
+        let before = pool.snapshot().working_bytes;
+        tree.suspend();
+        assert!(tree.nodes.is_empty() && tree.rows.is_empty());
+        assert_eq!(tree.loaded_text.as_deref(), Some(source.as_str()));
+        assert!(tree.expanded.contains(&0));
+        assert!(tree.initialized);
+        assert!(pool.snapshot().working_bytes < before);
+        drop(tree);
+        assert_eq!(pool.snapshot().working_bytes, 0);
     }
 }

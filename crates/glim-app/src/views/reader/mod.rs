@@ -2,6 +2,7 @@ mod archive;
 mod books;
 mod boundary;
 mod construction;
+mod contract;
 mod controls;
 mod csv;
 mod diagrams;
@@ -68,7 +69,7 @@ pub(super) fn preview_loading(cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-pub use glim_reader_ui::ArchiveAction;
+pub use crate::views::reader::contract::ArchiveAction;
 
 pub type OpenLink = Arc<dyn Fn(PathBuf, Option<String>, &mut Window, &mut App) + Send + Sync>;
 
@@ -186,6 +187,9 @@ impl Reader {
     }
 
     pub fn deactivate(&self, cx: &mut App) {
+        if let Some(projection) = &self.projection {
+            projection.set_active(false, cx);
+        }
         if let Renderer::Paged {
             html: Some((view, _)),
             ..
@@ -202,6 +206,9 @@ impl Reader {
     }
 
     pub fn activate(&self, cx: &mut App) {
+        if let Some(projection) = &self.projection {
+            projection.set_active(true, cx);
+        }
         if let Renderer::Paged {
             html: Some((view, true)),
             ..
@@ -280,4 +287,23 @@ pub(crate) fn resource_snapshot() -> (i32, [u64; 16]) {
 
 pub(crate) fn set_native_telemetry_enabled(enabled: bool) {
     native_bridge::set_telemetry_enabled(enabled);
+}
+
+pub(super) fn host() -> crate::views::reader::contract::ReaderHost {
+    crate::views::reader::contract::ReaderHost {
+        translate: glim_services::locale::tr,
+        action: |module, action, metrics| {
+            use crate::views::reader::contract::ReaderMetric;
+            use glim_services::telemetry::{flag, number, reader_feature};
+            reader_feature(
+                module,
+                action,
+                metrics.iter().map(|metric| match metric {
+                    ReaderMetric::Flag(key, value) => (*key, flag(*value)),
+                    ReaderMetric::Count(key, value) => (*key, number(*value)),
+                }),
+            );
+        },
+        resources: glim_services::resources::pool().clone(),
+    }
 }

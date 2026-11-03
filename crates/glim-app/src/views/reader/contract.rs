@@ -4,10 +4,11 @@ use std::sync::Arc;
 
 pub type ArchiveAction = Arc<dyn Fn(&mut Window, &mut App) + Send + Sync>;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct ReaderHost {
     pub translate: fn(&str) -> String,
-    pub action: fn(&'static str, &'static str),
+    pub action: fn(&'static str, &'static str, &[ReaderMetric]),
+    pub resources: glim_core::resources::ResourcePool,
 }
 
 pub trait CopyImage {
@@ -49,4 +50,10 @@ pub trait ReaderView {
     fn is_unavailable(&self) -> bool {
         false
     }
+}
+
+/// Bounded numeric metadata; document contents and arbitrary text stay outside the host contract.
+pub enum ReaderMetric {
+    Flag(&'static str, bool),
+    Count(&'static str, u64),
 }

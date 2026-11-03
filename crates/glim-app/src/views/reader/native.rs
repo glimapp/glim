@@ -387,7 +387,7 @@ impl Render for NativeReader {
     }
 }
 
-impl glim_reader_ui::ReaderView for super::surface::SurfaceEntity<NativeReader> {
+impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntity<NativeReader> {
     fn kind(&self) -> &'static str {
         "native"
     }
@@ -403,8 +403,8 @@ impl glim_reader_ui::ReaderView for super::surface::SurfaceEntity<NativeReader> 
             |view, cx| if active { view.open(cx) } else { view.hide() },
         );
     }
-    fn operations(&self) -> glim_reader_ui::ReaderOperations<'_> {
-        glim_reader_ui::ReaderOperations {
+    fn operations(&self) -> crate::views::reader::contract::ReaderOperations<'_> {
+        crate::views::reader::contract::ReaderOperations {
             playback: Some(self),
             ..Default::default()
         }
@@ -425,7 +425,7 @@ impl super::surface::ReaderSurface for super::surface::SurfaceEntity<NativeReade
         })
     }
 }
-impl glim_reader_ui::PlaybackState for super::surface::SurfaceEntity<NativeReader> {
+impl crate::views::reader::contract::PlaybackState for super::surface::SurfaceEntity<NativeReader> {
     fn playlist_shuffle(&self, cx: &App) -> Option<bool> {
         self.read(cx).playlist_shuffle()
     }

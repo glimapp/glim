@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/glim-core", "crates/glim-services", "crates/glim-reader-ui", "crates/glim-reader-outline", "crates/glim-app"]
+members = ["crates/glim-core", "crates/glim-services", "crates/glim-app"]
 default-members = ["crates/glim-app"]
 resolver = "3"
 
@@ -13,8 +13,6 @@ repository = "https://github.com/glimapp/glim"
 [workspace.dependencies]
 glim-core = { path = "crates/glim-core" }
 glim-services = { path = "crates/glim-services" }
-glim-reader-ui = { path = "crates/glim-reader-ui" }
-glim-reader-outline = { path = "crates/glim-reader-outline" }
 gpui-kit = { version = "=0.7.1", features = [
     "tree-sitter-rust", "tree-sitter-javascript", "tree-sitter-typescript",
     "tree-sitter-tsx", "tree-sitter-toml", "tree-sitter-python", "tree-sitter-go",

@@ -14,10 +14,9 @@ metadata = json.loads(subprocess.check_output(
 allowed = {
     'glim-core': set(),
     'glim-services': {'glim-core'},
-    'glim-reader-ui': set(),
-    'glim-reader-outline': {'glim-core', 'glim-reader-ui'},
-    'glim-app': {'glim-core', 'glim-services', 'glim-reader-ui', 'glim-reader-outline'},
+    'glim-app': {'glim-core', 'glim-services'},
 }
+
 packages = {p['name']: p for p in metadata['packages'] if p['id'] in metadata['workspace_members']}
 errors = []
 for name, package in packages.items():
@@ -44,6 +43,14 @@ for path in (ROOT / 'crates/glim-app/src/views/workspace').glob('*.rs'):
     source = path.read_text()
     if re.search(r'(?:Ok\(Content::\w+\([^\n]*\)\)|Content::\w+\([^\n]*\))\s*=>', source):
         errors.append(f'{path.relative_to(ROOT)}: move prepared-format dispatch to reader/construction')
+
+# These presentation modules consume pure prepared data and explicit host hooks.
+# Keep this boundary even while they compile inside the app crate.
+reader_root = ROOT / 'crates/glim-app/src/views/reader'
+for name in ('contract.rs', 'controls.rs', 'opml.rs', 'xmind.rs'):
+    source = (reader_root / name).read_text()
+    if re.search(r'\bglim_services\s*::|\bcrate::app\s*::|\bstd::(?:fs|process|net)\s*::', source):
+        errors.append(f'{name}: use pure payloads and injected host operations')
 
 if errors:
     raise SystemExit('\n'.join(errors))

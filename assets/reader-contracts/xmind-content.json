@@ -1,0 +1,44 @@
+[
+  {
+    "title": "计划",
+    "rootTopic": {
+      "id": "root",
+      "title": "Root",
+      "notes": {
+        "plain": {
+          "content": "Overview"
+        }
+      },
+      "labels": [
+        "draft"
+      ],
+      "href": "https://example.com/",
+      "children": {
+        "attached": [
+          {
+            "id": "branch",
+            "title": "Branch",
+            "children": {
+              "attached": [
+                {
+                  "id": "leaf",
+                  "title": "Leaf"
+                }
+              ]
+            }
+          },
+          {
+            "id": "second",
+            "title": "Second"
+          }
+        ]
+      }
+    },
+    "relationships": [
+      {
+        "end1Id": "branch",
+        "end2Id": "second"
+      }
+    ]
+  }
+]

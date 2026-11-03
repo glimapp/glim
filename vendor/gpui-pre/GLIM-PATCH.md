@@ -12,3 +12,5 @@ Recovery changes in `src/app.rs` and `src/window.rs`:
 This does not catch aborting panics, OOM, stack overflow, native exceptions or process termination. No new platform backend or platform dependency is introduced.
 
 `src/elements/img.rs` measures automatic image height from the resolved layout width, preserving the intrinsic or explicit aspect ratio after percentage widths and maximum-width constraints. Explicit heights remain authored dimensions; automatic width derived from an absolute height respects an explicit aspect ratio.
+
+`src/elements/list.rs` restricts the full-measure pass to viewport demand, avoiding natural-height measurement of every item in a large document.

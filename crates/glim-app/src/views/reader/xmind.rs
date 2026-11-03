@@ -1,7 +1,5 @@
-use glim_services::{
-    locale::tr,
-    xmind::{MindMap, Sheet},
-};
+use crate::views::reader::contract::{ReaderHost, ReaderMetric, ReaderView};
+use glim_core::graph::{MindMap, Sheet};
 use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Selectable,
@@ -78,7 +76,9 @@ fn layout(sheet: &Sheet, collapsed: &HashSet<usize>) -> Layout {
     result.height = cursor + 32.;
     result
 }
-pub(super) struct XMindReader {
+pub struct GraphReader {
+    host: ReaderHost,
+    memory: glim_core::resources::ResourceLease,
     document: MindMap,
     embedded: bool,
     pan: Option<(Point<Pixels>, Point<Pixels>)>,
@@ -90,10 +90,16 @@ pub(super) struct XMindReader {
     zoom: f32,
     scroll: ScrollHandle,
 }
-impl XMindReader {
-    pub fn new(document: MindMap) -> Self {
+impl GraphReader {
+    pub fn new(document: MindMap, host: ReaderHost) -> Self {
         let selected = document.sheets[0].roots[0];
+        let memory = host.resources.track(
+            document.heap_bytes(),
+            glim_core::resources::ResourceClass::State,
+        );
         let mut view = Self {
+            host,
+            memory,
             document,
             embedded: false,
             pan: None,
@@ -115,23 +121,23 @@ impl XMindReader {
         view.center_root();
         view
     }
-    pub(super) fn embedded(document: MindMap) -> Self {
-        let mut view = Self::new(document);
+    pub fn embedded(document: MindMap, host: ReaderHost) -> Self {
+        let mut view = Self::new(document, host);
         view.embedded = true;
         view
     }
-    pub(super) fn reset_view(&mut self, cx: &mut Context<Self>) {
-        glim_services::telemetry::reader_feature("xmind", "reset_view", []);
+    pub fn reset_view(&mut self, cx: &mut Context<Self>) {
+        (self.host.action)("xmind", "reset_view", &[]);
         self.zoom = 1.;
         self.scroll.set_offset(point(px(0.), px(0.)));
         self.center_root();
         cx.notify();
     }
-    pub(super) fn fold_all(&mut self, collapsed: bool, cx: &mut Context<Self>) {
-        glim_services::telemetry::reader_feature(
+    pub fn fold_all(&mut self, collapsed: bool, cx: &mut Context<Self>) {
+        (self.host.action)(
             "xmind",
             "fold_all",
-            [("collapsed", glim_services::telemetry::flag(collapsed))],
+            &[ReaderMetric::Flag("collapsed", collapsed)],
         );
         self.collapsed = if collapsed {
             (0..self.document.sheets[self.sheet].topics.len()).collect()
@@ -142,8 +148,8 @@ impl XMindReader {
         self.center_root();
         cx.notify();
     }
-    pub(super) fn copy_selected(&self, cx: &mut App) {
-        glim_services::telemetry::reader_feature("xmind", "copy_selected", []);
+    pub fn copy_selected(&self, cx: &mut App) {
+        (self.host.action)("xmind", "copy_selected", &[]);
         let topic = &self.document.sheets[self.sheet].topics[self.selected];
         cx.write_to_clipboard(ClipboardItem::new_string(if topic.notes.is_empty() {
             topic.title.clone()
@@ -167,6 +173,13 @@ impl XMindReader {
     }
     fn rebuild(&mut self) {
         self.layout = Arc::new(layout(&self.document.sheets[self.sheet], &self.collapsed));
+        self.memory.resize(
+            self.document.heap_bytes()
+                + (self.layout.nodes.capacity() * std::mem::size_of::<Position>()) as u64
+                + (self.layout.edges.capacity() * std::mem::size_of::<(Position, Position)>())
+                    as u64
+                + (self.collapsed.capacity() * std::mem::size_of::<usize>()) as u64,
+        );
     }
     fn center_root(&self) {
         let root = self.document.sheets[self.sheet].roots[0];
@@ -178,16 +191,13 @@ impl XMindReader {
             ));
         }
     }
-    pub(super) fn change_zoom(&mut self, delta: f32, cx: &mut Context<Self>) {
-        glim_services::telemetry::reader_feature(
+    pub fn change_zoom(&mut self, delta: f32, cx: &mut Context<Self>) {
+        (self.host.action)(
             "xmind",
             "zoom_button",
-            [
-                ("increase", glim_services::telemetry::flag(delta > 0.)),
-                (
-                    "zoom_percent",
-                    glim_services::telemetry::number((self.zoom * 100.) as u64),
-                ),
+            &[
+                ReaderMetric::Flag("increase", delta > 0.),
+                ReaderMetric::Count("zoom_percent", (self.zoom * 100.) as u64),
             ],
         );
         let viewport = self.scroll.bounds().size;
@@ -212,7 +222,7 @@ impl XMindReader {
         cx.notify();
     }
 }
-impl Render for XMindReader {
+impl Render for GraphReader {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focus = self.focus.get_or_insert_with(|| cx.focus_handle()).clone();
         let sheet = &self.document.sheets[self.sheet];
@@ -260,17 +270,17 @@ impl Render for XMindReader {
                                     .ghost()
                                     .selected(index == self.sheet)
                                     .label(if sheet.title.is_empty() {
-                                        format!("{} {}", tr("Sheet"), index + 1)
+                                        format!("{} {}", (self.host.translate)("Sheet"), index + 1)
                                     } else {
                                         if self.embedded {
-                                            tr("Interactive graph")
+                                            (self.host.translate)("Interactive graph")
                                         } else {
                                             sheet.title.clone()
                                         }
                                     })
                                     .on_click(cx.listener(move |v, _, _, cx| {
-                                        glim_services::telemetry::reader_feature("xmind", "select_sheet", []);
-                                                    v.sheet = index;
+                                        (v.host.action)("xmind", "select_sheet", &[]);
+                                        v.sheet = index;
                                         v.selected = v.document.sheets[index].roots[0];
                                         v.default_expansion();
                                         v.rebuild();
@@ -371,7 +381,7 @@ impl Render for XMindReader {
                                                 .id(("xmind-topic", index))
                                                 .role(Role::Button)
                                                 .aria_label(if topic.title.is_empty() {
-                                                    tr("Untitled topic")
+                                                    (self.host.translate)("Untitled topic")
                                                 } else {
                                                     topic.title.clone()
                                                 })
@@ -397,7 +407,7 @@ impl Render for XMindReader {
                                                 .text_color(cx.theme().foreground)
                                                 .cursor_pointer()
                                                 .on_click(cx.listener(move |v, _, _, cx| {
-                                                    glim_services::telemetry::reader_feature("xmind", "select_topic", []);
+                                                    (v.host.action)("xmind", "select_topic", &[]);
                                                     v.selected = index;
                                                     cx.notify();
                                                 }))
@@ -417,7 +427,7 @@ impl Render for XMindReader {
                                                             2
                                                         })
                                                         .child(if topic.title.is_empty() {
-                                                            tr("Untitled topic")
+                                                            (self.host.translate)("Untitled topic")
                                                         } else {
                                                             topic.title.clone()
                                                         }),
@@ -429,7 +439,7 @@ impl Render for XMindReader {
                                                             .role(Role::Button)
                                                             .aria_label(format!(
                                                                 "{}: {}",
-                                                                tr(
+                                                                (self.host.translate)(
                                                                     if self
                                                                         .collapsed
                                                                         .contains(&index)
@@ -456,8 +466,12 @@ impl Render for XMindReader {
                                                             .on_click(cx.listener(
                                                                 move |v, _, _, cx| {
                                                                     cx.stop_propagation();
-                                                                    glim_services::telemetry::reader_feature("xmind", "toggle_topic", []);
-                                                    if !v.collapsed.remove(&index) {
+                                                                    (v.host.action)(
+                                                                        "xmind",
+                                                                        "toggle_topic",
+                                                                        &[],
+                                                                    );
+                                                                    if !v.collapsed.remove(&index) {
                                                                         v.collapsed.insert(index);
                                                                     }
                                                                     v.rebuild();
@@ -485,7 +499,7 @@ impl Render for XMindReader {
                                 div()
                                     .text_sm()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(tr(if self.embedded {
+                                    .child((self.host.translate)(if self.embedded {
                                         "Node details"
                                     } else {
                                         "Topic details"
@@ -496,7 +510,7 @@ impl Render for XMindReader {
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .whitespace_normal()
                                     .child(if topic.title.is_empty() {
-                                        tr("Untitled topic")
+                                        (self.host.translate)("Untitled topic")
                                     } else {
                                         topic.title.clone()
                                     }),
@@ -526,7 +540,7 @@ impl Render for XMindReader {
                                         v.child(
                                             Button::new("xmind-open-link")
                                                 .ghost()
-                                                .label(tr("Open link"))
+                                                .label((self.host.translate)("Open link"))
                                                 .on_click(move |_, _, cx| cx.open_url(&link)),
                                         )
                                     })
@@ -541,7 +555,7 @@ impl Render for XMindReader {
                                 };
                                 Some(div().text_sm().whitespace_normal().child(format!(
                                     "{}: {}",
-                                    tr("Related topic"),
+                                    (self.host.translate)("Related topic"),
                                     sheet.topics[other].title
                                 )))
                             })),
@@ -558,7 +572,7 @@ impl Render for XMindReader {
                             div()
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
-                                .child(tr(if self.embedded {
+                                .child((self.host.translate)(if self.embedded {
                                     "Interactive graph"
                                 } else {
                                     "Mind map · Read only"
@@ -566,10 +580,10 @@ impl Render for XMindReader {
                         )
                         .child(
                             Button::new("xmind-collapse-all")
-                                .label(tr("Collapse all"))
+                                .label((self.host.translate)("Collapse all"))
                                 .on_click(cx.listener(|v, _, _, cx| {
-                                    glim_services::telemetry::reader_feature("xmind", "collapse_all", []);
-                                                    v.collapsed =
+                                    (v.host.action)("xmind", "collapse_all", &[]);
+                                    v.collapsed =
                                         (0..v.document.sheets[v.sheet].topics.len()).collect();
                                     v.rebuild();
                                     v.center_root();
@@ -578,10 +592,10 @@ impl Render for XMindReader {
                         )
                         .child(
                             Button::new("xmind-expand-all")
-                                .label(tr("Expand all"))
+                                .label((self.host.translate)("Expand all"))
                                 .on_click(cx.listener(|v, _, _, cx| {
-                                    glim_services::telemetry::reader_feature("xmind", "expand_all", []);
-                                                    v.collapsed.clear();
+                                    (v.host.action)("xmind", "expand_all", &[]);
+                                    v.collapsed.clear();
                                     v.rebuild();
                                     v.center_root();
                                     cx.notify();
@@ -600,19 +614,27 @@ impl Render for XMindReader {
                                 .disabled(zoom >= 4.)
                                 .on_click(cx.listener(|v, _, _, cx| v.change_zoom(0.1, cx))),
                         )
-                        .child(Button::new("xmind-reset").label(tr("Reset view")).on_click(
-                            cx.listener(|v, _, _, cx| {
-                                v.zoom = 1.;
-                                v.center_root();
-                                cx.notify();
-                            }),
-                        )),
+                        .child(
+                            Button::new("xmind-reset")
+                                .label((self.host.translate)("Reset view"))
+                                .on_click(cx.listener(|v, _, _, cx| {
+                                    v.zoom = 1.;
+                                    v.center_root();
+                                    cx.notify();
+                                })),
+                        ),
                 ))
             })
     }
 }
 
-impl glim_reader_ui::ReaderView for super::surface::SurfaceEntity<XMindReader> {
+pub struct GraphSurface(Entity<GraphReader>);
+impl GraphSurface {
+    pub fn new(document: MindMap, host: ReaderHost, cx: &mut App) -> Self {
+        Self(cx.new(|_| GraphReader::new(document, host)))
+    }
+}
+impl ReaderView for GraphSurface {
     fn kind(&self) -> &'static str {
         "xmind"
     }
@@ -620,4 +642,35 @@ impl glim_reader_ui::ReaderView for super::surface::SurfaceEntity<XMindReader> {
         self.0.clone().into_any_element()
     }
 }
-impl super::surface::ReaderSurface for super::surface::SurfaceEntity<XMindReader> {}
+
+impl super::surface::ReaderSurface for GraphSurface {}
+
+#[cfg(test)]
+mod tests {
+    use super::{MindMap, layout};
+    use std::collections::HashSet;
+    #[test]
+    fn shared_contract_preserves_hierarchy_and_fold_geometry() {
+        let document: MindMap = serde_json::from_str(include_str!(
+            "../../../../../assets/reader-contracts/graph.json"
+        ))
+        .unwrap();
+        let sheet = &document.sheets[0];
+        let expanded = layout(sheet, &HashSet::new());
+        assert_eq!(
+            expanded.nodes.iter().map(|p| p.index).collect::<Vec<_>>(),
+            [2, 1, 3, 0]
+        );
+        assert_eq!(expanded.edges.len(), 3);
+        let folded = layout(sheet, &HashSet::from([1]));
+        assert_eq!(
+            folded.nodes.iter().map(|p| p.index).collect::<Vec<_>>(),
+            [1, 3, 0]
+        );
+        assert_eq!(folded.edges.len(), 2);
+        let root = layout(sheet, &HashSet::from([0]));
+        assert_eq!(root.nodes.len(), 1);
+        assert!(root.edges.is_empty());
+        assert_eq!(root.nodes[0].y, 32.);
+    }
+}

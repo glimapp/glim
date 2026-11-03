@@ -3,33 +3,12 @@ use crate::limits as reader_limits;
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::{
-    collections::HashMap,
-    io::Read,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, io::Read, path::Path};
 
 const CONTENT_LIMIT: u64 = reader_limits::XMIND_CONTENT_BYTES;
 const TOPIC_LIMIT: usize = reader_limits::XMIND_TOPICS;
 
-pub struct MindMap {
-    pub path: PathBuf,
-    pub fingerprint: String,
-    pub sheets: Vec<Sheet>,
-}
-pub struct Sheet {
-    pub title: String,
-    pub topics: Vec<Topic>,
-    pub roots: Vec<usize>,
-    pub relationships: Vec<(usize, usize)>,
-}
-pub struct Topic {
-    pub title: String,
-    pub notes: String,
-    pub labels: Vec<String>,
-    pub link: Option<String>,
-    pub children: Vec<usize>,
-}
+pub use glim_core::graph::{MindMap, Sheet, Topic};
 pub fn supports(path: &Path) -> bool {
     glim_core::formats::FormatSet::Xmind.matches(path)
 }
@@ -440,6 +419,23 @@ pub fn read_source(
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::path::PathBuf;
+    #[test]
+    fn prepared_graph_matches_independent_reader_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(
+            dir.path(),
+            "content.json",
+            include_bytes!("../../../assets/reader-contracts/xmind-content.json"),
+        );
+        let mut actual = read(&path).unwrap();
+        let expected: MindMap =
+            serde_json::from_str(include_str!("../../../assets/reader-contracts/graph.json"))
+                .unwrap();
+        actual.path = expected.path.clone();
+        actual.fingerprint = expected.fingerprint.clone();
+        assert_eq!(actual, expected);
+    }
     fn fixture(dir: &Path, name: &str, content: &[u8]) -> PathBuf {
         let path = dir.join("sample.XMIND");
         let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());

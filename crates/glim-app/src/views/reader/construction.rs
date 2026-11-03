@@ -263,7 +263,7 @@ impl Reader {
             ),
             structured_controls: None,
             projection: None,
-            renderer: Renderer::entity(cx.new(|_| xmind::XMindReader::new(document))),
+            renderer: Renderer::surface(xmind::GraphSurface::new(document, super::host(), cx)),
         }
     }
     pub fn from_opml(document: glim_services::opml::Document, cx: &mut App) -> Self {
@@ -275,16 +275,7 @@ impl Reader {
             ),
             structured_controls: None,
             projection: None,
-            renderer: Renderer::surface(opml::OutlineSurface::new(
-                document,
-                glim_reader_ui::ReaderHost {
-                    translate: glim_services::locale::tr,
-                    action: |module, action| {
-                        glim_services::telemetry::reader_feature(module, action, [])
-                    },
-                },
-                cx,
-            )),
+            renderer: Renderer::surface(opml::OutlineSurface::new(document, super::host(), cx)),
         }
     }
     pub fn unavailable(path: PathBuf, reason: String, _: &mut Window, _: &mut App) -> Self {

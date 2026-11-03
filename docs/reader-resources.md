@@ -10,13 +10,15 @@ Glim combines format-specific data representations with shared admission and res
 
 | Class | Integrated owners | Release/reconstruction |
 | --- | --- | --- |
-| State | Live edit-session text and saved-baseline estimates | Session lifetime; never evicted as cache |
-| Working | Inline image/GIF displayed and lookahead pixel buffers; GIF canvas, restore and row buffers | Canceled work drops its buffers; displayed images defer atlas removal until the window is available |
+| State | Edit-session text/baseline; OPML/graph payload and expansion-index estimates | Session lifetime; never evicted as cache |
+| Working | CSV/JSON projections and input snapshots; inline image/GIF displayed and lookahead pixels; GIF canvas, restore and row buffers | Canceled work drops its buffers; displayed images defer atlas removal until the window is available |
 | Cache | Service diagram PNG reuse and view diagram images/errors | Shared budget; background entries first, then least recently accessed entries within each retention class |
 
 `CachedResource` keeps a key that can become empty. A reader treats an empty entry as a miss and reconstructs it from its original content. `ResourceValue` pins a cache value while a caller owns it; diagram elements retain that pin during rendering. Reclamation runs outside the pool lock and skips busy or pinned entries. The current shared cache target is defined only in `assets/reader-limits.json`; existing local encoded/decoded/key budgets still apply. Allocation triggers reclamation, and explicitly calling `trim` can reclaim newly unpinned entries. Pinned values and newly published results may temporarily exceed the target; a new result stays resident through its initial reclamation pass so cache pressure cannot discard it before publication.
 
 This is accounting for integrated owners, not a hard process-memory ceiling. Text capacity/undo history, all retained projections, GPUI asset/atlas caches, ImageIO, WebKit, Quick Look, parser internals and helper-process allocations are not fully represented. Diagram decoded bytes are an estimate. Do not add these counters to OS footprint or Metal counters: they overlap and have different scopes. `resource_sample` includes state, working, cache, cache target and eviction counters under existing telemetry consent.
+
+CSV/JSON projections cancel work and release derived rows/nodes when switching to source or hiding a tab, retaining reconstruction input and necessary query/fold state. Activation rebuilds only the selected projection; the editor session remains independent. Closing a structured graph releases its entity; explicitly reopening it prepares a fresh graph.
 
 ## Visible work and cancellation
 
@@ -34,8 +36,8 @@ Source size is not an admission limit. The [generated policy inventory](reader-l
 
 ## Remaining engineering
 
-- Extend ownership accounting to retained tables, book chapters, static image pages and native prepared resources; each integration needs a real release/reconstruction contract. Byte accounting alone does not bound aggregate working memory across all active readers.
+- Extend ownership accounting to SQLite grids, book chapters, static image pages and native prepared resources; each integration needs a real release/reconstruction contract. Byte accounting alone does not bound aggregate working memory across all active readers.
 - Add byte admission or adaptive decode quality if measured workloads exceed the working-memory target; preserve forward progress for a single large operation and protect unsaved state.
-- Incremental Markdown parsing/index reuse remains incomplete. A large individual block can still cost substantial layout time.
+- Markdown already reparses the last block for appended input. Ordinary edit replacements can still parse the entire document, and a large individual block can cost substantial layout time. Parser changes require semantic equivalence for references, lists, fences and source ranges.
 - Persistent caches need version invalidation, disk reclamation and privacy cleanup before adoption.
 - Measure first readable content, complete first viewport, scroll/input stalls and cache hits separately from preparation queue/worker duration. Runtime regressions and macOS/Intel interactions require actual execution; compilation cannot establish them.
