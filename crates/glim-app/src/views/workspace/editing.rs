@@ -62,9 +62,7 @@ impl Workspace {
         self.tabs.iter().any(|r| r.is_dirty())
     }
     pub fn is_saving(&self) -> bool {
-        self.saving.is_some()
-            || self.editing_locked
-            || self.tabs.iter().any(|r| r.is_persisting_book())
+        self.saving.is_some() || self.editing_locked || self.tabs.iter().any(|r| r.is_persisting())
     }
 
     pub(super) fn cancel_save(&mut self, cx: &mut Context<Self>) {

@@ -25,6 +25,7 @@ Glim 帮助你在 Mac 上查看工作、学习和项目中的各种文件，也�
 | 维护资料 | 内容 |
 | --- | --- |
 | [架构](architecture.zh-CN.md) | 模块、工作空间、文件加载与各阅读器 |
+| [阅读器模块契约](reader-modules.zh-CN.md) | 扩展入口、状态归属、任务准入与待完善边界 |
 | [构建与发布](releasing.zh-CN.md) | 工具链、打包、签名和双架构发行 |
 | [更新实现](auto-update-design.zh-CN.md) | 更新信任链、安装保护与恢复机制 |
 | [统计技术说明](telemetry.zh-CN.md) | 事件、指标及分析边界 |

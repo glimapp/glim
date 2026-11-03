@@ -1535,6 +1535,48 @@
         "description": "Maximum distinct pending filesystem paths. Overflow triggers a full source check instead of dropping changes; document access is unlimited.",
         "description_zh": "待处理文件变化路径的去重预算。超出后执行完整来源检查，不丢弃变化，也不限制文档访问。"
       }
+    },
+    "jobs": {
+      "document_concurrency": {
+        "value": 2,
+        "type": "usize",
+        "unit": "jobs",
+        "effect": "budget",
+        "description": "Process-wide concurrent document loading and refresh jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited.",
+        "description_zh": "进程内文档加载与刷新的并发任务预算。其余任务异步排队并可取消，不限制文件访问。"
+      },
+      "projection_concurrency": {
+        "value": 2,
+        "type": "usize",
+        "unit": "jobs",
+        "effect": "budget",
+        "description": "Process-wide concurrent data projection and page preparation jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited.",
+        "description_zh": "进程内数据投影与分页准备的并发任务预算。其余任务异步排队并可取消，不限制文件访问。"
+      },
+      "decode_concurrency": {
+        "value": 2,
+        "type": "usize",
+        "unit": "jobs",
+        "effect": "budget",
+        "description": "Process-wide concurrent image and animation decoding jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited.",
+        "description_zh": "进程内图片与动画解码的并发任务预算。其余任务异步排队并可取消，不限制文件访问。"
+      },
+      "native_concurrency": {
+        "value": 2,
+        "type": "usize",
+        "unit": "jobs",
+        "effect": "budget",
+        "description": "Process-wide concurrent native document preparation jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited.",
+        "description_zh": "进程内原生文档准备的并发任务预算。其余任务异步排队并可取消，不限制文件访问。"
+      },
+      "diagram_concurrency": {
+        "value": 1,
+        "type": "usize",
+        "unit": "jobs",
+        "effect": "budget",
+        "description": "Process-wide diagram batch preparation concurrency. Waiting batches yield workers and retain their cancellation flag.",
+        "description_zh": "进程内图表批次准备的并发预算。排队批次不占工作线程，并保留取消标志。"
+      }
     }
   }
 }

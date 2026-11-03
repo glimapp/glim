@@ -1,4 +1,5 @@
 use super::OpenLink;
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::markdown_preview::{self, Diagram};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -371,25 +372,41 @@ impl DiagramPreview {
                 let cancel = cancelled.clone();
                 let done = Arc::new(AtomicBool::new(false));
                 let finished = done.clone();
-                let work = cx.background_executor().spawn(async move {
-                    let result =
-                        markdown_preview::render_batch(&batch, &cancel, |diagram, image| {
-                            if !cancel.load(Ordering::Relaxed) {
-                                results.lock().unwrap().complete(diagram, image);
+                let executor = cx.background_executor().clone();
+                let work = executor.clone().spawn(async move {
+                    let token = glim_services::work::Cancellation::from_flag(cancel.clone());
+                    let outcome = reader_jobs::run(
+                        executor,
+                        JobClass::Diagram,
+                        Priority::Interactive,
+                        token,
+                        move |_cancel| {
+                            let result = markdown_preview::render_batch(
+                                &batch,
+                                &cancel,
+                                |diagram, image| {
+                                    if !cancel.load(Ordering::Relaxed) {
+                                        results.lock().unwrap().complete(diagram, image);
+                                    }
+                                },
+                            );
+                            if let Err(error) = result {
+                                for diagram in batch {
+                                    if cancel.load(Ordering::Relaxed) {
+                                        break;
+                                    }
+                                    results
+                                        .lock()
+                                        .unwrap()
+                                        .complete(diagram, Err(format!("{error:#}")));
+                                }
                             }
-                        });
-                    if let Err(error) = result {
-                        for diagram in batch {
-                            if cancel.load(Ordering::Relaxed) {
-                                break;
-                            }
-                            results
-                                .lock()
-                                .unwrap()
-                                .complete(diagram, Err(format!("{error:#}")));
-                        }
-                    }
+                            Ok(())
+                        },
+                    )
+                    .await;
                     finished.store(true, Ordering::Release);
+                    outcome
                 });
                 let mut revision = before;
                 while !done.load(Ordering::Acquire) {
@@ -407,7 +424,7 @@ impl DiagramPreview {
                         .timer(std::time::Duration::from_millis(100))
                         .await;
                 }
-                work.await;
+                let _ = work.await;
                 if view.update(cx, |_, cx| cx.notify()).is_err() {
                     return;
                 }

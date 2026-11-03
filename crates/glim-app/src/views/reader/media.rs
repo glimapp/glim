@@ -1,3 +1,4 @@
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::limits as reader_limits;
 use gpui_kit::base::Disableable;
 use gpui_kit::{
@@ -167,29 +168,37 @@ impl InlineImageReader {
     fn start_load(&mut self, cx: &mut Context<Self>) {
         let url = self.url.clone();
         let (cancel, guard) = glim_services::work::Cancellation::task();
-        let work = cx.background_executor().spawn(async move {
-            let stamp = url
-                .to_file_path()
-                .ok()
-                .and_then(|path| std::fs::metadata(path).ok())
-                .map(|m| (m.len(), m.modified().ok()));
-            let mut frame = match url.scheme() {
-                "file" => glim_services::inline_images::from_file_cancellable(
-                    &url.to_file_path()
-                        .map_err(|_| anyhow::anyhow!("Invalid inline image path"))?,
-                    &cancel,
-                ),
-                "http" | "https" => glim_services::markup_images::fetch_inline_image_cancellable(
-                    url.as_str(),
-                    &cancel,
-                ),
-                _ => anyhow::bail!("Unsupported inline image URL"),
-            }?;
-            for pixel in frame.buffer_mut().as_chunks_mut::<4>().0 {
-                pixel.swap(0, 2);
-            }
-            Ok::<_, anyhow::Error>((Arc::new(RenderImage::new(vec![frame])), stamp))
-        });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Decode,
+            Priority::Interactive,
+            cancel,
+            move |cancel| {
+                let stamp = url
+                    .to_file_path()
+                    .ok()
+                    .and_then(|path| std::fs::metadata(path).ok())
+                    .map(|m| (m.len(), m.modified().ok()));
+                let mut frame = match url.scheme() {
+                    "file" => glim_services::inline_images::from_file_cancellable(
+                        &url.to_file_path()
+                            .map_err(|_| anyhow::anyhow!("Invalid inline image path"))?,
+                        cancel,
+                    ),
+                    "http" | "https" => {
+                        glim_services::markup_images::fetch_inline_image_cancellable(
+                            url.as_str(),
+                            cancel,
+                        )
+                    }
+                    _ => anyhow::bail!("Unsupported inline image URL"),
+                }?;
+                for pixel in frame.buffer_mut().as_chunks_mut::<4>().0 {
+                    pixel.swap(0, 2);
+                }
+                Ok::<_, anyhow::Error>((Arc::new(RenderImage::new(vec![frame])), stamp))
+            },
+        );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -243,17 +252,19 @@ pub(super) struct GifReader {
 }
 impl GifReader {
     pub fn from_file(path: std::path::PathBuf, cx: &mut Context<Self>) -> Self {
-        let data = cx
-            .background_executor()
-            .spawn(async move { Ok(glim_services::media::GifInput::File(path)) });
+        let data = async move { Ok(glim_services::media::GifInput::File(path)) };
         Self::with_data(data, None, cx)
     }
     pub fn from_url(url: url::Url, cx: &mut Context<Self>) -> Self {
         let (cancel, guard) = glim_services::work::Cancellation::task();
-        let data = cx.background_executor().spawn(async move {
-            match url.scheme() {
+        let data = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Decode,
+            Priority::Interactive,
+            cancel,
+            move |cancel| match url.scheme() {
                 "http" | "https" => {
-                    glim_services::markup_images::fetch_image_file(url.as_str(), &cancel)
+                    glim_services::markup_images::fetch_image_file(url.as_str(), cancel)
                         .map(|file| glim_services::media::GifInput::Temporary(Arc::new(file)))
                 }
                 "file" => {
@@ -263,13 +274,14 @@ impl GifReader {
                     Ok(glim_services::media::GifInput::File(path))
                 }
                 _ => anyhow::bail!("Unsupported GIF URL"),
-            }
-        });
+            },
+        );
         Self::with_data(data, Some(guard), cx)
     }
 
     fn with_data(
-        data: Task<anyhow::Result<glim_services::media::GifInput>>,
+        data: impl std::future::Future<Output = anyhow::Result<glim_services::media::GifInput>>
+        + 'static,
         guard: Option<glim_services::work::CancelOnDrop>,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -319,41 +331,57 @@ impl GifReader {
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = async {
-                let playback = executor
-                    .spawn(async move {
-                        glim_services::media::GifPlayback::from_input_cancellable(input, cancel)
-                    })
-                    .await?;
+                let playback = reader_jobs::run(
+                    executor.clone(),
+                    JobClass::Decode,
+                    Priority::Interactive,
+                    cancel.clone(),
+                    move |cancel| {
+                        glim_services::media::GifPlayback::from_input_cancellable(
+                            input,
+                            cancel.clone(),
+                        )
+                    },
+                )
+                .await?;
                 // Each batch is at most 16 MiB and three frames. Start preparing
                 // the next batch before displaying this one, keeping decode work
                 // independent from frame presentation without unbounded buffering.
                 let batch_size = (reader_limits::GIF_BATCH_BYTES / playback.preview_frame_bytes())
                     .clamp(1, reader_limits::GIF_BATCH_FRAMES);
                 let prepare = |mut playback: glim_services::media::GifPlayback| {
-                    executor.spawn(async move {
-                        let mut frames = std::collections::VecDeque::new();
-                        let result = (|| {
-                            for _ in 0..batch_size {
-                                let Some((mut frame, delay)) = playback.next_preview_frame()?
-                                else {
-                                    break;
-                                };
-                                for pixel in frame.buffer_mut().as_chunks_mut::<4>().0 {
-                                    pixel.swap(0, 2);
+                    reader_jobs::spawn(
+                        executor.clone(),
+                        JobClass::Decode,
+                        Priority::Interactive,
+                        cancel.clone(),
+                        move |_cancel| {
+                            let mut frames = std::collections::VecDeque::new();
+                            let result = (|| {
+                                for _ in 0..batch_size {
+                                    let Some((mut frame, delay)) = playback.next_preview_frame()?
+                                    else {
+                                        break;
+                                    };
+                                    for pixel in frame.buffer_mut().as_chunks_mut::<4>().0 {
+                                        pixel.swap(0, 2);
+                                    }
+                                    frames.push_back((
+                                        Arc::new(RenderImage::new(vec![frame])),
+                                        delay,
+                                    ));
                                 }
-                                frames.push_back((Arc::new(RenderImage::new(vec![frame])), delay));
-                            }
-                            Ok::<_, anyhow::Error>(frames)
-                        })();
-                        (playback, result)
-                    })
+                                Ok::<_, anyhow::Error>(frames)
+                            })();
+                            result.map(|frames| (playback, frames))
+                        },
+                    )
                 };
                 let mut pending = prepare(playback);
                 let mut deadline = std::time::Instant::now();
                 let mut started = false;
                 loop {
-                    let (decoder, frames) = pending.await;
-                    let mut frames = frames?;
+                    let (decoder, mut frames) = pending.await?;
                     if frames.is_empty() {
                         break;
                     }
@@ -502,6 +530,46 @@ impl UnavailableReader {
                     .on_click(move |_, _, cx| cx.open_url(&url)),
             )
             .into_any_element()
+    }
+}
+
+impl super::surface::ReaderSurface for ImageReader {
+    fn kind(&self) -> &'static str {
+        "image"
+    }
+    fn render(&mut self, cx: &mut App) -> AnyElement {
+        ImageReader::render(self, cx)
+    }
+    fn copy_image(&self, cx: &mut App) -> bool {
+        if let Some(page) = self.pages.get(*self.page.read(cx)) {
+            cx.write_to_clipboard(ClipboardItem::new_image(page));
+            true
+        } else {
+            false
+        }
+    }
+}
+impl super::surface::ReaderSurface for Entity<GifReader> {
+    fn kind(&self) -> &'static str {
+        "animated_image"
+    }
+    fn render(&mut self, cx: &mut App) -> AnyElement {
+        self.update(cx, |view, cx| view.set_active(true, cx));
+        self.clone().into_any_element()
+    }
+    fn set_active(&self, active: bool, cx: &mut App) {
+        self.update(cx, |view, cx| view.set_active(active, cx));
+    }
+}
+impl super::surface::ReaderSurface for UnavailableReader {
+    fn kind(&self) -> &'static str {
+        "unavailable"
+    }
+    fn render(&mut self, cx: &mut App) -> AnyElement {
+        UnavailableReader::render(self, cx)
+    }
+    fn is_unavailable(&self) -> bool {
+        true
     }
 }
 

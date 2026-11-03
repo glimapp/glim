@@ -363,3 +363,13 @@ This page is generated from the same policy. After editing it, run `python3 scri
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
 | `watch.pending_paths` | 4,096 | paths | fallback | Maximum distinct pending filesystem paths. Overflow triggers a full source check instead of dropping changes; document access is unlimited. |
+
+## jobs
+
+| Key | Value | Unit | Effect | Behavior |
+| --- | ---: | --- | --- | --- |
+| `jobs.document_concurrency` | 2 | jobs | budget | Process-wide concurrent document loading and refresh jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited. |
+| `jobs.projection_concurrency` | 2 | jobs | budget | Process-wide concurrent data projection and page preparation jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited. |
+| `jobs.decode_concurrency` | 2 | jobs | budget | Process-wide concurrent image and animation decoding jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited. |
+| `jobs.native_concurrency` | 2 | jobs | budget | Process-wide concurrent native document preparation jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited. |
+| `jobs.diagram_concurrency` | 1 | jobs | budget | Process-wide diagram batch preparation concurrency. Waiting batches yield workers and retain their cancellation flag. |

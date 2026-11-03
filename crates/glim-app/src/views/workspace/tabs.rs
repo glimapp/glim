@@ -107,7 +107,7 @@ impl Workspace {
             }
         };
         let reader = self.tabs.remove(index);
-        reader.hide_native(cx);
+        reader.deactivate(cx);
         if let Some(editor) = reader.editor() {
             let id = editor.entity_id();
             self.autosave.remove(&id);
@@ -119,7 +119,7 @@ impl Workspace {
         self.observe_autosave(window, cx);
         if let Some(active) = self.active {
             self.activate_tab(active, window, cx);
-            self.tabs[active].reveal_native(cx);
+            self.tabs[active].activate(cx);
         }
         if let Some(session) = self.window_session(cx) {
             crate::app::workspace_sessions::remember(session, cx);
@@ -154,7 +154,7 @@ impl Workspace {
         self.tabs.push(reader);
         self.observe_autosave(window, cx);
         self.activate_tab(0, window, cx);
-        self.tabs[0].reveal_native(cx);
+        self.tabs[0].activate(cx);
         self.watch_file_parent(window, cx);
         if let Some(editor) = editor {
             self.checkpoint_editor(editor.entity_id(), cx);
@@ -261,7 +261,7 @@ impl Workspace {
                     &r.document.path,
                     [("unsaved", glim_services::telemetry::flag(r.is_dirty()))],
                 );
-                r.hide_native(cx);
+                r.deactivate(cx);
             }
             keep
         });
@@ -519,7 +519,7 @@ impl Workspace {
                     .on_key_down(cx.listener(move |view, event: &KeyDownEvent, window, cx| {
                         if matches!(event.keystroke.key.as_str(), "enter" | "space") {
                             view.activate_tab(index, window, cx);
-                            view.tabs[index].reveal_native(cx);
+                            view.tabs[index].activate(cx);
                             cx.stop_propagation();
                         }
                     }))
@@ -594,7 +594,7 @@ impl Workspace {
                     }))
                     .on_click(cx.listener(move |view, _: &ClickEvent, window, cx| {
                         view.activate_tab(index, window, cx);
-                        view.tabs[index].reveal_native(cx);
+                        view.tabs[index].activate(cx);
                     }))
                     .child(
                         h_flex()

@@ -1,3 +1,4 @@
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::json::JsonNode;
 use glim_services::limits as reader_limits;
 use gpui_kit::{
@@ -43,10 +44,16 @@ impl JsonTree {
         self.error = None;
         self.scroll = UniformListScrollHandle::new();
         let telemetry_started = std::time::Instant::now();
-        let work = cx
-            .background_executor()
-            .spawn(async move { glim_services::json::parse_format(&text, &format) });
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |_cancel| glim_services::json::parse_format(&text, &format),
+        );
         self.task = Some(cx.spawn(async move |view, cx| {
+            let _guard = guard;
             let result = work.await;
             glim_services::telemetry::result("data_tree_load", None, telemetry_started, &result);
             let _ = view.update(cx, |v, cx| {

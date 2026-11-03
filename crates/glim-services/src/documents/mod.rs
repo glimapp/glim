@@ -45,6 +45,19 @@ impl Content {
     }
 }
 
+pub fn read_session_tab(
+    tab: &glim_core::session::SessionTab,
+    cancel: &crate::work::Cancellation,
+) -> anyhow::Result<Content> {
+    cancel.check()?;
+    match tab {
+        glim_core::session::SessionTab::File { path, .. } => read_content_cancellable(path, cancel),
+        glim_core::session::SessionTab::Playlist { path, shuffle } => {
+            Ok(Content::Native(path.clone(), true, *shuffle))
+        }
+    }
+}
+
 pub fn read_content(path: &std::path::Path) -> anyhow::Result<Content> {
     read_content_cancellable(path, &crate::work::Cancellation::default())
 }

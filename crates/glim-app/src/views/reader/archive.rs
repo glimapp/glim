@@ -371,3 +371,18 @@ impl Render for ArchiveReader {
             )
     }
 }
+
+impl super::surface::ReaderSurface for Entity<ArchiveReader> {
+    fn kind(&self) -> &'static str {
+        "zip"
+    }
+    fn render(&mut self, _cx: &mut App) -> AnyElement {
+        self.clone().into_any_element()
+    }
+    fn is_archive(&self) -> bool {
+        true
+    }
+    fn set_archive_action(&self, label: String, action: super::ArchiveAction, cx: &mut App) {
+        self.update(cx, |view, _| view.extract = Some((label, action)));
+    }
+}

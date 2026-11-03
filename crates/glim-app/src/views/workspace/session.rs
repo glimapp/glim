@@ -1,7 +1,5 @@
-use super::{
-    Workspace,
-    loading::{Content, read_content_cancellable},
-};
+use super::Workspace;
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use crate::views::reader::Reader;
 use glim_core::{
     session::{SessionTab, WorkspaceSession},
@@ -22,7 +20,7 @@ impl Workspace {
             dirty: self.has_unsaved(),
             saving: self.saving.is_some()
                 || !self.save_queue.is_empty()
-                || self.tabs.iter().any(|r| r.is_persisting_book()),
+                || self.tabs.iter().any(|r| r.is_persisting()),
             loading: self.picking
                 || self.loading
                 || self.incoming_file_task.is_some()
@@ -89,10 +87,10 @@ impl Workspace {
             });
         }
     }
-    pub(crate) fn take_book_writes(&mut self, cx: &mut App) -> Vec<Task<()>> {
+    pub(crate) fn take_reader_writes(&mut self, cx: &mut App) -> Vec<Task<()>> {
         self.tabs
             .iter_mut()
-            .filter_map(|r| r.take_book_write(cx))
+            .filter_map(|r| r.take_reader_write(cx))
             .collect()
     }
     pub(crate) fn take_preference_write(&mut self) -> Option<Task<()>> {
@@ -149,17 +147,18 @@ impl Workspace {
             for descriptor in session.tabs {
                 let requested = descriptor.clone();
                 let cancel = cancel.clone();
-                let loaded = cx
-                    .background_executor()
-                    .spawn(async move { read_session_tab(&requested, &cancel) })
-                    .await;
+                let loaded = reader_jobs::run(
+                    cx.background_executor().clone(),
+                    JobClass::Document,
+                    Priority::Background,
+                    cancel,
+                    move |cancel| glim_services::documents::read_session_tab(&requested, cancel),
+                )
+                .await;
                 if view
                     .update_in(cx, |view, window, cx| {
                         let mut reader = match loaded {
-                            Ok(Content::Native(path, folder, shuffle)) => {
-                                Reader::from_native_paused(path, folder, shuffle, cx)
-                            }
-                            Ok(content) => Reader::from_content(content, window, cx),
+                            Ok(content) => Reader::from_restored_content(content, window, cx),
                             Err(error) => Reader::unavailable(
                                 tab_path(&descriptor),
                                 format!("{error:#}"),
@@ -207,16 +206,6 @@ impl Workspace {
 fn tab_path(tab: &SessionTab) -> std::path::PathBuf {
     match tab {
         SessionTab::File { path, .. } | SessionTab::Playlist { path, .. } => path.clone(),
-    }
-}
-fn read_session_tab(
-    tab: &SessionTab,
-    cancel: &glim_services::work::Cancellation,
-) -> anyhow::Result<Content> {
-    cancel.check()?;
-    match tab {
-        SessionTab::File { path, .. } => read_content_cancellable(path, cancel),
-        SessionTab::Playlist { path, shuffle } => Ok(Content::Native(path.clone(), true, *shuffle)),
     }
 }
 

@@ -1,4 +1,5 @@
 use super::Workspace;
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use crate::views::{
     explorer::{Explorer, ExplorerEvent},
     reader::Reader,
@@ -109,7 +110,7 @@ impl Workspace {
         if let Some(index) = index {
             self.select_workspace(self.recent_id.clone(), window, cx);
             self.activate_tab(index, window, cx);
-            self.tabs[index].reveal_native(cx);
+            self.tabs[index].activate(cx);
             window.activate_window();
             cx.activate(true);
             true
@@ -144,19 +145,25 @@ impl Workspace {
             return;
         };
         let (cancel, cancel_on_drop) = glim_services::work::Cancellation::task();
-        let work = cx.background_executor().spawn(async move {
-            let started = std::time::Instant::now();
-            glim_services::telemetry::file_event("file_open_requested", &path, []);
-            if path.is_dir() && !glim_services::preview::is_iwork(&path) {
-                let result = open_folder_cancellable(&path, &cancel);
-                glim_services::telemetry::result("workspace_open", None, started, &result);
-                result.map(Opened::Folder)
-            } else {
-                let result = read_content_cancellable(&path, &cancel).map(Box::new);
-                glim_services::telemetry::result("file_open", Some(&path), started, &result);
-                Ok(Opened::File(path, result))
-            }
-        });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Document,
+            Priority::Interactive,
+            cancel,
+            move |cancel| {
+                let started = std::time::Instant::now();
+                glim_services::telemetry::file_event("file_open_requested", &path, []);
+                if path.is_dir() && !glim_services::preview::is_iwork(&path) {
+                    let result = open_folder_cancellable(&path, cancel);
+                    glim_services::telemetry::result("workspace_open", None, started, &result);
+                    result.map(Opened::Folder)
+                } else {
+                    let result = read_content_cancellable(&path, cancel).map(Box::new);
+                    glim_services::telemetry::result("file_open", Some(&path), started, &result);
+                    Ok(Opened::File(path, result))
+                }
+            },
+        );
         self.incoming_file_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _cancel_on_drop = cancel_on_drop;
             let result = work.await;
@@ -204,7 +211,7 @@ impl Workspace {
         self.pending_anchor = None;
         if let Some(index) = self.tabs.iter().position(|t| t.document.path == path) {
             self.activate_tab(index, window, cx);
-            self.tabs[index].reveal_native(cx);
+            self.tabs[index].activate(cx);
             return;
         }
         if crate::app::reveal_existing_file(&path, Some(cx.entity_id()), cx) {
@@ -216,18 +223,24 @@ impl Workspace {
         self.loading_preview = Self::csv_preview_for_path(&path, cx);
         self.error = None;
         let (cancel, cancel_on_drop) = glim_services::work::Cancellation::task();
-        let read = cx.background_executor().spawn(async move {
-            let started = std::time::Instant::now();
-            if path.is_dir() && !glim_services::preview::is_iwork(&path) {
-                let result = open_folder_cancellable(&path, &cancel);
-                glim_services::telemetry::result("workspace_open", None, started, &result);
-                result.map(Opened::Folder)
-            } else {
-                let result = read_content_cancellable(&path, &cancel).map(Box::new);
-                glim_services::telemetry::result("file_open", Some(&path), started, &result);
-                Ok(Opened::File(path, result))
-            }
-        });
+        let read = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Document,
+            Priority::Interactive,
+            cancel,
+            move |cancel| {
+                let started = std::time::Instant::now();
+                if path.is_dir() && !glim_services::preview::is_iwork(&path) {
+                    let result = open_folder_cancellable(&path, cancel);
+                    glim_services::telemetry::result("workspace_open", None, started, &result);
+                    result.map(Opened::Folder)
+                } else {
+                    let result = read_content_cancellable(&path, cancel).map(Box::new);
+                    glim_services::telemetry::result("file_open", Some(&path), started, &result);
+                    Ok(Opened::File(path, result))
+                }
+            },
+        );
         self.load_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _cancel_on_drop = cancel_on_drop;
             let result = read.await;

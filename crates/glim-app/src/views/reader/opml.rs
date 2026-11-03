@@ -206,3 +206,12 @@ impl Render for OpmlReader {
             )
     }
 }
+
+impl super::surface::ReaderSurface for Entity<OpmlReader> {
+    fn kind(&self) -> &'static str {
+        "opml"
+    }
+    fn render(&mut self, _cx: &mut App) -> AnyElement {
+        self.clone().into_any_element()
+    }
+}

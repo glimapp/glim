@@ -1,3 +1,4 @@
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use gpui_kit::{
     component::{
         ActiveTheme, WindowExt,
@@ -135,10 +136,16 @@ impl NativeReader {
         let path = self.path.clone();
         let telemetry_path = path.clone();
         let telemetry_started = std::time::Instant::now();
-        let work = cx
-            .background_executor()
-            .spawn(async move { glim_services::paged::read_binary_page(&path, 0) });
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| glim_services::paged::read_binary_page_cancellable(&path, 0, cancel),
+        );
         self.task = Some(cx.spawn(async move |view, cx| {
+            let _guard = guard;
             let result = work.await;
             glim_services::telemetry::result(
                 "native_load",
@@ -240,9 +247,17 @@ impl NativeReader {
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let telemetry_path = path.clone();
         let telemetry_started = std::time::Instant::now();
-        let work = cx.background_executor().spawn(async move {
-            glim_services::preview::prepare_cancellable(&path, folder, shuffle, autoplay, &cancel)
-        });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Native,
+            Priority::Interactive,
+            cancel,
+            move |cancel| {
+                glim_services::preview::prepare_cancellable(
+                    &path, folder, shuffle, autoplay, cancel,
+                )
+            },
+        );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -369,5 +384,39 @@ impl Render for NativeReader {
                 )
             })
             .into_any_element()
+    }
+}
+
+impl super::surface::ReaderSurface for Entity<NativeReader> {
+    fn kind(&self) -> &'static str {
+        "native"
+    }
+    fn render(&mut self, _cx: &mut App) -> AnyElement {
+        self.clone().into_any_element()
+    }
+    fn can_move_to_window(&self, cx: &App) -> bool {
+        self.read(cx).can_move_to_window(cx)
+    }
+    fn set_active(&self, active: bool, cx: &mut App) {
+        self.update(
+            cx,
+            |view, cx| if active { view.open(cx) } else { view.hide() },
+        );
+    }
+    fn playlist_shuffle(&self, cx: &App) -> Option<bool> {
+        self.read(cx).playlist_shuffle()
+    }
+    fn refresh_request(
+        &self,
+        path: &std::path::Path,
+        _force: bool,
+        cx: &App,
+    ) -> Option<glim_services::documents::refresh::RefreshRequest> {
+        self.read(cx).image_stamp().map(|stamp| {
+            glim_services::documents::refresh::RefreshRequest::NativeImage {
+                path: path.to_path_buf(),
+                stamp,
+            }
+        })
     }
 }

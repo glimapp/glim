@@ -35,7 +35,7 @@ impl Workspace {
         self.set_file_fullscreen(false, window);
         self.flush_usage();
         for reader in &self.tabs {
-            reader.hide_native(cx);
+            reader.deactivate(cx);
         }
     }
 

@@ -20,6 +20,7 @@ on:
       - 'assets/highlights/**'
       - '!assets/**/README.md'
       - 'scripts/check-locales.py'
+      - 'scripts/check-architecture.py'
       - 'scripts/generate-reader-limits.py'
       - 'scripts/bundle-macos.sh'
       - 'scripts/bundle-finder.py'
@@ -107,6 +108,9 @@ jobs:
           key: sparkle-${{ hashFiles('scripts/fetch-sparkle.sh') }}
       - name: Verify and extract Sparkle SDK
         run: scripts/fetch-sparkle.sh
+      - name: Check architecture boundaries
+        if: matrix.validate
+        run: python3 scripts/check-architecture.py
       - name: Check formatting once
         if: matrix.validate
         run: cargo fmt --all --check

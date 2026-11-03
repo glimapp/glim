@@ -1,4 +1,5 @@
 //! Cancellation and fixed working buffers for streaming reader operations.
+pub mod scheduler;
 use anyhow::Result;
 use std::{
     io::{Read, Write},
@@ -31,6 +32,10 @@ impl Drop for CancelOnDrop {
     }
 }
 impl Cancellation {
+    pub fn from_flag(flag: Arc<AtomicBool>) -> Self {
+        Self(Arc::new(vec![flag]))
+    }
+
     pub fn task() -> (Self, CancelOnDrop) {
         let token = Self::default();
         (token.clone(), CancelOnDrop(token))

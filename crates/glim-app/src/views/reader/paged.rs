@@ -1,3 +1,4 @@
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::paged::{PageSource, TextPage};
 use gpui_kit::{
     component::{ActiveTheme, Disableable, button::Button, h_flex, v_flex},
@@ -139,12 +140,18 @@ impl PagedReader {
         self.revision += 1;
         let telemetry_started = std::time::Instant::now();
         let (cancel, guard) = glim_services::work::Cancellation::task();
-        let work = cx.background_executor().spawn(async move {
-            let page = source.read_cancellable(0, false, &cancel)?;
-            let rows = rows(&page.text);
-            let widest = widest_row(&page.text, &rows);
-            Ok::<_, anyhow::Error>((page, rows, widest))
-        });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| {
+                let page = source.read_cancellable(0, false, cancel)?;
+                let rows = rows(&page.text);
+                let widest = widest_row(&page.text, &rows);
+                Ok::<_, anyhow::Error>((page, rows, widest))
+            },
+        );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -214,10 +221,13 @@ impl PagedReader {
         let (cancel, guard) = glim_services::work::Cancellation::task();
         self.task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let page = source.read_cancellable(start, all, &cancel)?;
+            let result = reader_jobs::run(
+                cx.background_executor().clone(),
+                JobClass::Projection,
+                Priority::Interactive,
+                cancel,
+                move |cancel| {
+                    let page = source.read_cancellable(start, all, cancel)?;
                     anyhow::ensure!(
                         page.source.is_generated()
                             || (page.total, page.modified, page.identity) == stamp,
@@ -226,8 +236,9 @@ impl PagedReader {
                     let rows = rows(&page.text);
                     let widest = widest_row(&page.text, &rows);
                     Ok::<_, anyhow::Error>((page, rows, widest))
-                })
-                .await;
+                },
+            )
+            .await;
             glim_services::telemetry::result("paged_load", None, telemetry_started, &result);
             let _ = view.update_in(cx, |v, window, cx| {
                 v.task = None;
@@ -240,7 +251,7 @@ impl PagedReader {
                             v.previous.push(v.page.start);
                         }
                         if let Some(editor) = &mut v.source_editor {
-                            editor.state.update(cx, |state, cx| {
+                            editor.edit.editor().update(cx, |state, cx| {
                                 state.set_value(page.text.clone(), window, cx)
                             });
                             editor.mark_saved(page.text.clone(), cx);

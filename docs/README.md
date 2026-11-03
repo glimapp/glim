@@ -25,6 +25,7 @@ You do not need implementation documents to use Glim. Start with [Contributing](
 | Maintainer reference | Contents |
 | --- | --- |
 | [Architecture](architecture.md) | Modules, workspaces, file loading and readers |
+| [Reader module contracts](reader-modules.md) | Extension points, ownership, task admission and remaining boundaries |
 | [Build and release](releasing.md) | Toolchains, packaging, signing and both Mac architectures |
 | [Update internals](auto-update-design.md) | Trust chain, install protection and recovery |
 | [Telemetry reference](telemetry.md) | Events, metrics and interpretation limits |

@@ -611,3 +611,12 @@ impl Render for XMindReader {
             })
     }
 }
+
+impl super::surface::ReaderSurface for Entity<XMindReader> {
+    fn kind(&self) -> &'static str {
+        "xmind"
+    }
+    fn render(&mut self, _cx: &mut App) -> AnyElement {
+        self.clone().into_any_element()
+    }
+}

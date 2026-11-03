@@ -25,9 +25,16 @@ impl TableFormat {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkupFormat {
+    Markdown,
+    Html,
+    Converted,
+}
+
 pub struct TextPresentation {
-    pub markup: bool,
-    pub html: bool,
+    pub markup: Option<MarkupFormat>,
+    pub structured: bool,
     pub json_dialect: Option<String>,
     pub table: Option<TableFormat>,
 }
@@ -57,10 +64,18 @@ impl TextPresentation {
             }
         });
         Self {
-            html,
+            structured: crate::graph::supports(path),
             table,
             json_dialect,
-            markup: html || projected || DocumentKind::from_path(path) == DocumentKind::Markdown,
+            markup: if html {
+                Some(MarkupFormat::Html)
+            } else if projected {
+                Some(MarkupFormat::Converted)
+            } else if DocumentKind::from_path(path) == DocumentKind::Markdown {
+                Some(MarkupFormat::Markdown)
+            } else {
+                None
+            },
         }
     }
 }
@@ -91,7 +106,13 @@ mod tests {
             TextPresentation::for_path(Path::new("track.GPX")).table,
             Some(TableFormat::Gpx)
         );
-        assert!(TextPresentation::for_path(Path::new("index.HTM")).html);
-        assert!(TextPresentation::for_path(Path::new("README.md")).markup);
+        assert_eq!(
+            TextPresentation::for_path(Path::new("index.HTM")).markup,
+            Some(MarkupFormat::Html)
+        );
+        assert_eq!(
+            TextPresentation::for_path(Path::new("README.md")).markup,
+            Some(MarkupFormat::Markdown)
+        );
     }
 }

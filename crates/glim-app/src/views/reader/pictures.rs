@@ -1,4 +1,5 @@
 use super::media::{GifReader, InlineImageReader};
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::markup_images::{self, PictureSources};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
@@ -35,17 +36,29 @@ impl Pictures {
     }
     pub fn load(&mut self, text: String, html: bool, cx: &mut Context<Self>) {
         self.sources = Arc::new(HashMap::new());
-        let work = cx.background_executor().spawn(async move {
-            let sources = markup_images::picture_sources(&text, html);
-            let references = markup_images::image_uris(&text, html);
-            let mut images = references.clone();
-            for variants in sources.values() {
-                images.extend(variants.light.iter().chain(variants.dark.iter()).cloned());
-            }
-            (sources, images, references)
-        });
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |_cancel| {
+                let sources = markup_images::picture_sources(&text, html);
+                let references = markup_images::image_uris(&text, html);
+                let mut images = references.clone();
+                for variants in sources.values() {
+                    images.extend(variants.light.iter().chain(variants.dark.iter()).cloned());
+                }
+                Ok((sources, images, references))
+            },
+        );
         self.task = Some(cx.spawn(async move |view, cx| {
-            let (sources, images, references) = work.await;
+            let _guard = guard;
+            let result = work.await;
+            let Ok((sources, images, references)) = result else {
+                let _ = view.update(cx, |view, _| view.task = None);
+                return;
+            };
             let _ = view.update(cx, |view, cx| {
                 let mut animations = HashMap::new();
                 let mut stills = HashMap::new();

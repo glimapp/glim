@@ -1,3 +1,4 @@
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::limits as reader_limits;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -47,26 +48,23 @@ impl CsvTable {
             horizontal_scroll: ScrollHandle::new(),
         }
     }
-    pub fn from_file(path: PathBuf, delimiter: u8) -> Self {
+    pub fn from_file(
+        path: PathBuf,
+        format: glim_services::documents::presentation::TableFormat,
+    ) -> Self {
         let mut table = Self::new();
-        let geo = path.extension().is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("gpx") || extension.eq_ignore_ascii_case("kml")
-        });
-        if geo {
-            table.format = if path
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("gpx"))
-            {
-                "GPX"
-            } else {
-                "KML"
-            };
+        table.delimiter = format.delimiter();
+        if let Some(name) = format.geo_name() {
+            table.format = name;
             table.source = Some(Source::GeoFile(path));
-            return table;
+        } else {
+            table.source = Some(Source::File(path));
+            table.format = if table.delimiter == b'\t' {
+                "TSV"
+            } else {
+                "CSV"
+            };
         }
-        table.source = Some(Source::File(path));
-        table.delimiter = delimiter;
-        table.format = if delimiter == b'\t' { "TSV" } else { "CSV" };
         table
     }
     pub fn load(&mut self, text: String, delimiter: u8, cx: &mut Context<Self>) {
@@ -125,26 +123,30 @@ impl CsvTable {
         let (delimiter, row, column) = (self.delimiter, self.row_start, self.column_start);
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let telemetry_started = std::time::Instant::now();
-        let work = cx.background_executor().spawn(async move {
-            match source {
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| match source {
                 Source::GeoText(text) => {
-                    glim_services::geo::read_page(text.as_bytes(), row, &cancel)
+                    glim_services::geo::read_page(text.as_bytes(), row, cancel)
                 }
                 Source::GeoFile(path) => {
-                    glim_services::geo::read_page(std::fs::File::open(path)?, row, &cancel)
+                    glim_services::geo::read_page(std::fs::File::open(path)?, row, cancel)
                 }
                 Source::Text(text) => {
-                    glim_services::csv::read_page(text.as_bytes(), delimiter, row, column, &cancel)
+                    glim_services::csv::read_page(text.as_bytes(), delimiter, row, column, cancel)
                 }
                 Source::File(path) => glim_services::csv::read_page(
                     std::fs::File::open(path)?,
                     delimiter,
                     row,
                     column,
-                    &cancel,
+                    cancel,
                 ),
-            }
-        });
+            },
+        );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;

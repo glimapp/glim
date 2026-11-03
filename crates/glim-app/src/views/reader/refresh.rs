@@ -6,6 +6,7 @@ use gpui_kit::App;
 pub(crate) struct RefreshVersion {
     document: crate::app::document_session::DocumentVersion,
     page: Option<u64>,
+    edit: Option<u64>,
 }
 impl Reader {
     pub(crate) fn refresh_busy(&self, cx: &App) -> bool {
@@ -15,6 +16,7 @@ impl Reader {
     pub(crate) fn refresh_version(&self, cx: &App) -> RefreshVersion {
         RefreshVersion {
             document: self.document.version(),
+            edit: self.document.edit.as_ref().map(|edit| edit.revision()),
             page: match &self.renderer {
                 Renderer::Paged { view, .. } => Some(view.read(cx).refresh_revision()),
                 _ => None,
@@ -28,18 +30,7 @@ impl Reader {
         }
         let path = self.document.path.clone();
         match &self.renderer {
-            Renderer::Native(view) => view
-                .read(cx)
-                .image_stamp()
-                .map(|stamp| RefreshRequest::NativeImage { path, stamp }),
-            Renderer::Sqlite(view) => Some(RefreshRequest::Sqlite {
-                path,
-                stamp: if force {
-                    None
-                } else {
-                    view.read(cx).source_stamp()
-                },
-            }),
+            Renderer::Surface(view) => view.refresh_request(&path, force, cx),
             Renderer::Paged { view, .. } => view
                 .read(cx)
                 .refresh_request()

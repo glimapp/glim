@@ -1,4 +1,5 @@
-use super::{Workspace, loading::Content};
+use super::Workspace;
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::watch::{Changes, WorkspaceWatch};
 use gpui_kit::*;
 use std::time::Duration;
@@ -117,13 +118,22 @@ impl Workspace {
         let (cancel, guard) = glim_services::work::Cancellation::task();
         self.refresh_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
-            for (version, request) in targets {
+            for (index, (version, request)) in targets.into_iter().enumerate() {
                 let cancel = cancel.clone();
                 let work_changes = changes.clone();
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { request.read(&work_changes, &cancel) })
-                    .await;
+                let priority = if force || index == 0 {
+                    Priority::Interactive
+                } else {
+                    Priority::Background
+                };
+                let result = reader_jobs::run(
+                    cx.background_executor().clone(),
+                    JobClass::Document,
+                    priority,
+                    cancel,
+                    move |cancel| request.read(&work_changes, cancel),
+                )
+                .await;
                 if view
                     .update_in(cx, |view, window, cx| {
                         let Some(index) = view
@@ -159,9 +169,7 @@ impl Workspace {
                                 return;
                             }
                         };
-                        if matches!(content, Content::Sqlite(_))
-                            && view.tabs[index].refresh_sqlite(cx)
-                        {
+                        if view.tabs[index].refresh_in_place(&content, cx) {
                             return;
                         }
                         if content.matches_snapshot(&view.tabs[index].document.snapshot)

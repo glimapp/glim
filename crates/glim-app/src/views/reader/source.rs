@@ -1,4 +1,5 @@
 use super::super::minimap::Minimap;
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use gpui_kit::{
     component::{
         ActiveTheme, WindowExt,
@@ -6,21 +7,14 @@ use gpui_kit::{
     },
     *,
 };
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-};
+use std::rc::Rc;
 
 /// Shared basic editor surface for text/code and read-only value dialogs.
 /// Native gutter, folding and scrollbars share the editor's layout frame.
 pub(super) struct SourceReader {
-    pub state: Entity<EditorState>,
+    pub edit: crate::app::edit_session::EditSession,
     pub minimap: Entity<Minimap>,
-    readonly: bool,
-    locked: bool,
-    baseline: Rc<RefCell<String>>,
-    pub(super) dirty: Rc<Cell<bool>>,
-    _edit_subscription: Subscription,
+    _minimap_subscription: Subscription,
 }
 impl SourceReader {
     pub fn new(
@@ -51,60 +45,36 @@ impl SourceReader {
             state
         });
         let minimap = cx.new(|cx| Minimap::new(state.clone(), text, scroll, cx));
-        let baseline = Rc::new(RefCell::new(if readonly {
-            String::new()
-        } else {
-            text.to_owned()
-        }));
-        let dirty = Rc::new(Cell::new(false));
-        let saved = baseline.clone();
-        let changed = dirty.clone();
+        let edit = crate::app::edit_session::EditSession::new(state.clone(), text, readonly, cx);
         let map = minimap.clone();
         let subscription = cx.subscribe(&state, move |state, event, cx| {
             if matches!(event, InputEvent::Change) {
                 let text = state.read(cx).value().to_string();
-                let dirty = text != *saved.borrow();
-                let previous = changed.replace(dirty);
                 map.update(cx, |map, cx| map.set_text(&text, cx));
-                if previous != dirty {
-                    cx.refresh_windows();
-                }
             }
         });
         Self {
-            readonly,
-            locked: false,
-            baseline,
-            dirty,
-            _edit_subscription: subscription,
-            state,
+            edit,
             minimap,
+            _minimap_subscription: subscription,
         }
     }
-    pub fn set_locked(&mut self, locked: bool, cx: &mut App) {
-        self.locked = locked;
-        self.state
-            .update(cx, |s, cx| s.set_readonly(self.readonly || locked, cx));
-    }
-    pub fn is_readonly(&self) -> bool {
-        self.readonly
-    }
     pub fn is_dirty(&self) -> bool {
-        !self.readonly && self.dirty.get()
+        self.edit.is_dirty()
     }
     pub fn mark_saved(&mut self, text: String, cx: &App) {
-        self.dirty.set(self.state.read(cx).value().as_ref() != text);
-        *self.baseline.borrow_mut() = text;
+        self.edit.mark_saved(text, cx);
     }
     pub fn inherit(&mut self, old: &Self, cx: &mut App) {
-        let offset = old.state.read(cx).scroll_offset();
-        self.state
+        let offset = old.edit.editor().read(cx).scroll_offset();
+        self.edit
+            .editor()
             .update(cx, |s, cx| s.set_scroll_offset(offset, cx));
     }
     pub fn render(&mut self, cx: &mut App) -> AnyElement {
         // The toolkit invokes custom menus while updating EditorState. Capture
         // capabilities during rendering instead of re-entering that entity.
-        let capabilities = self.state.read(cx).context_menu_capabilities();
+        let capabilities = self.edit.editor().read(cx).context_menu_capabilities();
         let menu_editable = capabilities.is_editable();
         let menu_copyable = capabilities.is_copyable();
         self.minimap
@@ -125,11 +95,11 @@ impl SourceReader {
                     .h_full()
                     .overflow_hidden()
                     .child(
-                        Editor::new(&self.state)
+                        Editor::new(self.edit.editor())
                             .context_menu(move |menu, _, _| {
                                 super::editor_menu(menu, menu_editable, menu_copyable)
                             })
-                            .readonly(self.readonly || self.locked)
+                            .readonly(self.edit.is_readonly() || self.edit.is_locked())
                             .appearance(false)
                             .bordered(false)
                             .size_full(),
@@ -180,9 +150,13 @@ impl TextDialog {
             };
         }
         let (cancel, guard) = glim_services::work::Cancellation::task();
-        let work = cx
-            .background_executor()
-            .spawn(async move { glim_services::paged::text_value(&text, &cancel) });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| glim_services::paged::text_value(&text, cancel),
+        );
         let task = cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;

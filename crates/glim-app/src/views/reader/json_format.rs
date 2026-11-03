@@ -1,3 +1,4 @@
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::locale::tr;
 use gpui_kit::{
     component::{ActiveTheme, Disableable, Sizable, button::Button, h_flex, input::EditorState},
@@ -45,10 +46,16 @@ impl JsonFormat {
         let original = editor.read(cx).value().to_string();
         let requested = original.clone();
         self.error = None;
-        let work = cx
-            .background_executor()
-            .spawn(async move { glim_services::json::format_document(&requested) });
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |_cancel| glim_services::json::format_document(&requested),
+        );
         self.task = Some(cx.spawn_in(window, async move |view, cx| {
+            let _guard = guard;
             let result = work.await;
             let _ = view.update_in(cx, |view, window, cx| {
                 view.task = None;
@@ -107,9 +114,13 @@ impl JsonFormat {
         let path = self.path.clone();
         let (cancel, guard) = glim_services::work::Cancellation::task();
         self.cancel = Some(guard);
-        let work = cx
-            .background_executor()
-            .spawn(async move { glim_services::graph::read(&path, text, &cancel) });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| glim_services::graph::read(&path, text, cancel),
+        );
         self.graph_task = Some(cx.spawn(async move |view, cx| {
             let result = work.await;
             let _ = view.update(cx, |view, cx| {

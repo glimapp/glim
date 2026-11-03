@@ -1,3 +1,4 @@
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::{
     limits,
     locale::tr,
@@ -232,9 +233,13 @@ impl SqliteReader {
         let (cancel, guard) = Cancellation::task();
         let telemetry_started = std::time::Instant::now();
         let source = path.clone();
-        let work = cx
-            .background_executor()
-            .spawn(async move { browser::open(&source, &cancel) });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| browser::open(&source, cancel),
+        );
         let task = cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -295,35 +300,41 @@ impl SqliteReader {
         let mut query = previous.clone();
         let source = path.clone();
         let (cancel, guard) = Cancellation::task();
-        let work = cx.background_executor().spawn(async move {
-            let database = browser::open(&source, &cancel)?;
-            if !database.tables.contains(&query.table) {
-                query.table = database.tables.first().cloned().unwrap_or_default();
-                query.page = 0;
-            }
-            if query.table.is_empty() {
-                query.columns.clear();
-                query.order.clear();
-                query.sort = None;
-                query.start_column = 0;
-                return Ok((database, query, None, None));
-            }
-            let columns = database.columns(&query.table, &cancel)?;
-            if columns.names != query.columns {
-                query.sort = None;
-                query.start_column = 0;
-            }
-            query.columns = columns.names;
-            query.order = columns.order;
-            let total = database.count(&query, &cancel).ok();
-            if let Some(total) = total {
-                query.page = query
-                    .page
-                    .min(total.saturating_sub(1) as usize / limits::SQLITE_PAGE_ROWS);
-            }
-            let page = database.page(&query, &cancel)?;
-            Ok::<_, anyhow::Error>((database, query, Some(page), total))
-        });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Background,
+            cancel,
+            move |cancel| {
+                let database = browser::open(&source, cancel)?;
+                if !database.tables.contains(&query.table) {
+                    query.table = database.tables.first().cloned().unwrap_or_default();
+                    query.page = 0;
+                }
+                if query.table.is_empty() {
+                    query.columns.clear();
+                    query.order.clear();
+                    query.sort = None;
+                    query.start_column = 0;
+                    return Ok((database, query, None, None));
+                }
+                let columns = database.columns(&query.table, cancel)?;
+                if columns.names != query.columns {
+                    query.sort = None;
+                    query.start_column = 0;
+                }
+                query.columns = columns.names;
+                query.order = columns.order;
+                let total = database.count(&query, cancel).ok();
+                if let Some(total) = total {
+                    query.page = query
+                        .page
+                        .min(total.saturating_sub(1) as usize / limits::SQLITE_PAGE_ROWS);
+                }
+                let page = database.page(&query, cancel)?;
+                Ok::<_, anyhow::Error>((database, query, Some(page), total))
+            },
+        );
         self.refresh_task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -430,9 +441,13 @@ impl SqliteReader {
         self.query.search = self.search.read(cx).value().to_string();
         let (cancel, guard) = Cancellation::task();
         let telemetry_started = std::time::Instant::now();
-        let work = cx
-            .background_executor()
-            .spawn(async move { db.columns(&table, &cancel) });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| db.columns(&table, cancel),
+        );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -482,9 +497,13 @@ impl SqliteReader {
         let query = self.query.clone();
         let (cancel, guard) = Cancellation::task();
         let telemetry_started = std::time::Instant::now();
-        let work = cx
-            .background_executor()
-            .spawn(async move { db.count(&query, &cancel) });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Background,
+            cancel,
+            move |cancel| db.count(&query, cancel),
+        );
         self.count_task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -542,9 +561,13 @@ impl SqliteReader {
         let offset = query.page.saturating_mul(limits::SQLITE_PAGE_ROWS);
         let (cancel, guard) = Cancellation::task();
         let telemetry_started = std::time::Instant::now();
-        let work = cx
-            .background_executor()
-            .spawn(async move { db.page(&query, &cancel) });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| db.page(&query, cancel),
+        );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -588,9 +611,13 @@ impl SqliteReader {
         let query = self.query.clone();
         let (cancel, guard) = Cancellation::task();
         let telemetry_started = std::time::Instant::now();
-        let work = cx
-            .background_executor()
-            .spawn(async move { db.value(&query, row, column, offset, &cancel) });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| db.value(&query, row, column, offset, cancel),
+        );
         self.detail_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -882,5 +909,42 @@ impl Render for SqliteReader {
                     ),
             )
             .child(main)
+    }
+}
+
+impl super::surface::ReaderSurface for Entity<SqliteReader> {
+    fn kind(&self) -> &'static str {
+        "sqlite"
+    }
+    fn render(&mut self, _cx: &mut App) -> AnyElement {
+        self.clone().into_any_element()
+    }
+    fn can_move_to_window(&self, cx: &App) -> bool {
+        self.read(cx).can_move_to_window()
+    }
+    fn bind_window(&self, window: &mut Window, cx: &mut App) {
+        self.update(cx, |view, cx| view.bind_window(window, cx));
+    }
+    fn refresh_request(
+        &self,
+        path: &std::path::Path,
+        force: bool,
+        cx: &App,
+    ) -> Option<glim_services::documents::refresh::RefreshRequest> {
+        Some(glim_services::documents::refresh::RefreshRequest::Sqlite {
+            path: path.to_path_buf(),
+            stamp: if force {
+                None
+            } else {
+                self.read(cx).source_stamp()
+            },
+        })
+    }
+    fn refresh_in_place(&self, content: &glim_services::documents::Content, cx: &mut App) -> bool {
+        let glim_services::documents::Content::Sqlite(path) = content else {
+            return false;
+        };
+        self.update(cx, |view, cx| view.refresh(path.clone(), cx));
+        true
     }
 }

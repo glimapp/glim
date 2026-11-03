@@ -32,12 +32,16 @@ pub(super) struct MarkupReader {
     _diagram_subscription: Option<Subscription>,
 }
 impl MarkupReader {
-    pub fn new(path: &Path, text: &str, window: &mut Window, cx: &mut App) -> Self {
+    pub fn new(
+        path: &Path,
+        text: &str,
+        format: glim_services::documents::presentation::MarkupFormat,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self {
         let scroll = ScrollHandle::new();
-        let html = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .is_some_and(|s| s.eq_ignore_ascii_case("html") || s.eq_ignore_ascii_case("htm"));
+        use glim_services::documents::presentation::MarkupFormat;
+        let html = format == MarkupFormat::Html;
         let preview = cx
             .try_global::<crate::app::ReaderPreferences>()
             .is_none_or(|preferences| {
@@ -47,7 +51,7 @@ impl MarkupReader {
                     preferences.markdown_preview
                 }
             });
-        let format_path = glim_services::text_formats::supports(path).then(|| path.to_path_buf());
+        let format_path = (format == MarkupFormat::Converted).then(|| path.to_path_buf());
         let projected = format_path
             .as_ref()
             .map(|path| glim_services::text_formats::markdown(path, text));
@@ -140,7 +144,7 @@ impl MarkupReader {
         self.pending_scroll = Some(old.state.read(cx).list_state().logical_scroll_top());
     }
     pub fn sync_preview(&mut self, cx: &mut App) {
-        let text = self.source.state.read(cx).value().to_string();
+        let text = self.source.edit.editor().read(cx).value().to_string();
         if text == self.preview_text {
             return;
         }
@@ -188,14 +192,15 @@ impl MarkupReader {
             || revision != self.preview_generation.get()
             || !self
                 .source
-                .state
+                .edit
+                .editor()
                 .read(cx)
                 .context_menu_capabilities()
                 .is_editable()
         {
             return false;
         }
-        let text = self.source.state.read(cx).value().to_string();
+        let text = self.source.edit.editor().read(cx).value().to_string();
         if text != self.preview_text {
             self.sync_preview(cx);
             return false;
@@ -222,7 +227,7 @@ impl MarkupReader {
             return false;
         }
         let utf16 = text[..marker].encode_utf16().count();
-        self.source.state.update(cx, |editor, cx| {
+        self.source.edit.editor().update(cx, |editor, cx| {
             let selection = editor.selected_range();
             let scroll = editor.scroll_offset();
             editor.unmark_text(window, cx);
@@ -386,7 +391,7 @@ impl MarkupReader {
         };
         let text_view = if !self.html && self.format_path.is_none() {
             if let Some(toggle) = self.task_toggle.clone() {
-                let editor = self.source.state.entity_id();
+                let editor = self.source.edit.editor().entity_id();
                 let revision = self.preview_generation.get();
                 text_view.on_task_toggle(move |range, checked, window, cx| {
                     toggle(editor, range, checked, revision, window, cx);

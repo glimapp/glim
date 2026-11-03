@@ -13,6 +13,7 @@ pub(crate) struct DocumentVersion {
 
 pub(crate) struct DocumentSession {
     pub path: PathBuf,
+    pub edit: Option<super::edit_session::EditSession>,
     pub snapshot: ContentSnapshot,
     pub draft_directory: Option<PathBuf>,
     pub recovery_key: Option<String>,
@@ -23,6 +24,7 @@ impl DocumentSession {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         Self {
             path,
+            edit: None,
             snapshot,
             draft_directory: None,
             recovery_key: None,
@@ -31,6 +33,10 @@ impl DocumentSession {
                 revision: 0,
             },
         }
+    }
+    pub fn with_edit(mut self, edit: Option<super::edit_session::EditSession>) -> Self {
+        self.edit = edit;
+        self
     }
     pub fn version(&self) -> DocumentVersion {
         self.version

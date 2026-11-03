@@ -125,3 +125,7 @@ XMind 解析或工作预算失败但源码分页成功时上报 reader_fallback�
 `process_session_id` 在 Aptabase 满 24 小时轮换 `sessionId` 后仍保留本次启用遥测的会话标识，`session_uptime_s` 记录事件采集时的单调运行时长；遥测重启或关闭后重新开启都会重置。它们用于关联同一进程的持续使用，不能代表人数或证明主动回访。`foreground_segment` 和当前阅读器上下文增加 `untitled`，区分草稿与文件阅读。统计有效使用安装时需包含草稿创建、编辑与保存，仅依赖成功 `file_open` 会漏掉纯记事本使用。
 
 资源样本增加 `pdf_tabs`、`fullscreen_windows`、窗口设备像素总量 `viewport_pixels` 与当前阅读器的 `file_fullscreen`。像素数描述窗口尺寸，不代表纹理分配或 GPU 使用量。`tab_closed.reason=preview_replaced` 区分连续浏览替换与主动关闭；`update_phase_changed` 包含固定 `error_stage`、固定 `error_kind` 和有符号数字 `error_code`，不上传原生错误消息、网址或路径。错误码仅提供诊断线索，不能完整解释失败原因。
+
+## 阅读器准备调度
+
+`reader_job` 在准入后的准备任务返回时记录 `class`（document/projection/decode/native/diagram）、`priority`（interactive/background）、`queue_ms` 和 `work_ms`，包括返回错误的任务。排队耗时截止到准入，执行耗时测量阻塞操作且不含排队；启动前取消和发生 panic 的任务不产生该事件。它不代表首屏延迟、用户操作次数、单文档内存或完整取消率，采集沿用现有遥测同意与有界投递策略。

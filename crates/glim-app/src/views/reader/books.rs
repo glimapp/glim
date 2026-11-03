@@ -1,6 +1,7 @@
 use crate::app::actions::{
     BookContents, BookNextChapter, BookNextPage, BookPreviousChapter, BookPreviousPage,
 };
+use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::limits as reader_limits;
 use glim_services::{
     books::{
@@ -71,12 +72,18 @@ impl BookReader {
         let initial = book.clone();
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let telemetry_started = std::time::Instant::now();
-        let work = cx.background_executor().spawn(async move {
-            let mut state = books::preferences::read(&initial.fingerprint).unwrap_or_default();
-            state.chapter = state.chapter.min(initial.chapters.len() - 1);
-            let content = books::chapter_cancellable(&initial, state.chapter, &cancel)?;
-            Ok::<_, anyhow::Error>((state, content))
-        });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| {
+                let mut state = books::preferences::read(&initial.fingerprint).unwrap_or_default();
+                state.chapter = state.chapter.min(initial.chapters.len() - 1);
+                let content = books::chapter_cancellable(&initial, state.chapter, cancel)?;
+                Ok::<_, anyhow::Error>((state, content))
+            },
+        );
         let task = cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -172,9 +179,13 @@ impl BookReader {
         let book = self.book.clone();
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let telemetry_started = std::time::Instant::now();
-        let work = cx
-            .background_executor()
-            .spawn(async move { books::chapter_cancellable(&book, index, &cancel) });
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| books::chapter_cancellable(&book, index, cancel),
+        );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
@@ -869,5 +880,24 @@ impl Render for BookReader {
                     ),
             )
             .child(super::controls::floating("book-controls", controls, cx))
+    }
+}
+
+pub(super) struct BookSurface {
+    pub view: Entity<BookReader>,
+    pub writing: Arc<AtomicBool>,
+}
+impl super::surface::ReaderSurface for BookSurface {
+    fn kind(&self) -> &'static str {
+        "ebook"
+    }
+    fn render(&mut self, _cx: &mut App) -> AnyElement {
+        self.view.clone().into_any_element()
+    }
+    fn is_persisting(&self) -> bool {
+        self.writing.load(Ordering::SeqCst)
+    }
+    fn take_write(&self, cx: &mut App) -> Option<Task<()>> {
+        self.view.update(cx, |view, _| view.take_write())
     }
 }

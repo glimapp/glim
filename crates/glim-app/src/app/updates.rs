@@ -255,7 +255,7 @@ impl UpdateState {
         }
         for (view, _) in &windows {
             if let Some(view) = view.upgrade() {
-                writes.extend(view.update(cx, |view, cx| view.take_book_writes(cx)));
+                writes.extend(view.update(cx, |view, cx| view.take_reader_writes(cx)));
             }
             if let Some(view) = view.upgrade()
                 && let Some(task) = view.update(cx, |view, _| view.take_preference_write())
