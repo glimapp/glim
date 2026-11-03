@@ -79,6 +79,7 @@ fn layout(sheet: &Sheet, collapsed: &HashSet<usize>) -> Layout {
 pub struct GraphReader {
     host: ReaderHost,
     memory: glim_core::resources::ResourceLease,
+    document_bytes: u64,
     document: MindMap,
     embedded: bool,
     pan: Option<(Point<Pixels>, Point<Pixels>)>,
@@ -93,13 +94,14 @@ pub struct GraphReader {
 impl GraphReader {
     pub fn new(document: MindMap, host: ReaderHost) -> Self {
         let selected = document.sheets[0].roots[0];
-        let memory = host.resources.track(
-            document.heap_bytes(),
-            glim_core::resources::ResourceClass::State,
-        );
+        let document_bytes = document.heap_bytes();
+        let memory = host
+            .resources
+            .track(document_bytes, glim_core::resources::ResourceClass::State);
         let mut view = Self {
             host,
             memory,
+            document_bytes,
             document,
             embedded: false,
             pan: None,
@@ -174,7 +176,7 @@ impl GraphReader {
     fn rebuild(&mut self) {
         self.layout = Arc::new(layout(&self.document.sheets[self.sheet], &self.collapsed));
         self.memory.resize(
-            self.document.heap_bytes()
+            self.document_bytes
                 + (self.layout.nodes.capacity() * std::mem::size_of::<Position>()) as u64
                 + (self.layout.edges.capacity() * std::mem::size_of::<(Position, Position)>())
                     as u64

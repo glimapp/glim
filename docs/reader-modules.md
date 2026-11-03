@@ -17,7 +17,7 @@ flowchart TD
 
 ## Interfaces and ownership
 
-`ReaderView` requires kind and rendering, with activation/window hooks. `ReaderOperations` borrows only implemented image-copy, extraction, playback-state and persistence traits. `ReaderSurface` adds app-owned refresh policy; native/SQLite implementations can retain in-place state. `SurfaceEntity` adapts existing GPUI entities. Source/markup/paged composition stays explicit because it owns shared editing transitions.
+`ReaderView` requires kind and rendering, with activation/window hooks. Workspace visibility is authoritative for activation, including keyboard tab switches and returning from settings/loading. `Reader` delivers only state transitions; a newly constructed hidden reader still receives its first deactivation. `ReaderOperations` borrows only implemented image-copy, extraction, playback-state and persistence traits. `ReaderSurface` adds app-owned refresh policy; native/SQLite implementations can retain in-place state. `SurfaceEntity` adapts existing GPUI entities. Source/markup/paged composition stays explicit because it owns shared editing transitions.
 
 `ReaderHost` supplies translation, typed numeric action metadata and the shared resource pool. OPML and graph presentations use this host and pure `glim-core::outline`/`graph` payloads, without importing service implementations or application globals. The graph presentation serves XMind and structured-data visualization. Both have source/payload fixtures in `assets/reader-contracts`, shared by producer and presentation regression cases. Fixtures cover hierarchy/order, Unicode, URLs and fold behavior. They are internal contracts, not a serialized external plugin protocol.
 

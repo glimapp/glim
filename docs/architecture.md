@@ -275,6 +275,8 @@ Snapshot preparation, metadata, counts, pages and full-value windows execute out
 
 Reader keyboard commands preserve focused editor/native selections. GPUI Copy bubbles to the active image or SQLite grid only when an input has not consumed it. Native toolbars share a focus-scoped keyboard router over the same enabled/visible controls for zoom, fit, page navigation, full preview copy and external opening. Image and Word own selection-aware copy handlers; Word reads only the selected text for Command-C/Control-C and generation-checks asynchronous clipboard writes. F1 lists supported commands; native shortcuts with no corresponding enabled control fall through.
 
+Grid cells are owned and accounted by the table delegate. Hiding a reader cancels its queries and frees cells while retaining its private snapshot and query state; activation reloads the page. File refreshes wait while hidden. See [resource lifecycle](reader-resources.md).
+
 ### draw.io diagrams
 
 `services/drawio` decodes local `.drawio` mxfile/mxGraphModel documents (raw XML or base64/raw-deflate/percent-encoded pages), resolves nested coordinates, and generates plain SVG for basic shapes, lifelines, labels and arrowed polylines. HTML labels become escaped text; no scripts or external resources are loaded. resvg renders bounded PNG pages on the loading worker, displayed by the existing GPUI image reader with page navigation and copy. Custom stencils, embedded images, rich formatting and exact draw.io routing are approximated or omitted. Source/expanded XML, group traversal, aggregate encoded previews and decoded image allocations have shared-policy budgets; failures fall back to paged XML source.

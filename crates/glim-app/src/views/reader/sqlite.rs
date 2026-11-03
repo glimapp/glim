@@ -23,12 +23,20 @@ use gpui_kit::{
 use std::{ops::Range, path::PathBuf, sync::Arc};
 
 struct Grid {
+    memory: glim_core::resources::ResourceLease,
     owner: WeakEntity<SqliteReader>,
     columns: Vec<String>,
     rows: Vec<Vec<String>>,
     start: usize,
     offset: usize,
     busy: bool,
+}
+impl Grid {
+    fn replace_rows(&mut self, rows: Vec<Vec<String>>) {
+        self.rows = rows;
+        self.memory
+            .resize(glim_core::resources::text_rows_bytes(&self.rows));
+    }
 }
 impl TableDelegate for Grid {
     fn columns_count(&self, _: &App) -> usize {
@@ -148,6 +156,9 @@ struct Detail {
 }
 pub(super) struct SqliteReader {
     path: PathBuf,
+    active: bool,
+    refresh_pending: bool,
+    resume_scroll: Option<(Point<Pixels>, Point<Pixels>)>,
     error_details: bool,
     database: Option<Arc<Database>>,
     query: Query,
@@ -174,6 +185,8 @@ impl SqliteReader {
         let grid = cx.new(|cx| {
             TableState::new(
                 Grid {
+                    memory: glim_services::resources::pool()
+                        .track(0, glim_core::resources::ResourceClass::Working),
                     owner,
                     columns: vec![],
                     rows: vec![],
@@ -230,9 +243,45 @@ impl SqliteReader {
                 view.load_page(cx);
             }
         }));
+        let mut reader = Self {
+            path,
+            active: true,
+            refresh_pending: false,
+            resume_scroll: None,
+            error_details: false,
+            database: None,
+            query: Query::default(),
+            grid,
+            search,
+            table_search,
+            page_input,
+            total: None,
+            more: false,
+            error: None,
+            count_error: false,
+            task: None,
+            count_task: None,
+            refresh_task: None,
+            debounce: None,
+            detail_task: None,
+            detail: None,
+            _subscriptions: subscriptions,
+            grid_subscription: None,
+        };
+        reader.bind_window(window, cx);
+        reader.open_database(cx);
+        reader
+    }
+    fn open_database(&mut self, cx: &mut Context<Self>) {
+        self.refresh_pending = false;
+        self.error = None;
+        self.grid.update(cx, |state, cx| {
+            state.delegate_mut().busy = true;
+            cx.notify();
+        });
         let (cancel, guard) = Cancellation::task();
         let telemetry_started = std::time::Instant::now();
-        let source = path.clone();
+        let source = self.path.clone();
         let work = reader_jobs::run(
             cx.background_executor().clone(),
             JobClass::Projection,
@@ -240,7 +289,7 @@ impl SqliteReader {
             cancel,
             move |cancel| browser::open(&source, cancel),
         );
-        let task = cx.spawn(async move |view, cx| {
+        self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
             glim_services::telemetry::result("sqlite_open", None, telemetry_started, &result);
@@ -262,39 +311,21 @@ impl SqliteReader {
                 }
                 cx.notify();
             });
-        });
-        let mut reader = Self {
-            path,
-            error_details: false,
-            database: None,
-            query: Query::default(),
-            grid,
-            search,
-            table_search,
-            page_input,
-            total: None,
-            more: false,
-            error: None,
-            count_error: false,
-            task: Some(task),
-            count_task: None,
-            refresh_task: None,
-            debounce: None,
-            detail_task: None,
-            detail: None,
-            _subscriptions: subscriptions,
-            grid_subscription: None,
-        };
-        reader.bind_window(window, cx);
-        reader
+        }));
     }
     pub(super) fn source_stamp(&self) -> Option<glim_services::sqlite::SourceStamp> {
         self.database.as_ref().and_then(|db| db.source_stamp())
     }
     pub(super) fn refresh(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if !self.active {
+            self.path = path;
+            self.refresh_pending = true;
+            return;
+        }
         if self.refresh_task.is_some() {
             return;
         }
+        self.refresh_pending = false;
         self.path = path.clone();
         let previous = self.query.clone();
         let mut query = previous.clone();
@@ -361,8 +392,8 @@ impl SqliteReader {
                             let grid = state.delegate_mut();
                             let changed_columns = grid.columns != query.columns;
                             grid.columns = query.columns.clone();
-                            grid.rows = page.as_ref().map(|p| p.rows.clone()).unwrap_or_default();
                             grid.start = page.as_ref().map_or(0, |p| p.start_column);
+                            grid.replace_rows(page.map(|p| p.rows).unwrap_or_default());
                             grid.offset = query.page.saturating_mul(limits::SQLITE_PAGE_ROWS);
                             grid.busy = false;
                             if changed_columns {
@@ -373,8 +404,15 @@ impl SqliteReader {
                         });
                         view.query = query;
                         view.database = Some(database);
+                        view.restore_scroll(cx);
                     }
                     Err(error) => {
+                        if view.grid.read(cx).delegate().rows.is_empty()
+                            && !view.query.columns.is_empty()
+                            && view.database.is_some()
+                        {
+                            view.fetch_page(cx);
+                        }
                         view.error = Some(error.to_string());
                     }
                 }
@@ -400,6 +438,69 @@ impl SqliteReader {
         ));
     }
 
+    fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if self.active == active {
+            return;
+        }
+        self.active = active;
+        if !active {
+            if self.resume_scroll.is_none() && self.task.is_none() {
+                let grid = self.grid.read(cx);
+                self.resume_scroll = Some((
+                    grid.vertical_scroll_handle.0.borrow().base_handle.offset(),
+                    grid.horizontal_scroll_handle.offset(),
+                ));
+            }
+            self.refresh_pending |= self.refresh_task.is_some();
+            self.task = None;
+            self.count_task = None;
+            self.refresh_task = None;
+            self.debounce = None;
+            self.detail_task = None;
+            let search = self.search.read(cx).value().to_string();
+            if self.query.search != search {
+                self.query.search = search;
+                self.query.page = 0;
+                self.total = None;
+                self.count_error = false;
+                self.detail = None;
+                self.resume_scroll = None;
+            }
+            self.grid.update(cx, |state, cx| {
+                let grid = state.delegate_mut();
+                grid.replace_rows(Vec::new());
+                grid.busy = false;
+                cx.notify();
+            });
+        } else if self.database.is_none() {
+            self.open_database(cx);
+        } else if self.refresh_pending {
+            self.refresh(self.path.clone(), cx);
+        } else if self.query.columns.is_empty() {
+            self.select_table(cx);
+        } else {
+            self.fetch_page(cx);
+            if self.total.is_none() && !self.count_error {
+                self.load_count(cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn restore_scroll(&mut self, cx: &mut Context<Self>) {
+        if let Some((vertical, horizontal)) = self.resume_scroll.take() {
+            self.grid.update(cx, |state, _| {
+                state
+                    .vertical_scroll_handle
+                    .0
+                    .borrow()
+                    .base_handle
+                    .set_offset(vertical);
+                state.horizontal_scroll_handle.set_offset(horizontal);
+            });
+        }
+    }
+
     fn last_page(&self) -> Option<usize> {
         self.total
             .map(|n| n.saturating_sub(1) as usize / limits::SQLITE_PAGE_ROWS)
@@ -418,14 +519,18 @@ impl SqliteReader {
         self.more = false;
         self.error = None;
         self.count_error = false;
+        self.resume_scroll = None;
         self.grid.update(cx, |state, cx| {
             let grid = state.delegate_mut();
             grid.columns.clear();
-            grid.rows.clear();
+            grid.replace_rows(Vec::new());
             grid.start = 0;
             grid.busy = true;
             state.refresh(cx);
         });
+        if !self.active {
+            return;
+        }
         let Some(db) = self.database.clone() else {
             return;
         };
@@ -461,7 +566,7 @@ impl SqliteReader {
                         view.grid.update(cx, |s, cx| {
                             let d = s.delegate_mut();
                             d.columns = columns.names;
-                            d.rows.clear();
+                            d.replace_rows(Vec::new());
                             d.start = 0;
                             s.refresh(cx);
                         });
@@ -491,6 +596,12 @@ impl SqliteReader {
         self.detail = None;
         self.detail_task = None;
         self.load_page(cx);
+        self.load_count(cx);
+    }
+    fn load_count(&mut self, cx: &mut Context<Self>) {
+        if !self.active {
+            return;
+        }
         let Some(db) = self.database.clone() else {
             return;
         };
@@ -519,6 +630,14 @@ impl SqliteReader {
         }));
     }
     fn load_page(&mut self, cx: &mut Context<Self>) {
+        self.resume_scroll = None;
+        self.detail = None;
+        self.fetch_page(cx);
+    }
+    fn fetch_page(&mut self, cx: &mut Context<Self>) {
+        if !self.active {
+            return;
+        }
         glim_services::telemetry::track(
             "sqlite_page_requested",
             [
@@ -542,7 +661,6 @@ impl SqliteReader {
         );
         self.task = None;
         self.error = None;
-        self.detail = None;
         glim_services::telemetry::reader_feature("sqlite", "cell_detail", []);
         self.detail_task = None;
         let Some(db) = self.database.clone() else {
@@ -553,7 +671,7 @@ impl SqliteReader {
         }
         self.grid.update(cx, |s, cx| {
             let d = s.delegate_mut();
-            d.rows.clear();
+            d.replace_rows(Vec::new());
             d.busy = true;
             cx.notify();
         });
@@ -574,12 +692,13 @@ impl SqliteReader {
             glim_services::telemetry::result("sqlite_page_load", None, telemetry_started, &result);
             let _ = view.update(cx, |view, cx| {
                 view.task = None;
+                let loaded = result.is_ok();
                 view.grid.update(cx, |s, cx| {
                     let d = s.delegate_mut();
                     d.busy = false;
                     match result {
                         Ok(page) => {
-                            d.rows = page.rows;
+                            d.replace_rows(page.rows);
                             d.start = page.start_column;
                             d.offset = offset;
                             view.more = page.more;
@@ -591,6 +710,9 @@ impl SqliteReader {
                     }
                     cx.notify();
                 });
+                if loaded {
+                    view.restore_scroll(cx);
+                }
                 cx.notify();
             });
         }));
@@ -604,6 +726,9 @@ impl SqliteReader {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.active {
+            return;
+        }
         self.detail_task = None;
         let Some(db) = self.database.clone() else {
             return;
@@ -924,6 +1049,9 @@ impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntit
     }
     fn bind_window(&self, window: &mut Window, cx: &mut App) {
         self.update(cx, |view, cx| view.bind_window(window, cx));
+    }
+    fn set_active(&self, active: bool, cx: &mut App) {
+        self.update(cx, |view, cx| view.set_active(active, cx));
     }
 }
 impl super::surface::ReaderSurface for super::surface::SurfaceEntity<SqliteReader> {

@@ -8,6 +8,7 @@ use std::collections::HashSet;
 
 struct OpmlReader {
     memory: glim_core::resources::ResourceLease,
+    document_bytes: u64,
     host: ReaderHost,
     document: Document,
     expanded: HashSet<usize>,
@@ -26,8 +27,10 @@ impl OpmlReader {
         let memory = host
             .resources
             .track(0, glim_core::resources::ResourceClass::State);
+        let document_bytes = document.heap_bytes();
         let mut reader = Self {
             memory,
+            document_bytes,
             host,
             document,
             expanded,
@@ -59,7 +62,7 @@ impl OpmlReader {
             }
         }
         self.memory.resize(
-            self.document.heap_bytes()
+            self.document_bytes
                 + (self.rows.capacity() * std::mem::size_of::<(usize, usize)>()) as u64
                 + (self.expanded.capacity() * std::mem::size_of::<usize>()) as u64,
         );

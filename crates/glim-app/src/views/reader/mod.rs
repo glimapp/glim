@@ -102,6 +102,7 @@ impl Renderer {
 }
 
 pub struct Reader {
+    active: std::cell::Cell<Option<bool>>,
     pub(crate) document: DocumentSession,
     pub title: SharedString,
     projection: Option<Projection>,
@@ -187,6 +188,9 @@ impl Reader {
     }
 
     pub fn deactivate(&self, cx: &mut App) {
+        if self.active.replace(Some(false)) == Some(false) {
+            return;
+        }
         if let Some(projection) = &self.projection {
             projection.set_active(false, cx);
         }
@@ -206,6 +210,9 @@ impl Reader {
     }
 
     pub fn activate(&self, cx: &mut App) {
+        if self.active.replace(Some(true)) == Some(true) {
+            return;
+        }
         if let Some(projection) = &self.projection {
             projection.set_active(true, cx);
         }

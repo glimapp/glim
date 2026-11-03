@@ -40,6 +40,8 @@ impl Render for Workspace {
         for (index, reader) in self.tabs.iter().enumerate() {
             if self.page != Page::Document || self.active != Some(index) || loading_preview {
                 reader.deactivate(cx);
+            } else {
+                reader.activate(cx);
             }
         }
         let header = self.header(cx);

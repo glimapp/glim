@@ -84,6 +84,7 @@ impl Reader {
             cx.new(|_| json_format::JsonFormat::new(document.path.clone(), editor))
         });
         let mut reader = Self {
+            active: std::cell::Cell::new(None),
             title: document.path.display().to_string().into(),
             document: DocumentSession::new(
                 document.path,
@@ -103,6 +104,7 @@ impl Reader {
     }
     pub fn from_archive(document: glim_services::archive::Archive, cx: &mut App) -> Self {
         Self {
+            active: std::cell::Cell::new(None),
             title: document.path.display().to_string().into(),
             document: DocumentSession::new(document.path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
@@ -112,6 +114,7 @@ impl Reader {
     }
     pub fn from_sqlite(path: PathBuf, window: &mut Window, cx: &mut App) -> Self {
         Self {
+            active: std::cell::Cell::new(None),
             title: path.display().to_string().into(),
             document: DocumentSession::new(path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
@@ -127,6 +130,7 @@ impl Reader {
         cx: &mut App,
     ) -> Self {
         Self {
+            active: std::cell::Cell::new(None),
             title: path.display().to_string().into(),
             document: DocumentSession::new(path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
@@ -169,6 +173,7 @@ impl Reader {
             .structured
             .then(|| cx.new(|_| json_format::JsonFormat::new(path.clone(), None)));
         let mut reader = Self {
+            active: std::cell::Cell::new(None),
             title: path.display().to_string().into(),
             document: DocumentSession::new(path, ContentSnapshot::Fingerprint(snapshot))
                 .with_edit(edit),
@@ -194,6 +199,7 @@ impl Reader {
             cx,
         );
         Self {
+            active: std::cell::Cell::new(None),
             title: document.path.display().to_string().into(),
             document: DocumentSession::new(
                 document.path,
@@ -227,6 +233,7 @@ impl Reader {
             })
         };
         Self {
+            active: std::cell::Cell::new(None),
             title: document.path.display().to_string().into(),
             document: DocumentSession::new(
                 document.path,
@@ -247,6 +254,7 @@ impl Reader {
         let view = cx.new(|cx| books::BookReader::new(document, window, cx));
         let writing = view.read(cx).writing.clone();
         Self {
+            active: std::cell::Cell::new(None),
             title: path.display().to_string().into(),
             document: DocumentSession::new(path, ContentSnapshot::Fingerprint(fingerprint)),
             structured_controls: None,
@@ -256,6 +264,7 @@ impl Reader {
     }
     pub fn from_xmind(document: glim_services::xmind::MindMap, cx: &mut App) -> Self {
         Self {
+            active: std::cell::Cell::new(None),
             title: document.path.display().to_string().into(),
             document: DocumentSession::new(
                 document.path.clone(),
@@ -268,6 +277,7 @@ impl Reader {
     }
     pub fn from_opml(document: glim_services::opml::Document, cx: &mut App) -> Self {
         Self {
+            active: std::cell::Cell::new(None),
             title: document.path.display().to_string().into(),
             document: DocumentSession::new(
                 document.path.clone(),
@@ -281,6 +291,7 @@ impl Reader {
     pub fn unavailable(path: PathBuf, reason: String, _: &mut Window, _: &mut App) -> Self {
         let renderer = Renderer::surface(UnavailableReader::new(&path, reason));
         Self {
+            active: std::cell::Cell::new(None),
             title: path.display().to_string().into(),
             document: DocumentSession::new(path, ContentSnapshot::Untracked),
             structured_controls: None,

@@ -17,7 +17,7 @@ flowchart TD
 
 ## 接口与所有权
 
-`ReaderView` 要求类型标识和渲染，提供激活／窗口钩子。`ReaderOperations` 只借用实际实现的图片复制、解压、播放状态和持久化接口。`ReaderSurface` 补充应用侧刷新策略，原生／SQLite 可保留原位状态；`SurfaceEntity` 适配现有 GPUI 实体。源码／排版／分页保留显式组合，方便维护共享编辑状态转换。
+`ReaderView` 要求类型标识和渲染，提供激活／窗口钩子。工作区按实际可见性同步激活状态，覆盖键盘切换标签、返回设置页和加载占位结束等路径。`Reader` 只传递状态变化；新建但不可见的阅读器仍会收到首次停用通知。`ReaderOperations` 只借用实际实现的图片复制、解压、播放状态和持久化接口。`ReaderSurface` 补充应用侧刷新策略，原生／SQLite 可保留原位状态；`SurfaceEntity` 适配现有 GPUI 实体。源码／排版／分页保留显式组合，方便维护共享编辑状态转换。
 
 `ReaderHost` 提供翻译、类型化数值动作记录和共享资源池。OPML 与图结构视图通过宿主和 `glim-core::outline`／`graph` 纯数据工作，不直接引用服务实现或应用全局。图结构视图同时用于 XMind 与结构化数据可视化。`assets/reader-contracts` 中的源文件／期望载荷由生产者与视图回归共用，覆盖层级顺序、Unicode、URL 和折叠行为；这些是内部契约，不是序列化的外部插件协议。
 
