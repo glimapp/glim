@@ -35,6 +35,8 @@ Dependencies are one-way: `glim-app → glim-services → glim-core`; app may al
 
 Reader boundaries use ordinary modules: `reader/contract` defines narrow interfaces, `reader/construction` composes them, and each view owns its state. OPML and graph views receive translation, numeric action metrics and the shared resource pool through `ReaderHost`, consuming pure core values. Extract a crate only for a concrete independent-version, dependency-isolation or cross-product reuse requirement; extension count alone is not a reason.
 
+With the opt-in `reader-measurements` feature, `app/reader_measurement` composes the production `Reader` in an isolated window to measure the first readable source viewport, input and scrolling. Its observation wrapper exists only in measurement builds, without changing production reader interfaces or adding service-layer UI dependencies. Timestamps use GPUI's profiler and match actual source-subtree paint. See [resources and rendering](reader-resources.md#source-interaction-measurement) for reproducible runs and measurement scope.
+
 ### Local dependency patches
 
 `vendor/gpui-base` and `vendor/gpui-pre` retain pinned upstream library sources with local changes documented in `PATCHES.md`/`GLIM-PATCH.md`. Current extensions cover file-frame panic recovery, visible-list measurement, task-checkbox editing, image dimensions and end spacing. Before removing a path patch, verify that its replacement supplies the APIs used by the app and equivalent behavior. A fixed Git revision in a patch repository can replace local sources, but introduces separate repository maintenance and build fetching; introduce that workflow only for a demonstrated need.

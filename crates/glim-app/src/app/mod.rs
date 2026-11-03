@@ -10,6 +10,8 @@ pub(crate) mod languages;
 pub(crate) mod media_prepare;
 mod menus;
 pub(crate) mod reader_jobs;
+#[cfg(feature = "reader-measurements")]
+pub(crate) mod reader_measurement;
 pub(crate) mod recovery;
 mod shortcuts;
 pub(crate) mod spreadsheet_prepare;
@@ -331,6 +333,8 @@ pub fn run() -> Result<()> {
         println!(
             "Usage: glim [file-or-folder]\n\nOpen a folder or UTF-8 file in the viewer and basic text editor."
         );
+        #[cfg(feature = "reader-measurements")]
+        println!("Measurement build: glim --measure-source-reader fixture.txt");
         return Ok(());
     }
 

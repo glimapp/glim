@@ -2,6 +2,12 @@ mod app;
 mod views;
 
 fn main() -> anyhow::Result<()> {
+    #[cfg(feature = "reader-measurements")]
+    if std::env::args_os().nth(1).as_deref()
+        == Some(std::ffi::OsStr::new("--measure-source-reader"))
+    {
+        return app::reader_measurement::run();
+    }
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--render-markdown")) {
         return app::diagram_engine::run();
     }

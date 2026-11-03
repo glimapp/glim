@@ -4,6 +4,8 @@ mod minimap;
 mod native_menu_bridge;
 mod path_hint;
 mod reader;
+#[cfg(feature = "reader-measurements")]
+pub(crate) use reader::Reader;
 mod welcome;
 pub mod workspace;
 pub(crate) mod workspace_window;

@@ -49,7 +49,7 @@ impl SourceReader {
         let map = minimap.clone();
         let subscription = cx.subscribe(&state, move |state, event, cx| {
             if matches!(event, InputEvent::Change) {
-                let text = state.read(cx).value().to_string();
+                let text = state.read(cx).text().to_string();
                 map.update(cx, |map, cx| map.set_text(&text, cx));
             }
         });

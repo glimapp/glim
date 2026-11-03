@@ -41,12 +41,10 @@ impl EditSession {
         let subscription = cx.subscribe(&editor, move |editor, event, cx| {
             if matches!(event, InputEvent::Change) {
                 version.set(version.get().wrapping_add(1));
-                let is_dirty =
-                    !readonly && editor.read(cx).value().as_ref() != saved.borrow().as_ref();
-                tracked.resize(
-                    (editor.read(cx).value().len() as u64)
-                        .saturating_add(saved.borrow().len() as u64),
-                );
+                let text = editor.read(cx).text();
+                let baseline = saved.borrow();
+                let is_dirty = !readonly && text != baseline.as_ref();
+                tracked.resize((text.len() as u64).saturating_add(baseline.len() as u64));
                 if changed.replace(is_dirty) != is_dirty {
                     cx.refresh_windows();
                 }
@@ -86,13 +84,13 @@ impl EditSession {
     }
     pub fn mark_saved(&self, text: impl Into<Arc<str>>, cx: &App) {
         let text = text.into();
+        let current = self.0.editor.read(cx).text();
         self.0
             .dirty
-            .set(!self.0.readonly && self.0.editor.read(cx).value().as_ref() != text.as_ref());
+            .set(!self.0.readonly && current != text.as_ref());
+        self.0
+            .memory
+            .resize((current.len() as u64).saturating_add(text.len() as u64));
         *self.0.baseline.borrow_mut() = text;
-        self.0.memory.resize(
-            (self.0.editor.read(cx).value().len() as u64)
-                .saturating_add(self.0.baseline.borrow().len() as u64),
-        );
     }
 }

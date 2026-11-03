@@ -17,6 +17,7 @@ harness = false
 
 [features]
 macos-updater = []
+reader-measurements = ["gpui-kit/profiler"]
 
 [dependencies]
 log = "0.4"
