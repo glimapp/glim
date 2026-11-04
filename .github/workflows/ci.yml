@@ -1,69 +1,16 @@
 name: macOS builds
 on:
   push:
-    branches: [main]
     tags: ['v*']
-    paths:
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.cargo/**'
-      - 'crates/**'
-      - 'native/**'
-      - 'vendor/**'
-      - 'assets/macos/**'
-      - 'assets/branding/**'
-      - 'assets/locales/**'
-      - 'assets/reader-limits.json'
-      - 'assets/markdown/**'
-      - 'assets/file-icons/**'
-      - 'assets/navigation/**'
-      - 'assets/highlights/**'
-      - '!assets/**/README.md'
-      - 'scripts/check-locales.py'
-      - 'scripts/check-architecture.py'
-      - 'assets/format-catalog.json'
-      - 'assets/reader-contracts/**'
-      - 'scripts/generate-format-catalog.py'
-      - 'scripts/generate-reader-limits.py'
-      - 'scripts/bundle-macos.sh'
-      - 'scripts/bundle-finder.py'
-      - 'scripts/package-dmg.sh'
-      - 'scripts/configure-updater.py'
-      - 'scripts/sign-macos.py'
-      - 'scripts/fetch-sparkle.sh'
-      - 'scripts/test-updater*'
-      - 'scripts/test-macos-signing.py'
-      - '.github/workflows/ci.yml'
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: macos-build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 jobs:
-  select-build:
-    runs-on: ubuntu-latest
-    outputs:
-      enabled: ${{ steps.select.outputs.enabled }}
-    steps:
-      - uses: actions/checkout@v4
-        if: github.ref_type != 'tag'
-      - name: Avoid duplicate main and tag builds
-        id: select
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
-            echo 'enabled=true' >> "$GITHUB_OUTPUT"
-          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
-            echo 'enabled=true' >> "$GITHUB_OUTPUT"
-          else
-            glim_tagged=$(git ls-remote --tags origin 'refs/tags/v*' | awk -v commit="$GITHUB_SHA" '$1 == commit { found=1 } END { print found ? "true" : "false" }')
-            if [[ "$glim_tagged" == true ]]; then
-              echo 'enabled=false' >> "$GITHUB_OUTPUT"
-              echo 'This commit has a release tag; the tag workflow owns validation and packaging.' >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo 'enabled=true' >> "$GITHUB_OUTPUT"
-            fi
-          fi
   build:
-    needs: select-build
-    if: needs.select-build.outputs.enabled == 'true'
+    name: ${{ matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
