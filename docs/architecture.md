@@ -39,6 +39,8 @@ With the opt-in `reader-measurements` feature, `app/reader_measurement` composes
 
 `services/markdown_preview/cache` owns prepared PNG reuse with an injected resource pool and budget. Consumer lookups in the service and presentation layers have separate counters; publication and pending preparation are not counted as hits. See [cache semantics and measurement](reader-resources.md#diagram-caches-and-hit-rates).
 
+`services/markdown_preview/disk_cache` owns persistent PNG results and their dimensions/baselines under the macOS user cache directory. Background jobs check it after memory misses and publish successful reads through the normal resource pool. Atomic files, checksums, build/environment fingerprints and capacity eviction keep this optional storage independent of document state and UI. Cache errors fall back to ordinary rendering.
+
 `reader/diagrams` owns a bounded process-wide cache of successful display previews, independent of each view's pending queue, cancellation and retryable errors. Resident previews survive tab closure; their source keys isolate edits and formats. They remain reclaimable through the shared resource pool and are not persisted to disk.
 
 ### Local dependency patches
@@ -233,7 +235,7 @@ Native readers with toolbars get a content menu from their controls. PDF and ima
 
 ### Diagrams and format readers
 
-`services/markdown_preview` parses/deduplicates diagram and formula blocks, invokes private `--render-markdown`, and rasterizes bounded SVG output. `app/diagram_engine` uses WebKit on its process main thread with bundled offline engines. Visible diagram and formula nodes enqueue resource requests into bounded background batches. Completed resources update a shared cache and invalidate inline layout without reparsing the document. Leaving preview cancels work and releases the reader cache; cancellation terminates the renderer. macOS bundles a background `GlimRenderer.app` (`LSUIElement=true`); unbundled builds use the executable's renderer mode. Rendering does not depend on Node, Java or a remote service.
+`services/markdown_preview` parses/deduplicates diagram and formula blocks, invokes private `--render-markdown`, and rasterizes bounded SVG output. `app/diagram_engine` uses WebKit on its process main thread with bundled offline engines. Visible diagram and formula nodes enqueue resource requests into bounded background batches. Completed resources update a shared cache and invalidate inline layout without reparsing the document. Leaving preview cancels work and releases per-view pending/error state; completed previews remain in the bounded shared cache. Cancellation terminates the renderer. macOS bundles a background `GlimRenderer.app` (`LSUIElement=true`); unbundled builds use the executable's renderer mode. Rendering does not depend on Node, Java or a remote service.
 
 Mermaid, Graphviz, PlantUML, flowchart.js, WaveDrom and MathJax are embedded with their licenses. Local Salt/Chen adapters cover a subset of syntax. External diagram resources, navigation and downloads are blocked; failures preserve source. Engine source and bundled resources live in [scripts/markdown](../scripts/markdown) and [assets/markdown](../assets/markdown).
 

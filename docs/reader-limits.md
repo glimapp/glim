@@ -243,6 +243,7 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
+| `diagram.disk_cache_bytes` | 512 MiB | bytes | budget | Persistent diagram result cache capacity. Evict least recently used results; misses, invalid entries and unavailable storage regenerate diagrams through the normal background path. |
 | `diagram.blocks` | 8 | items | budget | Maximum diagrams per background render batch. Visible blocks queue automatically; this does not limit total document formulas or require manual paging. |
 | `diagram.source_bytes` | 256 KiB | bytes | fallback | Per-diagram structured-render working budget; failures preserve the complete block source. Other blocks remain available on demand. |
 | `diagram.svg_bytes` | 8 MiB | bytes | fallback | Per-diagram structured-render working budget; failures preserve the complete block source. Other blocks remain available on demand. |

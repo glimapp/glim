@@ -1,6 +1,7 @@
 use std::{env, path::PathBuf, process::Command};
 
 fn main() {
+    diagram_cache_fingerprint();
     println!("cargo:rerun-if-changed=../../assets/reader-limits.json");
     println!("cargo:rerun-if-changed=../../scripts/generate-reader-limits.py");
     let limits_out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -116,4 +117,40 @@ fn main() {
         .status()
         .expect("Native previews require Apple Command Line Tools (swiftc)");
     assert!(status.success(), "Native preview helper compilation failed");
+}
+
+fn diagram_cache_fingerprint() {
+    use sha2::{Digest, Sha256};
+    let mut files = vec![
+        PathBuf::from("../../Cargo.lock"),
+        PathBuf::from("../../assets/reader-limits.json"),
+        PathBuf::from("../../crates/glim-app/src/app/diagram_engine.rs"),
+        PathBuf::from("src/markdown_preview.rs"),
+        PathBuf::from("src/markdown_preview/disk_cache.rs"),
+    ];
+    let mut directories = vec![PathBuf::from("../../assets/markdown")];
+    while let Some(directory) = directories.pop() {
+        println!("cargo:rerun-if-changed={}", directory.display());
+        for entry in std::fs::read_dir(directory).expect("diagram asset directory") {
+            let path = entry.expect("diagram asset entry").path();
+            if path.is_dir() {
+                directories.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    let mut digest = Sha256::new();
+    for path in files {
+        println!("cargo:rerun-if-changed={}", path.display());
+        let bytes = std::fs::read(&path).expect("diagram cache fingerprint input");
+        digest.update(path.to_string_lossy().as_bytes());
+        digest.update((bytes.len() as u64).to_le_bytes());
+        digest.update(bytes);
+    }
+    println!(
+        "cargo:rustc-env=GLIM_DIAGRAM_CACHE_FINGERPRINT={:x}",
+        digest.finalize()
+    );
 }

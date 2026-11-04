@@ -283,6 +283,7 @@ pub struct DiagramImage {
     pub baseline: f32,
 }
 pub mod cache;
+mod disk_cache;
 static IMAGE_CACHE: OnceLock<Mutex<cache::ImageCache>> = OnceLock::new();
 fn image_cache() -> &'static Mutex<cache::ImageCache> {
     IMAGE_CACHE.get_or_init(|| {
@@ -447,13 +448,21 @@ pub fn render_batch(
         if cancelled.load(Ordering::Relaxed) {
             return false;
         }
-        if let Some(image) = cached_image(diagram, edge) {
+        let memory = cached_image(diagram, edge);
+        let disk = memory
+            .is_none()
+            .then(|| disk_cache::load(diagram, edge, cancelled))
+            .flatten();
+        if let Some(image) = memory.as_deref().map(|image| &**image).or(disk.as_ref()) {
             bytes_used += image.png.len();
             pixels_used += u64::from(image.width) * u64::from(image.height) * 4;
             if bytes_used <= reader_limits::DIAGRAM_AGGREGATE_ENCODED_BYTES
                 && pixels_used <= reader_limits::DIAGRAM_AGGREGATE_DECODED_BYTES
             {
-                publish(diagram.clone(), Ok((**image).clone()));
+                if disk.is_some() {
+                    remember_image(diagram, edge, image);
+                }
+                publish(diagram.clone(), Ok(image.clone()));
                 return false;
             }
             bytes_used -= image.png.len();
@@ -593,6 +602,7 @@ pub fn render_batch(
             };
             if let Ok(image) = &result {
                 remember_image(diagram, edge, image);
+                disk_cache::remember(diagram, edge, image, cancelled);
             }
             completed.insert(index);
             publish(diagram.clone(), result);

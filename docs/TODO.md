@@ -32,8 +32,6 @@ Constraints: retain `app → services → core`; use ordinary reader modules fir
 - [ ] **P3: Real cache benefits.** Measure both image and presentation caches during opening, repeat visits, leaving/returning to the viewport and memory pressure. Acceptance: separate hits, misses, pending requests, reclamation and preparation actually avoided. The current cache benchmark covers prepared PNG lookup/publication only, not engine or first-viewport speedups.
 - [ ] **P4: Runtime acceptance.** Execute relevant regressions and Apple Silicon/Intel interactions, including multiple windows and pressure. Compilation does not replace this acceptance; unexecuted cases remain open.
 
-Persistent disk caching remains a candidate design requiring version invalidation, disk reclamation and privacy cleanup before adoption.
-
 ## Gaps by task
 
 | Task | Current gap |

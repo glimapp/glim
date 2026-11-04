@@ -1031,6 +1031,14 @@
       }
     },
     "diagram": {
+      "disk_cache_bytes": {
+        "value": 536870912,
+        "type": "u64",
+        "unit": "bytes",
+        "effect": "budget",
+        "description": "Persistent diagram result cache capacity. Evict least recently used results; misses, invalid entries and unavailable storage regenerate diagrams through the normal background path.",
+        "description_zh": "图表结果磁盘缓存容量；淘汰最久未使用的结果。未命中、条目损坏或存储不可用时，沿用正常后台路径重新生成图表。"
+      },
       "blocks": {
         "value": 8,
         "type": "usize",
