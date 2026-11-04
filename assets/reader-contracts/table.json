@@ -1,0 +1,24 @@
+{
+  "columns": 3,
+  "more": false,
+  "rows": [
+    [
+      "name",
+      "value",
+      "note"
+    ],
+    [
+      "中文",
+      "a,b",
+      "line 1\nline 2 \"yes\""
+    ],
+    [
+      "short"
+    ],
+    [
+      "empty",
+      "",
+      "end"
+    ]
+  ]
+}

@@ -59,6 +59,8 @@ scripts/              打包、签名、更新清单与专项原生检查
 
 `reader/construction` 是准备内容的统一装配入口，同时处理会话恢复时的暂停播放。`reader/contract::ReaderView` 提供持久视图、激活和窗口绑定；图片复制、解压控制、播放状态和持久化拆为可选能力接口。`reader/surface::ReaderSurface` 补充刷新策略，`SurfaceEntity` 适配现有 GPUI 实体。`reader/opml` 与 `reader/xmind` 分别消费 `glim-core::outline`、`glim-core::graph`；图视图同时用于 XMind 和结构化文本投影。普通源码、排版和分页继续共用编辑会话，工作区不参与具体格式分发；原生非图片文档保留已有重载限制。
 
+`reader/csv` 协调 CSV／地理表格的源访问、分页和取消；持续保留的 `csv/view` 接收纯 `glim-core::table::TablePage`，通过 GPUI 事件发出导航／重试请求，宿主回调与展示策略均由外部注入。结构化交互图通过 `PreparedGraph` 在准备和展示期间持续持有工作预留；XMind 状态与图布局保留原有记账。
+
 `reader/editing` 将文档会话接到现有保存流程，`reader/text` 处理源码／预览切换，`reader/projection` 持有一个可选表格或 JSON 投影。结构操作控件在装配时创建并持续保留，render 不再创建它们。Workspace 协调导航、标签排序、保存和持久化；工具栏／右键菜单继续通过 `workspace/reader_actions` 和原生 `ReaderActions`，数据投影不另建保存通道。
 
 ### 阅读后台任务

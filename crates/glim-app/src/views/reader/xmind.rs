@@ -1,5 +1,5 @@
 use crate::views::reader::contract::{ReaderHost, ReaderMetric, ReaderView};
-use glim_core::graph::{MindMap, Sheet};
+use glim_core::graph::{MindMap, PreparedGraph, Sheet};
 use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Selectable,
@@ -76,11 +76,25 @@ fn layout(sheet: &Sheet, collapsed: &HashSet<usize>) -> Layout {
     result.height = cursor + 32.;
     result
 }
+enum GraphDocument {
+    XMind(MindMap),
+    Projection(PreparedGraph),
+}
+impl std::ops::Deref for GraphDocument {
+    type Target = MindMap;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::XMind(document) => document,
+            Self::Projection(document) => document,
+        }
+    }
+}
+
 pub struct GraphReader {
     host: ReaderHost,
     memory: glim_core::resources::ResourceLease,
     document_bytes: u64,
-    document: MindMap,
+    document: GraphDocument,
     embedded: bool,
     pan: Option<(Point<Pixels>, Point<Pixels>)>,
     focus: Option<FocusHandle>,
@@ -93,8 +107,14 @@ pub struct GraphReader {
 }
 impl GraphReader {
     pub fn new(document: MindMap, host: ReaderHost) -> Self {
+        Self::build(GraphDocument::XMind(document), host)
+    }
+    fn build(document: GraphDocument, host: ReaderHost) -> Self {
         let selected = document.sheets[0].roots[0];
-        let document_bytes = document.heap_bytes();
+        let document_bytes = match &document {
+            GraphDocument::XMind(document) => document.heap_bytes(),
+            GraphDocument::Projection(_) => 0,
+        };
         let memory = host
             .resources
             .track(document_bytes, glim_core::resources::ResourceClass::State);
@@ -123,8 +143,8 @@ impl GraphReader {
         view.center_root();
         view
     }
-    pub fn embedded(document: MindMap, host: ReaderHost) -> Self {
-        let mut view = Self::new(document, host);
+    pub fn embedded(document: PreparedGraph, host: ReaderHost) -> Self {
+        let mut view = Self::build(GraphDocument::Projection(document), host);
         view.embedded = true;
         view
     }

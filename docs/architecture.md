@@ -59,6 +59,8 @@ The composition boundary is `Workspace → Reader → DocumentSession + retained
 
 `reader/construction` is the prepared-content factory, including paused playback during restoration. `reader/contract::ReaderView` provides retained rendering, activation and window binding. Image copying, extraction controls, playback state and persistence are optional capability traits. `reader/surface::ReaderSurface` adds refresh policy; `SurfaceEntity` adapts existing GPUI entities. `reader/opml` and `reader/xmind` consume `glim-core::outline` and `glim-core::graph`; the graph view serves both XMind and structured-text projections. Source, markup and paging share editing sessions, and workspace does not dispatch specific formats. Non-image native documents retain their existing reload limitations.
 
+`reader/csv` coordinates CSV/geographic source access, paging and cancellation; its retained `csv/view` receives pure `glim-core::table::TablePage` values and emits navigation/retry requests through GPUI events. Host callbacks and display policy are injected. Structured graph output retains an admitted `PreparedGraph` owner through preparation and display; XMind state and graph layout still use their existing accounting.
+
 `reader/editing` bridges document sessions to existing saving; `reader/text` handles source/preview transitions; `reader/projection` owns one optional table or JSON projection. Structured controls are retained at construction rather than created during render. Workspace coordinates navigation, tab ordering, saves and session persistence. Toolbar/context actions continue through `workspace/reader_actions` and native `ReaderActions`; data views do not acquire independent save pipelines.
 
 ### Background reader work

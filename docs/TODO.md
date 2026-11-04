@@ -16,12 +16,12 @@ Constraints: retain `app → services → core`; use ordinary reader modules fir
 
 ### Reader modularity
 
-- [ ] **M1: Remaining reader boundaries.** Review CSV, SQLite, books, media, archives, paging, source/markup and native adapters. Separate preparation, retained state, presentation and host operations. Acceptance: presentation performs no file I/O or background orchestration; construction injects required app dependencies and architecture checks cover the actual boundaries.
+- [ ] **M1: Remaining reader boundaries.** CSV/geographic presentation now consumes a pure page contract and emits semantic requests. Review SQLite, books, media, archives, paging, source/markup and native adapters. Separate preparation, retained state, presentation and host operations. Acceptance: presentation performs no file I/O or background orchestration; construction injects required app dependencies and architecture checks cover the actual boundaries.
 - [ ] **M2: Lifecycle contract acceptance.** Cover activation/hiding, refresh, cancellation, retry, closing and window transfer. Acceptance: preserve the editing session, undo and unsaved state; stale jobs cannot replace newer revisions, and representative producer/consumer contracts pass at runtime.
 
 ### Resource coverage and pressure recovery
 
-- [ ] **R1: Remaining controlled allocations.** Admit parser `Value`/JSON5 workspaces, final graph output, book HTML/metadata, encoded previews/SVG intermediates and controlled SQLite/geographic parsing scratch. Acceptance: allocation and reallocation peaks fit the budget; ownership retains reservations across workers/publication; remove working-buffer `track`/`resize` paths that bypass admission.
+- [ ] **R1: Remaining controlled allocations.** Final structured-graph output and traversal storage are admitted before allocation; input parsing and graph layout remain open. Admit parser `Value`/JSON5 workspaces, book HTML/metadata, encoded previews/SVG intermediates and controlled SQLite/geographic parsing scratch. Acceptance: allocation and reallocation peaks fit the budget; ownership retains reservations across workers/publication; remove working-buffer `track`/`resize` paths that bypass admission.
 - [ ] **R2: Native and helper resources.** Cover controlled preparation, conversion and copy/OCR working sets; distinguish opaque ImageIO, WebKit, Quick Look, GPUI atlas, SQLite engine and helper allocations. Acceptance: actual system-memory observations and pressure degradation/recovery evidence; application accounting is not described as a process-memory hard limit.
 - [ ] **R3: Reclaim across active readers.** Unify release/retry/reconstruction of replaceable resources under pressure, including multiple windows and one large operation. Acceptance: progress with bounded working memory, protected unsaved text and necessary interaction state, charges retained until canceled work actually exits, and readable restoration on return.
 

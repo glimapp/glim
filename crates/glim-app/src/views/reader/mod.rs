@@ -58,16 +58,7 @@ pub(super) fn editor_menu(
 }
 
 pub(super) fn preview_loading(cx: &App) -> AnyElement {
-    use gpui_kit::component::ActiveTheme;
-    div()
-        .size_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .child(glim_services::locale::tr("Loading preview…"))
-        .into_any_element()
+    controls::loading(glim_services::locale::tr("Loading preview…"), cx)
 }
 
 pub use crate::views::reader::contract::ArchiveAction;

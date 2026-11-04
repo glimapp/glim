@@ -1,11 +1,7 @@
 //! Bounded CSV records for a read-only table; source bytes are never rewritten.
 use crate::limits as reader_limits;
 use anyhow::Result;
-pub struct TablePage {
-    pub rows: crate::resources::TextRows,
-    pub columns: usize,
-    pub more: bool,
-}
+pub use glim_core::table::TablePage;
 struct RecordReader<'a, R> {
     inner: R,
     remaining: usize,
@@ -226,6 +222,24 @@ mod tests {
         assert!(read_page_with_pool(b"a,b\n".as_slice(), b',', 0, 0, &cancel, &pool).is_err());
         assert_eq!(pool.snapshot().working_bytes, 0);
     }
+    #[test]
+    fn prepared_page_matches_independent_table_contract() {
+        let expected: serde_json::Value =
+            serde_json::from_str(include_str!("../../../assets/reader-contracts/table.json"))
+                .unwrap();
+        let page = read_page(
+            include_bytes!("../../../assets/reader-contracts/table.csv").as_slice(),
+            b',',
+            0,
+            0,
+            &Cancellation::default(),
+        )
+        .unwrap();
+        assert_eq!(serde_json::to_value(&*page.rows).unwrap(), expected["rows"]);
+        assert_eq!(page.columns, expected["columns"].as_u64().unwrap() as usize);
+        assert_eq!(page.more, expected["more"].as_bool().unwrap());
+    }
+
     #[test]
     fn quoted_commas_newlines_bom_and_ragged_records() {
         let page = read_page(("\u{feff}name,value\r\n中文,\"a,b\"\r\nquoted,\"line 1\nline 2 \"\"yes\"\"\"\r\nshort\r\n").as_bytes(), b',', 0, 0, &Cancellation::default()).unwrap();

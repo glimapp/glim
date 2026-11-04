@@ -1,17 +1,15 @@
 //! Local structured-data graph projection. No network, embedded scripts or source writes.
-use crate::{
-    limits,
-    work::Cancellation,
-    xmind::{MindMap, Sheet, Topic},
-};
+mod projection;
+use crate::{limits, work::Cancellation};
 use anyhow::{Result, ensure};
+use glim_core::graph::PreparedGraph;
 use serde::Deserialize;
 use std::{io::Read, path::Path};
 
 pub fn supports(path: &Path) -> bool {
     glim_core::formats::FormatSet::StructuredGraph.matches(path)
 }
-pub fn read(path: &Path, text: Option<String>, cancel: &Cancellation) -> Result<MindMap> {
+pub fn read(path: &Path, text: Option<String>, cancel: &Cancellation) -> Result<PreparedGraph> {
     cancel.check()?;
     let text = match text {
         Some(text) => text,
@@ -86,82 +84,9 @@ pub fn read(path: &Path, text: Option<String>, cancel: &Cancellation) -> Result<
             crate::json::parse_format_cancellable(text, &format, cancel, crate::resources::pool())?
         }
     };
-    cancel.check()?;
-    ensure!(
-        nodes.len() <= limits::XMIND_TOPICS,
-        "Graph node budget exceeded; use Source."
-    );
-    let mut pending = vec![(0usize, 0usize)];
-    while let Some((index, depth)) = pending.pop() {
-        cancel.check()?;
-        ensure!(
-            depth <= limits::XMIND_NESTING,
-            "Graph nesting budget exceeded; use Source."
-        );
-        pending.extend(
-            nodes[index]
-                .children
-                .iter()
-                .map(|&child| (child, depth + 1)),
-        );
-    }
-    // Keep scalar fields together in object cards; only containers branch out.
-    let topics = nodes
-        .iter()
-        .map(|node| {
-            let grouped = node.kind == "object";
-            let fields: Vec<_> = node
-                .children
-                .iter()
-                .copied()
-                .filter(|&i| nodes[i].children.is_empty() && nodes[i].full_value.is_some())
-                .collect();
-            let mut title = format!("{}\n{}", node.key, node.value);
-            let mut notes = format!(
-                "{}\n{}",
-                node.full_key,
-                node.full_value.as_deref().unwrap_or(&node.value)
-            );
-            if grouped {
-                for (position, &child) in fields.iter().enumerate() {
-                    let field = &nodes[child];
-                    if position < 2 {
-                        title.push_str(&format!("\n{}: {}", field.key, field.value));
-                    }
-                    notes.push_str(&format!(
-                        "\n{}: {}",
-                        field.full_key,
-                        field.full_value.as_deref().unwrap_or(&field.value)
-                    ));
-                }
-            }
-            Topic {
-                title,
-                notes,
-                labels: vec![node.kind.into()],
-                link: None,
-                children: node
-                    .children
-                    .iter()
-                    .copied()
-                    .filter(|&i| {
-                        !grouped || !nodes[i].children.is_empty() || nodes[i].full_value.is_none()
-                    })
-                    .collect(),
-            }
-        })
-        .collect();
-    Ok(MindMap {
-        path: path.to_owned(),
-        fingerprint: String::new(),
-        sheets: vec![Sheet {
-            title: "Graph".into(),
-            topics,
-            roots: vec![0],
-            relationships: Vec::new(),
-        }],
-    })
+    projection::prepare(path, &nodes, cancel, crate::resources::pool())
 }
+
 fn xml_nodes(text: &str, cancel: &Cancellation) -> Result<glim_core::structured::Tree> {
     let document = roxmltree::Document::parse(text)?;
     let mut nodes = glim_core::structured::TreeBuilder::new(crate::resources::pool());

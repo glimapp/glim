@@ -22,9 +22,9 @@ impl Projection {
     pub fn new(presentation: &TextPresentation, file: Option<&Path>, cx: &mut App) -> Option<Self> {
         let view = if let Some(format) = presentation.table {
             View::Table {
-                view: cx.new(|_| match file {
-                    Some(path) => CsvTable::from_file(path.to_path_buf(), format),
-                    None => CsvTable::new(),
+                view: cx.new(|cx| match file {
+                    Some(path) => CsvTable::from_file(path.to_path_buf(), format, cx),
+                    None => CsvTable::new(cx),
                 }),
                 format,
             }
@@ -110,7 +110,7 @@ impl Projection {
                 if active {
                     table.resume(cx);
                 } else {
-                    table.suspend();
+                    table.suspend(cx);
                 }
             }),
             View::Json(view) => view.update(cx, |tree, cx| {

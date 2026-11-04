@@ -125,3 +125,15 @@ pub(super) fn persistent(id: &'static str, controls: impl IntoElement) -> impl I
         persistent: true,
     }
 }
+
+pub(super) fn loading(label: String, cx: &App) -> AnyElement {
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(label)
+        .into_any_element()
+}

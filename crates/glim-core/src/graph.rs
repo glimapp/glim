@@ -1,5 +1,27 @@
 //! Prepared graph values shared by XMind and structured-data readers.
+use crate::resources::WorkingReservation;
 use std::path::PathBuf;
+
+/// A derived graph retains its admitted output storage through publication.
+pub struct PreparedGraph {
+    document: MindMap,
+    _memory: WorkingReservation,
+}
+impl PreparedGraph {
+    pub fn new(document: MindMap, memory: WorkingReservation) -> Self {
+        assert!(memory.bytes() >= document.heap_bytes());
+        Self {
+            document,
+            _memory: memory,
+        }
+    }
+}
+impl std::ops::Deref for PreparedGraph {
+    type Target = MindMap;
+    fn deref(&self) -> &Self::Target {
+        &self.document
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MindMap {
