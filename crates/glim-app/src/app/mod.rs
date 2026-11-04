@@ -322,6 +322,19 @@ fn show_about(cx: &mut App) {
     about::open(cx);
 }
 
+pub fn print_build_info() {
+    println!(
+        "{}",
+        serde_json::json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "build": env!("GLIM_BUILD_NUMBER"),
+            "telemetry_environment": glim_services::telemetry::environment(),
+            "is_debug": glim_services::telemetry::is_debug(),
+            "debug_assertions": cfg!(debug_assertions),
+        })
+    );
+}
+
 pub fn run() -> Result<()> {
     #[cfg(feature = "reader-measurements")]
     let startup = reader_measurement::StartupMeasurement::start();

@@ -6,7 +6,15 @@
 
 沿用设置中的遥测开关。开启时发送功能事件和脱敏错误；关闭立即取消发送并清空队列。仅在启用的后台任务中创建随机 128 位安装标识 `installation_id`，保存在 Glim 应用数据库的 settings 表，不读取账号、硬件身份、路径或文档内容。标识跨启动、关闭后重新开启保持一致；缺少该设置记录时会生成新标识。身份存储不可写时省略标识，避免把每次启动误算成新人。
 
-按 `installation_id` 去重得到的是安装数，作为使用人数的近似。换电脑、重装、关闭遥测和发送失败都会影响结果。Aptabase 内置会话数不能直接叫人数；跨会话去重需要导出分析或支持 distinct 的自定义查询。
+按 `installation_id` 去重得到的是安装数，作为使用人数的近似。换电脑、清除应用数据、关闭遥测和发送失败都会影响结果。Aptabase 内置会话数不能直接叫人数；跨会话去重需要导出分析或支持 distinct 的自定义查询。
+
+## 开发与正式渠道
+
+Aptabase 的 `systemProps.isDebug` 按构建来源区分。本地 `cargo run`、本地优化构建和本地 `.app`／DMG 打包统一上报 debug。只有官方仓库推送 `v*` 标签的工作流，在 `GLIM_DISTRIBUTION=github-release` 且使用优化 Cargo profile 时编入 release 路由；手动工作流、普通分支和 fork 保持 debug。渠道固定在二进制内，移动应用或修改运行时环境变量不会改变它。CI 在打包前核验可执行文件。`/Applications/Glim.app/Contents/MacOS/glim --build-info` 只输出渠道和版本，不启动应用、不读取安装标识、不发送遥测。
+
+事件另带 `telemetry_environment=debug|release`。`system_profile.debug_build` 仍表示编译器是否启用 debug assertions，与遥测渠道独立。此前本地优化包被计入 release，修改不会重分类历史数据；分析旧导出时需排除已知开发安装 ID。
+
+正常升级、替换应用包、关闭后重新开启遥测，以及开发／正式渠道切换，都复用应用数据库中既有的 `telemetry-installation-id`；版本、build 和渠道均不参与该键。清除应用数据或换设备可能产生新安装标识，会话标识独立轮换。安装数仍不等同于人数，当前没有基于账号的跨设备合并。回归覆盖数据库升级／重启、并发首次启动和只读／无效存储，不重建已有身份。
 
 ## 哪些格式最值得优化
 

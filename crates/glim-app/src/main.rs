@@ -2,6 +2,10 @@ mod app;
 mod views;
 
 fn main() -> anyhow::Result<()> {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--build-info")) {
+        app::print_build_info();
+        return Ok(());
+    }
     #[cfg(feature = "reader-measurements")]
     if std::env::args_os().nth(1).as_deref()
         == Some(std::ffi::OsStr::new("--measure-source-reader"))

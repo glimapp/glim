@@ -88,6 +88,8 @@ CI 的 Cargo 步骤统一使用 `--release --target <arch> --features macos-upda
 
 普通分支 push 不再触发 macOS 构建；完整 ARM／Intel 验证只在推送 `v*` 版本 tag 或明确手动运行时执行。发布前如需预热默认分支缓存，可在 main 上手动运行 `macOS builds`，该操作可选且不上传安装包。版本 tag 的 push 生成两种 DMG 并保留全部发布检查；不同 tag 的缓存不能直接互用，但可以恢复默认分支可见缓存。同一分支重复手动运行会取消过时任务，tag 构建不会自动取消。签名发布工作流只接受同一 tag、同一提交的成功 push 构建。GitHub 托管的 CodeQL 安全扫描独立于该构建触发策略。
 
+本地优化包的遥测默认仍为 debug。只有官方 tag push 设置 `GLIM_DISTRIBUTION=github-release`，由构建来源条件决定 release 路由，CI 在打包前通过 `--build-info` 核验可执行文件；手动预热构建保持 debug。正常应用升级保留应用数据库中的安装标识。见[遥测渠道](telemetry.zh-CN.md#开发与正式渠道)。
+
 缓存按架构和工具链／Cargo 配置区分，保留依赖及工作空间编译产物；Sparkle 仅缓存固定压缩包，每次从验过摘要的字节重新解压。DMG 已压缩，上传不再重复压缩，构建附件保留七天。Job Summary 记录缓存命中和磁盘占用，Actions 步骤记录耗时。目标是热缓存下约 1–5 分钟，冷缓存、工具链／依赖变化、排队和网络波动不保证五分钟内完成。Intel 通过实际 release 构建和包校验，ARM 测试不能视为 Intel 实机交互验收。
 
 ### 隔离更新验证

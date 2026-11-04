@@ -27,6 +27,14 @@ const FLUSH_INTERVAL: Duration = Duration::from_secs(2);
 const ERROR_INTERVAL: Duration = Duration::from_secs(60);
 static CURRENT: Mutex<Option<Arc<Session>>> = Mutex::new(None);
 
+/// Fixed by build provenance; local optimized builds still use debug telemetry.
+pub fn environment() -> &'static str {
+    env!("GLIM_TELEMETRY_ENVIRONMENT")
+}
+pub fn is_debug() -> bool {
+    environment() != "release"
+}
+
 /// Owned strings are deliberately not accepted by the public property API.
 /// File names, document text, URLs and arbitrary error messages cannot be
 /// accidentally passed through an ordinary instrumentation call.
@@ -152,6 +160,7 @@ pub fn track(name: &'static str, props: impl IntoIterator<Item = (&'static str, 
     );
     props.insert("architecture", std::env::consts::ARCH.into());
     props.insert("schema_version", 3.into());
+    props.insert("telemetry_environment", environment().into());
     let urgent = matches!(
         name,
         "error_logged" | "operation_failed" | "app_panicked" | "native_reader_error" | "app_exited"
@@ -670,7 +679,10 @@ fn os_version(argument: &str, cancel: &Cancellation) -> String {
 // reach identity rather than silently treating each launch as a different person.
 fn installation_id() -> Result<String> {
     let db = crate::storage::open()?;
-    if let Some(value) = crate::storage::setting(&db, "telemetry-installation-id")? {
+    installation_id_in(&db)
+}
+fn installation_id_in(db: &rusqlite::Connection) -> Result<String> {
+    if let Some(value) = crate::storage::setting(db, "telemetry-installation-id")? {
         ensure!(
             value.len() == 32 && value.bytes().all(|b| b.is_ascii_hexdigit()),
             "Invalid telemetry identity"
@@ -687,7 +699,7 @@ fn installation_id() -> Result<String> {
         "INSERT OR IGNORE INTO settings(key,value) VALUES('telemetry-installation-id',?1)",
         [&value],
     )?;
-    crate::storage::setting(&db, "telemetry-installation-id")?
+    crate::storage::setting(db, "telemetry-installation-id")?
         .context("Missing installation identity")
 }
 impl Worker {
@@ -704,7 +716,7 @@ impl Worker {
         let system = serde_json::json!({
             "osName": "macOS", "osVersion": os_version("-productVersion", cancel),
             "engineName": "GPUI", "engineVersion": "0.7.1",
-            "appVersion": env!("CARGO_PKG_VERSION"), "isDebug": cfg!(debug_assertions),
+            "appVersion": env!("CARGO_PKG_VERSION"), "isDebug": is_debug(),
             "appBuildNumber": self.session.build_number,
             "sdkVersion": "glim@3", "locale": crate::locale::code(),
         });
@@ -809,6 +821,7 @@ impl Worker {
                 let mut props = serde_json::json!({
                     "events_dropped": dropped, "errors_suppressed": suppressed,
                     "upload_failures": failures, "schema_version": 3,
+                    "telemetry_environment": environment(),
                     "architecture": std::env::consts::ARCH, "os_build": os_build,
                     "event_sequence": self.session.sequence.fetch_add(1, Ordering::Relaxed),
                 });
@@ -884,4 +897,76 @@ pub fn reader_feature(
     let mut props = vec![("reader_kind", text(kind)), ("action", text(action))];
     props.extend(extra);
     track("reader_feature", props);
+}
+
+#[cfg(test)]
+#[path = "../build/distribution.rs"]
+mod distribution_policy;
+
+#[cfg(test)]
+mod tests {
+    use super::installation_id_in;
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn installation_identity_survives_schema_upgrade_and_restarts() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let db = crate::storage::open_at(directory.path())?;
+        let existing = "0123456789abcdef0123456789abcdef";
+        crate::storage::set_setting(&db, "telemetry-installation-id", existing)?;
+        assert_eq!(installation_id_in(&db)?, existing);
+        db.execute_batch("ALTER TABLE sessions DROP COLUMN window_active; ALTER TABLE sessions DROP COLUMN show_home; PRAGMA user_version=2;")?;
+        drop(db);
+        for _ in 0..3 {
+            let db = crate::storage::open_at(directory.path())?;
+            assert_eq!(installation_id_in(&db)?, existing);
+            assert_eq!(
+                db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?,
+                3
+            );
+        }
+        Ok(())
+    }
+    #[test]
+    fn concurrent_first_launches_share_one_identity_and_readonly_stores_never_rotate_it()
+    -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        drop(crate::storage::open_at(directory.path())?);
+        let barrier = Arc::new(Barrier::new(6));
+        let results = std::thread::scope(|scope| {
+            let jobs = (0..6)
+                .map(|_| {
+                    let barrier = barrier.clone();
+                    let path = directory.path();
+                    scope.spawn(move || -> anyhow::Result<String> {
+                        let db = crate::storage::open_at(path)?;
+                        barrier.wait();
+                        installation_id_in(&db)
+                    })
+                })
+                .collect::<Vec<_>>();
+            jobs.into_iter()
+                .map(|job| job.join().unwrap())
+                .collect::<anyhow::Result<Vec<_>>>()
+        })?;
+        assert!(results.iter().all(|value| value == &results[0]));
+        assert_eq!(results[0].len(), 32);
+        let db = rusqlite::Connection::open_with_flags(
+            directory.path().join("glim.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        assert_eq!(installation_id_in(&db)?, results[0]);
+        drop(db);
+        let memory = rusqlite::Connection::open_in_memory()?;
+        memory.execute_batch("CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL); PRAGMA query_only=ON;")?;
+        assert!(installation_id_in(&memory).is_err());
+        memory.execute_batch("PRAGMA query_only=OFF;")?;
+        crate::storage::set_setting(&memory, "telemetry-installation-id", "invalid-existing-id")?;
+        assert!(installation_id_in(&memory).is_err());
+        assert_eq!(
+            crate::storage::setting(&memory, "telemetry-installation-id")?.as_deref(),
+            Some("invalid-existing-id")
+        );
+        Ok(())
+    }
 }

@@ -1,6 +1,16 @@
 use std::{env, path::PathBuf, process::Command};
+#[path = "build/distribution.rs"]
+mod distribution;
 
 fn main() {
+    println!("cargo:rerun-if-changed=build/distribution.rs");
+    for key in distribution::INPUTS {
+        println!("cargo:rerun-if-env-changed={key}");
+    }
+    println!(
+        "cargo:rustc-env=GLIM_TELEMETRY_ENVIRONMENT={}",
+        distribution::environment(|key| env::var(key).ok())
+    );
     diagram_cache_fingerprint();
     println!("cargo:rerun-if-changed=../../assets/reader-limits.json");
     println!("cargo:rerun-if-changed=../../scripts/generate-reader-limits.py");
