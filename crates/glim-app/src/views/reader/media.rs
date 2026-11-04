@@ -1,6 +1,8 @@
 use crate::app::reader_jobs::{self, JobClass, Priority};
+use glim_services::documents::{ReadFailure, ReadFailureKind};
 use glim_services::limits as reader_limits;
 use gpui_kit::base::Disableable;
+use gpui_kit::component::{ActiveTheme, Icon};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
@@ -646,10 +648,11 @@ impl Render for GifReader {
 
 pub(super) struct UnavailableReader {
     issue_url: String,
-    reason: String,
+    reason: ReadFailure,
+    path: std::path::PathBuf,
 }
 impl UnavailableReader {
-    pub fn new(path: &Path, reason: String) -> Self {
+    pub fn new(path: &Path, reason: ReadFailure) -> Self {
         let extension = path
             .extension()
             .and_then(|s| s.to_str())
@@ -662,27 +665,132 @@ impl UnavailableReader {
         Self {
             issue_url: url.into(),
             reason,
+            path: path.to_path_buf(),
         }
     }
-    pub fn render(&self, _cx: &mut App) -> AnyElement {
+    pub fn render(&self, cx: &mut App) -> AnyElement {
+        use crate::app::actions::{CloseWindow, Refresh};
+        use glim_services::locale::tr;
+        let (title, explanation) = match self.reason.kind {
+            ReadFailureKind::NotFound => (
+                "File not found",
+                "This file may have been moved, renamed or deleted. If it is on an external drive, check that the drive is connected.",
+            ),
+            ReadFailureKind::PermissionDenied => (
+                "Permission needed",
+                "Glim cannot read this file. Check its permissions in Finder, then try again.",
+            ),
+            ReadFailureKind::Other => (
+                "Cannot open this file",
+                "Glim could not read this file. Try again, or copy the error details if you need to report a problem.",
+            ),
+        };
         let url = self.issue_url.clone();
+        let detail = self.reason.detail.clone();
+        let path = self.path.display().to_string();
         v_flex()
+            .id("unavailable-reader")
             .size_full()
+            .overflow_y_scroll()
             .items_center()
-            .justify_center()
-            .gap_3()
-            .p_8()
+            .p_6()
             .child(
-                div()
-                    .text_xl()
-                    .child(glim_services::locale::tr("Cannot open this file")),
-            )
-            .child(div().text_sm().child(self.reason.clone()))
-            .child(
-                Button::new("unsupported-issue")
-                    .ghost()
-                    .label(glim_services::locale::tr("Report an issue on GitHub"))
-                    .on_click(move |_, _, cx| cx.open_url(&url)),
+                v_flex()
+                    .w_full()
+                    .my_auto()
+                    .flex_shrink_0()
+                    .max_w(px(520.))
+                    .gap_4()
+                    .text_color(cx.theme().foreground)
+                    .child(
+                        Icon::new(gpui_kit::assets::IconName::File)
+                            .size(px(32.))
+                            .text_color(cx.theme().muted_foreground),
+                    )
+                    .child(div().text_xl().child(tr(title)))
+                    .child(
+                        div()
+                            .text_sm()
+                            .whitespace_normal()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(tr(explanation)),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .p_3()
+                            .rounded_md()
+                            .bg(cx.theme().muted)
+                            .child(
+                                div().w_full().truncate().text_sm().child(
+                                    self.path
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .into_owned(),
+                                ),
+                            )
+                            .child(
+                                div()
+                                    .w_full()
+                                    .truncate()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(path.clone()),
+                            )
+                            .child(
+                                Button::new("copy-unavailable-path")
+                                    .ghost()
+                                    .label(tr("Copy path"))
+                                    .on_click(move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            path.clone(),
+                                        ))
+                                    }),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("retry-unavailable")
+                                    .primary()
+                                    .label(tr("Check again"))
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(Refresh), cx)
+                                    }),
+                            )
+                            .child(
+                                Button::new("close-unavailable")
+                                    .ghost()
+                                    .label(tr("Close tab"))
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(CloseWindow), cx)
+                                    }),
+                            ),
+                    )
+                    .when(self.reason.kind == ReadFailureKind::Other, |view| {
+                        view.child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("copy-read-error")
+                                        .ghost()
+                                        .label(tr("Copy error details"))
+                                        .on_click(move |_, _, cx| {
+                                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                                detail.clone(),
+                                            ))
+                                        }),
+                                )
+                                .child(
+                                    Button::new("unsupported-issue")
+                                        .ghost()
+                                        .label(tr("Report an issue on GitHub"))
+                                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                                ),
+                        )
+                    }),
             )
             .into_any_element()
     }
@@ -754,7 +862,7 @@ mod tests {
         for name in [".DS_Store", ".env", "README"] {
             let issue = UnavailableReader::new(
                 &std::path::Path::new("/private/project").join(name),
-                "unsupported".into(),
+                "unsupported".to_string().into(),
             );
             let url = url::Url::parse(&issue.issue_url).unwrap();
             let query = url
@@ -770,7 +878,9 @@ mod tests {
     fn issue_draft_contains_format_and_version_but_not_private_path() {
         let issue = UnavailableReader::new(
             std::path::Path::new("/private/project/customer.pdf"),
-            "Could not decode /private/project/customer.pdf".into(),
+            "Could not decode /private/project/customer.pdf"
+                .to_string()
+                .into(),
         );
         let url = url::Url::parse(&issue.issue_url).unwrap();
         let query = url

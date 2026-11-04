@@ -60,6 +60,7 @@ impl Workspace {
         }));
     }
     pub(super) fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.refresh_notice = None;
         self.refresh_files(window, cx);
     }
 
@@ -118,6 +119,7 @@ impl Workspace {
         let (cancel, guard) = glim_services::work::Cancellation::task();
         self.refresh_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
+            let mut failures = Vec::new();
             for (index, (version, request)) in targets.into_iter().enumerate() {
                 let cancel = cancel.clone();
                 let work_changes = changes.clone();
@@ -155,14 +157,20 @@ impl Workspace {
                             Ok(Some(content)) => content,
                             Ok(None) => return,
                             Err(error) => {
-                                // Keep the last readable view when a replacement cannot be prepared.
-                                if !error.is::<glim_services::work::Cancelled>() {
-                                    view.error = Some(
-                                        format!(
-                                            "Cannot refresh {}: {error:#}",
-                                            view.tabs[index].document.path.display()
-                                        )
-                                        .into(),
+                                if error.is::<glim_services::work::Cancelled>() {
+                                    return;
+                                }
+                                let path = view.tabs[index].document.path.clone();
+                                let unavailable = view.tabs[index].is_unavailable();
+                                let failure = glim_services::documents::ReadFailure::from(&error);
+                                log::warn!("Cannot refresh {}: {error:#}", path.display());
+                                if force || !unavailable {
+                                    failures.push((path.clone(), failure.kind, !unavailable));
+                                }
+                                // A failed refresh must never replace readable or edited content.
+                                if unavailable {
+                                    view.tabs[index] = crate::views::reader::Reader::unavailable(
+                                        path, failure, window, cx,
                                     );
                                     cx.notify();
                                 }
@@ -191,9 +199,56 @@ impl Workspace {
                     return;
                 }
             }
-            let _ = view.update(cx, |view, _| {
+            let _ = view.update(cx, |view, cx| {
                 view.refresh_task = None;
+                if let Some(notice) = refresh_failure_notice(&failures) {
+                    view.refresh_notice = Some(notice);
+                    cx.notify();
+                }
             });
         }));
     }
+}
+
+fn refresh_failure_notice(
+    failures: &[(
+        std::path::PathBuf,
+        glim_services::documents::ReadFailureKind,
+        bool,
+    )],
+) -> Option<(SharedString, SharedString)> {
+    use glim_services::{documents::ReadFailureKind, locale::tr};
+    let (path, kind, kept_view) = failures.first()?;
+    if failures.len() > 1 {
+        let title =
+            tr("Could not refresh {count} files").replace("{count}", &failures.len().to_string());
+        return Some((
+            title.into(),
+            tr("Some files could not be found or read. Existing views and tabs have been kept.")
+                .into(),
+        ));
+    }
+    let (title, explanation) = match kind {
+        ReadFailureKind::NotFound => (
+            "File not found",
+            "It may have been moved, renamed or deleted, or its drive may be disconnected.",
+        ),
+        ReadFailureKind::PermissionDenied => (
+            "Permission needed",
+            "Check this file’s permissions in Finder, then try again.",
+        ),
+        ReadFailureKind::Other => (
+            "Could not refresh this file",
+            "Try refreshing again. If the problem continues, reopen the file.",
+        ),
+    };
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let mut message = format!("{name}\n{}", tr(explanation));
+    if *kept_view {
+        message.push_str(&format!(
+            "\n{}",
+            tr("The last opened version is still displayed.")
+        ));
+    }
+    Some((tr(title).into(), message.into()))
 }

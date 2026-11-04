@@ -171,7 +171,7 @@ impl Workspace {
                             Ok(content) => Reader::from_restored_content(content, window, cx),
                             Err(error) => Reader::unavailable(
                                 tab_path(&descriptor),
-                                format!("{error:#}"),
+                                (&error).into(),
                                 window,
                                 cx,
                             ),

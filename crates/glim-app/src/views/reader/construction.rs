@@ -25,7 +25,8 @@ impl Reader {
             Err(_) => Reader::unavailable(
                 path.clone(),
                 glim_services::diagnostics::failure(&path)
-                    .unwrap_or_else(|| "Reader initialization failed".into()),
+                    .unwrap_or_else(|| "Reader initialization failed".into())
+                    .into(),
                 window,
                 cx,
             ),
@@ -281,7 +282,12 @@ impl Reader {
             renderer: Renderer::surface(opml::OutlineSurface::new(document, super::host(), cx)),
         }
     }
-    pub fn unavailable(path: PathBuf, reason: String, _: &mut Window, _: &mut App) -> Self {
+    pub fn unavailable(
+        path: PathBuf,
+        reason: glim_services::documents::ReadFailure,
+        _: &mut Window,
+        _: &mut App,
+    ) -> Self {
         let renderer = Renderer::surface(UnavailableReader::new(&path, reason));
         Self {
             active: std::cell::Cell::new(None),

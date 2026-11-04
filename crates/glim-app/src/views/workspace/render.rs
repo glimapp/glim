@@ -44,6 +44,21 @@ impl Render for Workspace {
                 reader.activate(cx);
             }
         }
+        let notice = self
+            .error
+            .clone()
+            .map(|message| {
+                (
+                    glim_services::locale::tr("Operation incomplete").into(),
+                    message,
+                    true,
+                )
+            })
+            .or_else(|| {
+                self.refresh_notice
+                    .clone()
+                    .map(|(title, message)| (title, message, false))
+            });
         let header = self.header(cx);
         let tab_bar = self.tab_bar(window, cx);
         let view = cx.entity().downgrade();
@@ -601,7 +616,7 @@ impl Render for Workspace {
                 cx.stop_propagation();
             }))
             .child(body)
-            .when_some(self.error.clone(), |view, error| {
+            .when_some(notice, |view, (title, error, danger)| {
                 view.child(
                     deferred(
                         v_flex()
@@ -622,9 +637,14 @@ impl Render for Workspace {
                                 h_flex()
                                     .justify_between()
                                     .child(
-                                        div().text_sm().text_color(cx.theme().danger).child(
-                                            glim_services::locale::tr("Operation incomplete"),
-                                        ),
+                                        div()
+                                            .text_sm()
+                                            .text_color(if danger {
+                                                cx.theme().danger
+                                            } else {
+                                                cx.theme().foreground
+                                            })
+                                            .child(title),
                                     )
                                     .child(
                                         Button::new("dismiss-error")
@@ -635,6 +655,7 @@ impl Render for Workspace {
                                             ))
                                             .on_click(cx.listener(|v, _, _, cx| {
                                                 v.error = None;
+                                                v.refresh_notice = None;
                                                 cx.notify();
                                             })),
                                     ),

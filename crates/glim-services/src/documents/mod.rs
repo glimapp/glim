@@ -6,6 +6,45 @@ pub mod presentation;
 pub mod refresh;
 mod registry;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadFailureKind {
+    NotFound,
+    PermissionDenied,
+    Other,
+}
+
+#[derive(Clone, Debug)]
+pub struct ReadFailure {
+    pub kind: ReadFailureKind,
+    pub detail: String,
+}
+
+impl From<&anyhow::Error> for ReadFailure {
+    fn from(error: &anyhow::Error) -> Self {
+        let kind = match error
+            .downcast_ref::<std::io::Error>()
+            .map(std::io::Error::kind)
+        {
+            Some(std::io::ErrorKind::NotFound) => ReadFailureKind::NotFound,
+            Some(std::io::ErrorKind::PermissionDenied) => ReadFailureKind::PermissionDenied,
+            _ => ReadFailureKind::Other,
+        };
+        Self {
+            kind,
+            detail: format!("{error:#}"),
+        }
+    }
+}
+
+impl From<String> for ReadFailure {
+    fn from(detail: String) -> Self {
+        Self {
+            kind: ReadFailureKind::Other,
+            detail,
+        }
+    }
+}
+
 pub enum Content {
     Archive(crate::archive::Archive),
     File(Document),
@@ -16,7 +55,7 @@ pub enum Content {
     Book(crate::books::Book),
     Native(PathBuf, bool, bool),
     Sqlite(PathBuf),
-    Unavailable(PathBuf, String),
+    Unavailable(PathBuf, ReadFailure),
 }
 impl Content {
     pub fn path(&self) -> &Path {

@@ -179,7 +179,7 @@ impl Workspace {
                             view.install_content(*content, window, cx)
                         }
                         Ok(Opened::File(path, Err(error))) => view.install_content(
-                            Content::Unavailable(path, format!("{error:#}")),
+                            Content::Unavailable(path, (&error).into()),
                             window,
                             cx,
                         ),
@@ -251,7 +251,7 @@ impl Workspace {
                         view.install_content(*document, window, cx)
                     }
                     Ok(Opened::File(path, Err(error))) => view.install_content(
-                        Content::Unavailable(path, format!("{error:#}")),
+                        Content::Unavailable(path, (&error).into()),
                         window,
                         cx,
                     ),
