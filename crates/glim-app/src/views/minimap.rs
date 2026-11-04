@@ -1,13 +1,19 @@
+mod geometry;
+use self::geometry::Geometry;
 use gpui_kit::{
-    component::{ActiveTheme, input::EditorState},
+    component::{
+        ActiveTheme,
+        input::{EditorState, Rope},
+    },
     *,
 };
-use std::{cell::Cell, rc::Rc, sync::Arc};
+use std::{cell::Cell, rc::Rc};
 
-/// A compact document overview. Text geometry is cached once, not parsed in render.
+/// A compact document overview with retained, incrementally updated row geometry.
 pub struct Minimap {
     source: Entity<EditorState>,
-    lines: Arc<Vec<(u8, u8)>>,
+    geometry: Geometry,
+    active: bool,
     preview_scroll: ScrollHandle,
     preview: bool,
     preview_list: Option<ListState>,
@@ -19,26 +25,18 @@ pub struct Minimap {
 impl Minimap {
     pub fn new(
         source: Entity<EditorState>,
-        text: &str,
         preview_scroll: ScrollHandle,
         cx: &mut Context<Self>,
     ) -> Self {
-        let lines = text
-            .split('\n')
-            .map(|line| {
-                let indent = line
-                    .chars()
-                    .take_while(|c| c.is_whitespace())
-                    .count()
-                    .min(100);
-                let width = line.chars().take(120).count().saturating_sub(indent);
-                (indent as u8, width as u8)
-            })
-            .collect();
+        let geometry = Geometry::new(
+            source.read(cx).text(),
+            glim_services::resources::pool().clone(),
+        );
         let subscription = cx.observe(&source, |_, _, cx| cx.notify());
         Self {
             source,
-            lines: Arc::new(lines),
+            geometry,
+            active: true,
             preview_scroll,
             preview: false,
             preview_list: None,
@@ -48,20 +46,26 @@ impl Minimap {
         }
     }
 
-    pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
-        self.lines = Arc::new(
-            text.split('\n')
-                .map(|line| {
-                    let indent = line
-                        .chars()
-                        .take_while(|c| c.is_whitespace())
-                        .count()
-                        .min(100);
-                    let width = line.chars().take(120).count().saturating_sub(indent);
-                    (indent as u8, width as u8)
-                })
-                .collect(),
-        );
+    pub fn set_text(&mut self, text: &Rope, cx: &mut Context<Self>) {
+        if self.active {
+            let _ = self.geometry.update(text);
+        } else {
+            self.geometry.suspend(text);
+        }
+        cx.notify();
+    }
+
+    pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if self.active == active {
+            return;
+        }
+        self.active = active;
+        let text = self.source.read(cx).text().clone();
+        if active {
+            let _ = self.geometry.update(&text);
+        } else {
+            self.geometry.suspend(&text);
+        }
         cx.notify();
     }
 
@@ -78,7 +82,7 @@ impl Minimap {
 
     fn seek(&self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let bounds = self.bounds.get();
-        let total = self.lines.len().max(1) as f32;
+        let total = self.geometry.len().max(1) as f32;
         let rail = position.x >= bounds.origin.x + px(96.);
         let height = if rail {
             f32::from(bounds.size.height)
@@ -121,7 +125,8 @@ impl Minimap {
 
 impl Render for Minimap {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let lines = self.lines.clone();
+        let lines = self.geometry.snapshot();
+        let line_count = self.geometry.len();
         let bounds_cell = self.bounds.clone();
         let source = self.source.clone();
         let scroll = self.preview_scroll.clone();
@@ -163,12 +168,15 @@ impl Render for Minimap {
                         bounds_cell.set(bounds);
                     },
                     move |bounds, _, window, cx| {
-                        let total = lines.len().max(1) as f32;
+                        let total = line_count.max(1) as f32;
                         let height = f32::from(bounds.size.height).min(total * 2.);
                         let step = (total / (height / 2.).max(1.)).ceil() as usize;
-                        for (index, &(indent, width)) in
-                            lines.iter().enumerate().step_by(step.max(1))
-                        {
+                        for index in (0..line_count).step_by(step.max(1)) {
+                            let Some((indent, width)) =
+                                lines.as_ref().and_then(|lines| lines.get(index))
+                            else {
+                                continue;
+                            };
                             if width == 0 {
                                 continue;
                             }

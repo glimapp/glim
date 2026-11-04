@@ -35,6 +35,8 @@ scripts/              打包、签名、更新清单与专项原生检查
 
 阅读器边界先通过普通模块建立：`reader/contract` 定义窄接口，`reader/construction` 负责装配，具体视图拥有自己的状态。OPML 与图结构视图通过 `ReaderHost` 接收翻译、数值动作记录和共享资源池，消费 core 纯数据。只有出现明确的独立版本、依赖隔离或跨产品复用需求时才拆 crate；扩展名数量不作为拆包依据。
 
+`minimap/geometry` 从编辑器共享 Rope 和注入的资源池计算行形状，不访问 UI 实体、服务或 I/O。首次构建顺序扫描文本块，后续更新定位变化行，并与旧绘制帧共享已准入的不可变存储块。`minimap` 拥有编辑器观察、导航和绘制；阅读器激活／隐藏负责重建／释放可选几何数据，不改变编辑状态。架构检查约束计算模块的依赖边界。
+
 显式启用 `reader-measurements` 时，`app/reader_measurement` 在隔离窗口中装配生产 `Reader` 并测量源码首个可读视口、输入及滚动。观测包装只存在于测量构建，不改变生产阅读器接口或引入服务层 UI 依赖；时间戳复用 GPUI profiler，并匹配实际源码子树绘制。可重复运行方式及测量范围见[资源与渲染](reader-resources.zh-CN.md#源码交互测量)。
 
 `services/markdown_preview/cache` 通过注入的资源池与预算管理 PNG 复用。服务层与展示层在消费者查找入口分别计数，发布和等待中的准备不算命中。参见[缓存语义与测量](reader-resources.zh-CN.md#图表缓存与命中率)。

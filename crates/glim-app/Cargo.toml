@@ -15,6 +15,11 @@ name = "markdown_edit"
 path = "benches/markdown_edit.rs"
 harness = false
 
+[[bench]]
+name = "minimap_edit"
+path = "benches/minimap_edit.rs"
+harness = false
+
 [features]
 macos-updater = []
 reader-measurements = ["gpui-kit/profiler"]

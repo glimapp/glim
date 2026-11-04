@@ -47,10 +47,13 @@ for path in (ROOT / 'crates/glim-app/src/views/workspace').glob('*.rs'):
 # These presentation modules consume pure prepared data and explicit host hooks.
 # Keep this boundary even while they compile inside the app crate.
 reader_root = ROOT / 'crates/glim-app/src/views/reader'
-for name in ('contract.rs', 'controls.rs', 'opml.rs', 'xmind.rs', 'json/view.rs', 'csv/view.rs'):
-    source = (reader_root / name).read_text()
+presentations = [reader_root / name for name in (
+    'contract.rs', 'controls.rs', 'opml.rs', 'xmind.rs', 'json/view.rs', 'csv/view.rs')]
+presentations.append(reader_root.parent / 'minimap/geometry.rs')
+for path in presentations:
+    source = path.read_text()
     if re.search(r'\bglim_services\s*::|\bcrate::app\s*::|\bstd::(?:fs|process|net)\s*::', source):
-        errors.append(f'{name}: use pure payloads and injected host operations')
+        errors.append(f'{path.relative_to(ROOT)}: use pure payloads and injected host operations')
 
 if errors:
     raise SystemExit('\n'.join(errors))

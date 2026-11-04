@@ -183,6 +183,11 @@ impl Reader {
         if self.active.replace(Some(false)) == Some(false) {
             return;
         }
+        if let Some(source) = self.source() {
+            source
+                .minimap
+                .update(cx, |map, cx| map.set_active(false, cx));
+        }
         if let Some(projection) = &self.projection {
             projection.set_active(false, cx);
         }
@@ -207,6 +212,11 @@ impl Reader {
     pub fn activate(&self, cx: &mut App) {
         if self.active.replace(Some(true)) == Some(true) {
             return;
+        }
+        if let Some(source) = self.source() {
+            source
+                .minimap
+                .update(cx, |map, cx| map.set_active(true, cx));
         }
         if let Some(projection) = &self.projection {
             projection.set_active(true, cx);

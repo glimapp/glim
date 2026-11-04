@@ -44,12 +44,12 @@ impl SourceReader {
             state.set_readonly(readonly, cx);
             state
         });
-        let minimap = cx.new(|cx| Minimap::new(state.clone(), text, scroll, cx));
+        let minimap = cx.new(|cx| Minimap::new(state.clone(), scroll, cx));
         let edit = crate::app::edit_session::EditSession::new(state.clone(), text, readonly, cx);
         let map = minimap.clone();
         let subscription = cx.subscribe(&state, move |state, event, cx| {
             if matches!(event, InputEvent::Change) {
-                let text = state.read(cx).text().to_string();
+                let text = state.read(cx).text().clone();
                 map.update(cx, |map, cx| map.set_text(&text, cx));
             }
         });

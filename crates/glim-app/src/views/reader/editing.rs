@@ -33,6 +33,7 @@ impl Reader {
                 .editor()
                 .update(cx, |editor, cx| editor.set_value(text.clone(), window, cx));
             source.mark_saved(String::new(), cx);
+            let text = source.edit.editor().read(cx).text().clone();
             source.minimap.update(cx, |map, cx| map.set_text(&text, cx));
         }
     }
