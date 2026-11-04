@@ -106,15 +106,17 @@ impl Scheduler {
     }
     pub fn global() -> &'static Arc<Self> {
         static SCHEDULER: OnceLock<Arc<Scheduler>> = OnceLock::new();
-        SCHEDULER.get_or_init(|| {
-            Self::new([
-                crate::limits::JOBS_DOCUMENT_CONCURRENCY,
-                crate::limits::JOBS_PROJECTION_CONCURRENCY,
-                crate::limits::JOBS_DECODE_CONCURRENCY,
-                crate::limits::JOBS_NATIVE_CONCURRENCY,
-                crate::limits::JOBS_DIAGRAM_CONCURRENCY,
-            ])
-        })
+        SCHEDULER.get_or_init(Self::from_policy)
+    }
+    /// An independent admission domain using the same shared concurrency policy.
+    pub fn from_policy() -> Arc<Self> {
+        Self::new([
+            crate::limits::JOBS_DOCUMENT_CONCURRENCY,
+            crate::limits::JOBS_PROJECTION_CONCURRENCY,
+            crate::limits::JOBS_DECODE_CONCURRENCY,
+            crate::limits::JOBS_NATIVE_CONCURRENCY,
+            crate::limits::JOBS_DIAGRAM_CONCURRENCY,
+        ])
     }
     pub fn acquire(
         self: &Arc<Self>,

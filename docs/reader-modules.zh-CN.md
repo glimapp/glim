@@ -27,6 +27,8 @@ flowchart TD
 
 表格结果以不可变的 `glim-core::resources::TextRows` 跨越服务／视图边界，单元格与工作预留一起传递；CSV／TSV、地理坐标和 SQLite 视图无需收到结果后重新记账。文本／十六进制准备页同样持有文本、行范围、最宽行元数据及预留。
 
+`glim-core::table::SqlitePage` 保留 SQLite 固定行页及独立的列窗口偏移。`reader/sqlite/view` 拥有表格、输入和滚动状态，只接收翻译、展示策略、状态及不透明详情实体，通过语义请求把用户意图交给 `reader/sqlite`；适配器负责快照、查询协调、取消、剪贴板发布和只读详情编辑器。契约回归覆盖已准入单元格交接、重复隐藏／滚动恢复、控件事件、查询替换、隐藏时待应用筛选、详情保留、刷新失败与重试。适配器夹具仅在测试准备阶段用 macOS 的 `/usr/bin/sqlite3` 执行 `assets/reader-contracts/sqlite.sql` 建库，生产查询仍由 services 执行；这些测试不代表物理输入、Intel 或完整跨窗口移动验收。
+
 像素结果通过 `glim-services::media::RasterFrame` 跨越边界，同时持有 `image::Frame` 和工作预留，不含 GPUI 类型。PNG 准备和 GIF 播放在分配像素前取得额度；应用原地交换颜色通道，再将像素与预留共同交给显示所有者。GIF 播放也接受显式资源池，支持独立准备与测量。这落实了缓冲所有权隔离；媒体视图仍使用应用调度器和服务入口。
 
 结构树载荷位于 `glim-core::structured`。`TreeBuilder` 在分配前为节点字符串、节点槽位、子节点索引和向量扩容重叠申请预算；不可变 `Tree` 在交付后继续持有预留。JSON／JSONC／JSON5／JSONL 与结构化交互图的中间节点共用该表示。`reader/json/view` 只消费载荷、宿主操作、详情对话回调和注入的展开策略；`reader/json` 负责准备、取消、输入重建与重试。展示模块不引用服务或应用全局。交互图最终输出由 `glim-core::graph::PreparedGraph` 在工作线程到视图的交接中持续持有预留；XMind 文件载荷保留原有状态记账。

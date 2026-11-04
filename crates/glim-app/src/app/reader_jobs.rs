@@ -2,6 +2,7 @@
 pub(crate) use glim_services::work::scheduler::{JobClass, Priority};
 use glim_services::work::{Cancellation, scheduler::Scheduler};
 use gpui_kit::BackgroundExecutor;
+use std::sync::Arc;
 
 pub(crate) async fn run<T: Send + 'static>(
     executor: BackgroundExecutor,
@@ -10,10 +11,27 @@ pub(crate) async fn run<T: Send + 'static>(
     cancel: Cancellation,
     work: impl FnOnce(&Cancellation) -> anyhow::Result<T> + Send + 'static,
 ) -> anyhow::Result<T> {
+    run_with_scheduler(
+        executor,
+        Scheduler::global().clone(),
+        class,
+        priority,
+        cancel,
+        work,
+    )
+    .await
+}
+
+pub(crate) async fn run_with_scheduler<T: Send + 'static>(
+    executor: BackgroundExecutor,
+    scheduler: Arc<Scheduler>,
+    class: JobClass,
+    priority: Priority,
+    cancel: Cancellation,
+    work: impl FnOnce(&Cancellation) -> anyhow::Result<T> + Send + 'static,
+) -> anyhow::Result<T> {
     let queued = std::time::Instant::now();
-    let permit = Scheduler::global()
-        .acquire(class, priority, cancel.clone())
-        .await?;
+    let permit = scheduler.acquire(class, priority, cancel.clone()).await?;
     cancel.check()?;
     let queue_ms = queued.elapsed().as_millis() as u64;
     executor

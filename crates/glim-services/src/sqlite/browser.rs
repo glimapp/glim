@@ -28,11 +28,7 @@ pub struct Columns {
     pub names: Vec<String>,
     pub order: Vec<String>,
 }
-pub struct Page {
-    pub rows: crate::resources::TextRows,
-    pub more: bool,
-    pub start_column: usize,
-}
+pub use glim_core::table::SqlitePage as Page;
 fn preview_text(value: &[u8]) -> std::borrow::Cow<'_, str> {
     if let Ok(text) = std::str::from_utf8(value) {
         return std::borrow::Cow::Borrowed(text);
