@@ -14,7 +14,7 @@ use gpui_kit::{
 use std::{
     collections::HashMap,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
@@ -161,26 +161,75 @@ struct PreviewEntry {
     used: u64,
 }
 #[derive(Default)]
-struct PreviewStore {
+struct PreviewCache {
     entries: HashMap<Diagram, PreviewEntry>,
-    queue: std::collections::VecDeque<Diagram>,
-    pending: std::collections::HashSet<Diagram>,
-    pending_bytes: usize,
     clock: u64,
-    revision: u64,
     encoded: usize,
     decoded: u64,
     keys: usize,
 }
-impl PreviewStore {
-    fn request(&mut self, diagram: &Diagram) -> (Option<PreviewResource>, bool) {
+impl PreviewCache {
+    fn lookup(&mut self, diagram: &Diagram) -> Option<PreviewResource> {
         self.clock = self.clock.wrapping_add(1);
         if let Some(entry) = self.entries.get_mut(diagram)
             && let Some(preview) = entry
                 .preview
-                .get(glim_services::resources::Retention::Viewport)
+                .get(glim_services::resources::Retention::Background)
         {
             entry.used = self.clock;
+            return Some(preview);
+        }
+        self.remove(diagram);
+        None
+    }
+    fn remove(&mut self, diagram: &Diagram) {
+        if let Some(expired) = self.entries.remove(diagram) {
+            self.encoded -= expired.encoded;
+            self.decoded -= expired.decoded;
+            self.keys -= expired.keys;
+        }
+    }
+}
+
+fn shared_previews() -> Arc<Mutex<PreviewCache>> {
+    static CACHE: OnceLock<Arc<Mutex<PreviewCache>>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| Arc::new(Mutex::new(PreviewCache::default())))
+        .clone()
+}
+
+struct PreviewStore {
+    shared: Arc<Mutex<PreviewCache>>,
+    errors: PreviewCache,
+    queue: std::collections::VecDeque<Diagram>,
+    pending: std::collections::HashSet<Diagram>,
+    pending_bytes: usize,
+    revision: u64,
+}
+impl Default for PreviewStore {
+    fn default() -> Self {
+        Self::new(shared_previews())
+    }
+}
+impl PreviewStore {
+    fn new(shared: Arc<Mutex<PreviewCache>>) -> Self {
+        Self {
+            shared,
+            errors: PreviewCache::default(),
+            queue: Default::default(),
+            pending: Default::default(),
+            pending_bytes: 0,
+            revision: 0,
+        }
+    }
+    fn request(&mut self, diagram: &Diagram) -> (Option<PreviewResource>, bool) {
+        let preview = self
+            .shared
+            .lock()
+            .unwrap()
+            .lookup(diagram)
+            .or_else(|| self.errors.lookup(diagram));
+        if let Some(preview) = preview {
             CACHE_ACTIVITY.record(CacheLookup::Hit);
             return (Some(preview), false);
         }
@@ -189,11 +238,6 @@ impl PreviewStore {
         } else {
             CacheLookup::Miss
         });
-        if let Some(expired) = self.entries.remove(diagram) {
-            self.encoded -= expired.encoded;
-            self.decoded -= expired.decoded;
-            self.keys -= expired.keys;
-        }
         let cost = diagram
             .source
             .len()
@@ -256,6 +300,23 @@ impl PreviewStore {
             .saturating_add(std::mem::size_of::<Diagram>())
             .saturating_mul(2);
         self.pending_bytes = self.pending_bytes.saturating_sub(cost);
+        self.revision = self.revision.wrapping_add(1);
+        if result.is_ok() {
+            self.shared.lock().unwrap().remember(diagram, result);
+        } else {
+            // Failures belong to this view so reopening or refreshing can retry.
+            self.errors.remember(diagram, result);
+        }
+    }
+}
+
+impl PreviewCache {
+    fn remember(
+        &mut self,
+        diagram: Diagram,
+        result: Result<markdown_preview::DiagramImage, String>,
+    ) {
+        self.remove(&diagram);
         let (preview, encoded, decoded, error_bytes) = match result {
             Ok(image) => {
                 let encoded = image.png.len();
@@ -303,7 +364,6 @@ impl PreviewStore {
             self.keys -= old.keys;
         }
         self.clock = self.clock.wrapping_add(1);
-        self.revision = self.revision.wrapping_add(1);
         self.encoded += encoded;
         self.decoded += decoded;
         self.keys += keys;
@@ -315,7 +375,7 @@ impl PreviewStore {
                     (encoded as u64)
                         .saturating_add(decoded)
                         .saturating_add(keys as u64),
-                    glim_services::resources::Retention::Viewport,
+                    glim_services::resources::Retention::Background,
                 ),
                 encoded,
                 decoded,
@@ -369,10 +429,7 @@ impl DiagramPreview {
             snapshot.pending.clear();
             snapshot.queue.clear();
             snapshot.pending_bytes = 0;
-            snapshot.entries.clear();
-            snapshot.encoded = 0;
-            snapshot.decoded = 0;
-            snapshot.keys = 0;
+            snapshot.errors = PreviewCache::default();
         }
     }
     fn ensure_work(&mut self, cx: &mut Context<Self>) {

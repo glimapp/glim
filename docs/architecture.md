@@ -39,6 +39,8 @@ With the opt-in `reader-measurements` feature, `app/reader_measurement` composes
 
 `services/markdown_preview/cache` owns prepared PNG reuse with an injected resource pool and budget. Consumer lookups in the service and presentation layers have separate counters; publication and pending preparation are not counted as hits. See [cache semantics and measurement](reader-resources.md#diagram-caches-and-hit-rates).
 
+`reader/diagrams` owns a bounded process-wide cache of successful display previews, independent of each view's pending queue, cancellation and retryable errors. Resident previews survive tab closure; their source keys isolate edits and formats. They remain reclaimable through the shared resource pool and are not persisted to disk.
+
 ### Local dependency patches
 
 `vendor/gpui-base` and `vendor/gpui-pre` retain pinned upstream library sources with local changes documented in `PATCHES.md`/`GLIM-PATCH.md`. Current extensions cover file-frame panic recovery, visible-list measurement, task-checkbox editing, image dimensions and end spacing. Before removing a path patch, verify that its replacement supplies the APIs used by the app and equivalent behavior. A fixed Git revision in a patch repository can replace local sources, but introduces separate repository maintenance and build fetching; introduce that workflow only for a demonstrated need.
