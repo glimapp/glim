@@ -16,7 +16,7 @@ Constraints: retain `app → services → core`; use ordinary reader modules fir
 
 ### Reader modularity
 
-- [ ] **M1: Remaining reader boundaries.** CSV/geographic and SQLite presentation now consume pure page contracts and emit semantic requests. Review books, media, archives, paging, source/markup and native adapters. Separate preparation, retained state, presentation and host operations. Acceptance: presentation performs no file I/O or background orchestration; construction injects required app dependencies and architecture checks cover the actual boundaries.
+- [ ] **M1: Remaining reader boundaries.** CSV/geographic, SQLite and book presentation now consume explicit data/host contracts and emit semantic requests. Review media, archives, paging, source/markup and native adapters. Separate preparation, retained state, presentation and host operations. Acceptance: presentation performs no file I/O or background orchestration; construction injects required app dependencies and architecture checks cover the actual boundaries.
 - [ ] **M2: Lifecycle contract acceptance.** Cover activation/hiding, refresh, cancellation, retry, closing and window transfer. Acceptance: preserve the editing session, undo and unsaved state; stale jobs cannot replace newer revisions, and representative producer/consumer contracts pass at runtime.
 
 ### Resource coverage and pressure recovery

@@ -247,13 +247,18 @@ impl Reader {
         let fingerprint = document.fingerprint.clone();
         let view = cx.new(|cx| books::BookReader::new(document, window, cx));
         let writing = view.read(cx).writing.clone();
+        let pending = view.read(cx).writes.clone();
         Self {
             active: std::cell::Cell::new(None),
             title: path.display().to_string().into(),
             document: DocumentSession::new(path, ContentSnapshot::Fingerprint(fingerprint)),
             structured_controls: None,
             projection: None,
-            renderer: Renderer::surface(books::BookSurface { view, writing }),
+            renderer: Renderer::surface(books::BookSurface {
+                view,
+                writing,
+                pending,
+            }),
         }
     }
     pub fn from_xmind(document: glim_services::xmind::MindMap, cx: &mut App) -> Self {

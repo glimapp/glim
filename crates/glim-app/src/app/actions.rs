@@ -27,11 +27,10 @@ gpui_kit::actions!(
         AddFolder,
         SaveFile,
         Refresh,
-        CloseWindow,
-        BookNextPage,
-        BookPreviousPage,
-        BookNextChapter,
-        BookPreviousChapter,
-        BookContents
+        CloseWindow
     ]
 );
+
+pub(crate) use crate::views::{
+    BookContents, BookNextChapter, BookNextPage, BookPreviousChapter, BookPreviousPage,
+};

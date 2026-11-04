@@ -14,33 +14,7 @@ use std::{
 
 const TEXT_LIMIT: u64 = reader_limits::BOOK_TEXT_BYTES;
 const CHAPTER_LIMIT: u64 = reader_limits::BOOK_CHAPTER_BYTES;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Format {
-    Epub,
-    FictionBook,
-    Comic,
-}
-impl Format {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Epub => "EPUB",
-            Self::FictionBook => "FB2",
-            Self::Comic => "CBZ",
-        }
-    }
-}
-#[derive(Clone)]
-pub struct Chapter {
-    pub href: String,
-    pub title: String,
-    pub html: Option<String>,
-}
-#[derive(Clone)]
-pub struct TocEntry {
-    pub title: String,
-    pub href: String,
-    pub depth: usize,
-}
+pub use glim_core::books::{Chapter, Format, TocEntry};
 pub struct Book {
     pub path: PathBuf,
     pub fingerprint: String,

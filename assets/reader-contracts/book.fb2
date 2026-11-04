@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns:xlink="urn:xlink">
+  <description><title-info><book-title>目录与状态契约</book-title><author><first-name>Reader</first-name><last-name>Fixture</last-name></author></title-info></description>
+  <body>
+    <section id="first"><title><p>第一章</p></title><p>Alpha 中文正文。</p><a xlink:href="#second">Next anchor</a></section>
+    <section id="second"><title><p>第二章</p></title><p>Beta retained content.</p></section>
+  </body>
+</FictionBook>

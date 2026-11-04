@@ -1,5 +1,8 @@
 mod archive;
 mod books;
+pub(crate) use books::{
+    BookContents, BookNextChapter, BookNextPage, BookPreviousChapter, BookPreviousPage,
+};
 mod boundary;
 mod construction;
 mod contract;

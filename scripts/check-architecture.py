@@ -49,7 +49,7 @@ for path in (ROOT / 'crates/glim-app/src/views/workspace').glob('*.rs'):
 reader_root = ROOT / 'crates/glim-app/src/views/reader'
 presentations = [reader_root / name for name in (
     'contract.rs', 'controls.rs', 'opml.rs', 'xmind.rs', 'json/view.rs', 'csv/view.rs',
-    'sqlite/view.rs')]
+    'sqlite/view.rs', 'books/view.rs')]
 presentations.append(reader_root.parent / 'minimap/geometry.rs')
 for path in presentations:
     source = path.read_text()

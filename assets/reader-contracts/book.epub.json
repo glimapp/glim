@@ -1,0 +1,7 @@
+{
+  "mimetype": "application/epub+zip",
+  "META-INF/container.xml": "<container><rootfiles><rootfile full-path=\"OPS/book.opf\"/></rootfiles></container>",
+  "OPS/book.opf": "<package xmlns:dc=\"urn:dc\"><metadata><dc:title>目录与状态契约</dc:title><dc:creator>Reader Fixture</dc:creator></metadata><manifest><item id=\"one\" href=\"one.xhtml\" media-type=\"application/xhtml+xml\"/><item id=\"two\" href=\"two.xhtml\" media-type=\"application/xhtml+xml\"/></manifest><spine><itemref idref=\"one\"/><itemref idref=\"two\"/></spine></package>",
+  "OPS/one.xhtml": "<html><body><h1 id=\"first\">第一章</h1><p>Alpha 中文正文。</p></body></html>",
+  "OPS/two.xhtml": "<html><body><h1 id=\"second\">第二章</h1><p>Beta retained content.</p></body></html>"
+}
