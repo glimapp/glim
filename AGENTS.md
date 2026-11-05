@@ -21,7 +21,7 @@
 - When validation is requested, use cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings, cargo test --workspace --locked, and cargo build --locked.
 - When UI smoke testing is requested, use macOS when available and report unverified interactions.
 - Document changes to module boundaries in docs/architecture.md.
-- When packaging Glim, install the new build over the existing local Glim.app, preserving a recoverable backup and retaining at most two installation backups, unless the user asks for packaging only. Verify the installed bundle and launch it.
+- When packaging Glim, replace `/Applications/Glim.app` directly, unless the user asks for packaging only. Never leave suffixed copies such as `Glim-backup.app` or `Glim-replaced.app` in `/Applications`. Keep recoverable backups only in `~/Library/Application Support/Glim/LocalInstallBackups`, retaining at most two. Verify the installed bundle and launch it.
 
 - Keep documentation focused on current behavior, architecture and unfinished work. Put release notes in GitHub Releases; do not accumulate per-session operation logs, historical verification reports or personal filesystem inventories in the repository.
 
