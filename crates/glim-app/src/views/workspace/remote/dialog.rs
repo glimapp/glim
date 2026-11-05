@@ -70,9 +70,15 @@ impl RemoteDialog {
     }
 
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.mode != Mode::Directories && self.blocked() {
+            self.dismiss_feedback(window, cx);
+            return;
+        }
         self.task = None;
         self.busy = false;
-        if self.mode == Mode::Edit && !self.open_after_save {
+        if (self.mode == Mode::Edit && !self.open_after_save)
+            || (self.mode == Mode::Directories && !self.add_folder)
+        {
             self.mode = Mode::Connections;
             self.message = None;
             self.message_success = false;
@@ -82,6 +88,55 @@ impl RemoteDialog {
         } else {
             self.close(window, cx);
         }
+    }
+
+    fn dismiss_feedback(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.task = None;
+        self.feedback_task = None;
+        self.busy = false;
+        self.message = None;
+        self.message_success = false;
+        window.focus(&self.modal_focus, cx);
+        cx.notify();
+    }
+
+    fn blocked(&self) -> bool {
+        self.busy || self.message.is_some()
+    }
+
+    fn feedback_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .id("ssh-feedback-overlay")
+            .absolute()
+            .inset_0()
+            .rounded(cx.theme().radius_lg)
+            .bg(cx.theme().background.opacity(0.94))
+            .occlude()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .flex()
+            .items_center()
+            .justify_center()
+            .p_5()
+            .child(
+                v_flex()
+                    .w_full()
+                    .max_w(px(440.))
+                    .max_h_full()
+                    .gap_4()
+                    .items_center()
+                    .child(self.feedback(cx))
+                    .when(!self.message_success, |body| {
+                        body.child(
+                            Button::new("ssh-dismiss-feedback")
+                                .outline()
+                                .label(tr(if self.busy { "Cancel" } else { "Close" }))
+                                .on_click(cx.listener(|view, _, window, cx| {
+                                    view.dismiss_feedback(window, cx)
+                                })),
+                        )
+                    }),
+            )
+            .into_any_element()
     }
 
     fn feedback(&self, cx: &App) -> AnyElement {
@@ -128,7 +183,7 @@ impl RemoteDialog {
                     .id("ssh-feedback-text")
                     .flex_1()
                     .min_w_0()
-                    .max_h(px(100.))
+                    .max_h(px(180.))
                     .overflow_y_scroll()
                     .text_sm()
                     .text_color(color)
@@ -147,7 +202,7 @@ impl RemoteDialog {
             .child(connection_input(
                 &self.fields[index],
                 &tr(label),
-                self.busy,
+                self.blocked(),
                 window,
                 cx,
             ))
@@ -159,7 +214,9 @@ impl RemoteDialog {
         let mut list = v_flex()
             .id("ssh-connections-list")
             .w_full()
+            .min_h(px(64.))
             .max_h(px(320.))
+            .track_scroll(&self.connections_scroll)
             .overflow_y_scroll();
         if connections.is_empty() {
             list = list.child(
@@ -177,7 +234,10 @@ impl RemoteDialog {
             let delete = connection.clone();
             let label = connection.label();
             let open = connection.clone();
-            let connected = crate::app::remote::connection_is_connected(&connection.id, cx);
+            let connected = crate::app::remote::connection_is_connected(&connection.id, cx)
+                || self.session.as_ref().is_some_and(|session| {
+                    session.connection.id == connection.id && session.is_connected()
+                });
             list = list.child(
                 h_flex()
                     .id(("ssh-connection", index))
@@ -188,12 +248,7 @@ impl RemoteDialog {
                     .when(index > 0, |row| {
                         row.border_t_1().border_color(cx.theme().border)
                     })
-                    .child(
-                        Icon::new(IconName::Globe)
-                            .size(px(18.))
-                            .text_color(cx.theme().muted_foreground)
-                            .flex_shrink_0(),
-                    )
+                    .child(connection_dot(("ssh-status", index), connected, cx))
                     .child(
                         v_flex()
                             .flex_1()
@@ -216,9 +271,9 @@ impl RemoteDialog {
                                 )
                             }),
                     )
-                    .child(connection_dot(("ssh-status", index), connected, cx))
                     .child(
                         Button::new(SharedString::from(format!("ssh-open-{}", connection.id)))
+                            .disabled(self.blocked())
                             .small()
                             .outline()
                             .label(tr("Browse…"))
@@ -229,6 +284,7 @@ impl RemoteDialog {
                     )
                     .child(
                         Button::new(SharedString::from(format!("ssh-options-{}", connection.id)))
+                            .disabled(self.blocked())
                             .small()
                             .outline()
                             .icon(IconName::Ellipsis)
@@ -265,9 +321,6 @@ impl RemoteDialog {
             .w_full()
             .gap_4()
             .child(list)
-            .when(self.busy || self.message.is_some(), |body| {
-                body.child(self.feedback(cx))
-            })
             .child(
                 h_flex()
                     .w_full()
@@ -276,15 +329,15 @@ impl RemoteDialog {
                     .border_color(cx.theme().border)
                     .justify_between()
                     .child(
-                        primary_button("ssh-add", &tr("Add Connection…"), false, cx).on_click(
-                            cx.listener(|view, _, window, cx| {
+                        primary_button("ssh-add", &tr("Add Connection…"), self.blocked(), cx)
+                            .on_click(cx.listener(|view, _, window, cx| {
                                 view.open_after_save = false;
                                 view.edit(Connection::default(), window, cx);
-                            }),
-                        ),
+                            })),
                     )
                     .child(
                         Button::new("ssh-done")
+                            .disabled(self.blocked())
                             .outline()
                             .label(tr("Done"))
                             .on_click(cx.listener(|view, _, window, cx| view.cancel(window, cx))),
@@ -297,6 +350,7 @@ impl RemoteDialog {
         v_flex()
             .w_full()
             .gap_5()
+            .child(self.field(0, "Connection Name", window, cx))
             .child(
                 h_flex()
                     .w_full()
@@ -313,65 +367,37 @@ impl RemoteDialog {
             .child(self.field(2, "Username", window, cx))
             .child(
                 v_flex()
-                    .gap_4()
+                    .gap_2()
+                    .child(div().text_sm().child(tr("Private Key")))
                     .child(
-                        h_flex().child(
-                            Button::new("ssh-advanced")
-                                .ghost()
-                                .small()
-                                .icon(if self.advanced {
-                                    IconName::ChevronDown
-                                } else {
-                                    IconName::ChevronRight
-                                })
-                                .label(tr("More Options"))
-                                .disabled(self.busy)
-                                .on_click(cx.listener(|view, _, _, cx| {
-                                    view.advanced = !view.advanced;
-                                    cx.notify();
-                                })),
-                        ),
-                    )
-                    .when(self.advanced, |body| {
-                        body.child(self.field(0, "Connection Name", window, cx))
+                        h_flex()
+                            .w_full()
+                            .gap_2()
                             .child(
-                                v_flex()
-                                    .gap_2()
-                                    .child(div().text_sm().child(tr("Private Key")))
-                                    .child(
-                                        h_flex()
-                                            .w_full()
-                                            .gap_2()
-                                            .child(
-                                                div().flex_1().min_w_0().child(
-                                                    connection_input(
-                                                        &self.fields[4],
-                                                        &tr("Private Key"),
-                                                        self.busy,
-                                                        window,
-                                                        cx,
-                                                    )
-                                                    .cleanable(true),
-                                                ),
-                                            )
-                                            .child(
-                                                Button::new("ssh-key-file")
-                                                    .outline()
-                                                    .label(tr("Choose…"))
-                                                    .disabled(self.busy)
-                                                    .on_click(cx.listener(
-                                                        |view, _, window, cx| {
-                                                            view.pick_key(window, cx)
-                                                        },
-                                                    )),
-                                            ),
-                                    ),
+                                div().flex_1().min_w_0().child(
+                                    connection_input(
+                                        &self.fields[4],
+                                        &tr("Private Key"),
+                                        self.blocked(),
+                                        window,
+                                        cx,
+                                    )
+                                    .cleanable(true),
+                                ),
                             )
-                    }),
+                            .child(
+                                Button::new("ssh-key-file")
+                                    .outline()
+                                    .label(tr("Choose…"))
+                                    .disabled(self.blocked())
+                                    .on_click(
+                                        cx.listener(|view, _, window, cx| {
+                                            view.pick_key(window, cx)
+                                        }),
+                                    ),
+                            ),
+                    ),
             )
-            .when(self.busy || self.message.is_some(), |body| {
-                body.child(self.feedback(cx))
-            })
             .child(
                 h_flex()
                     .w_full()
@@ -383,8 +409,7 @@ impl RemoteDialog {
                         Button::new("ssh-test")
                             .outline()
                             .label(tr("Test Connection"))
-                            .disabled(self.busy)
-                            .loading(self.busy && self.activity == "Testing connection…")
+                            .disabled(self.blocked())
                             .on_click(
                                 cx.listener(|view, _, window, cx| view.save(true, window, cx)),
                             ),
@@ -392,6 +417,7 @@ impl RemoteDialog {
                     .child(div().flex_1())
                     .child(
                         Button::new("ssh-cancel")
+                            .disabled(self.blocked())
                             .outline()
                             .label(tr("Cancel"))
                             .on_click(cx.listener(|view, _, window, cx| view.cancel(window, cx))),
@@ -404,10 +430,9 @@ impl RemoteDialog {
                             } else {
                                 "Save"
                             }),
-                            self.busy,
+                            self.blocked(),
                             cx,
                         )
-                        .loading(self.busy && self.activity == "Saving connection…")
                         .on_click(cx.listener(|view, _, window, cx| view.save(false, window, cx))),
                     ),
             )
@@ -422,7 +447,7 @@ impl RemoteDialog {
             .small()
             .outline()
             .text_color(cx.theme().muted_foreground)
-            .disabled(self.busy || self.add_folder)
+            .disabled(self.blocked() || self.add_folder)
             .accessibility_label(tr("SSH Connection"))
             .child(
                 h_flex()
@@ -480,7 +505,9 @@ impl RemoteDialog {
         let focused = self.focus.clone();
         let list = div()
             .id("ssh-folder-list")
+            .relative()
             .h(px(256.))
+            .flex_shrink_0()
             .w_full()
             .border_1()
             .border_color(cx.theme().border)
@@ -557,7 +584,7 @@ impl RemoteDialog {
                                             MouseButton::Left,
                                             cx.listener(
                                                 move |view, event: &MouseDownEvent, window, cx| {
-                                                    if view.busy {
+                                                    if view.blocked() {
                                                         return;
                                                     }
                                                     window.focus(&view.focus, cx);
@@ -579,6 +606,9 @@ impl RemoteDialog {
                     .size_full(),
                 )
             })
+            .when(self.busy && self.activity == "Loading folders…", |list| {
+                list.child(self.feedback_overlay(cx))
+            })
             .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
                 view.directory_key(event, window, cx)
             }));
@@ -599,7 +629,7 @@ impl RemoteDialog {
                             .icon(IconName::RotateCw)
                             .tooltip(tr("Refresh"))
                             .accessibility_label(tr("Refresh"))
-                            .disabled(self.busy)
+                            .disabled(self.blocked())
                             .on_click(cx.listener(|view, _, window, cx| {
                                 if view.session.is_none() {
                                     view.connect(view.connection.clone(), window, cx);
@@ -619,7 +649,7 @@ impl RemoteDialog {
                             .icon(IconName::ArrowUp)
                             .tooltip(tr("Parent Folder"))
                             .accessibility_label(tr("Parent Folder"))
-                            .disabled(self.busy || self.directory.parent().is_none())
+                            .disabled(self.blocked() || self.directory.parent().is_none())
                             .on_click(cx.listener(|view, _, window, cx| {
                                 if let Some(parent) = view.directory.parent() {
                                     view.browse(parent.to_path_buf(), window, cx);
@@ -629,7 +659,7 @@ impl RemoteDialog {
                     .child(div().flex_1().min_w_0().child(connection_input(
                         &self.path,
                         &tr("Remote folder path"),
-                        self.busy || self.session.is_none(),
+                        self.blocked() || self.session.is_none(),
                         window,
                         cx,
                     )))
@@ -640,7 +670,7 @@ impl RemoteDialog {
                             .tooltip(tr("Go to Folder"))
                             .accessibility_label(tr("Go to Folder"))
                             .disabled(
-                                self.busy
+                                self.blocked()
                                     || self.session.is_none()
                                     || self.path.read(cx).value().trim().is_empty(),
                             )
@@ -651,9 +681,6 @@ impl RemoteDialog {
                     ),
             )
             .child(list)
-            .when(self.busy || self.message.is_some(), |body| {
-                body.child(self.feedback(cx))
-            })
             .child(
                 v_flex()
                     .w_full()
@@ -676,7 +703,8 @@ impl RemoteDialog {
                                     .id("ssh-target-path")
                                     .text_base()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .max_h(px(76.))
+                                    .h(px(48.))
+                                    .flex_shrink_0()
                                     .overflow_y_scroll()
                                     .whitespace_normal()
                                     .child(self.target_directory(cx).display().to_string()),
@@ -691,7 +719,7 @@ impl RemoteDialog {
                                     .small()
                                     .label(tr("Show hidden folders"))
                                     .checked(self.show_hidden)
-                                    .disabled(self.busy)
+                                    .disabled(self.blocked())
                                     .on_click(cx.listener(|view, checked: &bool, _, cx| {
                                         view.show_hidden = *checked;
                                         view.selected = None;
@@ -711,12 +739,11 @@ impl RemoteDialog {
                                 primary_button(
                                     "ssh-open-folder",
                                     &tr("Open Folder"),
-                                    self.busy
+                                    self.blocked()
                                         || self.session.is_none()
                                         || self.path.read(cx).value().trim().is_empty(),
                                     cx,
                                 )
-                                .loading(self.busy && self.activity == "Opening folder…")
                                 .on_click(cx.listener(|view, _, window, cx| view.open(window, cx))),
                             ),
                     ),
@@ -725,7 +752,7 @@ impl RemoteDialog {
     }
 
     fn directory_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.blocked() {
             return;
         }
         let paths = self
@@ -798,6 +825,7 @@ impl Render for RemoteDialog {
             .popup(
                 v_flex()
                     .id("ssh-dialog")
+                    .relative()
                     .w(px(560.))
                     .max_w((window.viewport_size().width - px(32.)).max(px(0.)))
                     .max_h((window.viewport_size().height - px(32.)).max(px(0.)))
@@ -817,10 +845,21 @@ impl Render for RemoteDialog {
                     )
                     .child(
                         div()
-                            .id("ssh-dialog-body")
+                            .id(match self.mode {
+                                Mode::Connections => "ssh-manager-body",
+                                Mode::Edit => "ssh-form-body",
+                                Mode::Directories => "ssh-browser-body",
+                            })
                             .min_h_0()
                             .overflow_y_scroll()
                             .child(body),
+                    )
+                    .when(
+                        self.blocked()
+                            && !(self.mode == Mode::Directories
+                                && self.busy
+                                && self.activity == "Loading folders…"),
+                        |surface| surface.child(self.feedback_overlay(cx)),
                     ),
             )
     }

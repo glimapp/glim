@@ -625,16 +625,7 @@ impl Workspace {
                                 &reader.document.path,
                                 cx,
                             ))
-                            .child(div().max_w(px(210.)).truncate().text_xs().child(label))
-                            .when(reader.document.remote.is_some(), |row| {
-                                row.child(
-                                    gpui_kit::component::Icon::new(
-                                        gpui_kit::assets::IconName::Globe,
-                                    )
-                                    .size(px(12.))
-                                    .text_color(cx.theme().muted_foreground),
-                                )
-                            }),
+                            .child(div().max_w(px(210.)).truncate().text_xs().child(label)),
                     )
                     .child(
                         Button::new(("close-tab", index))

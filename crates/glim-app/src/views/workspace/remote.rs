@@ -42,7 +42,6 @@ pub(super) struct RemoteDialog {
     selected: Option<PathBuf>,
     directory: PathBuf,
     show_hidden: bool,
-    advanced: bool,
     busy: bool,
     activity: &'static str,
     message: Option<String>,
@@ -55,6 +54,7 @@ pub(super) struct RemoteDialog {
     _workspace_subscriptions: Vec<Subscription>,
     open_after_save: bool,
     add_folder: bool,
+    connections_scroll: ScrollHandle,
     scroll: UniformListScrollHandle,
     focus: FocusHandle,
 }
@@ -112,7 +112,6 @@ impl RemoteDialog {
             selected: None,
             directory: PathBuf::new(),
             show_hidden: false,
-            advanced: false,
             busy: false,
             activity: "Connecting…",
             message: None,
@@ -125,6 +124,7 @@ impl RemoteDialog {
             _workspace_subscriptions: workspace_subscriptions,
             open_after_save,
             add_folder,
+            connections_scroll: ScrollHandle::new(),
             scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle().tab_stop(true),
         }
@@ -134,7 +134,7 @@ impl RemoteDialog {
         self.message = Some(tr(message));
         self.feedback_task = Some(cx.spawn_in(window, async move |view, cx| {
             cx.background_executor()
-                .timer(std::time::Duration::from_secs(3))
+                .timer(std::time::Duration::from_secs(2))
                 .await;
             let _ = view.update(cx, |view, cx| {
                 if view.message_success {
@@ -161,7 +161,6 @@ impl RemoteDialog {
         self.message = None;
         self.message_success = false;
         self.mode = Mode::Edit;
-        self.advanced = connection.identity.is_some() || !connection.name.is_empty();
         let values = [
             connection.name.clone(),
             connection.host.clone(),
@@ -180,7 +179,7 @@ impl RemoteDialog {
             field.update(cx, |field, cx| field.set_value(value, window, cx));
         }
         self.connection = connection;
-        self.fields[1].update(cx, |field, cx| field.focus(window, cx));
+        self.fields[0].update(cx, |field, cx| field.focus(window, cx));
         cx.notify();
     }
     fn form_connection(&self, cx: &App) -> anyhow::Result<Connection> {
@@ -237,6 +236,8 @@ impl RemoteDialog {
         if self.busy {
             return;
         }
+        self.feedback_task = None;
+        window.focus(&self.modal_focus, cx);
         self.message_success = false;
         let mut connection = match self.form_connection(cx) {
             Ok(connection) => connection,
@@ -282,14 +283,16 @@ impl RemoteDialog {
                         {
                             *existing = connection.clone();
                         } else {
-                            catalog.connections.push(connection.clone());
+                            catalog.connections.insert(0, connection.clone());
+                            view.connections_scroll.set_offset(point(px(0.), px(0.)));
                         }
                         persist(cx);
                         if view.open_after_save {
                             view.connect(connection, window, cx);
                         } else {
                             view.mode = Mode::Connections;
-                            view.success("Connection saved", window, cx);
+                            view.message = None;
+                            window.focus(&view.modal_focus, cx);
                         }
                     }
                 }
@@ -300,10 +303,16 @@ impl RemoteDialog {
     }
     fn connect(&mut self, connection: Connection, window: &mut Window, cx: &mut Context<Self>) {
         self.task = None;
+        self.feedback_task = None;
+        window.focus(&self.modal_focus, cx);
         self.session = None;
         self.mode = Mode::Directories;
         self.connection = connection.clone();
         self.entries.clear();
+        self.directory = connection.last_directory.clone().unwrap_or_default();
+        self.path.update(cx, |path, cx| {
+            path.set_value(self.directory.display().to_string(), window, cx)
+        });
         self.selected = None;
         self.message = None;
         self.message_success = false;
@@ -477,7 +486,8 @@ impl RemoteDialog {
                 // Keep source descriptors for closed, persisted windows; a removed
                 // connection must never turn their remote paths into local paths.
                 persist(cx);
-                view.success("Connection deleted", window, cx);
+                view.message = None;
+                window.focus(&view.modal_focus, cx);
                 cx.notify();
             });
         }));
