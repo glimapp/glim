@@ -12,7 +12,6 @@ use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Icon, Sizable,
         button::{Button, ButtonVariants},
-        checkbox::Checkbox,
         h_flex,
         input::{Input, InputEvent, InputState},
         menu::{DropdownMenu, PopupMenuItem},
@@ -36,12 +35,12 @@ pub(super) struct RemoteDialog {
     mode: Mode,
     connection: Connection,
     session: Option<Session>,
+    tested_session: Option<Session>,
     fields: Vec<Entity<InputState>>,
     path: Entity<InputState>,
     entries: Vec<glim_core::DirectoryEntry>,
     selected: Option<PathBuf>,
     directory: PathBuf,
-    show_hidden: bool,
     busy: bool,
     activity: &'static str,
     message: Option<String>,
@@ -106,12 +105,12 @@ impl RemoteDialog {
             mode,
             connection: Connection::default(),
             session: None,
+            tested_session: None,
             fields,
             path,
             entries: Vec::new(),
             selected: None,
             directory: PathBuf::new(),
-            show_hidden: false,
             busy: false,
             activity: "Connecting…",
             message: None,
@@ -161,6 +160,7 @@ impl RemoteDialog {
         self.message = None;
         self.message_success = false;
         self.mode = Mode::Edit;
+        self.tested_session = None;
         let values = [
             connection.name.clone(),
             connection.host.clone(),
@@ -256,13 +256,22 @@ impl RemoteDialog {
         };
         self.message = None;
         let (cancel, guard) = Cancellation::task();
+        let tested_session = self.tested_session.take();
         let work = cx.background_executor().spawn(async move {
             connection.validate()?;
-            if test {
+            let session = if test {
                 let session = Session::connect(connection.clone(), &cancel)?;
                 session.list(&session.home, &cancel)?;
-            }
-            anyhow::Ok(connection)
+                Some(session)
+            } else {
+                tested_session
+                    .filter(|session| crate::app::remote::session_matches(session, &connection))
+                    .map(|mut session| {
+                        session.connection = connection.clone();
+                        session
+                    })
+            };
+            anyhow::Ok((connection, session))
         });
         self.task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
@@ -271,11 +280,21 @@ impl RemoteDialog {
                 view.busy = false;
                 match result {
                     Err(error) => view.message = Some(tr(&error.to_string())),
-                    Ok(_) if test => {
+                    Ok((_, session)) if test => {
+                        view.tested_session = session;
                         view.success("Connection successful", window, cx);
                     }
-                    Ok(connection) => {
-                        let catalog = &mut cx.global_mut::<Connections>().catalog;
+                    Ok((connection, session)) => {
+                        let state = cx.global_mut::<Connections>();
+                        if let Some(session) = session {
+                            state.sessions.insert(connection.id.clone(), session);
+                        } else if state.sessions.get(&connection.id).is_some_and(|session| {
+                            !crate::app::remote::session_matches(session, &connection)
+                        }) {
+                            state.sessions.remove(&connection.id);
+                        }
+                        view.tested_session = None;
+                        let catalog = &mut state.catalog;
                         if let Some(existing) = catalog
                             .connections
                             .iter_mut()
@@ -305,6 +324,7 @@ impl RemoteDialog {
         self.task = None;
         self.feedback_task = None;
         window.focus(&self.modal_focus, cx);
+        let cached = crate::app::remote::cached_session(&connection, cx);
         self.session = None;
         self.mode = Mode::Directories;
         self.connection = connection.clone();
@@ -320,7 +340,10 @@ impl RemoteDialog {
         self.activity = "Connecting…";
         let (cancel, guard) = Cancellation::task();
         let work = cx.background_executor().spawn(async move {
-            let session = Session::connect(connection.clone(), &cancel)?;
+            let session = match cached {
+                Some(session) => session,
+                None => Session::connect(connection.clone(), &cancel)?,
+            };
             let path = connection.last_directory.as_ref().unwrap_or(&session.home);
             let listing = session
                 .list(path, &cancel)
@@ -334,8 +357,12 @@ impl RemoteDialog {
                 view.busy = false;
                 match result {
                     Ok((session, (directory, entries))) => {
+                        cx.global_mut::<Connections>()
+                            .sessions
+                            .insert(session.connection.id.clone(), session.clone());
                         view.session = Some(session);
                         view.set_listing(directory, entries, window, cx);
+                        cx.refresh_windows();
                     }
                     Err(error) => view.message = Some(error.to_string()),
                 }
@@ -480,6 +507,16 @@ impl RemoteDialog {
                     .map(|(id, _)| id.clone())
                     .collect::<Vec<_>>();
                 catalog.connections.retain(|item| item.id != connection.id);
+                cx.global_mut::<Connections>()
+                    .sessions
+                    .remove(&connection.id);
+                if view
+                    .session
+                    .as_ref()
+                    .is_some_and(|session| session.connection.id == connection.id)
+                {
+                    view.session = None;
+                }
                 for id in ids {
                     crate::app::remove_recent_workspace(id, cx);
                 }
@@ -516,10 +553,11 @@ impl RemoteDialog {
 use gpui_kit::assets::IconName;
 
 impl Workspace {
-    pub(crate) fn remote_connection_is_live(&self, id: &str) -> bool {
-        self.remote
-            .as_ref()
-            .is_some_and(|session| session.connection.id == id && session.is_connected())
+    pub(crate) fn remote_connection_is_live(&self, connection: &Connection) -> bool {
+        self.remote.as_ref().is_some_and(|session| {
+            session.connection.id == connection.id
+                && crate::app::remote::session_matches(session, connection)
+        })
     }
     pub(crate) fn remote_locations(&self, cx: &App) -> Vec<Connection> {
         cx.global::<Connections>().catalog.connections.clone()

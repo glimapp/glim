@@ -1,10 +1,11 @@
-use glim_services::remote::Catalog;
+use glim_services::remote::{Catalog, Connection, Session};
 use gpui_kit::*;
 
 #[derive(Default)]
 pub(crate) struct Connections {
     pub catalog: Catalog,
     pub write: Option<Task<()>>,
+    pub sessions: std::collections::BTreeMap<String, Session>,
 }
 impl Global for Connections {}
 pub(crate) fn connection_in_use(id: &str, cx: &App) -> bool {
@@ -29,10 +30,38 @@ pub(crate) fn observe_connection_status<T: 'static>(cx: &mut Context<T>) -> Vec<
 }
 
 pub(crate) fn connection_is_connected(id: &str, cx: &App) -> bool {
+    let state = cx.global::<Connections>();
+    let Some(connection) = state.catalog.connections.iter().find(|item| item.id == id) else {
+        return false;
+    };
+    if cached_session(connection, cx).is_some() {
+        return true;
+    }
     super::OpenWorkspaces::windows(cx).iter().any(|(view, _)| {
         view.upgrade()
-            .is_some_and(|view| view.read(cx).remote_connection_is_live(id))
+            .is_some_and(|view| view.read(cx).remote_connection_is_live(connection))
     })
+}
+
+pub(crate) fn session_matches(session: &Session, connection: &Connection) -> bool {
+    let current = &session.connection;
+    session.is_connected()
+        && current.host == connection.host
+        && current.user == connection.user
+        && current.port == connection.port
+        && current.identity == connection.identity
+}
+
+pub(crate) fn cached_session(connection: &Connection, cx: &App) -> Option<Session> {
+    cx.global::<Connections>()
+        .sessions
+        .get(&connection.id)
+        .filter(|session| session_matches(session, connection))
+        .cloned()
+        .map(|mut session| {
+            session.connection = connection.clone();
+            session
+        })
 }
 
 pub(crate) fn persist(cx: &mut App) {

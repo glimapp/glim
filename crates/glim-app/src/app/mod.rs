@@ -414,6 +414,7 @@ pub fn run() -> Result<()> {
         cx.set_global(remote::Connections {
             catalog: remote_catalog,
             write: None,
+            sessions: Default::default(),
         });
         finder_integration::init(cx);
         telemetry::initialize(cx);

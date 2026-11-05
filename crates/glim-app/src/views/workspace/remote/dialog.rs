@@ -75,6 +75,7 @@ impl RemoteDialog {
             return;
         }
         self.task = None;
+        self.tested_session = None;
         self.busy = false;
         if (self.mode == Mode::Edit && !self.open_after_save)
             || (self.mode == Mode::Directories && !self.add_folder)
@@ -234,10 +235,7 @@ impl RemoteDialog {
             let delete = connection.clone();
             let label = connection.label();
             let open = connection.clone();
-            let connected = crate::app::remote::connection_is_connected(&connection.id, cx)
-                || self.session.as_ref().is_some_and(|session| {
-                    session.connection.id == connection.id && session.is_connected()
-                });
+            let connected = crate::app::remote::connection_is_connected(&connection.id, cx);
             list = list.child(
                 h_flex()
                     .id(("ssh-connection", index))
@@ -489,16 +487,7 @@ impl RemoteDialog {
         let entries = self
             .entries
             .iter()
-            .filter(|entry| {
-                entry.is_dir
-                    && (self.show_hidden
-                        || !entry
-                            .path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .starts_with('.'))
-            })
+            .filter(|entry| entry.is_dir)
             .cloned()
             .collect::<Vec<_>>();
         let count = entries.len();
@@ -682,7 +671,7 @@ impl RemoteDialog {
             )
             .child(list)
             .child(
-                v_flex()
+                h_flex()
                     .w_full()
                     .gap_3()
                     .pt_3()
@@ -690,6 +679,7 @@ impl RemoteDialog {
                     .border_color(cx.theme().border)
                     .child(
                         v_flex()
+                            .flex_1()
                             .min_w_0()
                             .gap_1()
                             .child(
@@ -701,51 +691,34 @@ impl RemoteDialog {
                             .child(
                                 div()
                                     .id("ssh-target-path")
-                                    .text_base()
+                                    .text_sm()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .h(px(48.))
-                                    .flex_shrink_0()
-                                    .overflow_y_scroll()
-                                    .whitespace_normal()
+                                    .truncate()
+                                    .tooltip({
+                                        let path = self.target_directory(cx).display().to_string();
+                                        move |window, cx| {
+                                            Tooltip::new(path.clone()).build(window, cx)
+                                        }
+                                    })
                                     .child(self.target_directory(cx).display().to_string()),
                             ),
                     )
                     .child(
-                        h_flex()
-                            .w_full()
-                            .gap_2()
-                            .child(
-                                Checkbox::new("ssh-hidden")
-                                    .small()
-                                    .label(tr("Show hidden folders"))
-                                    .checked(self.show_hidden)
-                                    .disabled(self.blocked())
-                                    .on_click(cx.listener(|view, checked: &bool, _, cx| {
-                                        view.show_hidden = *checked;
-                                        view.selected = None;
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(div().flex_1())
-                            .child(
-                                Button::new("ssh-cancel")
-                                    .outline()
-                                    .label(tr("Cancel"))
-                                    .on_click(
-                                        cx.listener(|view, _, window, cx| view.cancel(window, cx)),
-                                    ),
-                            )
-                            .child(
-                                primary_button(
-                                    "ssh-open-folder",
-                                    &tr("Open Folder"),
-                                    self.blocked()
-                                        || self.session.is_none()
-                                        || self.path.read(cx).value().trim().is_empty(),
-                                    cx,
-                                )
-                                .on_click(cx.listener(|view, _, window, cx| view.open(window, cx))),
-                            ),
+                        Button::new("ssh-cancel")
+                            .outline()
+                            .label(tr("Cancel"))
+                            .on_click(cx.listener(|view, _, window, cx| view.cancel(window, cx))),
+                    )
+                    .child(
+                        primary_button(
+                            "ssh-open-folder",
+                            &tr("Open Folder"),
+                            self.blocked()
+                                || self.session.is_none()
+                                || self.path.read(cx).value().trim().is_empty(),
+                            cx,
+                        )
+                        .on_click(cx.listener(|view, _, window, cx| view.open(window, cx))),
                     ),
             )
             .into_any_element()
@@ -758,16 +731,7 @@ impl RemoteDialog {
         let paths = self
             .entries
             .iter()
-            .filter(|entry| {
-                entry.is_dir
-                    && (self.show_hidden
-                        || !entry
-                            .path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .starts_with('.'))
-            })
+            .filter(|entry| entry.is_dir)
             .map(|entry| entry.path.clone())
             .collect::<Vec<_>>();
         let current = self
