@@ -11,6 +11,7 @@ pub mod workspace;
 pub(crate) mod workspace_window;
 
 mod file_icons;
+pub(crate) mod integrations;
 
 pub(crate) mod updates;
 

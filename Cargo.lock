@@ -2616,6 +2616,7 @@ dependencies = [
  "tar",
  "tempfile",
  "tiff",
+ "toml_edit 0.22.27",
  "url",
  "xz2",
  "zip",

@@ -31,6 +31,7 @@ const DEFAULT_SIDEBAR_RATIO: f32 = 0.20;
 const SIDEBAR_COLLAPSE_WIDTH: f32 = 120.;
 
 pub struct Workspace {
+    integrations: Entity<super::integrations::Integrations>,
     remote: Option<glim_services::remote::Session>,
     remote_dialog: Option<Entity<remote::RemoteDialog>>,
     remote_disconnected: bool,
@@ -155,6 +156,7 @@ impl Workspace {
     pub(crate) fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         glim_services::telemetry::track("settings_opened", []);
         self.page = Page::Settings;
+        self.integrations.update(cx, |view, cx| view.reload(cx));
         self.results.clear();
         self.search_task = None;
         window.focus(&self.focus, cx);
@@ -221,6 +223,7 @@ impl Workspace {
             .unwrap_or(true)
         });
         let mut workspace = Self {
+            integrations: cx.new(|_| super::integrations::Integrations::default()),
             remote: None,
             remote_dialog: None,
             remote_disconnected: false,

@@ -12,6 +12,8 @@
 
 ## 模块与数据流
 
+`views/integrations` 是设置页持续持有的实体，负责发现应用、展示各应用的配置状态及短暂反馈。`services/integrations` 发现用户级配置并进行带备份的原子修改，保留 TOML 和 JSON/JSONC 中的其他配置与注释；遇到同名冲突或扫描后发生的修改时拒绝覆盖。`services/integrations/mcp` 仅在 `glim --mcp` 模式下运行，早于界面初始化，通过本地 stdio 工具将已有文件或文件夹交给 macOS 打开。它不返回文件内容、不访问远端 URL，也不修改调用方的工具审批策略。支持范围与配置路径见[应用集成](app-integrations.zh-CN.md)。
+
 ### 模块与依赖方向
 
 ```text
