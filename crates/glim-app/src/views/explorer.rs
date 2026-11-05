@@ -29,6 +29,9 @@ pub enum ExplorerEvent {
 gpui_kit::actions!(explorer, [Up, Down, Expand, Collapse, OpenSelected]);
 
 const DIRECTORY_SCAN_CONCURRENCY: usize = 32;
+const MAX_ANCESTOR_ROWS: usize = 4;
+
+type FoldedAncestors = HashMap<(usize, PathBuf), Vec<PathBuf>>;
 
 #[derive(Clone)]
 struct Row {
@@ -104,6 +107,7 @@ pub struct Explorer {
     media_presence: HashMap<PathBuf, bool>,
     media_tasks: HashMap<PathBuf, Task<()>>,
     rows: Vec<Row>,
+    folded_ancestors: FoldedAncestors,
     clipped_labels: HashSet<(usize, PathBuf, bool)>,
     path_hint: super::path_hint::PathHint,
     selected: Option<usize>,
@@ -147,6 +151,7 @@ impl Explorer {
             media_presence: HashMap::new(),
             media_tasks: HashMap::new(),
             rows: Vec::new(),
+            folded_ancestors: HashMap::new(),
             clipped_labels: HashSet::new(),
             path_hint: Default::default(),
             selected: None,
@@ -590,6 +595,7 @@ impl Explorer {
                 })
                 .map(|row| row.entry.path.clone()),
         );
+        paths.extend(self.folded_ancestors.values().flatten().cloned());
         paths.sort();
         paths.dedup();
         paths
@@ -731,9 +737,21 @@ impl Explorer {
             }
             rows[index].subtree_end = rows.len();
         }
+        self.folded_ancestors.clear();
+        if !self.show_all_ancestors {
+            let (compact, folded) = compact_directory_chains(rows);
+            rows = compact;
+            self.folded_ancestors = folded;
+        }
         self.selected = selected.and_then(|(root_index, path)| {
-            rows.iter()
-                .position(|r| r.root_index == root_index && r.entry.path == path)
+            rows.iter().position(|r| {
+                r.root_index == root_index
+                    && (r.entry.path == path
+                        || self
+                            .folded_ancestors
+                            .get(&(root_index, r.entry.path.clone()))
+                            .is_some_and(|paths| paths.contains(&path)))
+            })
         });
         self.rows = rows;
     }
@@ -773,6 +791,13 @@ impl Explorer {
         self.preserve_next_reveal = None;
         self.selected = Some(index);
         window.focus(&self.focus, cx);
+        if let Some(paths) = self
+            .folded_ancestors
+            .get(&(row.root_index, row.entry.path.clone()))
+        {
+            self.reveal_ancestors(row.root_index, paths[0].clone(), window, cx);
+            return;
+        }
         if !row.entry.is_dir {
             self.preserve_next_reveal = Some(row.entry.path.clone());
             cx.emit(ExplorerEvent::OpenFile(row.entry.path));
@@ -822,6 +847,9 @@ impl Explorer {
             self.activate(index, window, cx);
         }
         if sticky {
+            let Some(index) = self.selected else {
+                return;
+            };
             let capacity = sticky_capacity(
                 f32::from(self.scroll.0.borrow().base_handle.bounds().size.height),
                 row_height(cx),
@@ -843,6 +871,12 @@ impl Explorer {
     ) -> AnyElement {
         let row_height = row_height(cx);
         let row = &self.rows[index];
+        if let Some(paths) = self
+            .folded_ancestors
+            .get(&(row.root_index, row.entry.path.clone()))
+        {
+            return self.render_ancestor_paths(row.root_index, paths, depth, sticky, cx);
+        }
         let expanded = self.expanded[row.root_index].contains(&row.entry.path);
         let name = row
             .entry
@@ -1141,65 +1175,125 @@ impl Explorer {
 
     fn render_hidden_ancestors(&self, hidden: &[usize], cx: &mut Context<Self>) -> AnyElement {
         let root_index = self.rows[hidden[0]].root_index;
+        let paths = hidden
+            .iter()
+            .flat_map(|&index| {
+                let row = &self.rows[index];
+                self.folded_ancestors
+                    .get(&(root_index, row.entry.path.clone()))
+                    .cloned()
+                    .unwrap_or_else(|| vec![row.entry.path.clone()])
+            })
+            .collect::<Vec<_>>();
+        self.render_ancestor_paths(root_index, &paths, 1, true, cx)
+    }
+
+    fn reveal_ancestors(
+        &mut self,
+        root_index: usize,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_all_ancestors = true;
+        self.rebuild();
+        if let Some(index) = self
+            .rows
+            .iter()
+            .position(|row| row.root_index == root_index && row.entry.path == path)
+        {
+            self.selected = Some(index);
+            self.scroll.scroll_to_item_strict_with_offset(
+                index,
+                ScrollStrategy::Top,
+                self.rows[index].depth,
+            );
+        }
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    fn render_ancestor_paths(
+        &self,
+        root_index: usize,
+        paths: &[PathBuf],
+        depth: usize,
+        sticky: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let root_id = self.root_ids[root_index];
-        let first_path = self.rows[hidden[0]].entry.path.clone();
+        let first_path = paths[0].clone();
+        let id = ElementId::NamedChild(
+            std::sync::Arc::new(entry_id(
+                &first_path,
+                if sticky {
+                    "sticky-ancestors"
+                } else {
+                    "folded-ancestors"
+                },
+            )),
+            root_id.to_string().into(),
+        );
+        let label = paths
+            .iter()
+            .map(|path| path.file_name().unwrap_or_default().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(" / ");
         div()
-            .id(self.rows[hidden[0]].element_id("sticky-ancestors"))
+            .id(id.clone())
             .relative()
             .w_full()
             .h(px(row_height(cx)))
-            .pl(px(22.))
+            .pl(px(8. + depth as f32 * 14.))
             .pr_2()
             .rounded(px(6.))
             .bg(cx.theme().sidebar)
-            .occlude()
-            .child(
+            .when(sticky, |row| row.occlude())
+            .children((0..depth).map(|level| {
                 div()
                     .absolute()
                     .top_0()
                     .bottom_0()
-                    .left(px(26.))
+                    .left(px(26. + level as f32 * 14.))
                     .w(px(1.))
-                    .bg(cx.theme().border.opacity(0.5)),
-            )
+                    .bg(cx.theme().border.opacity(0.5))
+            }))
             .child(
-                Button::new(self.rows[hidden[0]].element_id("sticky-ancestors-expand"))
-                    .custom(
-                        ButtonCustomVariant::new(cx)
-                            .hover(cx.theme().foreground.opacity(0.04))
-                            .active(cx.theme().foreground.opacity(0.07)),
-                    )
-                    .w_full()
-                    .h(px(row_height(cx)))
-                    .text_size(px(12.))
-                    .justify_start()
-                    .text_color(cx.theme().muted_foreground)
-                    .accessibility_label(glim_services::locale::tr("Show parent folders"))
-                    .child(
-                        div().w_full().text_left().child(
-                            div()
-                                .w(px(16.))
-                                .h(px(16.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child("…"),
-                        ),
-                    )
-                    .on_click(cx.listener(move |view, _, window, cx| {
-                        if let Some(index) = view.rows.iter().position(|row| {
-                            view.root_ids[row.root_index] == root_id && row.entry.path == first_path
-                        }) {
-                            view.show_all_ancestors = true;
-                            view.scroll.scroll_to_item_strict_with_offset(
-                                index,
-                                ScrollStrategy::Top,
-                                view.rows[index].depth,
-                            );
-                            window.focus(&view.focus, cx);
-                            cx.notify();
-                        }
-                    })),
+                Button::new(ElementId::NamedChild(
+                    std::sync::Arc::new(id),
+                    "expand".into(),
+                ))
+                .custom(
+                    ButtonCustomVariant::new(cx)
+                        .hover(cx.theme().foreground.opacity(0.04))
+                        .active(cx.theme().foreground.opacity(0.07)),
+                )
+                .w_full()
+                .h(px(row_height(cx)))
+                .text_size(px(12.))
+                .justify_start()
+                .text_color(cx.theme().muted_foreground)
+                .accessibility_label(format!(
+                    "{}: {label}",
+                    glim_services::locale::tr("Show parent folders")
+                ))
+                .tooltip(label)
+                .child(
+                    div().w_full().text_left().child(
+                        div()
+                            .w(px(16.))
+                            .h(px(16.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child("…"),
+                    ),
+                )
+                .on_click(cx.listener(move |view, _, window, cx| {
+                    if let Some(root_index) = view.root_ids.iter().position(|id| *id == root_id) {
+                        view.reveal_ancestors(root_index, first_path.clone(), window, cx);
+                    }
+                })),
             )
             .into_any_element()
     }
@@ -1361,7 +1455,10 @@ impl Render for Explorer {
                 if let Some(index) = view.selected
                     && let Some(row) = view.rows.get(index)
                     && row.entry.is_dir
-                    && !view.expanded[row.root_index].contains(&row.entry.path)
+                    && (!view.expanded[row.root_index].contains(&row.entry.path)
+                        || view
+                            .folded_ancestors
+                            .contains_key(&(row.root_index, row.entry.path.clone())))
                 {
                     view.activate(index, window, cx);
                 }
@@ -1414,7 +1511,15 @@ impl Render for Explorer {
                                 view.render_row(
                                     index,
                                     false,
-                                    pinned.display_depth(index, &view.rows),
+                                    if view.show_all_ancestors {
+                                        pinned.display_depth(index, &view.rows)
+                                    } else {
+                                        pinned.display_depth(index, &view.rows).min(
+                                            indentation_capacity(f32::from(
+                                                scroll.bounds().size.width,
+                                            )),
+                                        )
+                                    },
                                     cx,
                                 )
                             })
@@ -1522,6 +1627,76 @@ fn row_height(_: &App) -> f32 {
     28.
 }
 
+/// Fold only fully loaded, unbranched expanded chains. Branches, files and roots
+/// remain explicit; the representative row keeps the hidden paths for disclosure.
+fn compact_directory_chains(rows: Vec<Row>) -> (Vec<Row>, FoldedAncestors) {
+    let mut keep = vec![true; rows.len()];
+    let mut folded = HashMap::new();
+    let mut start = 0;
+    while start < rows.len() {
+        if rows[start].depth == 0 || !rows[start].entry.is_dir || rows[start].entry.is_symlink {
+            start += 1;
+            continue;
+        }
+        let mut end = start;
+        while end + 1 < rows.len()
+            && rows[end + 1].parent == Some(end)
+            && rows[end + 1].entry.is_dir
+            && !rows[end + 1].entry.is_symlink
+            && rows[end + 1].subtree_end > end + 2
+            && rows[end + 1].subtree_end == rows[end].subtree_end
+        {
+            end += 1;
+        }
+        // Keep the two nearest directories and save at least two rows.
+        if end - start + 1 > MAX_ANCESTOR_ROWS {
+            let representative = end - 2;
+            keep[start..representative].fill(false);
+            folded.insert(
+                (
+                    rows[start].root_index,
+                    rows[representative].entry.path.clone(),
+                ),
+                rows[start..=representative]
+                    .iter()
+                    .map(|row| row.entry.path.clone())
+                    .collect(),
+            );
+        }
+        start = end + 1;
+    }
+    let mut prefix = Vec::with_capacity(rows.len() + 1);
+    prefix.push(0);
+    for &retained in &keep {
+        prefix.push(prefix.last().unwrap() + usize::from(retained));
+    }
+    let mut compact: Vec<Row> = Vec::with_capacity(*prefix.last().unwrap());
+    for (index, row) in rows.iter().enumerate() {
+        if !keep[index] {
+            continue;
+        }
+        let mut parent = row.parent;
+        while let Some(index) = parent {
+            if keep[index] {
+                break;
+            }
+            parent = rows[index].parent;
+        }
+        let parent = parent.map(|index| prefix[index]);
+        compact.push(Row {
+            parent,
+            depth: parent.map_or(0, |index| compact[index].depth + 1),
+            subtree_end: prefix[row.subtree_end],
+            ..row.clone()
+        });
+    }
+    (compact, folded)
+}
+
+fn indentation_capacity(width: f32) -> usize {
+    (((width * 0.4 - 32.) / 14.).max(1.) as usize).min(MAX_ANCESTOR_ROWS)
+}
+
 #[cfg(test)]
 fn sticky_rows(rows: &[Row], offset: f32, height: f32) -> Vec<(usize, f32)> {
     sticky_rows_with_height(rows, offset, height, 32., false)
@@ -1533,7 +1708,7 @@ fn sticky_rows(rows: &[Row], offset: f32, height: f32) -> Vec<(usize, f32)> {
 
 fn sticky_capacity(height: f32, row_height: f32) -> usize {
     // Leave at least half the viewport for the directory contents.
-    (height / row_height) as usize / 2
+    ((height / row_height) as usize / 2).min(MAX_ANCESTOR_ROWS)
 }
 
 /// Compress only ancestors crossing the compact overlay, so distant descendants
@@ -1567,12 +1742,10 @@ fn sticky_rows_with_height(
             current = rows[index].parent;
         }
         ancestors.reverse();
-        let content_start = ancestors.last().map_or(probe, |index| index + 1).max(top);
-        let remaining = rows.len().saturating_sub(content_start);
         let capacity = if show_all {
             visible.saturating_sub(1)
         } else {
-            visible.saturating_sub(remaining.min((visible / 2).max(1)))
+            sticky_capacity(height, row_height)
         };
         if !ancestors.starts_with(&pinned_path) {
             break;
@@ -1623,7 +1796,9 @@ fn sticky_rows_with_height(
 
 #[cfg(test)]
 mod tests {
-    use super::{Row, sticky_rows};
+    use super::{
+        Row, compact_directory_chains, indentation_capacity, sticky_capacity, sticky_rows,
+    };
     use glim_core::DirectoryEntry;
 
     fn row(name: &str, parent: Option<usize>, depth: usize, end: usize, is_dir: bool) -> Row {
@@ -1652,6 +1827,103 @@ mod tests {
             row("other", None, 0, 10, true),
             row("other/file", Some(8), 1, 10, false),
         ]
+    }
+
+    fn deep_chain() -> Vec<Row> {
+        let mut rows = (0usize..7)
+            .map(|index| {
+                row(
+                    &format!(
+                        "/{}",
+                        (0..=index)
+                            .map(|n| format!("dir{n}"))
+                            .collect::<Vec<_>>()
+                            .join("/")
+                    ),
+                    index.checked_sub(1),
+                    index,
+                    9,
+                    true,
+                )
+            })
+            .collect::<Vec<_>>();
+        rows.push(row(
+            "/dir0/dir1/dir2/dir3/dir4/dir5/dir6/one",
+            Some(6),
+            7,
+            8,
+            false,
+        ));
+        rows.push(row(
+            "/dir0/dir1/dir2/dir3/dir4/dir5/dir6/two",
+            Some(6),
+            7,
+            9,
+            false,
+        ));
+        rows
+    }
+
+    #[test]
+    fn seven_directory_levels_compact_before_scrolling_and_keep_both_files() {
+        let source = deep_chain();
+        let (rows, folded) = compact_directory_chains(source.clone());
+        assert_eq!(rows.len(), 6);
+        assert_eq!(rows[0].entry.path, source[0].entry.path);
+        assert_eq!(
+            folded[&(0, source[4].entry.path.clone())],
+            source[1..=4]
+                .iter()
+                .map(|r| r.entry.path.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(rows[1].parent, Some(0));
+        assert_eq!(rows[1].subtree_end, 6);
+        assert_eq!(rows[4].parent, Some(3));
+        assert_eq!(rows[4].depth, 4);
+        assert_eq!(rows[4].entry.path, source[7].entry.path);
+        assert_eq!(rows[5].entry.path, source[8].entry.path);
+    }
+
+    #[test]
+    fn compaction_preserves_branching_directories_siblings_and_symlink_boundaries() {
+        let mut source = deep_chain();
+        source[0].subtree_end = 10;
+        source[1].subtree_end = 10;
+        source.push(row("/dir0/dir1/sibling", Some(1), 2, 10, false));
+        let (rows, _) = compact_directory_chains(source.clone());
+        assert!(rows.iter().any(|r| r.entry.path == source[1].entry.path));
+        assert_eq!(rows.last().unwrap().parent, Some(1));
+        assert_eq!(rows.iter().filter(|r| !r.entry.is_dir).count(), 3);
+        source[4].entry.is_symlink = true;
+        let (rows, folded) = compact_directory_chains(source.clone());
+        assert!(folded.is_empty());
+        assert_eq!(rows.len(), source.len());
+    }
+
+    #[test]
+    fn repeated_roots_compact_independently_and_rebase_parent_indices() {
+        let source = deep_chain();
+        let mut combined = source.clone();
+        combined.extend(source.iter().cloned().map(|mut r| {
+            r.root_index = 1;
+            r.parent = r.parent.map(|index| index + source.len());
+            r.subtree_end += source.len();
+            r
+        }));
+        let (rows, folded) = compact_directory_chains(combined);
+        assert_eq!(folded.len(), 2);
+        assert_eq!(rows[6].parent, None);
+        assert_eq!(rows[7].parent, Some(6));
+        assert_eq!(rows[6].subtree_end, 12);
+    }
+
+    #[test]
+    fn ancestor_and_indentation_budgets_stay_bounded_in_tall_and_narrow_views() {
+        assert_eq!(sticky_capacity(1200., 28.), 4);
+        assert_eq!(sticky_capacity(112., 28.), 2);
+        assert_eq!(indentation_capacity(300.), 4);
+        assert!(indentation_capacity(160.) < indentation_capacity(300.));
     }
     #[test]
     fn ancestors_pin_only_after_scrolling_and_keep_tree_order() {
