@@ -62,13 +62,17 @@ fn connection_icon(
     div()
         .id(id)
         .size(icon_size)
+        .relative()
         .flex_shrink_0()
         .role(Role::Status)
         .aria_label(status.clone())
         .tooltip(move |window, cx| Tooltip::new(status.clone()).build(window, cx))
         .child(
             Icon::new(gpui_kit::assets::IconName::Globe)
-                .size(icon_size)
+                .absolute()
+                .top(px(-1.))
+                .left(px(-1.))
+                .size(icon_size + px(2.))
                 .text_color(connection_color(connected, cx)),
         )
         .into_any_element()
