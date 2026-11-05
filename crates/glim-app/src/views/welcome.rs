@@ -554,6 +554,7 @@ mod tests {
     #[gpui_kit::test]
     fn quick_actions_stay_in_one_row_at_minimum_window_width(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
+        cx.update(|cx| crate::app::remote::init(Default::default(), cx));
         for (width, height) in [(800., 480.), (1100., 760.), (1470., 855.)] {
             let (handle, _) = cx.update(|cx| {
                 gpui_kit::open_window(

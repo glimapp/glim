@@ -751,6 +751,7 @@ mod tests {
         std::fs::write(&path, "original\n").unwrap();
         cx.update(|cx| {
             gpui_kit::init(cx);
+            crate::app::remote::init(Default::default(), cx);
             cx.bind_keys([gpui_kit::KeyBinding::new(
                 "secondary-s",
                 crate::app::actions::SaveFile,

@@ -688,6 +688,7 @@ mod tests {
         let path = dir.path().join("draft.txt");
         std::fs::write(&path, "on disk").unwrap();
         cx.update(gpui_kit::init);
+        cx.update(|cx| crate::app::remote::init(Default::default(), cx));
         let (handle, view) = cx.update(|cx| {
             gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
                 cx.new(|cx| Workspace::new(Some(path.clone()), window, cx))

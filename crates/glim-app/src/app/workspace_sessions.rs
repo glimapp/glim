@@ -189,6 +189,7 @@ mod tests {
         cx: &mut TestAppContext,
     ) {
         cx.update(gpui_kit::init);
+        cx.update(|cx| crate::app::remote::init(Default::default(), cx));
         let temp = tempfile::tempdir().unwrap();
         let roots = [temp.path().join("dev"), temp.path().join("other")];
         for root in &roots {

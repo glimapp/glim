@@ -634,6 +634,7 @@ mod incoming_file_tests {
         let path = directory.path().join("incoming.txt");
         std::fs::write(&path, "Finder opened this file").unwrap();
         cx.update(gpui_kit::init);
+        cx.update(|cx| crate::app::remote::init(Default::default(), cx));
         let (handle, view) = cx.update(|cx| {
             gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
                 cx.new(|cx| Workspace::new(None, window, cx))
@@ -683,6 +684,7 @@ mod incoming_file_tests {
         .unwrap();
         std::fs::write(&binary, [0, 255, 0, 255]).unwrap();
         cx.update(gpui_kit::init);
+        cx.update(|cx| crate::app::remote::init(Default::default(), cx));
         let (handle, view) = cx.update(|cx| {
             gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
                 cx.new(|cx| Workspace::new(Some(first.clone()), window, cx))
@@ -739,6 +741,7 @@ mod tests {
             std::fs::write(path, "original\n").unwrap();
         }
         cx.update(gpui_kit::init);
+        cx.update(|cx| crate::app::remote::init(Default::default(), cx));
         let (handle, view) = cx.update(|cx| {
             gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
                 cx.new(|cx| Workspace::new(None, window, cx))

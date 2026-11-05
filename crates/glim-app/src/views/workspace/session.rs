@@ -292,6 +292,7 @@ mod tests {
             std::fs::write(path, data).unwrap();
         }
         cx.update(gpui_kit::init);
+        cx.update(|cx| crate::app::remote::init(Default::default(), cx));
         let (window, view) = cx.update(|cx| {
             gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
                 cx.new(|cx| Workspace::new(None, window, cx))

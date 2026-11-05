@@ -838,6 +838,7 @@ mod quit_tests {
     fn canceling_quit_in_another_window_keeps_previously_approved_drafts(cx: &mut TestAppContext) {
         cx.update(|cx| {
             gpui_kit::init(cx);
+            crate::app::remote::init(Default::default(), cx);
             cx.set_global(OpenWorkspaces::default());
             cx.set_global(QuitSession::default());
             cx.bind_keys([KeyBinding::new("secondary-n", NewFile, None)]);
