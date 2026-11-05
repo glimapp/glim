@@ -183,19 +183,6 @@ impl Render for Integrations {
                 button
                     .icon(Icon::new(IconName::ChevronDown).size(px(12.)))
                     .dropdown_menu(move |menu, _, _| {
-                        let menu = if target.kind == Kind::Codex {
-                            let entity = entity.clone();
-                            let target = target.clone();
-                            menu.item(PopupMenuItem::new(tr("Set as default")).on_click(
-                                move |_, _, cx| {
-                                    let _ = entity.update(cx, |view, cx| {
-                                        view.configure(target.clone(), true, cx)
-                                    });
-                                },
-                            ))
-                        } else {
-                            menu
-                        };
                         let entity = entity.clone();
                         let target = target.clone();
                         menu.item(PopupMenuItem::new(tr("Remove integration")).on_click(
