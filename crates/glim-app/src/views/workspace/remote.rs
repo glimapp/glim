@@ -763,6 +763,7 @@ impl Workspace {
             super::Page::Document
         };
         self.remote_disconnected = true;
+        self.loading = false;
         let Some(connection) = connection else {
             self.error = Some(
                 tr("SSH connection was removed. Open a folder using an available connection.")
@@ -771,6 +772,7 @@ impl Workspace {
             return;
         };
         self.loading = true;
+        cx.refresh_windows();
         let (cancel, guard) = Cancellation::task();
         let worker_cancel = cancel.clone();
         let work = cx.background_executor().spawn(async move {
@@ -790,6 +792,7 @@ impl Workspace {
                     let _ = view.update(cx, |view, cx| {
                         view.loading = false;
                         view.error = Some(error.to_string().into());
+                        cx.refresh_windows();
                         cx.notify();
                     });
                     return;
@@ -869,6 +872,7 @@ impl Workspace {
                     .filter(|index| *index < view.tabs.len())
                     .or_else(|| (!view.tabs.is_empty()).then_some(0));
                 view.loading = false;
+                cx.refresh_windows();
                 view.sync_workspace(cx);
                 view.remember_session(cx);
                 view.reveal_active_file(cx);

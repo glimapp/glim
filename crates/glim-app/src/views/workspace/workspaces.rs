@@ -7,6 +7,8 @@ use gpui_kit::{
         h_flex,
         input::{Input, InputEvent, InputState},
         menu::{ContextMenuExt, PopupMenuItem},
+        spinner::Spinner,
+        tooltip::Tooltip,
         v_flex,
     },
     *,
@@ -182,7 +184,18 @@ impl Workspace {
                     .filter(|slot| {
                         !slot.workspace.folders.is_empty() || slot.workspace.name.is_some()
                     })
-                    .map(|slot| slot.workspace.clone())
+                    .map(|slot| {
+                        // The current entity is already borrowed by render.
+                        let view = if slot.view.entity_id() == cx.entity_id() {
+                            self
+                        } else {
+                            slot.view.read(cx)
+                        };
+                        (
+                            slot.workspace.clone(),
+                            view.loading && view.remote_restore.is_some(),
+                        )
+                    })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -203,7 +216,7 @@ impl Workspace {
             .overflow_y_scroll()
             .track_scroll(&scroll)
             .gap_1()
-            .children(slots.into_iter().map(|workspace| {
+            .children(slots.into_iter().map(|(workspace, restoring)| {
                 if let Some((id, input, _)) = &self.workspace_rename
                     && *id == workspace.id
                 {
@@ -258,7 +271,27 @@ impl Workspace {
                                     .w_full()
                                     .min_w_0()
                                     .gap_3()
-                                    .child(if glim_services::remote::is_remote_id(&workspace.id) {
+                                    .child(if restoring {
+                                        let status = glim_services::locale::tr("Loading…");
+                                        div()
+                                            .id(SharedString::from(format!(
+                                                "workspace-loading-{}",
+                                                workspace.id
+                                            )))
+                                            .size(px(16.))
+                                            .flex_shrink_0()
+                                            .role(Role::Status)
+                                            .aria_label(status.clone())
+                                            .tooltip(move |window, cx| {
+                                                Tooltip::new(status.clone()).build(window, cx)
+                                            })
+                                            .child(
+                                                Spinner::new()
+                                                    .with_size(px(16.))
+                                                    .color(crate::views::accent(cx)),
+                                            )
+                                            .into_any_element()
+                                    } else if glim_services::remote::is_remote_id(&workspace.id) {
                                         crate::views::connection_icon(
                                             SharedString::from(format!(
                                                 "workspace-status-{}",

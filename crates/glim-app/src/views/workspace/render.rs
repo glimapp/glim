@@ -201,7 +201,7 @@ impl Render for Workspace {
                     .min_h_0()
                     .w_full()
                     .child(content)
-                    .when(self.loading && document_page && !loading_preview, |view| {
+                    .when(self.loading && self.remote_restore.is_none() && document_page && !loading_preview, |view| {
                         view.child(
                             div()
                                 .absolute()
