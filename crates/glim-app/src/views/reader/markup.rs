@@ -413,6 +413,7 @@ impl MarkupReader {
                     .size_full()
                     .child(
                         text_view
+                            .on_image_click(super::image_detail::show)
                             .image_source(move |uri| {
                                 let selected = pictures
                                     .get(uri.as_ref())

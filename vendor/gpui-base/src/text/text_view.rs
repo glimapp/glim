@@ -100,6 +100,8 @@ pub(crate) type TableActionsFn =
     dyn Fn(&TableData, &mut Window, &mut App) -> AnyElement + Send + Sync;
 
 pub(crate) type ImageSourceFn = dyn Fn(&gpui::SharedUri) -> gpui::ImageSource + Send + Sync;
+pub(crate) type ImageClickHandlerFn =
+    dyn Fn(gpui::ImageSource, &mut Window, &mut App) + Send + Sync;
 
 pub(crate) type LinkClickHandlerFn =
     dyn Fn(&SharedString, &ClickEvent, &mut Window, &mut App) + Send + Sync;
@@ -165,6 +167,7 @@ pub struct TextView {
     link_click_handler: Option<Arc<LinkClickHandlerFn>>,
     task_toggle_handler: Option<Arc<TaskToggleHandlerFn>>,
     image_source: Option<Arc<ImageSourceFn>>,
+    image_click_handler: Option<Arc<ImageClickHandlerFn>>,
     reveal_handler: Option<Rc<RevealHandlerFn>>,
     markdown_extensions: Arc<MarkdownExtensions>,
     motion: Option<TextViewMotion>,
@@ -213,6 +216,7 @@ impl TextView {
             link_click_handler: None,
             task_toggle_handler: None,
             image_source: None,
+            image_click_handler: None,
             reveal_handler: None,
             markdown_extensions: Arc::default(),
             motion: None,
@@ -238,6 +242,7 @@ impl TextView {
             link_click_handler: None,
             task_toggle_handler: None,
             image_source: None,
+            image_click_handler: None,
             reveal_handler: None,
             markdown_extensions: Arc::default(),
             motion: None,
@@ -263,6 +268,7 @@ impl TextView {
             link_click_handler: None,
             task_toggle_handler: None,
             image_source: None,
+            image_click_handler: None,
             reveal_handler: None,
             markdown_extensions: Arc::default(),
             motion: None,
@@ -411,6 +417,16 @@ impl TextView {
         F: Fn(&SharedString, &ClickEvent, &mut Window, &mut App) + Send + Sync + 'static,
     {
         self.link_click_handler = Some(Arc::new(handler));
+        self
+    }
+
+    /// Open an image independently using its already-resolved source.
+    /// Modified and auxiliary clicks on linked images keep their link behavior.
+    pub fn on_image_click<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(gpui::ImageSource, &mut Window, &mut App) + Send + Sync + 'static,
+    {
+        self.image_click_handler = Some(Arc::new(handler));
         self
     }
 
@@ -700,6 +716,7 @@ impl Element for TextView {
             state.link_click_handler = self.link_click_handler.clone();
             state.task_toggle_handler = self.task_toggle_handler.clone();
             state.image_source = self.image_source.clone();
+            state.image_click_handler = self.image_click_handler.clone();
             state.set_markdown_extensions(self.markdown_extensions.clone(), cx);
             if let Some(motion) = &self.motion {
                 state.set_motion(motion.clone());

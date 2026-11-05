@@ -1605,6 +1605,22 @@
       }
     },
     "remote": {
+      "refresh_interval_ms": {
+        "value": 2000,
+        "type": "u64",
+        "unit": "milliseconds",
+        "effect": "budget",
+        "description": "Delay between automatic refresh cycles for the visible remote workspace; suspended while the app is inactive or the transport is busy/disconnected.",
+        "description_zh": "当前可见远端工作区自动刷新周期的间隔；应用未激活或传输忙碌、断开时暂停。"
+      },
+      "refresh_batch": {
+        "value": 4,
+        "type": "usize",
+        "unit": "paths per cycle",
+        "effect": "budget",
+        "description": "Round-robin directory and background-file checks per refresh cycle; the active file is checked first. Limits concurrent working scope, not total workspace size.",
+        "description_zh": "每轮轮换检查的目录和后台文件数；当前文件优先检查。限制活动工作范围，不限制工作区总大小。"
+      },
       "idle_timeout_ms": {
         "value": 30000,
         "type": "u64",

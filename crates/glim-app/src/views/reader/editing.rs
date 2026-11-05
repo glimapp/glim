@@ -104,6 +104,7 @@ impl Reader {
         path: std::path::PathBuf,
         cx: &mut App,
     ) {
+        self.document.remote_version = session.loaded_version(&path);
         self.document.path = path;
         self.document.remote = Some(session);
         self.set_editing_locked(true, cx);

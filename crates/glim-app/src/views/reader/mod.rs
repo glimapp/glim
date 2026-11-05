@@ -11,6 +11,7 @@ mod csv;
 mod diagrams;
 pub(crate) use diagrams::cache_activity as diagram_cache_activity;
 mod editing;
+mod image_detail;
 mod json;
 mod json_format;
 mod lexical;

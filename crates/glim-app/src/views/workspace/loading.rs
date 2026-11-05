@@ -405,6 +405,7 @@ impl Workspace {
 
     fn scan_workspace_roots(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if glim_services::remote::is_remote_id(&self.recent_id) {
+            self.start_remote_watching(window, cx);
             return;
         }
         self.refresh_task = None;

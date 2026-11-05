@@ -27,6 +27,18 @@ pub(super) struct Sftp {
     timed_out: Arc<AtomicBool>,
     process_watch: Option<Watch>,
 }
+
+#[derive(Debug)]
+struct StatusError {
+    code: u32,
+    message: String,
+}
+impl std::fmt::Display for StatusError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "SFTP: {} (status {})", self.message, self.code)
+    }
+}
+impl std::error::Error for StatusError {}
 impl Drop for Sftp {
     fn drop(&mut self) {
         self.process_watch = None;
@@ -279,7 +291,11 @@ impl Sftp {
             let status = packet.u32()?;
             if status != 0 && status != 1 {
                 let message = String::from_utf8_lossy(packet.string()?).into_owned();
-                bail!("SFTP: {message} (status {status})");
+                return Err(StatusError {
+                    code: status,
+                    message,
+                }
+                .into());
             }
         }
         Ok(reply)
@@ -291,6 +307,29 @@ impl Sftp {
         let mut packet = Packet::body(&reply, 104)?;
         ensure!(packet.u32()? == 1, "Invalid canonical SFTP path");
         Ok(PathBuf::from(OsString::from_vec(packet.string()?.to_vec())))
+    }
+    pub fn stat(&mut self, path: &Path, cancel: &Cancellation) -> Result<super::FileStamp> {
+        cancel.check()?;
+        let _watch = self.watch(cancel);
+        let reply = self.request(17, &string(path.as_os_str().as_encoded_bytes())?)?;
+        Packet::body(&reply, 105)?.file_stamp()
+    }
+    pub fn stat_optional(
+        &mut self,
+        path: &Path,
+        cancel: &Cancellation,
+    ) -> Result<Option<super::FileStamp>> {
+        match self.stat(path, cancel) {
+            Ok(stamp) => Ok(Some(stamp)),
+            Err(error)
+                if error
+                    .downcast_ref::<StatusError>()
+                    .is_some_and(|status| status.code == 2) =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
     }
     pub fn list(&mut self, path: &Path, cancel: &Cancellation) -> Result<Vec<DirectoryEntry>> {
         cancel.check()?;
@@ -444,23 +483,35 @@ impl<'a> Packet<'a> {
         self.take(size)
     }
     fn attrs(&mut self) -> Result<u32> {
+        Ok(self.file_stamp()?.mode)
+    }
+    fn file_stamp(&mut self) -> Result<super::FileStamp> {
         let flags = self.u32()?;
-        if flags & 1 != 0 {
-            self.take(8)?;
-        }
+        let size = if flags & 1 != 0 {
+            Some(u64::from_be_bytes(self.take(8)?.try_into()?))
+        } else {
+            None
+        };
         if flags & 2 != 0 {
             self.take(8)?;
         }
         let mode = if flags & 4 != 0 { self.u32()? } else { 0 };
-        if flags & 8 != 0 {
-            self.take(8)?;
-        }
+        let modified = if flags & 8 != 0 {
+            self.u32()?;
+            Some(self.u32()?)
+        } else {
+            None
+        };
         if flags & 0x80000000 != 0 {
             for _ in 0..self.u32()? {
                 self.string()?;
                 self.string()?;
             }
         }
-        Ok(mode)
+        Ok(super::FileStamp {
+            size,
+            modified,
+            mode,
+        })
     }
 }

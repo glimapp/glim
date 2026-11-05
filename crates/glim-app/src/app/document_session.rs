@@ -13,6 +13,7 @@ pub(crate) struct DocumentVersion {
 
 pub(crate) struct DocumentSession {
     pub remote: Option<glim_services::remote::Session>,
+    pub remote_version: Option<glim_services::remote::RemoteVersion>,
     pub path: PathBuf,
     pub edit: Option<super::edit_session::EditSession>,
     pub snapshot: ContentSnapshot,
@@ -25,6 +26,7 @@ impl DocumentSession {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         Self {
             remote: None,
+            remote_version: None,
             path,
             edit: None,
             snapshot,

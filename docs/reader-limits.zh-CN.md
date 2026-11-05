@@ -386,6 +386,8 @@
 
 | Key | 当前值 | 单位 | 超限效果 | 实际行为 |
 | --- | ---: | --- | --- | --- |
+| `remote.refresh_interval_ms` | 2,000 | milliseconds | 处理／内存预算 | 当前可见远端工作区自动刷新周期的间隔；应用未激活或传输忙碌、断开时暂停。 |
+| `remote.refresh_batch` | 4 | paths per cycle | 处理／内存预算 | 每轮轮换检查的目录和后台文件数；当前文件优先检查。限制活动工作范围，不限制工作区总大小。 |
 | `remote.idle_timeout_ms` | 30,000 | milliseconds | 超时 | SFTP 请求等待收发数据时，连续无字节进展达到此时长则关闭连接。收发进展重置计时，不限制文件总大小或传输总时长。 |
 | `remote.packet_bytes` | 1 MiB | bytes | 处理／内存预算 | 单个活动 SFTP 协议包的预算；文件通过连续分块传输，不限制总大小。 |
 | `remote.transfer_bytes` | 32 KiB | bytes | 处理／内存预算 | 每次 SFTP 读取请求的字节数，与远端文件总大小无关。 |

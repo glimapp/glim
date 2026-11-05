@@ -2067,6 +2067,7 @@ pub(crate) struct NodeContext {
     pub(crate) code_block_highlighter: Option<Arc<CodeBlockHighlighterFn>>,
     pub(crate) table_actions: Option<Arc<TableActionsFn>>,
     pub(crate) image_source: Option<Arc<super::text_view::ImageSourceFn>>,
+    pub(crate) image_click_handler: Option<Arc<super::text_view::ImageClickHandlerFn>>,
     pub(crate) task_toggle_handler: Option<Arc<super::text_view::TaskToggleHandlerFn>>,
     pub(crate) link_click_handler: Option<Arc<LinkClickHandlerFn>>,
     pub(crate) markdown_extensions: Arc<MarkdownExtensions>,
@@ -2079,6 +2080,28 @@ pub(crate) struct NodeContext {
 }
 
 impl NodeContext {
+    fn image_link(&self, image: &ImageNode) -> (Option<LinkMark>, Option<Arc<LinkClickHandlerFn>>) {
+        let Some(handler) = self.image_click_handler.clone() else {
+            return (image.link.clone(), self.link_click_handler.clone());
+        };
+        let image = image.clone();
+        let resolver = self.image_source.clone();
+        let url = image.url.to_string();
+        let original_link = image.link.clone();
+        let link_handler = self.link_click_handler.clone();
+        let click: Arc<LinkClickHandlerFn> = Arc::new(move |_, event, window, cx| {
+            let follow = matches!(event, gpui::ClickEvent::Mouse(click)
+                if click.up.button == gpui::MouseButton::Middle || click.up.modifiers.platform);
+            if follow && let Some(link) = &original_link {
+                handle_link_click(&link_handler, link.url.clone(), event.clone(), window, cx);
+            } else {
+                let source = resolver.as_ref().map_or_else(|| image.source(), |resolve| resolve(&image.url));
+                handler(source, window, cx);
+            }
+        });
+        (Some(LinkMark { url: url.into(), ..Default::default() }), Some(click))
+    }
+
     fn image_source(&self, image: &ImageNode) -> ImageSource {
         match &self.image_source {
             Some(resolve) => resolve(&image.url),
@@ -2280,7 +2303,7 @@ impl Paragraph {
                         .into_any_element(),
                     );
                 }
-                let link_click_handler = node_cx.link_click_handler.clone();
+                let (image_link, link_click_handler) = node_cx.image_link(image);
                 child_nodes.push(
                     img(node_cx.image_source(image))
                         .id(ix)
@@ -2288,7 +2311,7 @@ impl Paragraph {
                         .max_w(relative(1.))
                         .when_some(image.width, |this, width| this.w(width))
                         .when_some(image.height, |this, height| this.h(height))
-                        .when_some(image.link.clone(), |this, link| {
+                        .when_some(image_link, |this, link| {
                             let link_click_handler = link_click_handler.clone();
                             let aux_link = link.clone();
                             let aux_link_click_handler = link_click_handler.clone();
@@ -2499,9 +2522,11 @@ impl Paragraph {
                     });
                 }
 
+                let (link, click_handler) = node_cx.image_link(image);
                 items.push(InlineFlowItem::Image {
                     source: node_cx.image_source(image),
-                    link: image.link.clone(),
+                    link,
+                    click_handler,
                     title: image.title(),
                     width: image.width,
                     height: image.height,

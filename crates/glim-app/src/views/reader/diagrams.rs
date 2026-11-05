@@ -131,6 +131,7 @@ impl MarkdownPlugin for AlertPlugin {
                 .scrollable(false)
                 .w_full()
                 .markdown_extensions(self.nested.clone())
+                .on_image_click(super::image_detail::show)
                 .image_source(move |uri| {
                     image_base
                         .join(uri.as_ref())
@@ -610,7 +611,20 @@ impl MarkdownPlugin for DiagramPlugin {
                         .object_fit(ObjectFit::Contain)
                         .into_any_element()
                 } else {
+                    let image_source = image.clone();
+                    let resource = preview.clone();
                     div()
+                        .id(("diagram-image", node.source_range().map_or(0, |r| r.start)))
+                        .cursor_pointer()
+                        .on_click(move |_, window, cx| {
+                            cx.stop_propagation();
+                            super::image_detail::show_pinned(
+                                image_source.clone().into(),
+                                resource.clone(),
+                                window,
+                                cx,
+                            );
+                        })
                         .w_full()
                         .py_2()
                         .child(

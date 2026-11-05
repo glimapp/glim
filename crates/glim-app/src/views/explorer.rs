@@ -580,6 +580,37 @@ impl Explorer {
         self.refresh_changed(&glim_services::watch::Changes::all(), cx);
     }
 
+    pub(crate) fn remote_refresh_paths(&self) -> Vec<PathBuf> {
+        let mut paths = self.roots.clone();
+        paths.extend(
+            self.rows
+                .iter()
+                .filter(|row| {
+                    row.entry.is_dir && self.expanded[row.root_index].contains(&row.entry.path)
+                })
+                .map(|row| row.entry.path.clone()),
+        );
+        paths.sort();
+        paths.dedup();
+        paths
+    }
+
+    pub(crate) fn apply_remote_listing(
+        &mut self,
+        path: PathBuf,
+        entries: Vec<DirectoryEntry>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.tasks.contains_key(&path)
+            || !self.remote_refresh_paths().contains(&path)
+            || self.directories.get(&path) == Some(&entries)
+        {
+            return;
+        }
+        self.directories.insert(path, entries);
+        self.schedule_directory_update(cx);
+    }
+
     pub fn refresh_changed(
         &mut self,
         changes: &glim_services::watch::Changes,

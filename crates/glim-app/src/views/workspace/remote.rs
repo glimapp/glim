@@ -1,4 +1,5 @@
 mod dialog;
+mod watch;
 
 use super::Workspace;
 use crate::app::remote::{Connections, persist};

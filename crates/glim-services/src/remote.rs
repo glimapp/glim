@@ -125,7 +125,17 @@ pub struct Session {
     pub received: Arc<AtomicU64>,
     connected: Arc<std::sync::atomic::AtomicBool>,
     cache: Arc<tempfile::TempDir>,
+    versions: Arc<Mutex<BTreeMap<PathBuf, RemoteVersion>>>,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileStamp {
+    pub size: Option<u64>,
+    pub modified: Option<u32>,
+    pub mode: u32,
+}
+
+pub type RemoteVersion = BTreeMap<PathBuf, Option<FileStamp>>;
 impl Session {
     pub fn connect(connection: Connection, cancel: &Cancellation) -> Result<Self> {
         let mut transport = sftp::Sftp::connect(&connection, cancel)?;
@@ -137,6 +147,7 @@ impl Session {
             transport: Arc::new(Mutex::new(transport)),
             received: Arc::new(AtomicU64::new(0)),
             cache: Arc::new(cache),
+            versions: Default::default(),
             connected: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         })
     }
@@ -172,6 +183,25 @@ impl Session {
             Err(std::sync::TryLockError::WouldBlock) => self.connected.load(Ordering::Relaxed),
             Err(std::sync::TryLockError::Poisoned(_)) => false,
         }
+    }
+    pub fn is_idle(&self) -> bool {
+        self.transport
+            .try_lock()
+            .is_ok_and(|transport| transport.healthy())
+    }
+    pub fn loaded_version(&self, path: &Path) -> Option<RemoteVersion> {
+        self.versions.lock().ok()?.get(path).cloned()
+    }
+    pub fn has_changed(&self, version: &RemoteVersion, cancel: &Cancellation) -> Result<bool> {
+        self.with_transport(cancel, |transport| {
+            for (path, previous) in version {
+                cancel.check()?;
+                if transport.stat_optional(path, cancel)? != *previous {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        })
     }
     pub fn list(
         &self,
@@ -269,6 +299,8 @@ impl Session {
         path: &Path,
         cancel: &Cancellation,
     ) -> Result<crate::documents::Content> {
+        let stamp = self.with_transport(cancel, |transport| transport.stat(path, cancel))?;
+        let mut version = RemoteVersion::from([(path.to_path_buf(), Some(stamp))]);
         let target = self.download(path, cancel)?;
         let content = crate::documents::read_content_cancellable(&target, cancel)?;
         if matches!(content, crate::documents::Content::Sqlite(_)) {
@@ -277,7 +309,7 @@ impl Session {
                 if let Ok(cached) = self.cache_path(&sidecar) {
                     let _ = std::fs::remove_file(cached);
                 }
-                let _ = self.download(&sidecar, cancel);
+                self.read_dependency(&sidecar, &mut version, cancel);
                 cancel.check()?;
             }
         }
@@ -302,12 +334,31 @@ impl Session {
                     if let Ok(resource) = url.to_file_path()
                         && resource != path
                     {
-                        let _ = self.download(&resource, cancel);
+                        self.read_dependency(&resource, &mut version, cancel);
                     }
                 }
             }
         }
         cancel.check()?;
+        self.versions
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Remote version cache unavailable"))?
+            .insert(path.to_path_buf(), version);
         Ok(content)
+    }
+
+    fn read_dependency(&self, path: &Path, version: &mut RemoteVersion, cancel: &Cancellation) {
+        match self.with_transport(cancel, |transport| transport.stat_optional(path, cancel)) {
+            Ok(Some(stamp)) if self.download(path, cancel).is_ok() => {
+                version.insert(path.to_path_buf(), Some(stamp));
+            }
+            Ok(None) => {
+                if let Ok(cached) = self.cache_path(path) {
+                    let _ = std::fs::remove_file(cached);
+                }
+                version.insert(path.to_path_buf(), None);
+            }
+            _ => {}
+        }
     }
 }

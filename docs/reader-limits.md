@@ -386,6 +386,8 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
+| `remote.refresh_interval_ms` | 2,000 | milliseconds | budget | Delay between automatic refresh cycles for the visible remote workspace; suspended while the app is inactive or the transport is busy/disconnected. |
+| `remote.refresh_batch` | 4 | paths per cycle | budget | Round-robin directory and background-file checks per refresh cycle; the active file is checked first. Limits concurrent working scope, not total workspace size. |
 | `remote.idle_timeout_ms` | 30,000 | milliseconds | timeout | Close a pending SFTP request after this interval without transmitted or received bytes. Progress resets the timer; total file size and total transfer time are unlimited. |
 | `remote.packet_bytes` | 1 MiB | bytes | budget | Maximum active SFTP protocol packet; files are transferred as successive packets without a total-size limit. |
 | `remote.transfer_bytes` | 32 KiB | bytes | budget | Bytes requested per SFTP read, independent of the total remote file size. |

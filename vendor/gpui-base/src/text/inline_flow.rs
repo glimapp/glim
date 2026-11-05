@@ -60,6 +60,7 @@ pub(super) enum InlineFlowItem {
     Image {
         source: ImageSource,
         link: Option<LinkMark>,
+        click_handler: Option<Arc<LinkClickHandlerFn>>,
         title: String,
         width: Option<DefiniteLength>,
         height: Option<DefiniteLength>,
@@ -617,6 +618,7 @@ impl Element for InlineFlow {
                         source,
                         link,
                         title,
+                        click_handler,
                         ..
                     } = &self.items[*item_ix]
                     else {
@@ -629,7 +631,7 @@ impl Element for InlineFlow {
                         link,
                         title.as_str(),
                         fragment_size,
-                        self.link_click_handler.clone(),
+                        click_handler.clone(),
                     );
                     element.prepaint_as_root(
                         bounds.origin + origin,
