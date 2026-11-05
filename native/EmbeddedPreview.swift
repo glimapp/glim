@@ -182,41 +182,58 @@ private final class FilePathHint {
         self.parent = parent; self.anchor = anchor
         panel = PathHintPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isReleasedWhenClosed = false; panel.isOpaque = false; panel.backgroundColor = .clear
-        panel.hasShadow = true; panel.ignoresMouseEvents = true; panel.hidesOnDeactivate = true
+        panel.hasShadow = false; panel.ignoresMouseEvents = true; panel.hidesOnDeactivate = true
         panel.appearance = parent.effectiveAppearance
         panel.level = .floating; panel.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
-        let surface = NSVisualEffectView(); surface.material = .popover; surface.blendingMode = .withinWindow; surface.state = .active
-        surface.wantsLayer = true; surface.layer?.cornerRadius = 10; surface.layer?.masksToBounds = true
-        surface.layer?.borderWidth = 0.5; surface.layer?.borderColor = NSColor.separatorColor.cgColor
-        let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 7
+        let content = NSView()
+        let surface = NSView(); surface.wantsLayer = true
+        surface.layer?.cornerRadius = 6; surface.layer?.borderWidth = 0.5
+        parent.effectiveAppearance.performAsCurrentDrawingAppearance {
+            surface.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+            surface.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.45).cgColor
+        }
+        surface.layer?.shadowColor = NSColor.black.cgColor
+        surface.layer?.shadowOpacity = 0.10; surface.layer?.shadowRadius = 4
+        surface.layer?.shadowOffset = NSSize(width: 0, height: -1)
+        content.addSubview(surface)
+        let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false; surface.addSubview(stack)
-        let heading = NSStackView(); heading.orientation = .horizontal; heading.spacing = 8
+        let heading = NSStackView(); heading.orientation = .horizontal; heading.spacing = 6
         let icon = NSImageView(image: NSImage(systemSymbolName: directory ? "folder" : "doc.text", accessibilityDescription: nil) ?? NSImage())
         icon.contentTintColor = .secondaryLabelColor
-        icon.widthAnchor.constraint(equalToConstant: 16).isActive = true; icon.heightAnchor.constraint(equalToConstant: 16).isActive = true
-        let name = NSTextField(wrappingLabelWithString: title); name.font = .systemFont(ofSize: 13, weight: .semibold)
+        icon.widthAnchor.constraint(equalToConstant: 14).isActive = true; icon.heightAnchor.constraint(equalToConstant: 14).isActive = true
+        let titleFont = NSFont.systemFont(ofSize: 12, weight: .medium)
+        let pathFont = NSFont.systemFont(ofSize: 11)
+        let name = NSTextField(wrappingLabelWithString: title); name.font = titleFont
         name.textColor = .labelColor; name.maximumNumberOfLines = 0; name.lineBreakMode = .byCharWrapping
         heading.addArrangedSubview(icon); heading.addArrangedSubview(name); stack.addArrangedSubview(heading)
-        let location = NSTextField(wrappingLabelWithString: path); location.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        let location = NSTextField(wrappingLabelWithString: path); location.font = pathFont
         location.textColor = .secondaryLabelColor; location.lineBreakMode = .byCharWrapping; location.maximumNumberOfLines = 0
         stack.addArrangedSubview(location)
         let screen = parent.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 800, height: 600)
-        let width = min(460, screen.width - 32)
-        name.preferredMaxLayoutWidth = width - 52; location.preferredMaxLayoutWidth = width - 28
+        let titleWidth = (title as NSString).size(withAttributes: [.font: titleFont]).width + 20
+        let pathWidth = path.components(separatedBy: "\n").map {
+            ($0 as NSString).size(withAttributes: [.font: pathFont]).width
+        }.max() ?? 0
+        let width = min(max(220, ceil(max(titleWidth, pathWidth)) + 24), min(420, screen.width - 44))
+        name.preferredMaxLayoutWidth = width - 44; location.preferredMaxLayoutWidth = width - 24
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -14),
-            stack.topAnchor.constraint(equalTo: surface.topAnchor, constant: 11),
-            stack.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: -11)
+            stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: surface.topAnchor, constant: 9),
+            stack.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: -9)
         ])
-        let titleHeight = name.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width - 52, height: CGFloat.greatestFiniteMagnitude)).height ?? 16
-        let pathHeight = location.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width - 28, height: CGFloat.greatestFiniteMagnitude)).height ?? 14
-        let height = min(max(60, ceil(max(16, titleHeight) + pathHeight + 29)), screen.height - 32)
-        let x = min(max(screen.minX + 12, anchor.minX + 12), screen.maxX - width - 12)
-        var y = anchor.minY - height - 8
-        if y < screen.minY + 12 { y = min(anchor.maxY + 8, screen.maxY - height - 12) }
-        panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: false)
-        panel.contentView = surface; surface.layoutSubtreeIfNeeded()
+        let titleHeight = name.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width - 44, height: CGFloat.greatestFiniteMagnitude)).height ?? 15
+        let pathHeight = location.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width - 24, height: CGFloat.greatestFiniteMagnitude)).height ?? 14
+        let height = min(ceil(max(15, titleHeight) + pathHeight + 22), screen.height - 44)
+        let panelWidth = width + 12, panelHeight = height + 12
+        let x = min(max(screen.minX + 6, anchor.minX - 6), screen.maxX - panelWidth - 6)
+        var y = anchor.minY - panelHeight
+        if y < screen.minY + 6 { y = min(anchor.maxY, screen.maxY - panelHeight - 6) }
+        panel.setFrame(NSRect(x: x, y: y, width: panelWidth, height: panelHeight), display: false)
+        surface.frame = NSRect(x: 6, y: 6, width: width, height: height)
+        surface.layer?.shadowPath = CGPath(roundedRect: surface.bounds, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        panel.contentView = content; surface.layoutSubtreeIfNeeded()
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .scrollWheel, .leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self = self else { return event }
             if event.type == .mouseMoved && self.anchor.contains(NSEvent.mouseLocation) && NSEvent.pressedMouseButtons == 0 {

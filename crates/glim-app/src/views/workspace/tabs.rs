@@ -556,19 +556,6 @@ impl Workspace {
                         .absolute()
                         .inset_0(),
                     )
-                    .on_hover(cx.listener(move |view, hovered: &bool, window, _| {
-                        if *hovered {
-                            view.path_hint.show(
-                                &hint_title,
-                                &hint_path,
-                                false,
-                                hint_bounds.get(),
-                                window,
-                            );
-                        } else {
-                            view.path_hint.hide_for(&hint_path, hint_bounds.get());
-                        }
-                    }))
                     .h(px(30.))
                     .border_1()
                     .border_color(if active {
@@ -582,8 +569,9 @@ impl Workspace {
                         FontWeight::NORMAL
                     })
                     .flex_shrink_0()
-                    .gap_2()
-                    .px_3()
+                    .gap_1()
+                    .pl(px(7.))
+                    .pr(px(3.))
                     .rounded(px(7.))
                     .bg(if active {
                         cx.theme()
@@ -620,7 +608,22 @@ impl Workspace {
                     }))
                     .child(
                         h_flex()
-                            .gap_2()
+                            .id(("document-tab-label", index))
+                            .h_full()
+                            .gap(px(5.))
+                            .on_hover(cx.listener(move |view, hovered: &bool, window, _| {
+                                if *hovered {
+                                    view.path_hint.show(
+                                        &hint_title,
+                                        &hint_path,
+                                        false,
+                                        hint_bounds.get(),
+                                        window,
+                                    );
+                                } else {
+                                    view.path_hint.hide_for(&hint_path, hint_bounds.get());
+                                }
+                            }))
                             .child(crate::views::file_icons::file_icon(
                                 &reader.document.path,
                                 cx,
@@ -631,12 +634,17 @@ impl Workspace {
                         Button::new(("close-tab", index))
                             .ghost()
                             .xsmall()
-                            .w(px(20.))
-                            .h(px(20.))
+                            .w(px(22.))
+                            .h(px(22.))
                             .when(reader.is_dirty(), |button| {
                                 button.child(div().size(px(9.)).rounded_full().bg(cx.theme().blue))
                             })
-                            .when(!reader.is_dirty(), |button| button.label("×"))
+                            .when(!reader.is_dirty(), |button| {
+                                button.icon(
+                                    gpui_kit::component::Icon::new(gpui_kit::assets::IconName::X)
+                                        .size(px(12.)),
+                                )
+                            })
                             .text_color(cx.theme().muted_foreground)
                             .tooltip(glim_services::locale::tr(if reader.is_dirty() {
                                 "Unsaved changes · Close"
