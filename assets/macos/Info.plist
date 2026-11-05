@@ -8,8 +8,8 @@
     <key>CFBundleExecutable</key><string>glim</string>
     <key>CFBundleIconFile</key><string>Glim</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.2.22</string>
-    <key>CFBundleVersion</key><string>42</string>
+    <key>CFBundleShortVersionString</key><string>0.2.23</string>
+    <key>CFBundleVersion</key><string>43</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
     <key>CFBundleURLTypes</key><array><dict>
