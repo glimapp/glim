@@ -6,7 +6,7 @@ Open **Settings → App integrations**, then choose **Add integration** beside a
 
 | Client | User-level destination | Usage |
 | --- | --- | --- |
-| Codex | `~/.codex/config.toml`, detected `~/.codex-*` homes, `CODEX_HOME`, or a selected configuration folder | Choose Glim from **Open in**. |
+| Codex | `~/.codex/config.toml`, detected `~/.codex-*` homes, `CODEX_HOME`, or a selected configuration folder | Adds Glim to **Open in** and makes it the default. |
 | Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` | Ask to open a local file or folder in Glim. |
 | Claude Code | `~/.claude.json` or `$CLAUDE_CONFIG_DIR/.claude.json` | Same local tool. |
 | Cursor | `~/.cursor/mcp.json` | Same local tool. |
@@ -17,6 +17,8 @@ Open **Settings → App integrations**, then choose **Add integration** beside a
 
 **Add configuration…** offers every supported client, then accepts a configuration file or folder. Selection adds an entry to the list; it does not modify that application's configuration until you choose **Add integration**.
 
+For Codex, adding the integration sets `desktop.open-in-target-preferences.global` and any existing `perPath` choices to `custom:glim`. This applies to the selected instance, including projects with a saved editor choice, without changing macOS file associations. Existing integrations offer **Configured → Set as default** to apply the same preference. Removing the integration clears only preferences still pointing to Glim; it leaves subsequent editor choices intact and lets Codex choose its fallback. Restart Codex to load externally edited settings. The configured status confirms the saved entry, not that the running client has loaded its menu.
+
 Discovery runs when opening Settings, returning to its window, or using Refresh. It examines recognized tool directories in the home directory, `~/.config`, and `~/Library/Application Support`, including suffix-named homes, account-manager folders and VS Code profiles up to three directory levels below each recognized root. It skips sessions, caches, projects and extension/plugin data. Configurations are deduplicated by tool and canonical file path, so multiple windows or application copies sharing one file have one entry. Multiple configurations of the same tool show their directory beneath the name.
 
 Application discovery checks bundle identifiers under `/Applications` and `~/Applications`, including one level of grouping folders, so renaming a supported app does not hide it. It also checks the current environment, launchd environment and application `LSEnvironment` for documented configuration overrides such as `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `COPILOT_HOME`, `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR` and `XDG_CONFIG_HOME`. It does not execute launcher scripts, inspect process secrets or scan the entire disk. A configuration hidden in an arbitrary script or unrelated location can still be added manually.
@@ -25,7 +27,7 @@ Project-specific settings, application policies and client version differences c
 
 The MCP command is the installed `Glim.app/Contents/MacOS/glim --mcp`; no Node.js, Python, network listener or always-running service is installed. The `open_in_glim` tool accepts one absolute local path. A successful tool result confirms handoff to macOS, not completion of document rendering. It does not upload or return document contents.
 
-Glim backs up existing configurations privately under `~/Library/Application Support/Glim/Integrations/Backups`, retaining the latest two copies per file. Removal deletes only the recognized Glim entry, leaving other integrations and settings intact. Existing malformed configurations or conflicting `glim` entries are left untouched; use the row's Finder action to inspect them, then refresh.
+Glim backs up existing configurations privately under `~/Library/Application Support/Glim/Integrations/Backups`, retaining the latest two copies per file. Removal deletes the recognized Glim entry and its Codex default references, leaving other integrations and settings intact. Existing malformed configurations or conflicting `glim` entries are left untouched; use the row's Finder action to inspect them, then refresh.
 
 ## Client references
 

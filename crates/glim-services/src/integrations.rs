@@ -366,7 +366,66 @@ fn edit_codex(source: &str, install: bool) -> Result<String> {
     {
         handlers.remove("glim");
     }
+    edit_codex_preference(&mut document, install)?;
     Ok(document.to_string())
+}
+
+fn edit_codex_preference(document: &mut toml_edit::DocumentMut, install: bool) -> Result<()> {
+    const TARGET: &str = "custom:glim";
+    let Some(desktop) = document.get_mut("desktop") else {
+        return Ok(());
+    };
+    let inline = desktop.is_inline_table();
+    let desktop = desktop
+        .as_table_like_mut()
+        .context("Invalid desktop settings")?;
+    if !desktop.contains_key("open-in-target-preferences") {
+        if !install {
+            return Ok(());
+        }
+        desktop.insert(
+            "open-in-target-preferences",
+            if inline {
+                toml_edit::value(toml_edit::InlineTable::new())
+            } else {
+                toml_edit::Item::Table(toml_edit::Table::new())
+            },
+        );
+    }
+    let preferences = desktop
+        .get_mut("open-in-target-preferences")
+        .and_then(toml_edit::Item::as_table_like_mut)
+        .context("Invalid preferred editor settings")?;
+    if install {
+        preferences.insert("global", toml_edit::value(TARGET));
+    } else if preferences.get("global").and_then(toml_edit::Item::as_str) == Some(TARGET) {
+        preferences.remove("global");
+    }
+    // Codex gives saved project choices precedence over the global default.
+    if let Some(paths) = preferences.get_mut("perPath") {
+        let paths = paths
+            .as_table_like_mut()
+            .context("Invalid per-project editor settings")?;
+        let keys: Vec<String> = paths.iter().map(|(key, _)| key.to_owned()).collect();
+        for key in keys {
+            if install {
+                ensure!(
+                    paths.get(&key).and_then(toml_edit::Item::as_str).is_some(),
+                    "Invalid per-project editor target"
+                );
+                paths.insert(&key, toml_edit::value(TARGET));
+            } else if paths.get(&key).and_then(toml_edit::Item::as_str) == Some(TARGET) {
+                paths.remove(&key);
+            }
+        }
+        if paths.is_empty() {
+            preferences.remove("perPath");
+        }
+    }
+    if preferences.is_empty() {
+        desktop.remove("open-in-target-preferences");
+    }
+    Ok(())
 }
 
 pub fn configure(target: &Target, install: bool) -> Result<()> {
@@ -396,10 +455,10 @@ pub fn configure(target: &Target, install: bool) -> Result<()> {
             managed(&existing, target.kind)?,
             "An unrelated integration already uses this name"
         );
-        if install {
+        if install && target.kind != Kind::Codex {
             return Ok(());
         }
-    } else if !install {
+    } else if !install && target.kind != Kind::Codex {
         return Ok(());
     }
     let updated = if target.kind == Kind::Codex {
