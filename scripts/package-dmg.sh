@@ -13,7 +13,7 @@ case "$release_arch" in
     *) echo 'Usage: scripts/package-dmg.sh [arm64|x86_64]' >&2; exit 1 ;;
 esac
 release_bundle="$PWD/dist/release-$release_arch/Glim.app"
-GLIM_BUNDLE_DIR="$release_bundle" scripts/bundle-macos.sh release "$release_target"
+GLIM_BUILD_CHANNEL=release GLIM_BUNDLE_DIR="$release_bundle" scripts/bundle-macos.sh release "$release_target"
 version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$release_bundle/Contents/Info.plist")
 cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; d=json.load(sys.stdin); v=sys.argv[1]; assert all(p["version"] == v for p in d["packages"]), "Bundle/Cargo version mismatch"' "$version"
 [[ "$(lipo -archs "$release_bundle/Contents/MacOS/glim")" == "$release_arch" ]]

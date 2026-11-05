@@ -169,6 +169,45 @@ impl Workspace {
                 .text_color(cx.theme().muted_foreground)
                 .child(glim_services::locale::tr(label))
         };
+        let information = |label: &'static str, value: String| {
+            h_flex()
+                .w_full()
+                .min_h(px(36.))
+                .gap_4()
+                .text_sm()
+                .child(
+                    div()
+                        .flex_1()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(glim_services::locale::tr(label)),
+                )
+                .child(div().child(value))
+        };
+        let local_build = env!("GLIM_BUILD_CHANNEL") == "local";
+        let version = if local_build {
+            format!(
+                "{} · {}",
+                env!("CARGO_PKG_VERSION"),
+                glim_services::locale::tr("Local build")
+            )
+        } else {
+            env!("CARGO_PKG_VERSION").to_owned()
+        };
+        let mut about = group().py_2().child(information("Version", version));
+        if local_build {
+            about = about.child(information(
+                "Built",
+                env!("GLIM_BUILD_TIMESTAMP").to_owned(),
+            ));
+            if !env!("GLIM_BUILD_HASH").is_empty() {
+                let mut revision = env!("GLIM_BUILD_HASH").to_owned();
+                if env!("GLIM_BUILD_DIRTY") == "true" {
+                    revision.push_str(" · ");
+                    revision.push_str(&glim_services::locale::tr("Modified"));
+                }
+                about = about.child(information("Commit", revision));
+            }
+        }
         div()
             .id("workspace-settings-scroll")
             .size_full()
@@ -204,7 +243,9 @@ impl Workspace {
                                 .child(row("Keyboard Shortcuts…", "", shortcuts))
                                 .child(divider())
                                 .child(row("Anonymous usage telemetry", "Reports feature actions, system/resource metrics and sanitized errors with a random installation ID; excludes document contents and paths.", telemetry)),
-                        ),
+                        )
+                        .child(heading("About").mt_3())
+                        .child(about),
                 ),
             )
             .into_any_element()

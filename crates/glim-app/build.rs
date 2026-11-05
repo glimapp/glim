@@ -1,5 +1,6 @@
 use std::{env, path::PathBuf, process::Command};
 fn main() {
+    embed_build_identity();
     embed_diagram_assets();
     println!("cargo:rerun-if-changed=../../assets/reader-limits.json");
     println!("cargo:rerun-if-changed=../../scripts/generate-reader-limits.py");
@@ -31,6 +32,61 @@ fn main() {
     if env::var_os("CARGO_FEATURE_MACOS_UPDATER").is_some() {
         build_updater();
     }
+}
+
+fn embed_build_identity() {
+    for name in ["GLIM_BUILD_CHANNEL", "GLIM_BUILD_TIMESTAMP"] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    // Refresh direct Cargo builds when sources change, not just packaged builds.
+    for path in [
+        "crates",
+        "native",
+        "assets",
+        "scripts",
+        "vendor",
+        "Cargo.toml",
+        "Cargo.lock",
+    ] {
+        println!("cargo:rerun-if-changed=../../{path}");
+    }
+    let output = |program: &str, args: &[&str]| {
+        Command::new(program)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    };
+    for name in ["HEAD", "index"] {
+        if let Some(path) = output("git", &["rev-parse", "--git-path", name]) {
+            println!("cargo:rerun-if-changed={path}");
+        }
+    }
+    if let Some(reference) = output("git", &["symbolic-ref", "-q", "HEAD"])
+        && let Some(path) = output("git", &["rev-parse", "--git-path", &reference])
+    {
+        println!("cargo:rerun-if-changed={path}");
+    }
+    let channel = env::var("GLIM_BUILD_CHANNEL").unwrap_or_else(|_| "local".into());
+    assert!(
+        matches!(channel.as_str(), "local" | "release"),
+        "Invalid build channel"
+    );
+    let timestamp = env::var("GLIM_BUILD_TIMESTAMP")
+        .ok()
+        .or_else(|| output("date", &["+%Y-%m-%d %H:%M:%S %z"]))
+        .expect("Cannot determine build time");
+    let hash = output("git", &["rev-parse", "--short=12", "HEAD"]).unwrap_or_default();
+    let dirty = output(
+        "git",
+        &["status", "--porcelain", "--untracked-files=normal"],
+    )
+    .is_some_and(|status| !status.is_empty());
+    println!("cargo:rustc-env=GLIM_BUILD_CHANNEL={channel}");
+    println!("cargo:rustc-env=GLIM_BUILD_TIMESTAMP={timestamp}");
+    println!("cargo:rustc-env=GLIM_BUILD_HASH={hash}");
+    println!("cargo:rustc-env=GLIM_BUILD_DIRTY={dirty}");
 }
 
 fn build_native_preview() {
