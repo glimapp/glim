@@ -16,6 +16,7 @@
 - Keep editing minimal: typing, selection, undo/redo, automatic save and explicit save. Do not add LSP, external plugin loading, speculative abstraction layers, or empty placeholder modules. Internal reader modules follow docs/reader-modules.md; modularity alone does not justify more crates.
 - Pin GPUI Kit; retain Cargo.lock. Enable extra features only when used.
 - After requested code changes, build/package and install the updated local Glim.app by default, verify the installed bundle and launch it. Keep at most the two most recent installation backups. Do not automatically run tests or UI smoke tests; the user handles testing unless explicitly requested.
+- Release requests follow the user's local acceptance of the installed build. Build production packages and verify their architecture, signatures, checksums and update metadata; do not repeat Cargo tests, Clippy or native updater tests locally or in release CI unless explicitly requested. A release request alone is not a validation request.
 - 每次完成修改并完成适当验证后，自动提交并推送到当前分支对应的远端，不再另行询问；仅当用户明确要求保留在本地时跳过。只提交当前任务相关改动，保留无关工作，不强制推送。推送后核对远端提交与本地一致；若提交或推送失败，明确说明未完成的步骤与原因，不将本地提交视为已推送。
 - When validation is requested, use cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings, cargo test --workspace --locked, and cargo build --locked.
 - When UI smoke testing is requested, use macOS when available and report unverified interactions.

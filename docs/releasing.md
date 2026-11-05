@@ -21,7 +21,9 @@ Use the Rust version pinned in [CI](../.github/workflows/ci.yml). Only macOS App
 cargo run --locked -- /path/to/project
 ```
 
-Run validation when requested or preparing a release:
+After development, build/package and install the local app for the user's manual acceptance. A subsequent release request builds production packages from the accepted source and checks their integrity and update metadata. Release requests do not run Cargo tests, Clippy or native updater tests locally or in CI.
+
+Run the following only when validation is explicitly requested:
 
 ```sh
 cargo fmt --all --check
@@ -30,7 +32,7 @@ cargo test --workspace --locked
 cargo build --locked
 ```
 
-Relevant UI behavior needs platform smoke checks; state unverified interactions in release notes. Documentation-only changes need content/link checks, not a product build. Keep operational logs and prior test reports out of repository documentation.
+The user performs UI acceptance; run automated smoke checks only when explicitly requested and state unverified interactions in release notes. Documentation-only changes need content/link checks, not a product build. Keep operational logs and prior test reports out of repository documentation.
 
 ## Packaging
 
@@ -74,7 +76,7 @@ The bundle script enables `macos-updater`, embeds Sparkle and its license, write
 ### Prepare and publish a release
 
 1. Commit final sources and aligned versions; push a stable `vX.Y.Z` tag.
-2. Wait for both `macOS builds` jobs from the exact commit and version tag to succeed. ARM runs formatting, release Clippy/tests and native updater checks once; ARM and Intel each build an optimized release and verify the packaged architecture and signature.
+2. Wait for both `macOS builds` jobs from the exact commit and version tag to succeed. ARM and Intel each build an optimized release and verify the packaged architecture, signature and distribution metadata. This packaging workflow does not compile or run tests or Clippy.
 3. Dispatch `Prepare signed release draft` from the release tag, provide that tag and equivalent notes under `## English` and `## 中文`, and approve the protected environment. Enable `bootstrap` only for the first updater release whose predecessor has no appcast; leave it off thereafter.
 4. The workflow downloads successful same-commit artifacts, checks all archive SHA-256 files and both DMGs' identity/key/feed/architecture/build metadata, verifies predecessor feeds, retains compatible history, and signs/verifies the new feeds and packages.
 5. It uploads two Mac installers, two checksum files and two appcasts (six assets total) to a draft, then downloads them to verify exact bytes. It neither modifies published releases nor overwrites existing assets.
@@ -86,13 +88,13 @@ Feeds use `/releases/latest/download/appcast-macos-<arch>.xml`; enclosures use i
 
 CI Cargo steps consistently use `--release --target <arch> --features macos-updater --locked`. There are no dev/debug builds or pre-packaging `cargo clean` steps. CI keeps release optimization and sets `CARGO_PROFILE_RELEASE_LTO=false` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16` to shorten linking/code generation; the default local release profile is unchanged.
 
-Ordinary branch pushes do not start macOS builds. Full ARM/Intel validation runs only for a pushed `v*` version tag or an explicit manual dispatch. To warm default-branch caches before a release, manually run `macOS builds` on main; this is optional and uploads no installers. Version-tag pushes produce both DMGs and retain all release checks. Different tag caches cannot be reused directly, but tags can restore visible default-branch caches. Repeated manual runs on the same branch cancel obsolete runs; tag builds are not automatically cancelled. The signing workflow accepts only a successful push run for the exact tag and commit. GitHub-managed CodeQL scans run independently of this build trigger policy.
+Ordinary branch pushes do not start macOS builds. ARM/Intel production builds run only for a pushed `v*` version tag or an explicit manual dispatch. To warm default-branch caches before a release, manually run `macOS builds` on main; this is optional and uploads no installers. Version-tag pushes produce both DMGs and check package integrity and metadata. Different tag caches cannot be reused directly, but tags can restore visible default-branch caches. Repeated manual runs on the same branch cancel obsolete runs; tag builds are not automatically cancelled. The signing workflow accepts only a successful push run for the exact tag and commit. GitHub-managed CodeQL scans run independently of this build trigger policy.
 
 Telemetry defaults to debug even for local optimized bundles. Only official tag pushes set `GLIM_DISTRIBUTION=github-release`; build provenance gates release routing and CI checks the executable with `--build-info` before packaging. Manual cache-warming runs remain debug. Normal app upgrades preserve the installation identity in the application database. See [telemetry routing](telemetry.md#development-and-release-routing).
 
-Caches distinguish architectures and toolchain/Cargo configuration, retaining dependencies and workspace outputs. Only the pinned Sparkle archive is cached; extraction always follows checksum verification. DMGs are already compressed, so artifact upload uses no additional compression and retains build artifacts for seven days. Job summaries record cache hits and disk usage; Actions steps record durations. Aim for roughly 1–5 minutes with warm caches; cold caches, toolchain/dependency changes, queueing and network delays are not guaranteed to fit five minutes. Intel's actual release build and package checks remain required; ARM tests do not certify Intel hardware interactions.
+Caches distinguish architectures and toolchain/Cargo configuration, retaining dependencies and workspace outputs. Only the pinned Sparkle archive is cached; extraction always follows checksum verification. DMGs are already compressed, so artifact upload uses no additional compression and retains build artifacts for seven days. Job summaries record cache hits and disk usage; Actions steps record durations. Cold caches, toolchain/dependency changes, queueing and network delays affect total time; measure individual stages rather than assuming a fixed release duration. Package checks do not certify reader interactions on either architecture.
 
-For an isolated cross-compilation experiment, manually dispatch `macOS builds` on a branch with `intel-cross-compile=true`. It builds and packages only `x86_64-apple-darwin` on an Apple Silicon runner, then checks the DMG checksum, architecture, signature and `--build-info` on an Intel runner. This mode runs no workspace tests, uploads a seven-day experimental artifact and does not create a release. Its first run has a separate cold cache; compare a repeat run as well. Normal version-tag builds retain their native runners and full validation. Executing `--build-info` does not verify reader interactions.
+For an isolated cross-compilation experiment, manually dispatch `macOS builds` on a branch with `intel-cross-compile=true`. It builds and packages only `x86_64-apple-darwin` on an Apple Silicon runner, then checks the DMG checksum, architecture, signature and `--build-info` on an Intel runner. This mode uploads a seven-day experimental artifact and does not create a release. Its first run has a separate cold cache; compare a repeat run as well. Normal version-tag builds retain their native runners and package checks. Executing `--build-info` does not verify reader interactions.
 
 ### Isolated updater validation
 

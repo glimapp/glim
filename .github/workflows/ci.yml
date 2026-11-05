@@ -21,9 +21,9 @@ jobs:
       matrix:
         include: >-
           ${{ fromJSON(inputs.intel-cross-compile &&
-          '[{"os":"macos-15","target":"x86_64-apple-darwin","platform":"macos-x86_64-cross","arch":"x86_64","validate":false}]' ||
-          '[{"os":"macos-15","target":"aarch64-apple-darwin","platform":"macos-arm64","arch":"arm64","validate":true},
-          {"os":"macos-15-intel","target":"x86_64-apple-darwin","platform":"macos-x86_64","arch":"x86_64","validate":false}]') }}
+          '[{"os":"macos-15","target":"x86_64-apple-darwin","platform":"macos-x86_64-cross","arch":"x86_64"}]' ||
+          '[{"os":"macos-15","target":"aarch64-apple-darwin","platform":"macos-arm64","arch":"arm64"},
+          {"os":"macos-15-intel","target":"x86_64-apple-darwin","platform":"macos-x86_64","arch":"x86_64"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -40,7 +40,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.99.0
         with:
-          components: ${{ matrix.validate && 'rustfmt, clippy' || '' }}
           targets: ${{ matrix.target }}
       - name: Restore architecture-specific release cache
         id: rust-cache
@@ -58,24 +57,6 @@ jobs:
           key: sparkle-${{ hashFiles('scripts/fetch-sparkle.sh') }}
       - name: Verify and extract Sparkle SDK
         run: scripts/fetch-sparkle.sh
-      - name: Check architecture boundaries
-        if: matrix.validate
-        run: python3 scripts/check-architecture.py
-      - name: Check formatting once
-        if: matrix.validate
-        run: cargo fmt --all --check
-      - name: Check release code once
-        if: matrix.validate
-        run: cargo clippy --workspace --all-targets --release --target ${{ matrix.target }} --features macos-updater --locked -- -D warnings
-      - name: Test release code once
-        if: matrix.validate
-        env:
-          # Release binaries keep bundle-relative rpaths; test binaries use this SDK.
-          DYLD_FRAMEWORK_PATH: ${{ env.GLIM_SPARKLE_DIR }}
-        run: cargo test --workspace --release --target ${{ matrix.target }} --features macos-updater --locked
-      - name: Validate native updater once
-        if: matrix.validate
-        run: scripts/test-updater.sh
       - name: Build optimized release executable
         run: |
           glim_stage_started=$(date +%s)

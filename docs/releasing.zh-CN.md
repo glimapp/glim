@@ -21,7 +21,9 @@ Rust 版本以 [CI](../.github/workflows/ci.yml) 固定值为准。当前仅维�
 cargo run --locked -- /path/to/project
 ```
 
-请求验证或准备发布时执行：
+开发完成后，先构建、打包并安装到本地，由用户手动验收。用户确认后提出发布请求时，从已验收源码构建正式包，并校验安装包完整性和更新元数据。发布时不在本地或 CI 重复运行 Cargo 测试、Clippy 或原生更新器测试。
+
+仅在明确请求验证时执行以下命令：
 
 ```sh
 cargo fmt --all --check
@@ -30,7 +32,7 @@ cargo test --workspace --locked
 cargo build --locked
 ```
 
-相关界面需要平台烟测，发布说明中写明未验证交互。纯文档修改检查内容／链接，不需要构建产品。操作日志与历史测试报告不放入仓库文档。
+界面由用户手动验收；仅在明确请求时运行自动烟测，发布说明中写明未验证交互。纯文档修改检查内容／链接，不需要构建产品。操作日志与历史测试报告不放入仓库文档。
 
 ## 打包
 
@@ -74,7 +76,7 @@ GLIM_ENABLE_UPDATER=1 GLIM_UPDATE_PUBLIC_KEY='<public-key>' scripts/package-dmg.
 ### 准备与发布版本
 
 1. 提交最终源码及一致版本，推送稳定 `vX.Y.Z` tag。
-2. 等待同一提交、同一版本标签的两个 `macOS builds` 工作全部成功。ARM 执行一次 fmt、release Clippy／测试及原生更新器检查；ARM 与 Intel 分别构建 release 并校验打包架构和签名。
+2. 等待同一提交、同一版本标签的两个 `macOS builds` 工作全部成功。ARM 与 Intel 分别构建 release，并校验安装包架构、签名和发行元数据；打包流程不编译或运行测试，也不运行 Clippy。
 3. 从发布 tag 手动运行 `Prepare signed release draft`，输入同一 tag 和含 `## English`／`## 中文` 的等价说明，并批准受保护环境。`bootstrap` 只用于前一版没有 appcast 的首次更新器发布，后续关闭。
 4. 工作流下载同一提交的成功产物，核对全部 SHA-256、两种 DMG 的身份／公钥／feed／架构／build，验证上一版 feed，保留兼容历史并生成、验证新签名 feed 与安装包。
 5. 将两个 Mac 安装包、两个校验文件和两个 appcast（共六个附件） 上传草稿，回下载核对字节，不修改已公开 Release，不覆盖既有资产。
@@ -86,13 +88,13 @@ feed 地址是 `/releases/latest/download/appcast-macos-<arch>.xml`，安装包�
 
 CI 的 Cargo 步骤统一使用 `--release --target <arch> --features macos-updater --locked`，不构建 dev／debug，不在打包前执行 `cargo clean`。CI 保持 release 优化，设置 `CARGO_PROFILE_RELEASE_LTO=false` 和 `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16` 以缩短链接／代码生成；本地默认 release profile 不受影响。
 
-普通分支 push 不再触发 macOS 构建；完整 ARM／Intel 验证只在推送 `v*` 版本 tag 或明确手动运行时执行。发布前如需预热默认分支缓存，可在 main 上手动运行 `macOS builds`，该操作可选且不上传安装包。版本 tag 的 push 生成两种 DMG 并保留全部发布检查；不同 tag 的缓存不能直接互用，但可以恢复默认分支可见缓存。同一分支重复手动运行会取消过时任务，tag 构建不会自动取消。签名发布工作流只接受同一 tag、同一提交的成功 push 构建。GitHub 托管的 CodeQL 安全扫描独立于该构建触发策略。
+普通分支 push 不触发 macOS 构建；ARM／Intel 正式构建只在推送 `v*` 版本 tag 或明确手动运行时执行。发布前如需预热默认分支缓存，可在 main 上手动运行 `macOS builds`，该操作可选且不上传安装包。版本 tag 的 push 生成两种 DMG，并校验安装包完整性和元数据；不同 tag 的缓存不能直接互用，但可以恢复默认分支可见缓存。同一分支重复手动运行会取消过时任务，tag 构建不会自动取消。签名发布工作流只接受同一 tag、同一提交的成功 push 构建。GitHub 托管的 CodeQL 安全扫描独立于该构建触发策略。
 
 本地优化包的遥测默认仍为 debug。只有官方 tag push 设置 `GLIM_DISTRIBUTION=github-release`，由构建来源条件决定 release 路由，CI 在打包前通过 `--build-info` 核验可执行文件；手动预热构建保持 debug。正常应用升级保留应用数据库中的安装标识。见[遥测渠道](telemetry.zh-CN.md#开发与正式渠道)。
 
-缓存按架构和工具链／Cargo 配置区分，保留依赖及工作区编译产物；Sparkle 仅缓存固定压缩包，每次从验过摘要的字节重新解压。DMG 已压缩，上传不再重复压缩，构建附件保留七天。Job Summary 记录缓存命中和磁盘占用，Actions 步骤记录耗时。目标是热缓存下约 1–5 分钟，冷缓存、工具链／依赖变化、排队和网络波动不保证五分钟内完成。Intel 通过实际 release 构建和包校验，ARM 测试不能视为 Intel 实机交互验收。
+缓存按架构和工具链／Cargo 配置区分，保留依赖及工作区编译产物；Sparkle 仅缓存固定压缩包，每次从验过摘要的字节重新解压。DMG 已压缩，上传不再重复压缩，构建附件保留七天。Job Summary 记录缓存命中和磁盘占用，Actions 步骤记录耗时。冷缓存、工具链／依赖变化、排队和网络波动都会影响总耗时，应按阶段实测，不假定固定发布时长。安装包校验不代表任一架构的阅读器交互已经验收。
 
-要单独试验交叉编译，可在分支上手动运行 `macOS builds`，设置 `intel-cross-compile=true`。该模式只在 Apple Silicon runner 上构建并打包 `x86_64-apple-darwin`，再由 Intel runner 校验 DMG 摘要、架构、签名并执行 `--build-info`。试验不运行工作区测试，上传保留七天的试验附件，不创建 Release。首次运行使用独立冷缓存，还应对比重复运行的耗时。普通版本 tag 构建继续使用原生 runner 及完整验证；执行 `--build-info` 不代表阅读器交互已验证。
+要单独试验交叉编译，可在分支上手动运行 `macOS builds`，设置 `intel-cross-compile=true`。该模式只在 Apple Silicon runner 上构建并打包 `x86_64-apple-darwin`，再由 Intel runner 校验 DMG 摘要、架构、签名并执行 `--build-info`。试验上传保留七天的附件，不创建 Release。首次运行使用独立冷缓存，还应对比重复运行的耗时。普通版本 tag 构建继续使用原生 runner 及安装包校验；执行 `--build-info` 不代表阅读器交互已验证。
 
 ### 隔离更新验证
 
