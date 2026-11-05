@@ -97,15 +97,15 @@ impl Integrations {
         cx.notify();
     }
 
-    fn add_codex(&mut self, cx: &mut Context<Self>) {
+    fn add_configuration(&mut self, kind: Kind, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
         let selection = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
+            files: true,
             directories: true,
             multiple: false,
-            prompt: Some(tr("Select Codex configuration folder").into()),
+            prompt: Some(format!("{} · {}", kind.label(), tr("Select configuration")).into()),
         });
         self.busy = true;
         self.task = Some(cx.spawn(async move |view, cx| {
@@ -117,7 +117,7 @@ impl Integrations {
             let result = if let Some(path) = path {
                 Some(
                     cx.background_executor()
-                        .spawn(async move { integrations::remember_codex(&path) })
+                        .spawn(async move { integrations::remember_configuration(kind, &path) })
                         .await,
                 )
             } else {
@@ -126,7 +126,7 @@ impl Integrations {
             let _ = view.update(cx, |view, cx| {
                 view.busy = false;
                 if result.is_some_and(|result| result.is_err()) {
-                    view.notice("Select a folder containing config.toml.", true, cx);
+                    view.notice("Select this app's configuration file or folder.", true, cx);
                 }
                 view.reload(cx);
             });
@@ -144,10 +144,21 @@ impl Render for Integrations {
         for (index, target) in self.targets.iter().enumerate() {
             let configured = target.status == Status::Configured;
             let blocked = matches!(target.status, Status::Conflict | Status::Unreadable);
-            let detail = if target.kind == Kind::Codex {
-                format!("{} · {}", tr("Open-in menu"), target.detail)
+            let usage = tr(if target.kind == Kind::Codex {
+                "Open-in menu"
             } else {
-                tr("Open files from chat")
+                "Open files from chat"
+            });
+            let detail = if self
+                .targets
+                .iter()
+                .filter(|other| other.kind == target.kind)
+                .count()
+                > 1
+            {
+                format!("{usage} · {}", target.detail)
+            } else {
+                usage
             };
             let config_path = target.config.display().to_string();
             let button = Button::new(("integration-action", index))
@@ -309,14 +320,30 @@ impl Render for Integrations {
                     .gap_3()
                     .h(px(32.))
                     .child(
-                        Button::new("integration-add-codex")
+                        Button::new("integration-add-configuration")
                             .small()
                             .border_1()
                             .border_color(cx.theme().border)
                             .rounded(px(8.))
                             .disabled(self.busy)
-                            .label(tr("Add Codex configuration…"))
-                            .on_click(cx.listener(|view, _, _, cx| view.add_codex(cx))),
+                            .label(tr("Add configuration…"))
+                            .dropdown_menu({
+                                let entity = cx.entity().downgrade();
+                                move |mut menu, _, _| {
+                                    for kind in Kind::ALL {
+                                        let entity = entity.clone();
+                                        menu =
+                                            menu.item(PopupMenuItem::new(kind.label()).on_click(
+                                                move |_, _, cx| {
+                                                    let _ = entity.update(cx, |view, cx| {
+                                                        view.add_configuration(kind, cx)
+                                                    });
+                                                },
+                                            ));
+                                    }
+                                    menu
+                                }
+                            }),
                     )
                     .child(status),
             )

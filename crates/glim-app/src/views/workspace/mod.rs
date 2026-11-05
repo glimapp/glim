@@ -328,6 +328,9 @@ impl Workspace {
         workspace.usage_activation =
             Some(cx.observe_window_activation(window, |view, window, cx| {
                 view.update_usage(window, cx);
+                if window.is_window_active() && view.page == Page::Settings {
+                    view.integrations.update(cx, |view, cx| view.reload(cx));
+                }
                 cx.notify();
             }));
         workspace.start_usage_timer(window, cx);

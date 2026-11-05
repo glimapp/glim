@@ -1,4 +1,5 @@
 //! User-level app integrations. Discovery and configuration edits run off the UI thread.
+mod discovery;
 mod json_edit;
 pub mod mcp;
 
@@ -16,7 +17,10 @@ use std::{
 
 static CONFIG_WRITE: Mutex<()> = Mutex::new(());
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
 pub enum Kind {
     Codex,
     ClaudeDesktop,
@@ -29,6 +33,16 @@ pub enum Kind {
 }
 
 impl Kind {
+    pub const ALL: [Self; 8] = [
+        Self::Codex,
+        Self::ClaudeDesktop,
+        Self::ClaudeCode,
+        Self::Cursor,
+        Self::Gemini,
+        Self::Copilot,
+        Self::VsCode,
+        Self::OpenCode,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             Self::Codex => "Codex",
@@ -169,6 +183,10 @@ fn inspect(kind: Kind, config: PathBuf, detail: String) -> Target {
 }
 
 pub fn discover() -> Result<Vec<Target>> {
+    discovery::discover(default_targets()?)
+}
+
+fn default_targets() -> Result<Vec<Target>> {
     let home = home()?;
     let mut roots = BTreeSet::new();
     let app_exists = |name: &str| {
@@ -270,25 +288,38 @@ pub fn discover() -> Result<Vec<Target>> {
     Ok(targets)
 }
 
-pub fn remember_codex(root: &Path) -> Result<()> {
-    ensure!(
-        root.join("config.toml").is_file(),
-        "Select a Codex configuration folder"
-    );
-    let root = fs::canonicalize(root)?;
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SavedTarget {
+    kind: Kind,
+    config: PathBuf,
+}
+
+pub fn remember_configuration(kind: Kind, selected: &Path) -> Result<()> {
+    let config = if selected.is_file() {
+        selected.to_path_buf()
+    } else {
+        discovery::configuration_in(kind, selected)
+            .context("No supported configuration in this folder")?
+    };
+    let config = fs::canonicalize(config)?;
+    let source = fs::read_to_string(&config)?;
+    value(&source, kind)?;
     let mut db = crate::storage::open()?;
     let tx = db.transaction()?;
-    let mut roots: Vec<PathBuf> = crate::storage::setting(&tx, "integration-codex-roots")?
+    let mut targets: Vec<SavedTarget> = crate::storage::setting(&tx, "integration-targets")?
         .map(|s| serde_json::from_str(&s))
         .transpose()?
         .unwrap_or_default();
-    if !roots.contains(&root) {
-        roots.push(root);
+    if !targets
+        .iter()
+        .any(|target| target.kind == kind && target.config == config)
+    {
+        targets.push(SavedTarget { kind, config });
     }
     crate::storage::set_setting(
         &tx,
-        "integration-codex-roots",
-        &serde_json::to_string(&roots)?,
+        "integration-targets",
+        &serde_json::to_string(&targets)?,
     )?;
     tx.commit()?;
     Ok(())

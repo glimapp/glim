@@ -8,14 +8,20 @@
 | --- | --- | --- |
 | Codex | `~/.codex/config.toml`、检测到的 `~/.codex-*` 目录、`CODEX_HOME` 或手动选择的目录 | 在“打开方式”中选择 Glim。 |
 | Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` | 在对话中要求用 Glim 打开本地文件或文件夹。 |
-| Claude Code | `~/.claude.json` | 同上，使用本地工具。 |
+| Claude Code | `~/.claude.json` 或 `$CLAUDE_CONFIG_DIR/.claude.json` | 同上，使用本地工具。 |
 | Cursor | `~/.cursor/mcp.json` | 同上。 |
 | Gemini CLI | `~/.gemini/settings.json` | 同上。 |
 | GitHub Copilot | `$COPILOT_HOME/mcp-config.json` 或 `~/.copilot/mcp-config.json` | 供 Copilot CLI 与 VS Code 的 Copilot 模式使用。 |
 | GitHub Copilot · VS Code | `~/Library/Application Support/Code/User/mcp.json` | 供 VS Code 的 Local 模式及兼容的旧版使用。 |
 | OpenCode | `$OPENCODE_CONFIG`，或 `~/.config/opencode/opencode.jsonc` / `opencode.json` | 使用同一本地工具，写入 OpenCode 的 `mcp` 对象和本地命令数组。 |
 
-OpenCode 的目录发现遵循 `XDG_CONFIG_HOME`。**添加 Codex 配置…** 用于选择包含 `config.toml` 的其他目录，选中后不会立即修改配置。应用检测仅查看常见应用和配置位置，不扫描整个磁盘。项目级设置、组织策略及客户端版本差异可能覆盖用户级配置。纯网页工具与远端、云端文件不适用这条本地通道。
+**添加配置…** 先选择已支持的工具，再选择配置文件或目录。选择后加入列表，点击“关联”才会修改对应应用的配置。
+
+打开设置、返回设置所在窗口或点击刷新时都会重新发现实例。扫描范围包括主目录、`~/.config` 和 `~/Library/Application Support` 下识别为对应工具的目录，支持带后缀的配置目录、账号管理器目录及 VS Code Profiles，每个已识别目录最多向下查找三层，跳过会话、缓存、项目与插件数据。按工具类型和配置文件的真实路径去重；共用一个配置文件的多个窗口或应用副本只展示一项。同一工具有多个配置时，在名称下方显示目录，方便区分。
+
+应用识别会读取 `/Applications`、`~/Applications` 及其下一层分类目录中的 bundle ID，支持改名安装；同时检查当前进程环境、launchd 环境和应用的 `LSEnvironment`，识别 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`COPILOT_HOME`、`OPENCODE_CONFIG`、`OPENCODE_CONFIG_DIR`、`XDG_CONFIG_HOME` 等配置覆盖。不会执行启动脚本、读取进程凭据或扫描整个磁盘；藏在任意脚本或非常规位置的配置仍可手动添加。
+
+项目级设置、组织策略及客户端版本差异可能覆盖用户级配置。纯网页工具与远端、云端文件不适用这条本地通道。
 
 MCP 命令使用已安装的 `Glim.app/Contents/MacOS/glim --mcp`，无需额外安装 Node.js、Python、网络监听器或常驻服务。`open_in_glim` 接收一个本地绝对路径。调用成功表示已交给 macOS 打开，不代表文件渲染完成；工具不上传或返回文档内容。
 

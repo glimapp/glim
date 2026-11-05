@@ -8,14 +8,20 @@ Open **Settings → App integrations**, then choose **Add integration** beside a
 | --- | --- | --- |
 | Codex | `~/.codex/config.toml`, detected `~/.codex-*` homes, `CODEX_HOME`, or a selected configuration folder | Choose Glim from **Open in**. |
 | Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` | Ask to open a local file or folder in Glim. |
-| Claude Code | `~/.claude.json` | Same local tool. |
+| Claude Code | `~/.claude.json` or `$CLAUDE_CONFIG_DIR/.claude.json` | Same local tool. |
 | Cursor | `~/.cursor/mcp.json` | Same local tool. |
 | Gemini CLI | `~/.gemini/settings.json` | Same local tool. |
 | GitHub Copilot | `$COPILOT_HOME/mcp-config.json` or `~/.copilot/mcp-config.json` | Copilot CLI and VS Code's Copilot harness. |
 | GitHub Copilot · VS Code | `~/Library/Application Support/Code/User/mcp.json` | VS Code's Local harness / compatible older versions. |
 | OpenCode | `$OPENCODE_CONFIG`, or `~/.config/opencode/opencode.jsonc` / `opencode.json` | Same local tool; uses OpenCode's `mcp` object and local command array. |
 
-OpenCode discovery honors `XDG_CONFIG_HOME`. **Add Codex configuration…** selects another folder containing `config.toml`; it does not immediately modify that configuration. Discovery checks conventional application/configuration locations, not every file on the disk. Project-specific settings, application policies and client version differences can override a user-level entry. Browser-only services and remote/cloud files are not supported by this local integration.
+**Add configuration…** offers every supported client, then accepts a configuration file or folder. Selection adds an entry to the list; it does not modify that application's configuration until you choose **Add integration**.
+
+Discovery runs when opening Settings, returning to its window, or using Refresh. It examines recognized tool directories in the home directory, `~/.config`, and `~/Library/Application Support`, including suffix-named homes, account-manager folders and VS Code profiles up to three directory levels below each recognized root. It skips sessions, caches, projects and extension/plugin data. Configurations are deduplicated by tool and canonical file path, so multiple windows or application copies sharing one file have one entry. Multiple configurations of the same tool show their directory beneath the name.
+
+Application discovery checks bundle identifiers under `/Applications` and `~/Applications`, including one level of grouping folders, so renaming a supported app does not hide it. It also checks the current environment, launchd environment and application `LSEnvironment` for documented configuration overrides such as `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `COPILOT_HOME`, `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR` and `XDG_CONFIG_HOME`. It does not execute launcher scripts, inspect process secrets or scan the entire disk. A configuration hidden in an arbitrary script or unrelated location can still be added manually.
+
+Project-specific settings, application policies and client version differences can override a user-level entry. Browser-only services and remote/cloud files are not supported by this local integration.
 
 The MCP command is the installed `Glim.app/Contents/MacOS/glim --mcp`; no Node.js, Python, network listener or always-running service is installed. The `open_in_glim` tool accepts one absolute local path. A successful tool result confirms handoff to macOS, not completion of document rendering. It does not upload or return document contents.
 
