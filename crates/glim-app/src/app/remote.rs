@@ -20,6 +20,21 @@ pub(crate) fn connection_in_use(id: &str, cx: &App) -> bool {
     })
 }
 
+pub(crate) fn observe_connection_status<T: 'static>(cx: &mut Context<T>) -> Vec<Subscription> {
+    super::OpenWorkspaces::windows(cx)
+        .into_iter()
+        .filter_map(|(view, _)| view.upgrade())
+        .map(|view| cx.observe(&view, |_, _, cx| cx.notify()))
+        .collect()
+}
+
+pub(crate) fn connection_is_connected(id: &str, cx: &App) -> bool {
+    super::OpenWorkspaces::windows(cx).iter().any(|(view, _)| {
+        view.upgrade()
+            .is_some_and(|view| view.read(cx).remote_connection_is_live(id))
+    })
+}
+
 pub(crate) fn persist(cx: &mut App) {
     let state = cx.global_mut::<Connections>();
     let catalog = state.catalog.clone();

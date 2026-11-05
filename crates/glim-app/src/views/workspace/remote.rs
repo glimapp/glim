@@ -10,7 +10,7 @@ use glim_services::{
 };
 use gpui_kit::{
     component::{
-        ActiveTheme, Disableable, Icon, Sizable, WindowExt,
+        ActiveTheme, Disableable, Icon, Sizable,
         button::{Button, ButtonVariants},
         checkbox::Checkbox,
         h_flex,
@@ -31,7 +31,7 @@ enum Mode {
     Directories,
 }
 
-struct RemoteDialog {
+pub(super) struct RemoteDialog {
     owner: WeakEntity<Workspace>,
     mode: Mode,
     connection: Connection,
@@ -42,14 +42,17 @@ struct RemoteDialog {
     selected: Option<PathBuf>,
     directory: PathBuf,
     show_hidden: bool,
-    explicit_key: bool,
+    advanced: bool,
     busy: bool,
     activity: &'static str,
     message: Option<String>,
     message_success: bool,
     task: Option<Task<()>>,
+    feedback_task: Option<Task<()>>,
+    modal_focus: FocusHandle,
     _path_subscription: Subscription,
     _field_subscriptions: Vec<Subscription>,
+    _workspace_subscriptions: Vec<Subscription>,
     open_after_save: bool,
     add_folder: bool,
     scroll: UniformListScrollHandle,
@@ -65,29 +68,23 @@ impl RemoteDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let path = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Remote folder path")));
+        let path = cx.new(|cx| InputState::new(window, cx));
         let subscription =
             cx.subscribe_in(&path, window, |view, _, event, window, cx| match event {
                 InputEvent::Change => {
                     view.selected = None;
                     cx.notify();
                 }
+                InputEvent::Focus | InputEvent::Blur => cx.notify(),
                 InputEvent::PressEnter { .. } if !view.busy => {
                     let path = PathBuf::from(view.path.read(cx).value().trim());
                     view.browse(path, window, cx);
                 }
                 _ => {}
             });
-        let fields: Vec<Entity<InputState>> = [
-            "Optional",
-            "Hostname or SSH alias",
-            "From SSH config",
-            "Auto",
-            "Private key path",
-        ]
-        .into_iter()
-        .map(|placeholder| cx.new(|cx| InputState::new(window, cx).placeholder(tr(placeholder))))
-        .collect();
+        let fields: Vec<Entity<InputState>> = (0..5)
+            .map(|_| cx.new(|cx| InputState::new(window, cx)))
+            .collect();
         let field_subscriptions = fields
             .iter()
             .map(|field| {
@@ -97,11 +94,13 @@ impl RemoteDialog {
                         view.message_success = false;
                         cx.notify();
                     }
+                    InputEvent::Focus | InputEvent::Blur => cx.notify(),
                     InputEvent::PressEnter { .. } if !view.busy => view.save(false, window, cx),
                     _ => {}
                 })
             })
             .collect();
+        let workspace_subscriptions = crate::app::remote::observe_connection_status(cx);
         Self {
             owner,
             mode,
@@ -113,27 +112,56 @@ impl RemoteDialog {
             selected: None,
             directory: PathBuf::new(),
             show_hidden: false,
-            explicit_key: false,
+            advanced: false,
             busy: false,
             activity: "Connecting…",
             message: None,
             message_success: false,
             task: None,
+            feedback_task: None,
+            modal_focus: cx.focus_handle(),
             _path_subscription: subscription,
             _field_subscriptions: field_subscriptions,
+            _workspace_subscriptions: workspace_subscriptions,
             open_after_save,
             add_folder,
             scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle().tab_stop(true),
         }
     }
+    fn success(&mut self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.message_success = true;
+        self.message = Some(tr(message));
+        self.feedback_task = Some(cx.spawn_in(window, async move |view, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(3))
+                .await;
+            let _ = view.update(cx, |view, cx| {
+                if view.message_success {
+                    view.message = None;
+                    view.message_success = false;
+                    cx.notify();
+                }
+            });
+        }));
+    }
+    fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.task = None;
+        self.feedback_task = None;
+        let _ = self.owner.update(cx, |workspace, cx| {
+            workspace.remote_dialog = None;
+            window.focus(&workspace.focus, cx);
+            cx.notify();
+        });
+    }
     fn edit(&mut self, connection: Connection, window: &mut Window, cx: &mut Context<Self>) {
         self.task = None;
+        self.feedback_task = None;
         self.busy = false;
         self.message = None;
         self.message_success = false;
         self.mode = Mode::Edit;
-        self.explicit_key = connection.identity.is_some();
+        self.advanced = connection.identity.is_some() || !connection.name.is_empty();
         let values = [
             connection.name.clone(),
             connection.host.clone(),
@@ -159,8 +187,7 @@ impl RemoteDialog {
         let value = |index: usize| self.fields[index].read(cx).value().trim().to_owned();
         let port = value(3);
         let identity = value(4);
-        let identity = if self.explicit_key {
-            anyhow::ensure!(!identity.is_empty(), "Choose a private key file");
+        let identity = if !identity.is_empty() {
             Some(if let Some(path) = identity.strip_prefix("~/") {
                 PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(path)
             } else {
@@ -244,8 +271,7 @@ impl RemoteDialog {
                 match result {
                     Err(error) => view.message = Some(tr(&error.to_string())),
                     Ok(_) if test => {
-                        view.message_success = true;
-                        view.message = Some(tr("Connection successful"));
+                        view.success("Connection successful", window, cx);
                     }
                     Ok(connection) => {
                         let catalog = &mut cx.global_mut::<Connections>().catalog;
@@ -263,8 +289,7 @@ impl RemoteDialog {
                             view.connect(connection, window, cx);
                         } else {
                             view.mode = Mode::Connections;
-                            view.message_success = true;
-                            view.message = Some(tr("Connection saved"));
+                            view.success("Connection saved", window, cx);
                         }
                     }
                 }
@@ -393,7 +418,7 @@ impl RemoteDialog {
                             connection.last_directory = Some(root.clone());
                         }
                         persist(cx);
-                        window.close_dialog(cx);
+                        view.close(window, cx);
                         let _ = owner.update(cx, |workspace, cx| {
                             workspace.receive_remote_folder(
                                 session,
@@ -434,7 +459,7 @@ impl RemoteDialog {
             if prompt.await != Ok(0) {
                 return;
             }
-            let _ = view.update(cx, |view, cx| {
+            let _ = view.update_in(cx, |view, window, cx| {
                 if crate::app::remote::connection_in_use(&connection.id, cx) {
                     return;
                 }
@@ -452,8 +477,7 @@ impl RemoteDialog {
                 // Keep source descriptors for closed, persisted windows; a removed
                 // connection must never turn their remote paths into local paths.
                 persist(cx);
-                view.message_success = true;
-                view.message = Some(tr("Connection deleted"));
+                view.success("Connection deleted", window, cx);
                 cx.notify();
             });
         }));
@@ -482,6 +506,11 @@ impl RemoteDialog {
 use gpui_kit::assets::IconName;
 
 impl Workspace {
+    pub(crate) fn remote_connection_is_live(&self, id: &str) -> bool {
+        self.remote
+            .as_ref()
+            .is_some_and(|session| session.connection.id == id && session.is_connected())
+    }
     pub(crate) fn remote_locations(&self, cx: &App) -> Vec<Connection> {
         cx.global::<Connections>().catalog.connections.clone()
     }
@@ -496,15 +525,9 @@ impl Workspace {
         let owner = cx.entity().downgrade();
         let dialog = cx
             .new(|cx| RemoteDialog::new(owner, Mode::Connections, !manage, add_folder, window, cx));
-        let content = dialog.clone();
-        window.open_dialog(cx, move |dialog, _, cx| {
-            dialog
-                .title(content.read(cx).title())
-                .width(px(560.))
-                .close_button(false)
-                .overlay_closable(false)
-                .child(content.clone())
-        });
+        self.remote_dialog = Some(dialog.clone());
+        let modal_focus = dialog.read(cx).modal_focus.clone();
+        window.focus(&modal_focus, cx);
         dialog.update(cx, |view, cx| {
             if let Some(connection) = connection {
                 view.connect(connection, window, cx);
@@ -512,19 +535,14 @@ impl Workspace {
                 view.edit(Connection::default(), window, cx);
             }
         });
+        cx.notify();
     }
     pub(crate) fn add_remote_connection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let owner = cx.entity().downgrade();
         let dialog = cx.new(|cx| RemoteDialog::new(owner, Mode::Edit, true, false, window, cx));
         dialog.update(cx, |view, cx| view.edit(Connection::default(), window, cx));
-        window.open_dialog(cx, move |panel, _, cx| {
-            panel
-                .title(dialog.read(cx).title())
-                .width(px(560.))
-                .close_button(false)
-                .overlay_closable(false)
-                .child(dialog.clone())
-        });
+        self.remote_dialog = Some(dialog);
+        cx.notify();
     }
     fn receive_remote_folder(
         &mut self,

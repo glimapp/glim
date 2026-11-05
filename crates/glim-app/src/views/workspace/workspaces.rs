@@ -259,9 +259,15 @@ impl Workspace {
                                     .min_w_0()
                                     .gap_3()
                                     .child(
-                                        Icon::new(gpui_kit::assets::IconName::PanelsTopLeft)
-                                            .size(px(16.))
-                                            .flex_shrink_0(),
+                                        Icon::new(
+                                            if glim_services::remote::is_remote_id(&workspace.id) {
+                                                gpui_kit::assets::IconName::Globe
+                                            } else {
+                                                gpui_kit::assets::IconName::PanelsTopLeft
+                                            },
+                                        )
+                                        .size(px(16.))
+                                        .flex_shrink_0(),
                                     )
                                     .child(div().flex_1().min_w_0().truncate().child(title)),
                             )

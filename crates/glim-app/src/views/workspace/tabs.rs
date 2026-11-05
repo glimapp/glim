@@ -505,6 +505,13 @@ impl Workspace {
                 };
                 let hint_path = if reader.document.draft_directory.is_some() {
                     glim_services::locale::tr("Not saved to disk")
+                } else if let Some(remote) = &reader.document.remote {
+                    format!(
+                        "{} · {}\n{}",
+                        glim_services::locale::tr("Remote · Read-only"),
+                        remote.connection.label(),
+                        reader.document.path.display()
+                    )
                 } else {
                     reader.document.path.display().to_string()
                 };
@@ -618,7 +625,16 @@ impl Workspace {
                                 &reader.document.path,
                                 cx,
                             ))
-                            .child(div().max_w(px(210.)).truncate().text_xs().child(label)),
+                            .child(div().max_w(px(210.)).truncate().text_xs().child(label))
+                            .when(reader.document.remote.is_some(), |row| {
+                                row.child(
+                                    gpui_kit::component::Icon::new(
+                                        gpui_kit::assets::IconName::Globe,
+                                    )
+                                    .size(px(12.))
+                                    .text_color(cx.theme().muted_foreground),
+                                )
+                            }),
                     )
                     .child(
                         Button::new(("close-tab", index))

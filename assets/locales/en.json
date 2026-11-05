@@ -619,5 +619,8 @@
   "Connected": "Connected",
   "Browse remote files in a read-only workspace.": "Browse remote files in a read-only workspace.",
   "Connection saved": "Connection saved",
-  "Connection deleted": "Connection deleted"
+  "Connection deleted": "Connection deleted",
+  "More Options": "More Options",
+  "Not connected": "Not connected",
+  "Add SSH Connection": "Add SSH Connection"
 }

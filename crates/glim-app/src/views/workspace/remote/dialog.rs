@@ -1,22 +1,69 @@
 use super::*;
-use gpui_kit::component::button::ButtonCustomVariant;
+use gpui_kit::component::{button::ButtonCustomVariant, tooltip::Tooltip};
 
-fn primary_button(id: &'static str, label: &str, cx: &App) -> Button {
+fn primary_button(id: &'static str, label: &str, disabled: bool, cx: &App) -> Button {
     let ink = crate::views::accent(cx);
-    Button::new(id).label(label.to_owned()).custom(
-        ButtonCustomVariant::new(cx)
-            .color(ink)
-            .foreground(cx.theme().background)
-            .hover(ink.blend(cx.theme().foreground.opacity(0.08)))
-            .active(ink.blend(cx.theme().foreground.opacity(0.16))),
-    )
+    Button::new(id)
+        .label(label.to_owned())
+        .disabled(disabled)
+        .when(!disabled, |button| button.bg(ink))
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .color(ink)
+                .foreground(cx.theme().background)
+                .hover(ink.blend(cx.theme().foreground.opacity(0.08)))
+                .active(ink.blend(cx.theme().foreground.opacity(0.16))),
+        )
+}
+
+fn connection_dot(id: impl Into<ElementId>, connected: bool, cx: &App) -> AnyElement {
+    let status = tr(if connected {
+        "Connected"
+    } else {
+        "Not connected"
+    });
+    div()
+        .id(id)
+        .flex_shrink_0()
+        .size(px(16.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .role(Role::Status)
+        .aria_label(status.clone())
+        .tooltip(move |window, cx| Tooltip::new(status.clone()).build(window, cx))
+        .child(div().size(px(6.)).rounded_full().bg(if connected {
+            crate::views::accent(cx)
+        } else {
+            cx.theme().muted_foreground.opacity(0.5)
+        }))
+        .into_any_element()
+}
+
+fn connection_input(
+    state: &Entity<InputState>,
+    label: &str,
+    disabled: bool,
+    window: &Window,
+    cx: &App,
+) -> Input {
+    let focused = state.read(cx).focus_handle(cx).is_focused(window);
+    Input::new(state)
+        .aria_label(label.to_owned())
+        .disabled(disabled)
+        .focus_bordered(false)
+        .border_color(if focused && !disabled {
+            crate::views::accent(cx)
+        } else {
+            cx.theme().input
+        })
 }
 
 impl RemoteDialog {
     pub(super) fn title(&self) -> String {
         tr(match self.mode {
             Mode::Connections => "SSH Connections",
-            Mode::Edit if self.connection.id.is_empty() => "Add SSH Connection…",
+            Mode::Edit if self.connection.id.is_empty() => "Add SSH Connection",
             Mode::Edit => "Edit SSH Connection",
             Mode::Directories => "Open Remote Folder",
         })
@@ -28,9 +75,12 @@ impl RemoteDialog {
         if self.mode == Mode::Edit && !self.open_after_save {
             self.mode = Mode::Connections;
             self.message = None;
+            self.message_success = false;
+            self.feedback_task = None;
+            window.focus(&self.modal_focus, cx);
             cx.notify();
         } else {
-            window.close_dialog(cx);
+            self.close(window, cx);
         }
     }
 
@@ -61,9 +111,7 @@ impl RemoteDialog {
             .id("ssh-feedback")
             .gap_2()
             .items_start()
-            .p_3()
-            .rounded(px(6.))
-            .bg(cx.theme().background.blend(color.opacity(0.08)))
+            .py_1()
             .child(
                 Icon::new(if self.message_success {
                     IconName::CircleCheck
@@ -90,17 +138,19 @@ impl RemoteDialog {
             .into_any_element()
     }
 
-    fn field(&self, index: usize, label: &'static str) -> AnyElement {
+    fn field(&self, index: usize, label: &'static str, window: &Window, cx: &App) -> AnyElement {
         v_flex()
             .flex_1()
             .min_w_0()
-            .gap_1()
+            .gap_2()
             .child(div().text_sm().child(tr(label)))
-            .child(
-                Input::new(&self.fields[index])
-                    .aria_label(tr(label))
-                    .disabled(self.busy),
-            )
+            .child(connection_input(
+                &self.fields[index],
+                &tr(label),
+                self.busy,
+                window,
+                cx,
+            ))
             .into_any_element()
     }
 
@@ -113,22 +163,12 @@ impl RemoteDialog {
             .overflow_y_scroll();
         if connections.is_empty() {
             list = list.child(
-                v_flex()
-                    .py_8()
+                h_flex()
+                    .py_5()
                     .gap_2()
-                    .items_center()
-                    .child(
-                        Icon::new(IconName::Globe)
-                            .size(px(24.))
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .child(div().text_sm().child(tr("No SSH connections yet")))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(tr("Add a connection to browse remote folders.")),
-                    ),
+                    .text_color(cx.theme().muted_foreground)
+                    .child(Icon::new(IconName::Globe).size(px(18.)))
+                    .child(div().text_sm().child(tr("No SSH connections yet"))),
             );
         }
         for (index, connection) in connections.into_iter().enumerate() {
@@ -137,6 +177,7 @@ impl RemoteDialog {
             let delete = connection.clone();
             let label = connection.label();
             let open = connection.clone();
+            let connected = crate::app::remote::connection_is_connected(&connection.id, cx);
             list = list.child(
                 h_flex()
                     .id(("ssh-connection", index))
@@ -175,6 +216,7 @@ impl RemoteDialog {
                                 )
                             }),
                     )
+                    .child(connection_dot(("ssh-status", index), connected, cx))
                     .child(
                         Button::new(SharedString::from(format!("ssh-open-{}", connection.id)))
                             .small()
@@ -222,14 +264,10 @@ impl RemoteDialog {
         v_flex()
             .w_full()
             .gap_4()
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(tr("Browse remote folders and open files read-only.")),
-            )
             .child(list)
-            .child(self.feedback(cx))
+            .when(self.busy || self.message.is_some(), |body| {
+                body.child(self.feedback(cx))
+            })
             .child(
                 h_flex()
                     .w_full()
@@ -238,7 +276,7 @@ impl RemoteDialog {
                     .border_color(cx.theme().border)
                     .justify_between()
                     .child(
-                        primary_button("ssh-add", &tr("Add Connection…"), cx).on_click(
+                        primary_button("ssh-add", &tr("Add Connection…"), false, cx).on_click(
                             cx.listener(|view, _, window, cx| {
                                 view.open_after_save = false;
                                 view.edit(Connection::default(), window, cx);
@@ -255,90 +293,150 @@ impl RemoteDialog {
             .into_any_element()
     }
 
-    fn render_form(&self, cx: &mut Context<Self>) -> AnyElement {
-        let owner = cx.entity().downgrade();
-        let authentication = Button::new("ssh-authentication")
-            .outline()
-            .disabled(self.busy)
-            .accessibility_label(tr("Authentication"))
+    fn render_form(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        v_flex()
+            .w_full()
+            .gap_5()
             .child(
                 h_flex()
-                    .gap_2()
-                    .child(tr(if self.explicit_key {
-                        "Private Key"
-                    } else {
-                        "System SSH"
-                    }))
-                    .child(Icon::new(IconName::ChevronDown).size(px(14.))),
+                    .w_full()
+                    .gap_3()
+                    .items_start()
+                    .child(self.field(1, "SSH Host", window, cx))
+                    .child(
+                        div()
+                            .w(px(100.))
+                            .flex_shrink_0()
+                            .child(self.field(3, "Port", window, cx)),
+                    ),
             )
-            .dropdown_menu(move |menu, _, _| {
-                let system = owner.clone();
-                let key = owner.clone();
-                menu.item(
-                    PopupMenuItem::new(tr("System SSH")).on_click(move |_, _, cx| {
-                        let _ = system.update(cx, |view, cx| {
-                            view.explicit_key = false;
-                            view.message = None;
-                            cx.notify();
-                        });
+            .child(self.field(2, "Username", window, cx))
+            .child(
+                v_flex()
+                    .gap_4()
+                    .child(
+                        h_flex().child(
+                            Button::new("ssh-advanced")
+                                .ghost()
+                                .small()
+                                .icon(if self.advanced {
+                                    IconName::ChevronDown
+                                } else {
+                                    IconName::ChevronRight
+                                })
+                                .label(tr("More Options"))
+                                .disabled(self.busy)
+                                .on_click(cx.listener(|view, _, _, cx| {
+                                    view.advanced = !view.advanced;
+                                    cx.notify();
+                                })),
+                        ),
+                    )
+                    .when(self.advanced, |body| {
+                        body.child(self.field(0, "Connection Name", window, cx))
+                            .child(
+                                v_flex()
+                                    .gap_2()
+                                    .child(div().text_sm().child(tr("Private Key")))
+                                    .child(
+                                        h_flex()
+                                            .w_full()
+                                            .gap_2()
+                                            .child(
+                                                div().flex_1().min_w_0().child(
+                                                    connection_input(
+                                                        &self.fields[4],
+                                                        &tr("Private Key"),
+                                                        self.busy,
+                                                        window,
+                                                        cx,
+                                                    )
+                                                    .cleanable(true),
+                                                ),
+                                            )
+                                            .child(
+                                                Button::new("ssh-key-file")
+                                                    .outline()
+                                                    .label(tr("Choose…"))
+                                                    .disabled(self.busy)
+                                                    .on_click(cx.listener(
+                                                        |view, _, window, cx| {
+                                                            view.pick_key(window, cx)
+                                                        },
+                                                    )),
+                                            ),
+                                    ),
+                            )
                     }),
-                )
-                .item(
-                    PopupMenuItem::new(tr("Private Key")).on_click(move |_, _, cx| {
-                        let _ = key.update(cx, |view, cx| {
-                            view.explicit_key = true;
-                            view.message = None;
-                            cx.notify();
-                        });
-                    }),
-                )
-            });
-        v_flex().w_full().gap_4()
-            .child(h_flex().w_full().gap_3().items_start()
-                .child(self.field(1, "SSH Host"))
-                .child(div().w(px(112.)).flex_shrink_0().child(self.field(3, "Port"))))
-            .child(h_flex().w_full().gap_3().items_start()
-                .child(self.field(2, "Username"))
-                .child(self.field(0, "Connection Name")))
-            .child(v_flex().gap_2().pt_1()
-                .child(h_flex().w_full().justify_between().child(div().text_sm().child(tr("Authentication"))).child(authentication))
-                .when(!self.explicit_key, |body| body.child(div().text_sm().text_color(cx.theme().muted_foreground).whitespace_normal()
-                    .child(tr("Uses your SSH config, agent and local keys. Passwords are requested when needed."))))
-                .when(self.explicit_key, |body| body.child(h_flex().w_full().gap_2()
-                    .child(div().flex_1().min_w_0().child(Input::new(&self.fields[4]).aria_label(tr("Private Key")).disabled(self.busy)))
-                    .child(Button::new("ssh-key-file").outline().label(tr("Choose…")).disabled(self.busy)
-                        .on_click(cx.listener(|view, _, window, cx| view.pick_key(window, cx)))))))
-            .child(self.feedback(cx))
-            .child(h_flex().w_full().gap_3().pt_3().border_t_1().border_color(cx.theme().border)
-                .child(Button::new("ssh-test").outline().label(tr("Test Connection")).disabled(self.busy)
-                    .loading(self.busy && self.activity == "Testing connection…")
-                    .on_click(cx.listener(|view, _, window, cx| view.save(true, window, cx))))
-                .child(div().flex_1())
-                .child(Button::new("ssh-cancel").outline().label(tr("Cancel"))
-                    .on_click(cx.listener(|view, _, window, cx| view.cancel(window, cx))))
-                .child(primary_button("ssh-save", &tr(if self.open_after_save { "Save and Connect" } else { "Save" }), cx)
-                    .disabled(self.busy).loading(self.busy && self.activity == "Saving connection…")
-                    .on_click(cx.listener(|view, _, window, cx| view.save(false, window, cx)))))
+            )
+            .when(self.busy || self.message.is_some(), |body| {
+                body.child(self.feedback(cx))
+            })
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap_3()
+                    .pt_3()
+                    .border_t_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        Button::new("ssh-test")
+                            .outline()
+                            .label(tr("Test Connection"))
+                            .disabled(self.busy)
+                            .loading(self.busy && self.activity == "Testing connection…")
+                            .on_click(
+                                cx.listener(|view, _, window, cx| view.save(true, window, cx)),
+                            ),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("ssh-cancel")
+                            .outline()
+                            .label(tr("Cancel"))
+                            .on_click(cx.listener(|view, _, window, cx| view.cancel(window, cx))),
+                    )
+                    .child(
+                        primary_button(
+                            "ssh-save",
+                            &tr(if self.open_after_save {
+                                "Save and Connect"
+                            } else {
+                                "Save"
+                            }),
+                            self.busy,
+                            cx,
+                        )
+                        .loading(self.busy && self.activity == "Saving connection…")
+                        .on_click(cx.listener(|view, _, window, cx| view.save(false, window, cx))),
+                    ),
+            )
             .into_any_element()
     }
 
-    fn render_directories(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_directories(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let connections = cx.global::<Connections>().catalog.connections.clone();
         let owner = cx.entity().downgrade();
         let same_connection = self.add_folder.then(|| self.connection.id.clone());
         let selector = Button::new("ssh-location")
+            .small()
             .outline()
+            .text_color(cx.theme().muted_foreground)
             .disabled(self.busy || self.add_folder)
             .accessibility_label(tr("SSH Connection"))
             .child(
                 h_flex()
                     .min_w_0()
                     .gap_2()
-                    .child(Icon::new(IconName::Globe).size(px(16.)))
+                    .child(connection_dot(
+                        "ssh-current-status",
+                        self.session.as_ref().is_some_and(Session::is_connected),
+                        cx,
+                    ))
                     .child(
                         div()
                             .truncate()
-                            .max_w(px(300.))
+                            .max_w(px(260.))
                             .child(self.connection.label()),
                     )
                     .child(Icon::new(IconName::ChevronDown).size(px(14.))),
@@ -428,6 +526,7 @@ impl RemoteDialog {
                                     h_flex()
                                         .id(("ssh-directory", index))
                                         .h(px(34.))
+                                        .w_full()
                                         .px_3()
                                         .gap_2()
                                         .items_center()
@@ -454,13 +553,6 @@ impl RemoteDialog {
                                                     .into_owned(),
                                             ),
                                         )
-                                        .when(selected, |row| {
-                                            row.child(
-                                                Icon::new(IconName::Check)
-                                                    .size(px(14.))
-                                                    .text_color(crate::views::accent(cx)),
-                                            )
-                                        })
                                         .on_mouse_down(
                                             MouseButton::Left,
                                             cx.listener(
@@ -500,19 +592,9 @@ impl RemoteDialog {
                     .justify_between()
                     .gap_3()
                     .child(selector)
-                    .when(self.session.is_some() && !self.busy, |row| {
-                        row.child(
-                            h_flex()
-                                .gap_1()
-                                .flex_shrink_0()
-                                .text_sm()
-                                .text_color(crate::views::accent(cx))
-                                .child(Icon::new(IconName::CircleCheck).size(px(14.)))
-                                .child(tr("Connected")),
-                        )
-                    })
                     .child(
                         Button::new("ssh-refresh")
+                            .small()
                             .outline()
                             .icon(IconName::RotateCw)
                             .tooltip(tr("Refresh"))
@@ -544,13 +626,13 @@ impl RemoteDialog {
                                 }
                             })),
                     )
-                    .child(
-                        div().flex_1().min_w_0().child(
-                            Input::new(&self.path)
-                                .aria_label(tr("Remote folder path"))
-                                .disabled(self.busy || self.session.is_none()),
-                        ),
-                    )
+                    .child(div().flex_1().min_w_0().child(connection_input(
+                        &self.path,
+                        &tr("Remote folder path"),
+                        self.busy || self.session.is_none(),
+                        window,
+                        cx,
+                    )))
                     .child(
                         Button::new("ssh-go")
                             .outline()
@@ -569,19 +651,9 @@ impl RemoteDialog {
                     ),
             )
             .child(list)
-            .child(
-                Checkbox::new("ssh-hidden")
-                    .small()
-                    .label(tr("Show hidden folders"))
-                    .checked(self.show_hidden)
-                    .disabled(self.busy)
-                    .on_click(cx.listener(|view, checked: &bool, _, cx| {
-                        view.show_hidden = *checked;
-                        view.selected = None;
-                        cx.notify();
-                    })),
-            )
-            .child(self.feedback(cx))
+            .when(self.busy || self.message.is_some(), |body| {
+                body.child(self.feedback(cx))
+            })
             .child(
                 v_flex()
                     .w_full()
@@ -601,16 +673,32 @@ impl RemoteDialog {
                             )
                             .child(
                                 div()
-                                    .text_sm()
-                                    .truncate()
+                                    .id("ssh-target-path")
+                                    .text_base()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .max_h(px(76.))
+                                    .overflow_y_scroll()
+                                    .whitespace_normal()
                                     .child(self.target_directory(cx).display().to_string()),
                             ),
                     )
                     .child(
                         h_flex()
                             .w_full()
-                            .justify_end()
                             .gap_2()
+                            .child(
+                                Checkbox::new("ssh-hidden")
+                                    .small()
+                                    .label(tr("Show hidden folders"))
+                                    .checked(self.show_hidden)
+                                    .disabled(self.busy)
+                                    .on_click(cx.listener(|view, checked: &bool, _, cx| {
+                                        view.show_hidden = *checked;
+                                        view.selected = None;
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(div().flex_1())
                             .child(
                                 Button::new("ssh-cancel")
                                     .outline()
@@ -620,16 +708,16 @@ impl RemoteDialog {
                                     ),
                             )
                             .child(
-                                primary_button("ssh-open-folder", &tr("Open Folder"), cx)
-                                    .disabled(
-                                        self.busy
-                                            || self.session.is_none()
-                                            || self.path.read(cx).value().trim().is_empty(),
-                                    )
-                                    .loading(self.busy && self.activity == "Opening folder…")
-                                    .on_click(
-                                        cx.listener(|view, _, window, cx| view.open(window, cx)),
-                                    ),
+                                primary_button(
+                                    "ssh-open-folder",
+                                    &tr("Open Folder"),
+                                    self.busy
+                                        || self.session.is_none()
+                                        || self.path.read(cx).value().trim().is_empty(),
+                                    cx,
+                                )
+                                .loading(self.busy && self.activity == "Opening folder…")
+                                .on_click(cx.listener(|view, _, window, cx| view.open(window, cx))),
                             ),
                     ),
             )
@@ -692,11 +780,48 @@ impl RemoteDialog {
 }
 
 impl Render for RemoteDialog {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        match self.mode {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let body = match self.mode {
             Mode::Connections => self.render_connections(cx),
-            Mode::Edit => self.render_form(cx),
-            Mode::Directories => self.render_directories(cx),
-        }
+            Mode::Edit => self.render_form(window, cx),
+            Mode::Directories => self.render_directories(window, cx),
+        };
+        let dialog = cx.entity().downgrade();
+        gpui_kit::base::Dialog::new(cx)
+            .focus_handle(self.modal_focus.clone())
+            .close_on_backdrop_press(false)
+            .on_ok(|_, _, _| false)
+            .request_close(move |_, window, cx| {
+                let _ = dialog.update(cx, |view, cx| view.cancel(window, cx));
+            })
+            .backdrop(div().size_full().bg(cx.theme().overlay))
+            .popup(
+                v_flex()
+                    .id("ssh-dialog")
+                    .w(px(560.))
+                    .max_w((window.viewport_size().width - px(32.)).max(px(0.)))
+                    .max_h((window.viewport_size().height - px(32.)).max(px(0.)))
+                    .p_5()
+                    .gap_5()
+                    .rounded(cx.theme().radius_lg)
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().background)
+                    .shadow_lg()
+                    .occlude()
+                    .child(
+                        gpui_kit::base::DialogTitle::new()
+                            .text_base()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(self.title()),
+                    )
+                    .child(
+                        div()
+                            .id("ssh-dialog-body")
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .child(body),
+                    ),
+            )
     }
 }

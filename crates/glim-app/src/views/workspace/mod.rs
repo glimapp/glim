@@ -32,6 +32,7 @@ const SIDEBAR_COLLAPSE_WIDTH: f32 = 120.;
 
 pub struct Workspace {
     remote: Option<glim_services::remote::Session>,
+    remote_dialog: Option<Entity<remote::RemoteDialog>>,
     remote_disconnected: bool,
     remote_restore: Option<glim_core::session::WorkspaceSession>,
     remote_progress_task: Option<Task<()>>,
@@ -223,6 +224,7 @@ impl Workspace {
         });
         let mut workspace = Self {
             remote: None,
+            remote_dialog: None,
             remote_disconnected: false,
             remote_restore: None,
             remote_progress_task: None,

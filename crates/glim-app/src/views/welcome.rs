@@ -155,6 +155,7 @@ pub fn welcome(
                     h_flex()
                         .flex_1()
                         .flex_basis(relative(0.5))
+                        .items_center()
                         .min_w_0()
                         .rounded(px(10.))
                         .border_1()
@@ -179,6 +180,13 @@ pub fn welcome(
                             }),
                         )
                         .child(
+                            div()
+                                .w(px(1.))
+                                .h(px(20.))
+                                .flex_shrink_0()
+                                .bg(workspace_ink.opacity(0.22)),
+                        )
+                        .child(
                             Button::new("welcome-workspace-location")
                                 .h(px(60.))
                                 .w(px(36.))
@@ -186,7 +194,6 @@ pub fn welcome(
                                 .rounded_tr(px(10.))
                                 .rounded_br(px(10.))
                                 .border_0()
-                                .border_l_1()
                                 .border_color(workspace_border)
                                 .text_color(workspace_ink)
                                 .custom(

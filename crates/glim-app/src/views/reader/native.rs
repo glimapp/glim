@@ -319,7 +319,7 @@ impl Render for NativeReader {
                 || window
                     .context_stack()
                     .iter()
-                    .any(|context| context.contains("PopupMenu"));
+                    .any(|context| context.contains("PopupMenu") || context.contains("Dialog"));
             let _ = view.update(cx, |view, cx| {
                 if view.obscured != obscured {
                     view.obscured = obscured;

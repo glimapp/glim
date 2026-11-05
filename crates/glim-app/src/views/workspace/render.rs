@@ -181,21 +181,6 @@ impl Render for Workspace {
                 self.page == Page::Document && !self.tabs.is_empty() && !self.file_fullscreen,
                 |view| view.child(tab_bar),
             )
-            .when(document_page && glim_services::remote::is_remote_id(&self.recent_id), |view| {
-                let connection = self.remote_connection(cx).map(|connection| connection.label()).unwrap_or_default();
-                let mut status = format!("{} · {}", glim_services::locale::tr("Remote · Read-only"), connection);
-                if self.remote_disconnected { status.push_str(&format!(" · {}", glim_services::locale::tr("Disconnected"))); }
-                if self.loading {
-                    let received = self.remote.as_ref().map(|session| session.received.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or_default();
-                    status.push_str(&format!(" · {} {:.1} MiB", glim_services::locale::tr("Downloading…"), received as f64 / (1024. * 1024.)));
-                }
-                view.child(h_flex().px_3().py_1().gap_2().items_center()
-                    .child(div().flex_1().min_w_0().truncate().text_xs().text_color(cx.theme().muted_foreground).child(status))
-                    .when(self.loading, |row| row.child(Button::new("cancel-remote-read").small().outline().label(glim_services::locale::tr("Cancel Download"))
-                        .on_click(cx.listener(|view, _, _, cx| { view.load_task = None; view.remote_progress_task = None; view.loading = false; view.remote_disconnected = view.remote.is_none() || view.remote_restore.is_some(); cx.notify(); }))))
-                    .when(!self.loading, |row| row.child(Button::new("reconnect-remote").small().outline().label(glim_services::locale::tr(if self.remote_disconnected { "Reconnect" } else { "Refresh" }))
-                        .on_click(cx.listener(|view, _, window, cx| view.refresh_remote(window, cx))))))
-            })
             .when(!self.file_fullscreen && document_page && !self.csv_hint_dismissed
                 && self.active_reader().is_some_and(|reader| reader.is_csv() && reader.mode() == glim_core::ReaderMode::Source), |view| {
                 view.child(h_flex().w_full().gap_3().px_3().py_1().items_center()
@@ -641,6 +626,7 @@ impl Render for Workspace {
                 cx.stop_propagation();
             }))
             .child(body)
+            .children(self.remote_dialog.clone())
             .when_some(notice, |view, (title, error, danger)| {
                 view.child(
                     deferred(

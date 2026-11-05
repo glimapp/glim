@@ -619,5 +619,8 @@
   "Connected": "已连接",
   "Browse remote files in a read-only workspace.": "在只读工作区中浏览远端文件。",
   "Connection saved": "连接已保存",
-  "Connection deleted": "连接已删除"
+  "Connection deleted": "连接已删除",
+  "More Options": "更多选项",
+  "Not connected": "未连接",
+  "Add SSH Connection": "添加 SSH 连接"
 }
