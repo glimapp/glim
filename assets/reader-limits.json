@@ -1605,6 +1605,14 @@
       }
     },
     "remote": {
+      "idle_timeout_ms": {
+        "value": 30000,
+        "type": "u64",
+        "unit": "milliseconds",
+        "effect": "timeout",
+        "description": "Close a pending SFTP request after this interval without transmitted or received bytes. Progress resets the timer; total file size and total transfer time are unlimited.",
+        "description_zh": "SFTP 请求等待收发数据时，连续无字节进展达到此时长则关闭连接。收发进展重置计时，不限制文件总大小或传输总时长。"
+      },
       "packet_bytes": {
         "value": 1048576,
         "type": "usize",

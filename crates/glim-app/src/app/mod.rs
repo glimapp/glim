@@ -411,11 +411,7 @@ pub fn run() -> Result<()> {
             startup.observe(cx);
         }
         gpui_kit::init(cx);
-        cx.set_global(remote::Connections {
-            catalog: remote_catalog,
-            write: None,
-            sessions: Default::default(),
-        });
+        remote::init(remote_catalog, cx);
         finder_integration::init(cx);
         telemetry::initialize(cx);
         cx.set_quit_mode(QuitMode::Explicit);
@@ -495,6 +491,7 @@ pub fn run() -> Result<()> {
             preview_save_task: None,
         });
         cx.set_global(OpenWorkspaces::default());
+        remote::monitor_status(cx);
         cx.set_global(QuitSession::default());
         recovery::init(cx);
         cx.set_global(DefaultApplicationsTask::default());

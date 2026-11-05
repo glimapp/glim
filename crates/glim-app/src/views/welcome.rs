@@ -330,7 +330,7 @@ pub fn welcome(
                             if let Some(connection) = remote {
                                 paths = format!("{} · {paths}", connection.label());
                             }
-                            let remote_icon = remote.is_some();
+                            let remote_icon = glim_services::remote::is_remote_id(&workspace.id);
                             let is_current = current.matches_recent_workspace(&workspace);
                             let open = workspace.clone();
                             let new_window = workspace.clone();
@@ -362,20 +362,27 @@ pub fn welcome(
                                                 .min_w_0()
                                                 .items_center()
                                                 .gap_3()
-                                                .child(
-                                                    Icon::new(if remote_icon {
-                                                        IconName::Globe
-                                                    } else {
-                                                        IconName::Folder
-                                                    })
-                                                    .size(px(17.))
-                                                    .text_color(if is_current {
-                                                        accent
-                                                    } else {
-                                                        cx.theme().muted_foreground
-                                                    })
-                                                    .flex_shrink_0(),
-                                                )
+                                                .child(if remote_icon {
+                                                    super::connection_icon(
+                                                        ("recent-connection-status", index),
+                                                        crate::app::remote::workspace_is_connected(
+                                                            &workspace.id,
+                                                            cx,
+                                                        ),
+                                                        px(17.),
+                                                        cx,
+                                                    )
+                                                } else {
+                                                    Icon::new(IconName::Folder)
+                                                        .size(px(17.))
+                                                        .text_color(if is_current {
+                                                            accent
+                                                        } else {
+                                                            cx.theme().muted_foreground
+                                                        })
+                                                        .flex_shrink_0()
+                                                        .into_any_element()
+                                                })
                                                 .child(
                                                     div()
                                                         .w(relative(0.30))

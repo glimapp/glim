@@ -553,6 +553,9 @@ impl RemoteDialog {
 use gpui_kit::assets::IconName;
 
 impl Workspace {
+    pub(crate) fn remote_workspace_is_connected(&self) -> bool {
+        self.remote.as_ref().is_some_and(Session::is_connected)
+    }
     pub(crate) fn remote_connection_is_live(&self, connection: &Connection) -> bool {
         self.remote.as_ref().is_some_and(|session| {
             session.connection.id == connection.id
@@ -888,7 +891,13 @@ impl Workspace {
         }
     }
     pub(super) fn refresh_remote(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote_disconnected || self.remote_restore.is_some() {
+        if self.remote_disconnected
+            || self.remote_restore.is_some()
+            || self
+                .remote
+                .as_ref()
+                .is_some_and(|session| !session.is_connected())
+        {
             self.reconnect_remote(window, cx);
             return;
         }

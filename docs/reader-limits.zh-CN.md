@@ -386,6 +386,7 @@
 
 | Key | 当前值 | 单位 | 超限效果 | 实际行为 |
 | --- | ---: | --- | --- | --- |
+| `remote.idle_timeout_ms` | 30,000 | milliseconds | 超时 | SFTP 请求等待收发数据时，连续无字节进展达到此时长则关闭连接。收发进展重置计时，不限制文件总大小或传输总时长。 |
 | `remote.packet_bytes` | 1 MiB | bytes | 处理／内存预算 | 单个活动 SFTP 协议包的预算；文件通过连续分块传输，不限制总大小。 |
 | `remote.transfer_bytes` | 32 KiB | bytes | 处理／内存预算 | 每次 SFTP 读取请求的字节数，与远端文件总大小无关。 |
 | `remote.diagnostic_bytes` | 16 KiB | bytes | 处理／内存预算 | 为连接失败保留的 SSH 诊断尾部预算，更早的输出会被丢弃。 |

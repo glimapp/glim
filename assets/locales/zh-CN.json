@@ -622,5 +622,6 @@
   "Connection deleted": "连接已删除",
   "More Options": "更多选项",
   "Not connected": "未连接",
-  "Add SSH Connection": "添加 SSH 连接"
+  "Add SSH Connection": "添加 SSH 连接",
+  "SSH connection timed out; reconnect to continue": "SSH 连接响应超时，请重新连接"
 }

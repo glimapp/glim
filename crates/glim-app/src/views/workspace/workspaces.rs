@@ -258,17 +258,25 @@ impl Workspace {
                                     .w_full()
                                     .min_w_0()
                                     .gap_3()
-                                    .child(
-                                        Icon::new(
-                                            if glim_services::remote::is_remote_id(&workspace.id) {
-                                                gpui_kit::assets::IconName::Globe
-                                            } else {
-                                                gpui_kit::assets::IconName::PanelsTopLeft
-                                            },
+                                    .child(if glim_services::remote::is_remote_id(&workspace.id) {
+                                        crate::views::connection_icon(
+                                            SharedString::from(format!(
+                                                "workspace-status-{}",
+                                                workspace.id
+                                            )),
+                                            crate::app::remote::workspace_is_connected(
+                                                &workspace.id,
+                                                cx,
+                                            ),
+                                            px(16.),
+                                            cx,
                                         )
-                                        .size(px(16.))
-                                        .flex_shrink_0(),
-                                    )
+                                    } else {
+                                        Icon::new(gpui_kit::assets::IconName::PanelsTopLeft)
+                                            .size(px(16.))
+                                            .flex_shrink_0()
+                                            .into_any_element()
+                                    })
                                     .child(div().flex_1().min_w_0().truncate().child(title)),
                             )
                             .on_click(cx.listener(move |view, _, window, cx| {

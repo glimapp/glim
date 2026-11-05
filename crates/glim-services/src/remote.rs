@@ -167,7 +167,11 @@ impl Session {
         }
     }
     pub fn is_connected(&self) -> bool {
-        self.connected.load(Ordering::Relaxed)
+        match self.transport.try_lock() {
+            Ok(transport) => transport.healthy(),
+            Err(std::sync::TryLockError::WouldBlock) => self.connected.load(Ordering::Relaxed),
+            Err(std::sync::TryLockError::Poisoned(_)) => false,
+        }
     }
     pub fn list(
         &self,

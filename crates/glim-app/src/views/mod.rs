@@ -35,6 +35,45 @@ fn selection_background(cx: &gpui_kit::App) -> gpui_kit::Hsla {
         .opacity(1.)
 }
 
+fn connection_color(connected: bool, cx: &gpui_kit::App) -> gpui_kit::Hsla {
+    use gpui_kit::component::ActiveTheme;
+    if connected {
+        accent(cx)
+    } else {
+        cx.theme().danger
+    }
+}
+
+fn connection_icon(
+    id: impl Into<gpui_kit::ElementId>,
+    connected: bool,
+    icon_size: gpui_kit::Pixels,
+    cx: &gpui_kit::App,
+) -> gpui_kit::AnyElement {
+    use gpui_kit::{
+        component::{Icon, tooltip::Tooltip},
+        *,
+    };
+    let status = glim_services::locale::tr(if connected {
+        "Connected"
+    } else {
+        "Not connected"
+    });
+    div()
+        .id(id)
+        .size(icon_size)
+        .flex_shrink_0()
+        .role(Role::Status)
+        .aria_label(status.clone())
+        .tooltip(move |window, cx| Tooltip::new(status.clone()).build(window, cx))
+        .child(
+            Icon::new(gpui_kit::assets::IconName::Globe)
+                .size(icon_size)
+                .text_color(connection_color(connected, cx)),
+        )
+        .into_any_element()
+}
+
 pub(crate) use reader::diagram_cache_activity;
 pub(crate) use reader::resource_snapshot;
 

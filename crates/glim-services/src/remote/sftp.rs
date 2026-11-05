@@ -13,6 +13,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
+    time::{Duration, Instant},
 };
 
 pub(super) struct Sftp {
@@ -22,9 +23,13 @@ pub(super) struct Sftp {
     errors: Arc<Mutex<Vec<u8>>>,
     next_id: u32,
     healthy: Arc<AtomicBool>,
+    io_activity: Arc<Mutex<Option<Instant>>>,
+    timed_out: Arc<AtomicBool>,
+    process_watch: Option<Watch>,
 }
 impl Drop for Sftp {
     fn drop(&mut self) {
+        self.process_watch = None;
         if let Ok(mut child) = self.child.lock() {
             terminate(&mut child);
             let _ = child.wait();
@@ -48,6 +53,7 @@ impl Drop for Watch {
     fn drop(&mut self) {
         self.done.store(true, Ordering::Relaxed);
         if let Some(thread) = self.thread.take() {
+            thread.thread().unpark();
             let _ = thread.join();
         }
     }
@@ -124,6 +130,9 @@ impl Sftp {
             errors,
             next_id: 0,
             healthy: Arc::new(AtomicBool::new(true)),
+            io_activity: Arc::new(Mutex::new(None)),
+            timed_out: Arc::new(AtomicBool::new(false)),
+            process_watch: None,
         };
         let _watch = session.watch(cancel);
         session.send(&[1, 0, 0, 0, 3])?;
@@ -133,27 +142,27 @@ impl Sftp {
             packet.byte()? == 2 && packet.u32()? == 3,
             "The server does not support SFTP v3"
         );
+        session.process_watch = Some(session.watch_process());
         Ok(session)
     }
     pub fn healthy(&self) -> bool {
         self.healthy.load(Ordering::Relaxed)
     }
-    fn watch(&self, cancel: &Cancellation) -> Watch {
+    fn watch_process(&self) -> Watch {
         let done = Arc::new(AtomicBool::new(false));
         let stop = done.clone();
-        let cancel = cancel.clone();
         let child = self.child.clone();
         let healthy = self.healthy.clone();
         let thread = std::thread::spawn(move || {
             while !stop.load(Ordering::Relaxed) {
-                if cancel.check().is_err() {
+                let alive = child
+                    .lock()
+                    .is_ok_and(|mut child| matches!(child.try_wait(), Ok(None)));
+                if !alive {
                     healthy.store(false, Ordering::Relaxed);
-                    if let Ok(mut child) = child.lock() {
-                        terminate(&mut child);
-                    }
                     break;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(20));
+                std::thread::park_timeout(Duration::from_millis(250));
             }
         });
         Watch {
@@ -161,16 +170,81 @@ impl Sftp {
             thread: Some(thread),
         }
     }
+    fn watch(&self, cancel: &Cancellation) -> Watch {
+        let done = Arc::new(AtomicBool::new(false));
+        let stop = done.clone();
+        let cancel = cancel.clone();
+        let child = self.child.clone();
+        let healthy = self.healthy.clone();
+        let io_activity = self.io_activity.clone();
+        let timed_out = self.timed_out.clone();
+        let thread = std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let stalled = io_activity.lock().is_ok_and(|activity| {
+                    activity.is_some_and(|last| {
+                        last.elapsed() >= Duration::from_millis(limits::REMOTE_IDLE_TIMEOUT_MS)
+                    })
+                });
+                if cancel.check().is_err() || stalled {
+                    timed_out.store(stalled, Ordering::Relaxed);
+                    healthy.store(false, Ordering::Relaxed);
+                    if let Ok(mut child) = child.lock() {
+                        terminate(&mut child);
+                    }
+                    break;
+                }
+                std::thread::park_timeout(Duration::from_millis(20));
+            }
+        });
+        Watch {
+            done,
+            thread: Some(thread),
+        }
+    }
+    fn mark_io(&self, pending: bool) {
+        if let Ok(mut activity) = self.io_activity.lock() {
+            *activity = pending.then(Instant::now);
+        }
+    }
     fn send(&mut self, bytes: &[u8]) -> Result<()> {
+        self.mark_io(true);
         self.input
             .write_all(&u32::try_from(bytes.len())?.to_be_bytes())?;
-        self.input.write_all(bytes)?;
+        self.mark_io(true);
+        let mut remaining = bytes;
+        while !remaining.is_empty() {
+            let written = self.input.write(remaining)?;
+            ensure!(written > 0, "SSH connection closed while sending a request");
+            remaining = &remaining[written..];
+            self.mark_io(true);
+        }
         self.input.flush()?;
+        Ok(())
+    }
+    fn read_packet_bytes(&mut self, mut bytes: &mut [u8]) -> Result<()> {
+        while !bytes.is_empty() {
+            let count = self.output.read(bytes);
+            if self.timed_out.load(Ordering::Relaxed) {
+                bail!(
+                    "{}",
+                    crate::locale::tr("SSH connection timed out; reconnect to continue")
+                );
+            }
+            match count {
+                Ok(0) => bail!("SSH connection closed"),
+                Ok(count) => {
+                    bytes = &mut bytes[count..];
+                    self.mark_io(true);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
         Ok(())
     }
     fn receive(&mut self) -> Result<Vec<u8>> {
         let mut size = [0; 4];
-        if let Err(error) = self.output.read_exact(&mut size) {
+        if let Err(error) = self.read_packet_bytes(&mut size) {
             let diagnostic = self
                 .errors
                 .lock()
@@ -184,7 +258,8 @@ impl Sftp {
             "SFTP response exceeds the active packet budget"
         );
         let mut bytes = vec![0; size];
-        self.output.read_exact(&mut bytes)?;
+        self.read_packet_bytes(&mut bytes)?;
+        self.mark_io(false);
         Ok(bytes)
     }
     fn request(&mut self, kind: u8, body: &[u8]) -> Result<Vec<u8>> {

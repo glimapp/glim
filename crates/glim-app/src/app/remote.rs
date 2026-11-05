@@ -6,8 +6,74 @@ pub(crate) struct Connections {
     pub catalog: Catalog,
     pub write: Option<Task<()>>,
     pub sessions: std::collections::BTreeMap<String, Session>,
+    connection_states: std::collections::BTreeMap<String, bool>,
+    workspace_states: std::collections::BTreeMap<String, bool>,
+    status_task: Option<Task<()>>,
 }
 impl Global for Connections {}
+
+pub(crate) fn init(catalog: Catalog, cx: &mut App) {
+    cx.set_global(Connections {
+        catalog,
+        ..Default::default()
+    });
+}
+
+pub(crate) fn monitor_status(cx: &mut App) {
+    let task = cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(500))
+                .await;
+            cx.update(|cx| {
+                let catalog = &cx.global::<Connections>().catalog;
+                let mut connections = catalog
+                    .connections
+                    .iter()
+                    .map(|connection| {
+                        (
+                            connection.id.clone(),
+                            cached_session(connection, cx).is_some(),
+                        )
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>();
+                let mut workspaces = std::collections::BTreeMap::new();
+                for (view, _) in super::OpenWorkspaces::windows(cx) {
+                    let Some(view) = view.upgrade() else { continue };
+                    let view = view.read(cx);
+                    let workspace = view.workspace_descriptor();
+                    if !glim_services::remote::is_remote_id(&workspace.id) {
+                        continue;
+                    }
+                    workspaces.insert(workspace.id, view.remote_workspace_is_connected());
+                    for connection in &catalog.connections {
+                        if view.remote_connection_is_live(connection) {
+                            connections.insert(connection.id.clone(), true);
+                        }
+                    }
+                }
+                let state = cx.global_mut::<Connections>();
+                if state.connection_states != connections || state.workspace_states != workspaces {
+                    state.connection_states = connections;
+                    state.workspace_states = workspaces;
+                    cx.refresh_windows();
+                }
+            });
+        }
+    });
+    cx.global_mut::<Connections>().status_task = Some(task);
+}
+
+pub(crate) fn workspace_is_connected(id: &str, cx: &App) -> bool {
+    let state = cx.global::<Connections>();
+    state.workspace_states.get(id).copied().unwrap_or_else(|| {
+        state
+            .catalog
+            .workspaces
+            .get(id)
+            .is_some_and(|workspace| connection_is_connected(&workspace.connection, cx))
+    })
+}
 pub(crate) fn connection_in_use(id: &str, cx: &App) -> bool {
     let catalog = &cx.global::<Connections>().catalog;
     super::OpenWorkspaces::windows(cx).iter().any(|(view, _)| {
@@ -37,10 +103,7 @@ pub(crate) fn connection_is_connected(id: &str, cx: &App) -> bool {
     if cached_session(connection, cx).is_some() {
         return true;
     }
-    super::OpenWorkspaces::windows(cx).iter().any(|(view, _)| {
-        view.upgrade()
-            .is_some_and(|view| view.read(cx).remote_connection_is_live(connection))
-    })
+    state.connection_states.get(id).copied().unwrap_or(false)
 }
 
 pub(crate) fn session_matches(session: &Session, connection: &Connection) -> bool {

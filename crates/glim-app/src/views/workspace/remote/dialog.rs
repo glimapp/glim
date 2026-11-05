@@ -32,11 +32,12 @@ fn connection_dot(id: impl Into<ElementId>, connected: bool, cx: &App) -> AnyEle
         .role(Role::Status)
         .aria_label(status.clone())
         .tooltip(move |window, cx| Tooltip::new(status.clone()).build(window, cx))
-        .child(div().size(px(6.)).rounded_full().bg(if connected {
-            crate::views::accent(cx)
-        } else {
-            cx.theme().muted_foreground.opacity(0.5)
-        }))
+        .child(
+            div()
+                .size(px(6.))
+                .rounded_full()
+                .bg(crate::views::connection_color(connected, cx)),
+        )
         .into_any_element()
 }
 

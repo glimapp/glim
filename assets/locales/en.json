@@ -622,5 +622,6 @@
   "Connection deleted": "Connection deleted",
   "More Options": "More Options",
   "Not connected": "Not connected",
-  "Add SSH Connection": "Add SSH Connection"
+  "Add SSH Connection": "Add SSH Connection",
+  "SSH connection timed out; reconnect to continue": "SSH connection timed out; reconnect to continue"
 }
