@@ -6,6 +6,7 @@ struct ReaderControl {
     let id: String
     let view: NSView
     init(_ id: String, _ view: NSView) { self.id = id; self.view = view }
+    static func find(_ bar: ReaderFindBar) -> ReaderControl { ReaderControl("find", bar.button) }
 }
 
 final class ReaderControls {
@@ -104,6 +105,7 @@ enum ReaderMenu {
     }
     private static func symbol(for title: String) -> String? {
         let entries = [
+            ("Find in file · ⌘F", "magnifyingglass"),
             ("Copy", "doc.on.doc"), ("Copy Text", "doc.on.doc"), ("Copy Image", "photo.on.rectangle"),
             ("Copy Preview Text", "doc.on.doc"), ("Cut", "scissors"), ("Paste", "doc.on.clipboard"),
             ("Select All", "selection.pin.in.out"), ("Extract Text", "text.viewfinder"),

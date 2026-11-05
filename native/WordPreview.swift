@@ -23,6 +23,8 @@ final class WordPreview: NSObject, WKNavigationDelegate {
     private var closed = false
     private var copyMonitor: Any?
     private var copyGeneration = 0
+    private(set) var findBar: ReaderFindBar?
+    var canFind: Bool { readingMode && !readingFailed }
     init(source: URL, imagePages _: Bool = false, reading: URL?, extraControls: [NSView]) {
         self.source = source; self.reading = reading
         self.readingMode = reading != nil
@@ -52,7 +54,9 @@ final class WordPreview: NSObject, WKNavigationDelegate {
         reset.target = self; reset.action = #selector(resetZoom)
         zoomLabel.alignment = .center; zoomLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         zoomLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 60).isActive = true
+        let find = ReaderFindBar.web(host: view, web: web); findBar = find
         let controls = ReaderControls([
+            ReaderControl.find(find),
             ReaderControl("word-mode", mode),
             ReaderControl("zoom-out", zoomOut), ReaderControl("zoom-status", zoomLabel),
             ReaderControl("zoom-in", zoomIn), ReaderControl("reset-zoom", reset)
@@ -88,6 +92,8 @@ final class WordPreview: NSObject, WKNavigationDelegate {
         mode.title = L(showingReading ? "Original layout" : "Reading mode")
         mode.isEnabled = reading != nil && !readingFailed
         web.isHidden = !showingReading
+        findBar?.button.isHidden = !showingReading
+        if !showingReading { findBar?.hide() }
         loading.isHidden = !showingReading || loaded
         original?.isHidden = showingReading
         [zoomOut, zoomLabel, zoomIn, reset].forEach { $0.isHidden = !showingReading }
@@ -155,6 +161,7 @@ final class WordPreview: NSObject, WKNavigationDelegate {
     }
     deinit { if let monitor = copyMonitor { NSEvent.removeMonitor(monitor) } }
     func close() {
+        findBar?.close()
         if let monitor = copyMonitor { NSEvent.removeMonitor(monitor); copyMonitor = nil }
         closed = true; web.navigationDelegate = nil; web.stopLoading()
         original?.previewItem = nil; original?.close(); original = nil

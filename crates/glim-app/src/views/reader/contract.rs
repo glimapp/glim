@@ -37,6 +37,10 @@ pub struct ReaderOperations<'a> {
 }
 
 pub trait ReaderView {
+    fn can_find(&self, _cx: &App) -> bool {
+        false
+    }
+    fn find(&self, _window: &mut Window, _cx: &mut App) {}
     fn kind(&self) -> &'static str;
     fn render(&mut self, cx: &mut App) -> AnyElement;
     fn operations(&self) -> ReaderOperations<'_> {

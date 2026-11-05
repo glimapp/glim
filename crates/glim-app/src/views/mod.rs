@@ -6,6 +6,7 @@ mod path_hint;
 mod reader;
 #[cfg(feature = "reader-measurements")]
 pub(crate) use reader::Reader;
+pub(crate) use reader::{NextMatch, PreviousMatch};
 mod welcome;
 pub mod workspace;
 pub(crate) mod workspace_window;

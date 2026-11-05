@@ -61,6 +61,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../../native/PreviewCopy.swift");
     println!("cargo:rerun-if-changed=../../native/FloatingReaderToolbar.swift");
     println!("cargo:rerun-if-changed=../../native/ReaderActions.swift");
+    println!("cargo:rerun-if-changed=../../native/ReaderFind.swift");
     println!("cargo:rerun-if-changed=../../native/HTMLPreview.swift");
     println!("cargo:rerun-if-changed=../../native/WorkbookPreview.swift");
     println!("cargo:rerun-if-changed=../../native/WordPreview.swift");
@@ -118,6 +119,7 @@ fn main() {
             "../../native/PreviewCopy.swift",
             "../../native/FloatingReaderToolbar.swift",
             "../../native/ReaderActions.swift",
+            "../../native/ReaderFind.swift",
             "../../native/HTMLPreview.swift",
         ])
         .arg(output.with_file_name("ReaderLimits.swift"))

@@ -42,6 +42,7 @@ pub(super) enum ToolbarAction {
     Preview,
     Source,
     WordWrap,
+    Find,
     FileFullscreen,
     Update,
 }
@@ -65,6 +66,7 @@ impl ToolbarAction {
             Self::Preview => "reader-preview",
             Self::Source => "reader-source",
             Self::WordWrap => "word-wrap",
+            Self::Find => "find-in-file",
             Self::FileFullscreen => "file-fullscreen",
             Self::Update => "update-available",
         }
@@ -82,6 +84,7 @@ impl ToolbarItem {
             ToolbarAction::Preview => ("Preview", Some(IconName::Eye)),
             ToolbarAction::Source => ("Source", Some(IconName::Code)),
             ToolbarAction::WordWrap => ("Word wrap", None),
+            ToolbarAction::Find => ("Find in file · ⌘F", Some(IconName::Search)),
             ToolbarAction::FileFullscreen => ("Enter File Fullscreen", None),
             ToolbarAction::Update => ("Update Available", Some(IconName::Download)),
         };
@@ -97,8 +100,15 @@ impl ToolbarItem {
 
 /// Fixed order: viewing mode, then text layout.
 /// Capabilities come from the active reader, not a separate extension allowlist.
-pub(super) fn document_items(reader: &Reader, word_wrap: bool) -> Vec<ToolbarItem> {
+pub(super) fn document_items(
+    reader: &Reader,
+    word_wrap: bool,
+    cx: &gpui_kit::App,
+) -> Vec<ToolbarItem> {
     let mut items = Vec::new();
+    if reader.can_find(cx) {
+        items.push(ToolbarItem::new(ToolbarAction::Find));
+    }
     if reader.is_archive() {
         items.push(ToolbarItem::new(ToolbarAction::Extract));
     }

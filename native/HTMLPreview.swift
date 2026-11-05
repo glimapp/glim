@@ -106,6 +106,7 @@ final class HTMLPreview: NSObject, WKNavigationDelegate {
     private var anchor: String?
     var pendingNavigation: String?
     var didLoad: (() -> Void)?
+    private(set) var findBar: ReaderFindBar?
     init(document: URL, contents: String?) {
         self.document = document.standardizedFileURL
         var components = URLComponents()
@@ -149,6 +150,7 @@ final class HTMLPreview: NSObject, WKNavigationDelegate {
         ])
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self, event.keyCode == 53,
+                  self.findBar?.isOpen != true,
                   event.window === self.view.window, !self.view.isHiddenOrHasHiddenAncestor,
                   let host = self.view.superview as? NativePreviewHost,
                   let parent = host.superview, host.frame == parent.bounds,
@@ -158,6 +160,7 @@ final class HTMLPreview: NSObject, WKNavigationDelegate {
             DispatchQueue.main.async { [weak gpui] in gpui?.keyDown(with: event) }
             return nil
         }
+        findBar = ReaderFindBar.web(host: view, web: web)
         web.load(URLRequest(url: documentURL))
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -220,6 +223,7 @@ final class HTMLPreview: NSObject, WKNavigationDelegate {
     }
     deinit { if let monitor = escapeMonitor { NSEvent.removeMonitor(monitor) } }
     func close() {
+        findBar?.close()
         if let monitor = escapeMonitor { NSEvent.removeMonitor(monitor); escapeMonitor = nil }
         web.stopLoading(); web.navigationDelegate = nil
         resources.close(); web.removeFromSuperview()

@@ -182,6 +182,7 @@ unsafe extern "C" {
         height: f64,
     );
     fn glim_preview_hide(handle: *mut c_void);
+    fn glim_preview_find(handle: *mut c_void, show: bool) -> bool;
     fn glim_preview_release(handle: *mut c_void);
     fn glim_preview_take_navigation(handle: *mut c_void) -> *mut std::ffi::c_char;
     fn glim_preview_free_string(string: *mut std::ffi::c_char);
@@ -195,6 +196,9 @@ pub(super) struct NativePreview {
     _main_thread: PhantomData<Rc<()>>,
 }
 impl NativePreview {
+    pub fn find(&self, show: bool) -> bool {
+        unsafe { glim_preview_find(self.handle.as_ptr(), show) }
+    }
     pub fn new(configuration: &[u8]) -> Self {
         // SAFETY: Swift copies this valid slice before returning a retained handle.
         let handle = unsafe {

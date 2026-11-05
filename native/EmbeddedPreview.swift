@@ -1,5 +1,13 @@
 import Cocoa
 
+@_cdecl("glim_preview_find")
+func glimPreviewFind(_ handle: UnsafeMutableRawPointer, _ show: Bool) -> Bool {
+    precondition(Thread.isMainThread)
+    let preview = Unmanaged<NativePreviewController>.fromOpaque(handle).takeUnretainedValue()
+    if show && preview.canFind { preview.showFind() }
+    return preview.canFind
+}
+
 // Opaque handles are retained by one Rust reader, and used only on the UI thread.
 @_cdecl("glim_preview_create")
 func glimPreviewCreate(_ bytes: UnsafePointer<UInt8>, _ length: Int) -> UnsafeMutableRawPointer {

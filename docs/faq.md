@@ -24,7 +24,9 @@ Supported raster images, the current PDF page and selected Office/iWork embedded
 
 ## Why doesn't search find a sentence inside a file?
 
-Title-bar search matches workspace filenames and paths. Search within the current text through the source editor.
+Title-bar search matches workspace filenames and paths. Use ⌘F or the reader's magnifier to search the current document in a compact overlay at the upper right. Source text and rendered Markdown support case-sensitive, whole-word and regular-expression matching; editable source also supports replace and replace all. Enter/Shift+Enter and ⌘G/⇧⌘G move between matches; Esc closes the overlay.
+
+HTML, PDF and Word reading mode support text search with a case-sensitive option. PDF searches selectable text, so scanned pages require OCR first. Search in paged text editing covers the current page, as the input indicates. Structured tables/trees, book previews and Quick Look do not currently provide this document search; use source mode where available. Native previews do not offer regex or replacement; WebKit reports whether a match exists without a total count.
 
 ## Where are the reading controls?
 

@@ -1,6 +1,62 @@
 use super::*;
 
 impl Reader {
+    pub fn can_find(&self, cx: &App) -> bool {
+        if self.projection.as_ref().is_some_and(Projection::visible) {
+            return false;
+        }
+        match &self.renderer {
+            Renderer::Surface(view) => view.can_find(cx),
+            Renderer::Markup(m) if m.preview && m.html => m
+                .browser
+                .as_ref()
+                .is_some_and(|view| view.read(cx).find(false)),
+            Renderer::Paged {
+                html: Some((view, true)),
+                ..
+            } => view.read(cx).find(false),
+            Renderer::Paged { view, .. } => view.read(cx).source_editor.is_some(),
+            _ => self.source().is_some(),
+        }
+    }
+
+    pub fn find(&self, window: &mut Window, cx: &mut App) {
+        if !self.can_find(cx) {
+            return;
+        }
+        match &self.renderer {
+            Renderer::Surface(view) => {
+                view.find(window, cx);
+                return;
+            }
+            Renderer::Markup(m) if m.preview && m.html => {
+                if let Some(view) = &m.browser {
+                    view.read(cx).find(true);
+                }
+                return;
+            }
+            Renderer::Paged {
+                html: Some((view, true)),
+                ..
+            } => {
+                view.read(cx).find(true);
+                return;
+            }
+            Renderer::Paged { view, .. } => {
+                if let Some(editor) = &view.read(cx).source_editor {
+                    let find = editor.find.clone();
+                    find.update(cx, |find, cx| find.show(false, window, cx));
+                }
+                return;
+            }
+            _ => {}
+        }
+        let find = match &self.renderer {
+            Renderer::Markup(m) if m.preview && !m.html => &m.find,
+            _ => &self.source().expect("searchable source").find,
+        };
+        find.update(cx, |find, cx| find.show(false, window, cx));
+    }
     pub fn preview_text_state(&self) -> Option<Entity<gpui_kit::base::TextViewState>> {
         match &self.renderer {
             Renderer::Markup(markup) if markup.preview && !markup.html => {

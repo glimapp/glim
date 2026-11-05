@@ -30,6 +30,11 @@ pub(super) struct NativeReader {
     _html_navigation: Option<Task<()>>,
 }
 impl NativeReader {
+    pub(super) fn find(&self, show: bool) -> bool {
+        self.preview
+            .as_ref()
+            .is_some_and(|preview| preview.find(show))
+    }
     pub fn html(
         path: PathBuf,
         text: Option<String>,
@@ -403,6 +408,12 @@ impl Render for NativeReader {
 }
 
 impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntity<NativeReader> {
+    fn can_find(&self, cx: &App) -> bool {
+        self.read(cx).find(false)
+    }
+    fn find(&self, _: &mut Window, cx: &mut App) {
+        self.read(cx).find(true);
+    }
     fn kind(&self) -> &'static str {
         "native"
     }

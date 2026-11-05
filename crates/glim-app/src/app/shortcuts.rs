@@ -41,7 +41,7 @@ impl Render for Shortcuts {
             ("Recognize image text (native preview)", "⌘⇧I"),
             ("Undo (editor)", "⌘Z"),
             ("Redo (editor)", "⌘⇧Z"),
-            ("Find in file (editor)", "⌘F"),
+            ("Find in file", "⌘F"),
             ("Commit staged contents (commit input)", "⌘Enter"),
             ("Select / expand / open in file tree", "↑↓ / ←→ / Enter"),
         ];

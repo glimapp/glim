@@ -736,6 +736,14 @@ final class MediaPreparation {
 }
 
 final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    private var findBar: ReaderFindBar?
+    private var pdfFind: PDFReaderFind?
+    var canFind: Bool { htmlPreview != nil || pdfFind != nil || wordPreview?.canFind == true }
+    func showFind() {
+        if let html = htmlPreview { html.findBar?.show() }
+        else if let word = wordPreview, word.canFind { word.findBar?.show() }
+        else { findBar?.show() }
+    }
     var closed = false
     let host = NativePreviewHost(frame: NSRect(x: 0, y: 0, width: 1000, height: 740))
     lazy var player = AVPlayer()
@@ -881,6 +889,11 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 guard alert.runModal() == .alertFirstButtonReturn && document.unlock(withPassword: password.stringValue) else { throw NSError(domain: "Glim", code: 3, userInfo: [NSLocalizedDescriptionKey: "PDF was not unlocked."]) }
             }
             pdfView.document = document; pdfView.displayMode = .singlePageContinuous; pdfView.fitToWidth()
+            let search = PDFReaderFind(view: pdfView); pdfFind = search
+            let find = ReaderFindBar(host: host, content: pdfView, search: { query, sensitive, backwards, changed, completion in
+                search.search(query, sensitive: sensitive, backwards: backwards, changed: changed, completion: completion)
+            }, cancel: { search.cancel() })
+            findBar = find; toolbar.insertArrangedSubview(ReaderControl.find(find).view, at: 0)
             content.addArrangedSubview(pdfView)
             pdfView.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
             NotificationCenter.default.addObserver(self, selector: #selector(pageChanged), name: .PDFViewPageChanged, object: pdfView)
@@ -1342,6 +1355,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     func tableViewSelectionDidChange(_ notification: Notification) { if table.selectedRow >= 0 && table.selectedRow != index { play(table.selectedRow) } }
     func close() {
         closed = true
+        findBar?.close(); pdfFind?.cancel()
         previewCopy?.cancel(); previewCopy = nil
         if let monitor = presentationStartKeys { NSEvent.removeMonitor(monitor); presentationStartKeys = nil }
         host.stopPresentation()

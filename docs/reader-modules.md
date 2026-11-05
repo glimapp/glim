@@ -37,6 +37,8 @@ Structured-tree payloads live in `glim-core::structured`. `TreeBuilder` admits n
 
 ## Adding a format
 
+Document search is an optional `ReaderView::can_find`/`find` capability. Route its trigger through the shared reader actions; keep the search UI, cancellation and match state with the retained reader. Source and Markdown compose `reader/find`; native HTML, PDF and Word reading surfaces use `ReaderFind.swift`. A reader must not advertise search for a mode its backend cannot search.
+
 1. Update suffix sets, provider claims and relevant association/icon expectations in `assets/format-catalog.json`, then run `python3 scripts/generate-format-catalog.py --write`. Filename language rules and content probes remain code. Catalog declarations do not grant editability.
 2. Implement detection/preparation in services, preserving ordered container routing, cancellation and complete-source fallbacks. Reuse `documents::Content`/`TextPresentation` where suitable.
 3. Compose retained entities in `reader/construction`. Views consume prepared values; render/layout do not read files or run blocking commands. Add a capability only when there is a concrete caller and implementation.

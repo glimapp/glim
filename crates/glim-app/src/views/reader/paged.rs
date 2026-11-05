@@ -41,6 +41,11 @@ impl PagedReader {
                 cx,
             )
         });
+        if let Some(editor) = &source_editor {
+            editor
+                .find
+                .update(cx, |find, cx| find.current_page(window, cx));
+        }
         Self::with_editor(page, source_editor)
     }
     pub fn readonly(page: TextPage) -> Self {

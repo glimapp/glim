@@ -13,6 +13,9 @@ use super::{
 pub struct SearchMatcher {
     text: Rope,
     pub query: Option<AhoCorasick>,
+    expression: Option<regex::Regex>,
+    expand_captures: bool,
+    options: Option<(String, bool, bool, bool)>,
     matched_ranges: Rc<Vec<Range<usize>>>,
     current_match_ix: usize,
     replacing: bool,
@@ -181,6 +184,40 @@ impl<M: InputModeKind> InputBaseState<M> {
         cx.notify();
     }
 
+    /// Configure a custom find surface without opening the built-in panel.
+    pub fn set_search_options(
+        &mut self,
+        query: &str,
+        case_sensitive: bool,
+        whole_word: bool,
+        regular_expression: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), regex::Error> {
+        self.search_session.activate();
+        self.search_session.query = query.to_owned();
+        self.search_session.case_insensitive = !case_sensitive;
+        let result = self.search_session.matcher.update_options(
+            query,
+            case_sensitive,
+            whole_word,
+            regular_expression,
+        );
+        self.search_session.matcher.update(&self.text);
+        cx.notify();
+        result
+    }
+
+    pub fn reveal_current_search_match(&mut self, cx: &mut Context<Self>) {
+        if let Some(range) = self
+            .search_session
+            .matcher
+            .matched_ranges
+            .get(self.search_session.matcher.current_match_ix)
+        {
+            self.scroll_to_with_padding(range.start, None, ScrollPadding::SurroundingLines, cx);
+        }
+    }
+
     /// End the search: hide the built-in panel and the match highlights. The
     /// query is kept so the next [`InputBaseState::open_search`] resumes it.
     pub fn close_search(&mut self, cx: &mut Context<Self>) {
@@ -234,9 +271,12 @@ impl<M: InputModeKind> InputBaseState<M> {
             matcher.set_current_match_index(0);
         }
         matcher.begin_replacement();
+        let replacement = matcher
+            .expand_replacement(&self.text.to_string(), &range, replacement)
+            .into_owned();
         let range_utf16 = self.range_to_utf16(&range);
         self.scroll_to(next.end, direction, cx);
-        self.replace_text_in_range_silent(Some(range_utf16), replacement, window, cx);
+        self.replace_text_in_range_silent(Some(range_utf16), &replacement, window, cx);
         true
     }
 
@@ -256,12 +296,22 @@ impl<M: InputModeKind> InputBaseState<M> {
             return 0;
         }
         let mut text = self.text.clone();
+        let original = self.text.to_string();
         for range in ranges.iter().rev() {
-            text.replace(range.clone(), replacement);
+            let replacement =
+                self.search_session
+                    .matcher
+                    .expand_replacement(&original, range, replacement);
+            text.replace(range.clone(), &replacement);
         }
         self.search_session.matcher.begin_replacement();
         let count = ranges.len();
-        self.replace_text_in_range_silent(Some(0..self.text.len()), &text.to_string(), window, cx);
+        self.replace_text_in_range_silent(
+            Some(self.range_to_utf16(&(0..self.text.len()))),
+            &text.to_string(),
+            window,
+            cx,
+        );
         self.scroll_to(0, Some(MoveDirection::Down), cx);
         count
     }
@@ -316,6 +366,9 @@ impl SearchMatcher {
         Self {
             text: "".into(),
             query: None,
+            expression: None,
+            expand_captures: false,
+            options: None,
             matched_ranges: Rc::new(Vec::new()),
             current_match_ix: 0,
             replacing: false,
@@ -333,6 +386,9 @@ impl SearchMatcher {
     }
 
     pub fn update_query(&mut self, query: &str, case_insensitive: bool) {
+        self.options = None;
+        self.expression = None;
+        self.expand_captures = false;
         self.query = (!query.is_empty()).then(|| {
             AhoCorasick::builder()
                 .ascii_case_insensitive(case_insensitive)
@@ -342,8 +398,83 @@ impl SearchMatcher {
         self.update_matches();
     }
 
+    pub fn update_options(
+        &mut self,
+        query: &str,
+        case_sensitive: bool,
+        whole_word: bool,
+        regular_expression: bool,
+    ) -> Result<(), regex::Error> {
+        let options = (
+            query.to_owned(),
+            case_sensitive,
+            whole_word,
+            regular_expression,
+        );
+        if self.options.as_ref() == Some(&options) {
+            return Ok(());
+        }
+        self.options = None;
+        self.query = None;
+        self.expression = None;
+        self.expand_captures = regular_expression;
+        let result = if query.is_empty() {
+            Ok(None)
+        } else {
+            let pattern = if regular_expression {
+                query.to_owned()
+            } else {
+                regex::escape(query)
+            };
+            let pattern = if whole_word {
+                format!(r"\b(?:{pattern})\b")
+            } else {
+                pattern
+            };
+            regex::RegexBuilder::new(&pattern)
+                .case_insensitive(!case_sensitive)
+                .multi_line(true)
+                .build()
+                .map(Some)
+        };
+        match result {
+            Ok(expression) => {
+                self.expression = expression;
+                self.options = Some(options);
+                self.update_matches();
+                Ok(())
+            }
+            Err(error) => {
+                self.update_matches();
+                Err(error)
+            }
+        }
+    }
+
     pub fn matched_ranges(&self) -> Rc<Vec<Range<usize>>> {
         self.matched_ranges.clone()
+    }
+
+    fn expand_replacement<'a>(
+        &self,
+        text: &str,
+        range: &Range<usize>,
+        replacement: &'a str,
+    ) -> std::borrow::Cow<'a, str> {
+        if self.expand_captures
+            && let Some(captures) = self
+                .expression
+                .as_ref()
+                .and_then(|regex| regex.captures_at(text, range.start))
+            && captures
+                .get(0)
+                .is_some_and(|matched| matched.range() == *range)
+        {
+            let mut expanded = String::new();
+            captures.expand(replacement, &mut expanded);
+            return std::borrow::Cow::Owned(expanded);
+        }
+        std::borrow::Cow::Borrowed(replacement)
     }
 
     pub fn current_match_index(&self) -> usize {
@@ -411,7 +542,13 @@ impl SearchMatcher {
 
     fn update_matches(&mut self) {
         let mut ranges = Vec::new();
-        if let Some(query) = &self.query {
+        if let Some(expression) = &self.expression {
+            ranges.extend(
+                expression
+                    .find_iter(&self.text.to_string())
+                    .map(|m| m.range()),
+            );
+        } else if let Some(query) = &self.query {
             let text = self.text.to_string();
             ranges.extend(
                 query

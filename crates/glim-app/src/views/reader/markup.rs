@@ -12,8 +12,9 @@ pub(super) struct MarkupReader {
     pub(super) task_toggle: Option<super::ToggleTask>,
     pub preview: bool,
     pub html: bool,
-    browser: Option<Entity<super::native::NativeReader>>,
+    pub(super) browser: Option<Entity<super::native::NativeReader>>,
     pub(super) state: Entity<TextViewState>,
+    pub(super) find: Entity<super::find::FindBar>,
     pub scroll: ScrollHandle,
     pending_scroll: Option<ListOffset>,
     pending_scroll_source: Option<String>,
@@ -104,7 +105,11 @@ impl MarkupReader {
                 )
             })
         });
+        let find = cx.new(|cx| {
+            super::find::FindBar::new(super::find::Target::Preview(state.clone()), window, cx)
+        });
         Self {
+            find,
             task_toggle: None,
             browser,
             pictures,
@@ -495,7 +500,7 @@ impl MarkupReader {
                     )
                 },
             );
-        super::pictures::PictureViewport {
+        let content = super::pictures::PictureViewport {
             owner: self.pictures.clone(),
             content: gpui_kit::component::v_flex()
                 .size_full()
@@ -504,7 +509,8 @@ impl MarkupReader {
                 .child(div().flex_1().min_h_0().w_full().child(body))
                 .into_any_element(),
         }
-        .into_any_element()
+        .into_any_element();
+        super::find::wrap(content, &self.find)
     }
 }
 pub(super) fn follow_link(

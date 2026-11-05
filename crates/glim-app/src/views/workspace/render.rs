@@ -133,7 +133,7 @@ impl Render for Workspace {
                         {
                             menu = super::reader_actions::preview_text_menu(menu, state, cx);
                         }
-                        for item in workspace.read(cx).reader_actions() {
+                        for item in workspace.read(cx).reader_actions(cx) {
                             let action = item.action;
                             let workspace = workspace.downgrade();
                             menu = menu.item(
@@ -525,6 +525,13 @@ impl Render for Workspace {
                 v.search.update(cx, |search, cx| search.focus(w, cx));
                 cx.notify();
             }))
+            .on_action(
+                cx.listener(|v, _: &gpui_kit::component::input::Search, window, cx| {
+                    if let Some(reader) = v.active_reader() {
+                        reader.find(window, cx);
+                    }
+                }),
+            )
             .on_action(cx.listener(|v, _: &ToggleSidebar, _, cx| {
                 v.sidebar_visible = !v.sidebar_visible;
                 v.sidebar_window_width = 0.;

@@ -11,6 +11,8 @@ mod csv;
 mod diagrams;
 pub(crate) use diagrams::cache_activity as diagram_cache_activity;
 mod editing;
+mod find;
+pub(crate) use find::{NextMatch, PreviousMatch};
 mod image_detail;
 mod json;
 mod json_format;

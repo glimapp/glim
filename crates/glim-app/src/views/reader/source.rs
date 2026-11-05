@@ -14,6 +14,7 @@ use std::rc::Rc;
 pub(super) struct SourceReader {
     pub edit: crate::app::edit_session::EditSession,
     pub minimap: Entity<Minimap>,
+    pub find: Entity<super::find::FindBar>,
     _minimap_subscription: Subscription,
 }
 impl SourceReader {
@@ -29,6 +30,7 @@ impl SourceReader {
             let mut state = EditorState::new(window, cx)
                 .language(language)
                 .auto_close(false)
+                .searchable(false)
                 .smart_indent(false)
                 .line_number(!readonly)
                 .folding(!readonly)
@@ -46,6 +48,9 @@ impl SourceReader {
         });
         let minimap = cx.new(|cx| Minimap::new(state.clone(), scroll, cx));
         let edit = crate::app::edit_session::EditSession::new(state.clone(), text, readonly, cx);
+        let find = cx.new(|cx| {
+            super::find::FindBar::new(super::find::Target::Editor(state.clone()), window, cx)
+        });
         let map = minimap.clone();
         let subscription = cx.subscribe(&state, move |state, event, cx| {
             if matches!(event, InputEvent::Change) {
@@ -56,6 +61,7 @@ impl SourceReader {
         Self {
             edit,
             minimap,
+            find,
             _minimap_subscription: subscription,
         }
     }
@@ -79,7 +85,7 @@ impl SourceReader {
         let menu_copyable = capabilities.is_copyable();
         self.minimap
             .update(cx, |map, cx| map.set_preview(false, cx));
-        gpui_kit::component::h_flex()
+        let content = gpui_kit::component::h_flex()
             .size_full()
             .font_family("Menlo")
             .text_size(px(13.))
@@ -122,7 +128,8 @@ impl SourceReader {
                     .h_full()
                     .child(self.minimap.clone()),
             )
-            .into_any_element()
+            .into_any_element();
+        super::find::wrap(content, &self.find)
     }
 }
 

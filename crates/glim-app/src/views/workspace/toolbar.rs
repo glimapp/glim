@@ -94,10 +94,10 @@ impl Workspace {
             .into_any_element()
     }
 
-    pub(super) fn reader_actions(&self) -> Vec<ToolbarItem> {
+    pub(super) fn reader_actions(&self, cx: &App) -> Vec<ToolbarItem> {
         let mut document = if self.page == Page::Document {
             self.active_reader()
-                .map(|r| document_items(r, self.word_wrap))
+                .map(|r| document_items(r, self.word_wrap, cx))
                 .unwrap_or_default()
         } else {
             Vec::new()
@@ -121,7 +121,7 @@ impl Workspace {
     }
 
     pub(super) fn workspace_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
-        let document = self.reader_actions();
+        let document = self.reader_actions(cx);
         let has_update = crate::app::updates::state(cx)
             .is_some_and(|state| state.read(cx).snapshot.has_update());
         let border = cx.theme().border;
@@ -156,6 +156,11 @@ impl Workspace {
         glim_services::telemetry::track("reader_action", props);
         match action {
             ToolbarAction::Extract => self.extract_archive(window, cx),
+            ToolbarAction::Find => {
+                if let Some(reader) = self.active_reader() {
+                    reader.find(window, cx);
+                }
+            }
             ToolbarAction::CancelExtract => {
                 self.picker_task = None;
                 self.picking = false;
