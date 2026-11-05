@@ -167,22 +167,11 @@ impl Render for Workspace {
             })
             .bg(cx.theme().background)
             .when(
-                self.page == Page::Document && (!self.tabs.is_empty() || self.pending_open_path().is_some()) && !self.file_fullscreen,
+                self.page == Page::Document
+                    && (!self.tabs.is_empty() || self.pending_open_path().is_some())
+                    && !self.file_fullscreen,
                 |view| view.child(tab_bar),
             )
-            .when(!self.file_fullscreen && document_page && !self.csv_hint_dismissed
-                && self.active_reader().is_some_and(|reader| reader.is_csv() && reader.mode() == glim_core::ReaderMode::Source), |view| {
-                view.child(h_flex().w_full().gap_3().px_3().py_1().items_center()
-                    .child(div().flex_1().min_w_0().text_xs().whitespace_normal().text_color(cx.theme().muted_foreground)
-                        .child(glim_services::locale::tr("CSV and TSV files can be viewed as a table using the toolbar. Your viewing mode is remembered.")))
-                    .child(Button::new("csv-hint-table").small().label(glim_services::locale::tr("View as Table"))
-                        .on_click(cx.listener(|view, _, window, cx| {
-                            view.csv_hint_dismissed = true;
-                            view.run_toolbar_action(super::reader_actions::ToolbarAction::Preview, window, cx);
-                        })))
-                    .child(Button::new("csv-hint-dismiss").ghost().small().label("×").accessibility_label(glim_services::locale::tr("Dismiss"))
-                        .on_click(cx.listener(|view, _, _, cx| { view.csv_hint_dismissed = true; cx.notify(); }))))
-            })
             .child(
                 div()
                     .relative()
@@ -633,7 +622,11 @@ impl Render for Workspace {
                                     .child(
                                         Button::new("dismiss-error")
                                             .ghost()
-                                            .label("×")
+                                            .icon(
+                                                Icon::new(gpui_kit::assets::IconName::X)
+                                                    .size(px(14.)),
+                                            )
+                                            .tooltip(glim_services::locale::tr("Dismiss error"))
                                             .accessibility_label(glim_services::locale::tr(
                                                 "Dismiss error",
                                             ))

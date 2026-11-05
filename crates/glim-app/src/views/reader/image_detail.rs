@@ -1,6 +1,6 @@
 use glim_services::locale::tr;
 use gpui_kit::{
-    component::{ActiveTheme, Disableable, WindowExt, button::Button, h_flex, v_flex},
+    component::{ActiveTheme, Disableable, WindowExt, button::ButtonVariants, h_flex, v_flex},
     *,
 };
 use std::any::Any;
@@ -89,33 +89,44 @@ impl Render for ImageDetail {
                     .px_3()
                     .gap_2()
                     .child(
-                        Button::new("image-zoom-out")
-                            .label("−")
-                            .tooltip(tr("Zoom out"))
-                            .disabled(self.zoom <= 1.)
-                            .on_click(cx.listener(|view, _, _, cx| view.zoom_by(1. / 1.25, cx))),
+                        crate::views::icon_button(
+                            "image-zoom-out",
+                            gpui_kit::assets::IconName::ZoomOut,
+                            tr("Zoom out"),
+                        )
+                        .disabled(self.zoom <= 1.)
+                        .on_click(cx.listener(|view, _, _, cx| view.zoom_by(1. / 1.25, cx))),
                     )
                     .child(
-                        Button::new("image-fit")
-                            .label(tr("Fit"))
-                            .on_click(cx.listener(|view, _, _, cx| {
-                                view.zoom = 1.;
-                                view.scroll.set_offset(point(px(0.), px(0.)));
-                                cx.notify();
-                            })),
+                        crate::views::icon_button(
+                            "image-fit",
+                            gpui_kit::assets::IconName::Maximize,
+                            tr("Fit"),
+                        )
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.zoom = 1.;
+                            view.scroll.set_offset(point(px(0.), px(0.)));
+                            cx.notify();
+                        })),
                     )
                     .child(
-                        Button::new("image-zoom-in")
-                            .label("+")
-                            .tooltip(tr("Zoom in"))
-                            .disabled(self.zoom >= 8.)
-                            .on_click(cx.listener(|view, _, _, cx| view.zoom_by(1.25, cx))),
+                        crate::views::icon_button(
+                            "image-zoom-in",
+                            gpui_kit::assets::IconName::ZoomIn,
+                            tr("Zoom in"),
+                        )
+                        .disabled(self.zoom >= 8.)
+                        .on_click(cx.listener(|view, _, _, cx| view.zoom_by(1.25, cx))),
                     )
                     .child(div().flex_1())
                     .child(
-                        Button::new("image-close")
-                            .label(tr("Close"))
-                            .on_click(|_, window, cx| window.close_dialog(cx)),
+                        crate::views::icon_button(
+                            "image-close",
+                            gpui_kit::assets::IconName::X,
+                            tr("Close"),
+                        )
+                        .ghost()
+                        .on_click(|_, window, cx| window.close_dialog(cx)),
                     ),
             )
             .child(

@@ -440,19 +440,18 @@ impl Render for PagedReader {
                     })
                     .when(self.source_editor.is_none(), |bar| {
                         bar.child(
-                            Button::new("copy-reader-page")
-                                .label(glim_services::locale::tr("Copy page"))
-                                .disabled(busy)
-                                .on_click(cx.listener(|view, _, _, cx| {
-                                    glim_services::telemetry::reader_feature(
-                                        "paged",
-                                        "copy_page",
-                                        [],
-                                    );
-                                    cx.write_to_clipboard(ClipboardItem::new_string(
-                                        view.page.text.clone(),
-                                    ));
-                                })),
+                            crate::views::icon_button(
+                                "copy-reader-page",
+                                gpui_kit::assets::IconName::Copy,
+                                glim_services::locale::tr("Copy page"),
+                            )
+                            .disabled(busy)
+                            .on_click(cx.listener(|view, _, _, cx| {
+                                glim_services::telemetry::reader_feature("paged", "copy_page", []);
+                                cx.write_to_clipboard(ClipboardItem::new_string(
+                                    view.page.text.clone(),
+                                ));
+                            })),
                         )
                     })
                     .when(self.report_source.is_some(), |bar| {
@@ -470,22 +469,28 @@ impl Render for PagedReader {
                         )
                     })
                     .child(
-                        Button::new("page-back")
-                            .label(glim_services::locale::tr("Previous"))
-                            .disabled(busy || previous.is_none())
-                            .on_click(cx.listener(move |v, _, w, cx| {
-                                if let Some(offset) = previous {
-                                    v.load(offset, false, true, w, cx);
-                                }
-                            })),
+                        crate::views::icon_button(
+                            "page-back",
+                            gpui_kit::assets::IconName::ChevronLeft,
+                            glim_services::locale::tr("Previous"),
+                        )
+                        .disabled(busy || previous.is_none())
+                        .on_click(cx.listener(move |v, _, w, cx| {
+                            if let Some(offset) = previous {
+                                v.load(offset, false, true, w, cx);
+                            }
+                        })),
                     )
                     .child(
-                        Button::new("page-next")
-                            .label(glim_services::locale::tr("Next page"))
-                            .disabled(busy || !self.page.more)
-                            .on_click(
-                                cx.listener(move |v, _, w, cx| v.load(next, false, false, w, cx)),
-                            ),
+                        crate::views::icon_button(
+                            "page-next",
+                            gpui_kit::assets::IconName::ChevronRight,
+                            glim_services::locale::tr("Next page"),
+                        )
+                        .disabled(busy || !self.page.more)
+                        .on_click(
+                            cx.listener(move |v, _, w, cx| v.load(next, false, false, w, cx)),
+                        ),
                     )
                     .child(
                         Button::new("page-all")

@@ -182,9 +182,6 @@ impl Workspace {
         if !preview {
             self.tabs[index].focus_source(window, cx);
         }
-        if preference == Some("csv") {
-            self.csv_hint_dismissed = true;
-        }
         if let Some(kind) = preference {
             let prefs = cx.global_mut::<crate::app::ReaderPreferences>();
             match kind {
@@ -357,32 +354,38 @@ impl Workspace {
                                     .gap_2()
                                     .p_2()
                                     .child(
-                                        Button::new("search-previous")
-                                            .ghost()
-                                            .small()
-                                            .label(glim_services::locale::tr("Previous"))
-                                            .disabled(self.search_offset == 0)
-                                            .on_click(cx.listener(|view, _, window, cx| {
+                                        crate::views::icon_button(
+                                            "search-previous",
+                                            gpui_kit::assets::IconName::ChevronLeft,
+                                            glim_services::locale::tr("Previous"),
+                                        )
+                                        .disabled(self.search_offset == 0)
+                                        .on_click(
+                                            cx.listener(|view, _, window, cx| {
                                                 view.search_offset =
                                                     view.search_offset.saturating_sub(
                                                         reader_limits::WORKSPACE_SEARCH_RESULTS,
                                                     );
                                                 view.load_search_page(window, cx);
-                                            })),
+                                            }),
+                                        ),
                                     )
                                     .child(
-                                        Button::new("search-next")
-                                            .ghost()
-                                            .small()
-                                            .label(glim_services::locale::tr("Next page"))
-                                            .disabled(!self.search_more)
-                                            .on_click(cx.listener(|view, _, window, cx| {
+                                        crate::views::icon_button(
+                                            "search-next",
+                                            gpui_kit::assets::IconName::ChevronRight,
+                                            glim_services::locale::tr("Next page"),
+                                        )
+                                        .disabled(!self.search_more)
+                                        .on_click(
+                                            cx.listener(|view, _, window, cx| {
                                                 view.search_offset =
                                                     view.search_offset.saturating_add(
                                                         reader_limits::WORKSPACE_SEARCH_RESULTS,
                                                     );
                                                 view.load_search_page(window, cx);
-                                            })),
+                                            }),
+                                        ),
                                     ),
                             ),
                     )

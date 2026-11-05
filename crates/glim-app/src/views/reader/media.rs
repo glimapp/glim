@@ -74,27 +74,33 @@ impl ImageReader {
                     h_flex()
                         .gap_3()
                         .child(
-                            Button::new("image-previous-page")
-                                .label(glim_services::locale::tr("Previous page"))
-                                .disabled(page == 0)
-                                .on_click(move |_, _, cx| {
-                                    previous.update(cx, |index, cx| {
-                                        *index = index.saturating_sub(1);
-                                        cx.refresh_windows();
-                                    })
-                                }),
+                            crate::views::icon_button(
+                                "image-previous-page",
+                                gpui_kit::assets::IconName::ChevronLeft,
+                                glim_services::locale::tr("Previous page"),
+                            )
+                            .disabled(page == 0)
+                            .on_click(move |_, _, cx| {
+                                previous.update(cx, |index, cx| {
+                                    *index = index.saturating_sub(1);
+                                    cx.refresh_windows();
+                                })
+                            }),
                         )
                         .child(format!("{} / {}", page + 1, count))
                         .child(
-                            Button::new("image-next-page")
-                                .label(glim_services::locale::tr("Next page"))
-                                .disabled(page + 1 == count)
-                                .on_click(move |_, _, cx| {
-                                    next.update(cx, |index, cx| {
-                                        *index = (*index + 1).min(count - 1);
-                                        cx.refresh_windows();
-                                    })
-                                }),
+                            crate::views::icon_button(
+                                "image-next-page",
+                                gpui_kit::assets::IconName::ChevronRight,
+                                glim_services::locale::tr("Next page"),
+                            )
+                            .disabled(page + 1 == count)
+                            .on_click(move |_, _, cx| {
+                                next.update(cx, |index, cx| {
+                                    *index = (*index + 1).min(count - 1);
+                                    cx.refresh_windows();
+                                })
+                            }),
                         ),
                     cx,
                 )

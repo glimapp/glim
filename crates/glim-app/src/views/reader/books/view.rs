@@ -408,16 +408,18 @@ impl Render for BookView {
                     .gap_2()
                     .items_center()
                     .child(
-                        Button::new("book-contents")
-                            .small()
-                            .selected(self.contents)
-                            .label(tr("Contents"))
-                            .on_click(cx.listener(|v, _, _, cx| {
-                                (v.host.action)("ebook", "toggle_contents", &[]);
-                                v.contents = !v.contents;
-                                v.bookmarks = false;
-                                cx.notify();
-                            })),
+                        crate::views::icon_button(
+                            "book-contents",
+                            gpui_kit::assets::IconName::List,
+                            tr("Contents"),
+                        )
+                        .selected(self.contents)
+                        .on_click(cx.listener(|v, _, _, cx| {
+                            (v.host.action)("ebook", "toggle_contents", &[]);
+                            v.contents = !v.contents;
+                            v.bookmarks = false;
+                            cx.notify();
+                        })),
                     )
                     .child(
                         Button::new("book-font-smaller")
@@ -506,15 +508,17 @@ impl Render for BookView {
                             })),
                     )
                     .child(
-                        Button::new("book-bookmark")
-                            .small()
-                            .selected(marked)
-                            .label(tr(if marked {
+                        crate::views::icon_button(
+                            "book-bookmark",
+                            gpui_kit::assets::IconName::Bookmark,
+                            tr(if marked {
                                 "Remove bookmark"
                             } else {
                                 "Add bookmark"
-                            }))
-                            .on_click(cx.listener(|v, _, _, cx| v.bookmark(cx))),
+                            }),
+                        )
+                        .selected(marked)
+                        .on_click(cx.listener(|v, _, _, cx| v.bookmark(cx))),
                     ),
             )
             .child(
@@ -522,10 +526,12 @@ impl Render for BookView {
                     .gap_3()
                     .items_center()
                     .child(
-                        Button::new("book-previous")
-                            .small()
-                            .label(tr("Previous page"))
-                            .on_click(cx.listener(|v, _, _, cx| v.page(false, cx))),
+                        crate::views::icon_button(
+                            "book-previous",
+                            gpui_kit::assets::IconName::ChevronLeft,
+                            tr("Previous page"),
+                        )
+                        .on_click(cx.listener(|v, _, _, cx| v.page(false, cx))),
                     )
                     .child(
                         div()
@@ -542,10 +548,12 @@ impl Render for BookView {
                             )),
                     )
                     .child(
-                        Button::new("book-next")
-                            .small()
-                            .label(tr("Next page"))
-                            .on_click(cx.listener(|v, _, _, cx| v.page(true, cx))),
+                        crate::views::icon_button(
+                            "book-next",
+                            gpui_kit::assets::IconName::ChevronRight,
+                            tr("Next page"),
+                        )
+                        .on_click(cx.listener(|v, _, _, cx| v.page(true, cx))),
                     ),
             );
         v_flex()

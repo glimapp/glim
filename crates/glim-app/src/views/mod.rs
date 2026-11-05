@@ -25,6 +25,24 @@ fn accent(cx: &gpui_kit::App) -> gpui_kit::Hsla {
     .into()
 }
 
+fn icon_button(
+    id: impl Into<gpui_kit::ElementId>,
+    icon: gpui_kit::assets::IconName,
+    label: String,
+) -> gpui_kit::component::button::Button {
+    use gpui_kit::{
+        component::{Icon, Sizable, button::Button},
+        *,
+    };
+    Button::new(id)
+        .small()
+        .w(px(28.))
+        .h(px(28.))
+        .icon(Icon::new(icon).size(px(16.)))
+        .tooltip(label.clone())
+        .accessibility_label(label)
+}
+
 /// Opaque selection fill shared by sidebar navigation and file-tree rows.
 fn selection_background(cx: &gpui_kit::App) -> gpui_kit::Hsla {
     use gpui_kit::component::ActiveTheme;

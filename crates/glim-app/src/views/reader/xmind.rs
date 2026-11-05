@@ -624,26 +624,35 @@ impl Render for GraphReader {
                                 })),
                         )
                         .child(
-                            Button::new("xmind-zoom-out")
-                                .label("−")
-                                .disabled(zoom <= 0.1)
-                                .on_click(cx.listener(|v, _, _, cx| v.change_zoom(-0.1, cx))),
+                            crate::views::icon_button(
+                                "xmind-zoom-out",
+                                gpui_kit::assets::IconName::ZoomOut,
+                                (self.host.translate)("Zoom out"),
+                            )
+                            .disabled(zoom <= 0.1)
+                            .on_click(cx.listener(|v, _, _, cx| v.change_zoom(-0.1, cx))),
                         )
                         .child(div().text_sm().child(format!("{:.0}%", zoom * 100.)))
                         .child(
-                            Button::new("xmind-zoom-in")
-                                .label("+")
-                                .disabled(zoom >= 4.)
-                                .on_click(cx.listener(|v, _, _, cx| v.change_zoom(0.1, cx))),
+                            crate::views::icon_button(
+                                "xmind-zoom-in",
+                                gpui_kit::assets::IconName::ZoomIn,
+                                (self.host.translate)("Zoom in"),
+                            )
+                            .disabled(zoom >= 4.)
+                            .on_click(cx.listener(|v, _, _, cx| v.change_zoom(0.1, cx))),
                         )
                         .child(
-                            Button::new("xmind-reset")
-                                .label((self.host.translate)("Reset view"))
-                                .on_click(cx.listener(|v, _, _, cx| {
-                                    v.zoom = 1.;
-                                    v.center_root();
-                                    cx.notify();
-                                })),
+                            crate::views::icon_button(
+                                "xmind-reset",
+                                gpui_kit::assets::IconName::RotateCcw,
+                                (self.host.translate)("Reset view"),
+                            )
+                            .on_click(cx.listener(|v, _, _, cx| {
+                                v.zoom = 1.;
+                                v.center_root();
+                                cx.notify();
+                            })),
                         ),
                 ))
             })

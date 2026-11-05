@@ -423,16 +423,14 @@ impl Render for SqliteView {
                     .border_t_1()
                     .border_color(cx.theme().border)
                     .child(
-                        Button::new("first")
-                            .label("|‹")
+                        crate::views::icon_button("first", gpui_kit::assets::IconName::ChevronsLeft, tr("First page"))
                             .disabled(busy || self.status.page == 0)
                             .on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(Request::Navigate(Navigation::First));
                             })),
                     )
                     .child(
-                        Button::new("previous")
-                            .label("‹")
+                        crate::views::icon_button("previous", gpui_kit::assets::IconName::ChevronLeft, tr("Previous page"))
                             .disabled(busy || self.status.page == 0)
                             .on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(Request::Navigate(Navigation::Previous));
@@ -446,16 +444,14 @@ impl Render for SqliteView {
                                 .unwrap_or_else(|| "…".into())
                         )))
                     .child(
-                        Button::new("next")
-                            .label("›")
+                        crate::views::icon_button("next", gpui_kit::assets::IconName::ChevronRight, tr("Next page"))
                             .disabled(busy || !self.status.more)
                             .on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(Request::Navigate(Navigation::Next));
                             })),
                     )
                     .child(
-                        Button::new("last")
-                            .label("›|")
+                        crate::views::icon_button("last", gpui_kit::assets::IconName::ChevronsRight, tr("Last page"))
                             .disabled(busy || last.is_none() || last == Some(self.status.page))
                             .on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(Request::Navigate(Navigation::Last));
@@ -487,34 +483,52 @@ impl Render for SqliteView {
                     .child(
                         h_flex()
                             .gap_2()
-                            .child(Button::new("value-close").label(tr("Close")).on_click(
-                                cx.listener(|_, _, _, cx| {
-                                    cx.emit(Request::CloseDetail);
-                                }),
-                            ))
                             .child(
-                                Button::new("value-prev")
-                                    .label(tr("Previous page"))
-                                    .disabled(offset == 0)
-                                    .on_click(cx.listener(move |v, _, _, cx| {
+                                crate::views::icon_button(
+                                    "value-prev",
+                                    gpui_kit::assets::IconName::ChevronLeft,
+                                    tr("Previous page"),
+                                )
+                                .disabled(offset == 0)
+                                .on_click(cx.listener(
+                                    move |v, _, _, cx| {
                                         cx.emit(Request::Detail {
                                             row,
                                             column,
                                             offset: offset.saturating_sub(v.policy.text_page_bytes),
                                         });
-                                    })),
+                                    },
+                                )),
                             )
                             .child(
-                                Button::new("value-next")
-                                    .label(tr("Next page"))
-                                    .disabled(!more)
-                                    .on_click(cx.listener(move |v, _, _, cx| {
+                                crate::views::icon_button(
+                                    "value-next",
+                                    gpui_kit::assets::IconName::ChevronRight,
+                                    tr("Next page"),
+                                )
+                                .disabled(!more)
+                                .on_click(cx.listener(
+                                    move |v, _, _, cx| {
                                         cx.emit(Request::Detail {
                                             row,
                                             column,
                                             offset: offset.saturating_add(v.policy.text_page_bytes),
                                         });
-                                    })),
+                                    },
+                                )),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                crate::views::icon_button(
+                                    "value-close",
+                                    gpui_kit::assets::IconName::X,
+                                    tr("Close"),
+                                )
+                                .on_click(cx.listener(
+                                    |_, _, _, cx| {
+                                        cx.emit(Request::CloseDetail);
+                                    },
+                                )),
                             ),
                     )
                     .child(div().flex_1().min_h_0().child(editor)),

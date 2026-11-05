@@ -66,6 +66,13 @@ private final class ReaderMenuPolicy: NSObject, NSMenuDelegate {
 }
 
 enum ReaderMenu {
+    static func toolbarSymbol(for title: String) -> String? {
+        let compact = ["Zoom in", "Zoom out", "Fit image", "Fit page", "Fit width",
+                       "Actual size", "Reset zoom", "Previous", "Next", "Previous page", "Next page"]
+        guard compact.contains(where: { L($0) == title }) else { return nil }
+        return symbol(for: title)
+    }
+
     static func make() -> NSMenu {
         let menu = NSMenu(); menu.autoenablesItems = false
         menu.allowsContextMenuPlugIns = false

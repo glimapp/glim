@@ -8,7 +8,7 @@ use gpui_kit::{
         InlineElement, InlineRenderContext, MarkdownExtensions, MarkdownNode, MarkdownParseContext,
         MarkdownPlugin, TextView, markdown_ast,
     },
-    component::{ActiveTheme, h_flex},
+    component::ActiveTheme,
     *,
 };
 use std::{
@@ -674,20 +674,15 @@ impl MarkdownPlugin for DiagramPlugin {
                 .into_any_element(),
             Preview::Pending => div()
                 .py_2()
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .px_3()
-                        .py_2()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(cx.theme().border)
-                        .bg(cx.theme().muted.opacity(0.6))
-                        .text_sm()
-                        .text_color(cx.theme().foreground)
-                        .child(div().text_color(cx.theme().muted_foreground).child("◷"))
-                        .child(glim_services::locale::tr("Rendering diagram…")),
-                )
+                .child(crate::views::loading_icon(
+                    (
+                        "diagram-rendering",
+                        node.source_range().map_or(0, |range| range.start),
+                    ),
+                    px(16.),
+                    glim_services::locale::tr("Rendering diagram…"),
+                    cx,
+                ))
                 .into_any_element(),
         };
         PinnedPreview {

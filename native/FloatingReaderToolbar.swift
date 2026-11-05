@@ -61,8 +61,9 @@ final class FloatingReaderToolbar: NSView {
             let label = button.title == "+" ? L("Zoom in") : (["−", "-"].contains(button.title) ? L("Zoom out") : button.title)
             button.toolTip = label
             button.setAccessibilityLabel(label)
-            if ["+", "−", "-"].contains(button.title) {
-                button.image = NSImage(systemSymbolName: button.title == "+" ? "plus" : "minus", accessibilityDescription: label)
+            if let symbol = ReaderMenu.toolbarSymbol(for: label),
+               let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label) {
+                button.image = image
                 button.imagePosition = .imageOnly; button.title = ""
             }
         }
@@ -75,6 +76,8 @@ final class FloatingReaderToolbar: NSView {
             button.target = self; button.action = action
             button.bezelStyle = .rounded; button.isBordered = true
             button.toolTip = label; button.setAccessibilityLabel(label)
+            button.image = NSImage(systemSymbolName: button === scrollLeft ? "chevron.left" : "chevron.right", accessibilityDescription: label)
+            button.imagePosition = .imageOnly; button.title = ""
             interior.addSubview(button)
         }
         addSubview(material)

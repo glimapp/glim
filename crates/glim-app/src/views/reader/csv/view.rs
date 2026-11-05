@@ -211,9 +211,9 @@ impl Render for TableView {
                         .on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::Retry, cx)))
                 ))
                 .when(self.has_previous || self.page.more, |bar| bar
-                .child(Button::new("csv-prev").label((self.host.translate)("Previous"))
+                .child(crate::views::icon_button("csv-prev", gpui_kit::assets::IconName::ChevronLeft, (self.host.translate)("Previous"))
                     .disabled(busy || !self.has_previous).on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::PreviousRows, cx))))
-                .child(Button::new("csv-next").label((self.host.translate)("Next page"))
+                .child(crate::views::icon_button("csv-next", gpui_kit::assets::IconName::ChevronRight, (self.host.translate)("Next page"))
                     .disabled(busy || !self.page.more).on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::NextRows, cx))))
                 )
                 .when(self.column_start > 0 || self.column_start + columns < self.page.columns, |bar| bar

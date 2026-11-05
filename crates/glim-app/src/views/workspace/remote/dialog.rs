@@ -131,7 +131,13 @@ impl RemoteDialog {
                         body.child(
                             Button::new("ssh-dismiss-feedback")
                                 .outline()
-                                .label(tr(if self.busy { "Cancel" } else { "Close" }))
+                                .when(self.busy, |button| button.label(tr("Cancel")))
+                                .when(!self.busy, |button| {
+                                    button
+                                        .icon(Icon::new(IconName::X).size(px(16.)))
+                                        .tooltip(tr("Close"))
+                                        .accessibility_label(tr("Close"))
+                                })
                                 .on_click(cx.listener(|view, _, window, cx| {
                                     view.dismiss_feedback(window, cx)
                                 })),
@@ -333,13 +339,6 @@ impl RemoteDialog {
                                 view.open_after_save = false;
                                 view.edit(Connection::default(), window, cx);
                             })),
-                    )
-                    .child(
-                        Button::new("ssh-done")
-                            .disabled(self.blocked())
-                            .outline()
-                            .label(tr("Done"))
-                            .on_click(cx.listener(|view, _, window, cx| view.cancel(window, cx))),
                     ),
             )
             .into_any_element()
@@ -677,30 +676,18 @@ impl RemoteDialog {
                     .border_t_1()
                     .border_color(cx.theme().border)
                     .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(tr("Folder to open")),
-                            )
-                            .child(
-                                div()
-                                    .id("ssh-target-path")
-                                    .text_sm()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .truncate()
-                                    .tooltip({
-                                        let path = self.target_directory(cx).display().to_string();
-                                        move |window, cx| {
-                                            Tooltip::new(path.clone()).build(window, cx)
-                                        }
-                                    })
-                                    .child(self.target_directory(cx).display().to_string()),
-                            ),
+                        v_flex().flex_1().min_w_0().gap_1().child(
+                            div()
+                                .id("ssh-target-path")
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .truncate()
+                                .tooltip({
+                                    let path = self.target_directory(cx).display().to_string();
+                                    move |window, cx| Tooltip::new(path.clone()).build(window, cx)
+                                })
+                                .child(self.target_directory(cx).display().to_string()),
+                        ),
                     )
                     .child(
                         Button::new("ssh-cancel")
@@ -801,10 +788,29 @@ impl Render for RemoteDialog {
                     .shadow_lg()
                     .occlude()
                     .child(
-                        gpui_kit::base::DialogTitle::new()
-                            .text_base()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(self.title()),
+                        h_flex()
+                            .w_full()
+                            .justify_between()
+                            .child(
+                                gpui_kit::base::DialogTitle::new()
+                                    .text_base()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(self.title()),
+                            )
+                            .when(self.mode == Mode::Connections, |header| {
+                                header.child(
+                                    crate::views::icon_button(
+                                        "ssh-close",
+                                        IconName::X,
+                                        tr("Close"),
+                                    )
+                                    .ghost()
+                                    .disabled(self.blocked())
+                                    .on_click(
+                                        cx.listener(|view, _, window, cx| view.cancel(window, cx)),
+                                    ),
+                                )
+                            }),
                     )
                     .child(
                         div()
