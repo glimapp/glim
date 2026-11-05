@@ -115,6 +115,7 @@ impl Workspace {
             .on_click(|_, _, cx| crate::app::finder_integration::manage(cx))
             .into_any_element();
         let connections = action_button("settings-ssh", "Manage…")
+            .accessibility_label(glim_services::locale::tr("SSH Connections"))
             .on_click(
                 cx.listener(|view, _, window, cx| view.show_remote(None, true, false, window, cx)),
             )
@@ -194,7 +195,7 @@ impl Workspace {
                             "Finder Integration",
                             "Open folders as workspaces from the Finder context menu.",
                             finder,
-                        )).child(divider()).child(row("SSH Connections", "", connections)))
+                        )).child(divider()).child(row("SSH Connections", "Browse remote files in a read-only workspace.", connections)))
                         .child(heading("Application").mt_3())
                         .child(
                             group()

@@ -191,9 +191,9 @@ impl Render for Workspace {
                 }
                 view.child(h_flex().px_3().py_1().gap_2().items_center()
                     .child(div().flex_1().min_w_0().truncate().text_xs().text_color(cx.theme().muted_foreground).child(status))
-                    .when(self.loading, |row| row.child(Button::new("cancel-remote-read").small().ghost().label(glim_services::locale::tr("Cancel Download"))
+                    .when(self.loading, |row| row.child(Button::new("cancel-remote-read").small().outline().label(glim_services::locale::tr("Cancel Download"))
                         .on_click(cx.listener(|view, _, _, cx| { view.load_task = None; view.remote_progress_task = None; view.loading = false; view.remote_disconnected = view.remote.is_none() || view.remote_restore.is_some(); cx.notify(); }))))
-                    .when(!self.loading, |row| row.child(Button::new("reconnect-remote").small().ghost().label(glim_services::locale::tr(if self.remote_disconnected { "Reconnect" } else { "Refresh" }))
+                    .when(!self.loading, |row| row.child(Button::new("reconnect-remote").small().outline().label(glim_services::locale::tr(if self.remote_disconnected { "Reconnect" } else { "Refresh" }))
                         .on_click(cx.listener(|view, _, window, cx| view.refresh_remote(window, cx))))))
             })
             .when(!self.file_fullscreen && document_page && !self.csv_hint_dismissed

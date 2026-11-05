@@ -1,3 +1,5 @@
+mod dialog;
+
 use super::Workspace;
 use crate::app::remote::{Connections, persist};
 use glim_services::{
@@ -10,10 +12,11 @@ use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Icon, Sizable, WindowExt,
         button::{Button, ButtonVariants},
+        checkbox::Checkbox,
         h_flex,
         input::{Input, InputEvent, InputState},
         menu::{DropdownMenu, PopupMenuItem},
-        switch::Switch,
+        spinner::Spinner,
         v_flex,
     },
     prelude::FluentBuilder,
@@ -41,9 +44,12 @@ struct RemoteDialog {
     show_hidden: bool,
     explicit_key: bool,
     busy: bool,
+    activity: &'static str,
     message: Option<String>,
+    message_success: bool,
     task: Option<Task<()>>,
     _path_subscription: Subscription,
+    _field_subscriptions: Vec<Subscription>,
     open_after_save: bool,
     add_folder: bool,
     scroll: UniformListScrollHandle,
@@ -59,15 +65,42 @@ impl RemoteDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let path = cx.new(|cx| InputState::new(window, cx));
-        let subscription = cx.subscribe_in(&path, window, |view, _, event, window, cx| {
-            if matches!(event, InputEvent::PressEnter { .. }) {
-                let path = PathBuf::from(view.path.read(cx).value().as_ref());
-                view.browse(path, window, cx);
-            }
-        });
-        let fields = (0..5)
-            .map(|_| cx.new(|cx| InputState::new(window, cx)))
+        let path = cx.new(|cx| InputState::new(window, cx).placeholder(tr("Remote folder path")));
+        let subscription =
+            cx.subscribe_in(&path, window, |view, _, event, window, cx| match event {
+                InputEvent::Change => {
+                    view.selected = None;
+                    cx.notify();
+                }
+                InputEvent::PressEnter { .. } if !view.busy => {
+                    let path = PathBuf::from(view.path.read(cx).value().trim());
+                    view.browse(path, window, cx);
+                }
+                _ => {}
+            });
+        let fields: Vec<Entity<InputState>> = [
+            "Optional",
+            "Hostname or SSH alias",
+            "From SSH config",
+            "Auto",
+            "Private key path",
+        ]
+        .into_iter()
+        .map(|placeholder| cx.new(|cx| InputState::new(window, cx).placeholder(tr(placeholder))))
+        .collect();
+        let field_subscriptions = fields
+            .iter()
+            .map(|field| {
+                cx.subscribe_in(field, window, |view, _, event, window, cx| match event {
+                    InputEvent::Change => {
+                        view.message = None;
+                        view.message_success = false;
+                        cx.notify();
+                    }
+                    InputEvent::PressEnter { .. } if !view.busy => view.save(false, window, cx),
+                    _ => {}
+                })
+            })
             .collect();
         Self {
             owner,
@@ -82,19 +115,23 @@ impl RemoteDialog {
             show_hidden: false,
             explicit_key: false,
             busy: false,
+            activity: "Connecting…",
             message: None,
+            message_success: false,
             task: None,
             _path_subscription: subscription,
+            _field_subscriptions: field_subscriptions,
             open_after_save,
             add_folder,
             scroll: UniformListScrollHandle::new(),
-            focus: cx.focus_handle(),
+            focus: cx.focus_handle().tab_stop(true),
         }
     }
     fn edit(&mut self, connection: Connection, window: &mut Window, cx: &mut Context<Self>) {
         self.task = None;
         self.busy = false;
         self.message = None;
+        self.message_success = false;
         self.mode = Mode::Edit;
         self.explicit_key = connection.identity.is_some();
         let values = [
@@ -149,7 +186,31 @@ impl RemoteDialog {
             last_directory: self.connection.last_directory.clone(),
         })
     }
+    fn resolve_directory(&self, path: PathBuf) -> PathBuf {
+        let Some(session) = &self.session else {
+            return path;
+        };
+        if path == std::path::Path::new("~") {
+            return session.home.clone();
+        }
+        if let Ok(relative) = path.strip_prefix("~") {
+            return session.home.join(relative);
+        }
+        if path.is_relative() {
+            return self.directory.join(path);
+        }
+        path
+    }
+    fn target_directory(&self, cx: &App) -> PathBuf {
+        self.selected.clone().unwrap_or_else(|| {
+            self.resolve_directory(PathBuf::from(self.path.read(cx).value().trim()))
+        })
+    }
     fn save(&mut self, test: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.message_success = false;
         let mut connection = match self.form_connection(cx) {
             Ok(connection) => connection,
             Err(error) => {
@@ -160,6 +221,11 @@ impl RemoteDialog {
         };
         self.task = None;
         self.busy = true;
+        self.activity = if test {
+            "Testing connection…"
+        } else {
+            "Saving connection…"
+        };
         self.message = None;
         let (cancel, guard) = Cancellation::task();
         let work = cx.background_executor().spawn(async move {
@@ -177,8 +243,8 @@ impl RemoteDialog {
                 view.busy = false;
                 match result {
                     Err(error) => view.message = Some(tr(&error.to_string())),
-                    Ok(connection) if test => {
-                        view.connection.id = connection.id;
+                    Ok(_) if test => {
+                        view.message_success = true;
                         view.message = Some(tr("Connection successful"));
                     }
                     Ok(connection) => {
@@ -197,7 +263,8 @@ impl RemoteDialog {
                             view.connect(connection, window, cx);
                         } else {
                             view.mode = Mode::Connections;
-                            view.message = None;
+                            view.message_success = true;
+                            view.message = Some(tr("Connection saved"));
                         }
                     }
                 }
@@ -214,7 +281,9 @@ impl RemoteDialog {
         self.entries.clear();
         self.selected = None;
         self.message = None;
+        self.message_success = false;
         self.busy = true;
+        self.activity = "Connecting…";
         let (cancel, guard) = Cancellation::task();
         let work = cx.background_executor().spawn(async move {
             let session = Session::connect(connection.clone(), &cancel)?;
@@ -257,12 +326,18 @@ impl RemoteDialog {
         });
     }
     fn browse(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        let path = self.resolve_directory(path);
         let Some(session) = self.session.clone() else {
             return;
         };
         self.task = None;
         self.busy = true;
+        self.activity = "Loading folders…";
         self.message = None;
+        self.message_success = false;
         let (cancel, guard) = Cancellation::task();
         let work = cx
             .background_executor()
@@ -282,13 +357,18 @@ impl RemoteDialog {
         cx.notify();
     }
     fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
         let Some(session) = self.session.clone() else {
             return;
         };
-        let path = self.selected.as_ref().unwrap_or(&self.directory).clone();
+        let path = self.target_directory(cx);
         self.task = None;
         self.busy = true;
+        self.activity = "Opening folder…";
         self.message = None;
+        self.message_success = false;
         let reader = session.clone();
         let (cancel, guard) = Cancellation::task();
         let work = cx
@@ -332,6 +412,7 @@ impl RemoteDialog {
         cx.notify();
     }
     fn delete(&mut self, connection: Connection, window: &mut Window, cx: &mut Context<Self>) {
+        self.message_success = false;
         let used = crate::app::remote::connection_in_use(&connection.id, cx);
         if used {
             self.message = Some(tr(
@@ -371,7 +452,8 @@ impl RemoteDialog {
                 // Keep source descriptors for closed, persisted windows; a removed
                 // connection must never turn their remote paths into local paths.
                 persist(cx);
-                view.message = None;
+                view.message_success = true;
+                view.message = Some(tr("Connection deleted"));
                 cx.notify();
             });
         }));
@@ -397,400 +479,6 @@ impl RemoteDialog {
     }
 }
 
-impl Render for RemoteDialog {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let connections = cx.global::<Connections>().catalog.connections.clone();
-        let mut body = v_flex().w_full().gap_4();
-        match self.mode {
-            Mode::Connections => {
-                body = body.child(
-                    h_flex()
-                        .justify_between()
-                        .child(tr("SSH Connections"))
-                        .child(
-                            Button::new("ssh-add")
-                                .small()
-                                .label(tr("Add SSH Connection…"))
-                                .on_click(cx.listener(|view, _, window, cx| {
-                                    view.open_after_save = false;
-                                    view.edit(Connection::default(), window, cx);
-                                })),
-                        ),
-                );
-                let mut list = v_flex()
-                    .id("ssh-connections-list")
-                    .h(px(300.))
-                    .overflow_y_scroll()
-                    .gap_2();
-                if connections.is_empty() {
-                    list = list.child(
-                        div()
-                            .py_6()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(tr("No SSH connections yet")),
-                    );
-                }
-                for connection in connections {
-                    let open = connection.clone();
-                    let edit = connection.clone();
-                    let delete = connection.clone();
-                    list =
-                        list.child(
-                            h_flex()
-                                .gap_2()
-                                .items_center()
-                                .py_2()
-                                .child(
-                                    v_flex()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .child(div().truncate().child(connection.label()))
-                                        .child(
-                                            div()
-                                                .truncate()
-                                                .text_xs()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child(connection.address()),
-                                        ),
-                                )
-                                .child(
-                                    Button::new(SharedString::from(format!(
-                                        "ssh-open-{}",
-                                        connection.id
-                                    )))
-                                    .small()
-                                    .label(tr("Open…"))
-                                    .on_click(cx.listener(move |view, _, window, cx| {
-                                        view.connect(open.clone(), window, cx)
-                                    })),
-                                )
-                                .child(
-                                    Button::new(SharedString::from(format!(
-                                        "ssh-edit-{}",
-                                        connection.id
-                                    )))
-                                    .ghost()
-                                    .small()
-                                    .label(tr("Edit…"))
-                                    .on_click(cx.listener(move |view, _, window, cx| {
-                                        view.open_after_save = false;
-                                        view.edit(edit.clone(), window, cx);
-                                    })),
-                                )
-                                .child(
-                                    Button::new(SharedString::from(format!(
-                                        "ssh-delete-{}",
-                                        connection.id
-                                    )))
-                                    .ghost()
-                                    .small()
-                                    .label(tr("Delete"))
-                                    .on_click(cx.listener(move |view, _, window, cx| {
-                                        view.delete(delete.clone(), window, cx)
-                                    })),
-                                ),
-                        );
-                }
-                body = body.child(list);
-            }
-            Mode::Edit => {
-                for (index, label) in [
-                    "Display Name (optional)",
-                    "SSH Host",
-                    "Username (optional)",
-                    "SSH Port (optional)",
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    body = body.child(
-                        v_flex()
-                            .gap_1()
-                            .child(div().text_sm().child(tr(label)))
-                            .child(Input::new(&self.fields[index]).disabled(self.busy)),
-                    );
-                }
-                body = body.child(
-                    h_flex()
-                        .gap_3()
-                        .child(
-                            Switch::new("ssh-explicit-key")
-                                .checked(self.explicit_key)
-                                .disabled(self.busy)
-                                .on_click(cx.listener(|view, checked: &bool, _, cx| {
-                                    view.explicit_key = *checked;
-                                    cx.notify();
-                                })),
-                        )
-                        .child(tr("Use a specific private key")),
-                );
-                if self.explicit_key {
-                    body =
-                        body.child(
-                            h_flex()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .child(Input::new(&self.fields[4]).disabled(self.busy)),
-                                )
-                                .child(
-                                    Button::new("ssh-key-file")
-                                        .label(tr("Choose…"))
-                                        .disabled(self.busy)
-                                        .on_click(cx.listener(|view, _, window, cx| {
-                                            view.pick_key(window, cx)
-                                        })),
-                                ),
-                        );
-                } else {
-                    body = body.child(div().text_sm().text_color(cx.theme().muted_foreground).child(tr("Uses your Mac’s SSH configuration, agent and keys. Credentials are requested when needed.")));
-                }
-                body = body.child(
-                    h_flex()
-                        .justify_between()
-                        .child(
-                            Button::new("ssh-test")
-                                .label(tr("Test Connection"))
-                                .disabled(self.busy)
-                                .on_click(
-                                    cx.listener(|view, _, window, cx| view.save(true, window, cx)),
-                                ),
-                        )
-                        .child(
-                            Button::new("ssh-save")
-                                .primary()
-                                .label(tr(if self.open_after_save {
-                                    "Save and Connect"
-                                } else {
-                                    "Save"
-                                }))
-                                .disabled(self.busy)
-                                .on_click(
-                                    cx.listener(|view, _, window, cx| view.save(false, window, cx)),
-                                ),
-                        ),
-                );
-            }
-            Mode::Directories => {
-                let weak = cx.entity().downgrade();
-                let same_connection = self.add_folder.then(|| self.connection.id.clone());
-                let selector = Button::new("ssh-location")
-                    .label(self.connection.label())
-                    .icon(IconName::ChevronDown)
-                    .dropdown_menu(move |mut menu, _, _| {
-                        for connection in &connections {
-                            if same_connection
-                                .as_ref()
-                                .is_some_and(|id| *id != connection.id)
-                            {
-                                continue;
-                            }
-                            let connection = connection.clone();
-                            let owner = weak.clone();
-                            menu = menu.item(PopupMenuItem::new(connection.label()).on_click(
-                                move |_, window, cx| {
-                                    let _ = owner.update(cx, |view, cx| {
-                                        view.connect(connection.clone(), window, cx)
-                                    });
-                                },
-                            ));
-                        }
-                        menu
-                    });
-                body = body.child(selector).child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            Button::new("ssh-parent")
-                                .icon(IconName::ArrowUp)
-                                .tooltip(tr("Parent Folder"))
-                                .disabled(self.busy || self.directory.parent().is_none())
-                                .on_click(cx.listener(|view, _, window, cx| {
-                                    if let Some(parent) = view.directory.parent() {
-                                        view.browse(parent.to_path_buf(), window, cx);
-                                    }
-                                })),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .child(Input::new(&self.path).disabled(self.busy)),
-                        )
-                        .child(
-                            Button::new("ssh-refresh")
-                                .icon(IconName::RotateCw)
-                                .tooltip(tr("Refresh"))
-                                .disabled(self.busy)
-                                .on_click(cx.listener(|view, _, window, cx| {
-                                    if view.session.is_none() || view.message.is_some() {
-                                        view.connect(view.connection.clone(), window, cx);
-                                    } else {
-                                        view.browse(view.directory.clone(), window, cx);
-                                    }
-                                })),
-                        ),
-                );
-                let entries = self
-                    .entries
-                    .iter()
-                    .filter(|entry| {
-                        entry.is_dir
-                            && (self.show_hidden
-                                || !entry
-                                    .path
-                                    .file_name()
-                                    .unwrap_or_default()
-                                    .to_string_lossy()
-                                    .starts_with('.'))
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                let count = entries.len();
-                body = body.child(div().h(px(280.)).border_1().border_color(cx.theme().border).rounded(px(8.)).overflow_hidden()
-                    .when(count == 0, |view| view.child(div().p_4().text_color(cx.theme().muted_foreground).child(tr(if self.busy { "Connecting…" } else { "No subfolders" }))))
-                    .when(count > 0, |view| view.child(uniform_list("ssh-directories", count, cx.processor(move |view, range: std::ops::Range<usize>, _, cx| {
-                        range.map(|index| {
-                            let path = entries[index].path.clone();
-                            let open = path.clone();
-                            let selected = view.selected.as_ref() == Some(&path);
-                            h_flex().id(("ssh-directory", index)).h(px(34.)).px_3().gap_2().items_center()
-                                .when(selected, |row| row.bg(cx.theme().accent))
-                                .hover(|row| row.bg(cx.theme().muted))
-                                .child(Icon::new(IconName::Folder).size(px(16.)))
-                                .child(div().flex_1().truncate().child(path.file_name().unwrap_or_default().to_string_lossy().into_owned()))
-                                .on_mouse_down(MouseButton::Left, cx.listener(move |view, event: &MouseDownEvent, window, cx| {
-                                    if view.busy { return; }
-                                    window.focus(&view.focus, cx);
-                                    if event.click_count == 2 { view.browse(open.clone(), window, cx); }
-                                    else { view.selected = Some(open.clone()); cx.notify(); }
-                                })).into_any_element()
-                        }).collect::<Vec<_>>()
-                    })).track_scroll(&self.scroll).size_full())));
-                body = body.child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            Switch::new("ssh-hidden")
-                                .small()
-                                .checked(self.show_hidden)
-                                .on_click(cx.listener(|view, checked: &bool, _, cx| {
-                                    view.show_hidden = *checked;
-                                    cx.notify();
-                                })),
-                        )
-                        .child(div().text_sm().child(tr("Show hidden folders"))),
-                );
-                let target = self
-                    .selected
-                    .as_ref()
-                    .unwrap_or(&self.directory)
-                    .display()
-                    .to_string();
-                body = body.child(
-                    h_flex()
-                        .gap_3()
-                        .items_center()
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .min_w_0()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(tr("Folder to open")),
-                                )
-                                .child(div().truncate().text_sm().child(target)),
-                        )
-                        .child(
-                            Button::new("ssh-open-folder")
-                                .primary()
-                                .label(tr("Open Folder"))
-                                .disabled(self.busy || self.session.is_none())
-                                .on_click(cx.listener(|view, _, window, cx| view.open(window, cx))),
-                        ),
-                );
-            }
-        }
-        if let Some(message) = &self.message {
-            body = body.child(div().text_sm().whitespace_normal().child(message.clone()));
-        }
-        if self.busy {
-            body = body.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(tr("Connecting…")),
-            );
-        }
-        body.track_focus(&self.focus)
-            .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
-                if view.mode != Mode::Directories || view.busy || !view.focus.is_focused(window) {
-                    return;
-                }
-                let paths = view
-                    .entries
-                    .iter()
-                    .filter(|entry| {
-                        entry.is_dir
-                            && (view.show_hidden
-                                || !entry
-                                    .path
-                                    .file_name()
-                                    .unwrap_or_default()
-                                    .to_string_lossy()
-                                    .starts_with('.'))
-                    })
-                    .map(|entry| entry.path.clone())
-                    .collect::<Vec<_>>();
-                let current = view
-                    .selected
-                    .as_ref()
-                    .and_then(|selected| paths.iter().position(|path| path == selected));
-                let next = match event.keystroke.key.as_str() {
-                    "down" => Some(
-                        current.map_or(0, |index| (index + 1).min(paths.len().saturating_sub(1))),
-                    ),
-                    "up" => Some(current.unwrap_or(0).saturating_sub(1)),
-                    "enter" => {
-                        if let Some(path) = view.selected.clone() {
-                            view.browse(path, window, cx);
-                        }
-                        None
-                    }
-                    _ => None,
-                };
-                if let Some(index) = next
-                    && let Some(path) = paths.get(index)
-                {
-                    view.selected = Some(path.clone());
-                    view.scroll.scroll_to_item(index, ScrollStrategy::Top);
-                    cx.stop_propagation();
-                    cx.notify();
-                }
-            }))
-            .child(
-                h_flex().justify_end().child(
-                    Button::new("ssh-cancel")
-                        .ghost()
-                        .label(tr("Cancel"))
-                        .on_click(cx.listener(|view, _, window, cx| {
-                            view.task = None;
-                            view.busy = false;
-                            if view.mode == Mode::Edit && !view.open_after_save {
-                                view.mode = Mode::Connections;
-                                view.message = None;
-                                cx.notify();
-                            } else {
-                                window.close_dialog(cx);
-                            }
-                        })),
-                ),
-            )
-    }
-}
-
 use gpui_kit::assets::IconName;
 
 impl Workspace {
@@ -809,10 +497,12 @@ impl Workspace {
         let dialog = cx
             .new(|cx| RemoteDialog::new(owner, Mode::Connections, !manage, add_folder, window, cx));
         let content = dialog.clone();
-        window.open_dialog(cx, move |dialog, _, _| {
+        window.open_dialog(cx, move |dialog, _, cx| {
             dialog
-                .title(tr("Remote Workspaces"))
+                .title(content.read(cx).title())
                 .width(px(560.))
+                .close_button(false)
+                .overlay_closable(false)
                 .child(content.clone())
         });
         dialog.update(cx, |view, cx| {
@@ -827,10 +517,12 @@ impl Workspace {
         let owner = cx.entity().downgrade();
         let dialog = cx.new(|cx| RemoteDialog::new(owner, Mode::Edit, true, false, window, cx));
         dialog.update(cx, |view, cx| view.edit(Connection::default(), window, cx));
-        window.open_dialog(cx, move |panel, _, _| {
+        window.open_dialog(cx, move |panel, _, cx| {
             panel
-                .title(tr("Add SSH Connection…"))
-                .width(px(520.))
+                .title(dialog.read(cx).title())
+                .width(px(560.))
+                .close_button(false)
+                .overlay_closable(false)
                 .child(dialog.clone())
         });
     }
@@ -852,19 +544,22 @@ impl Workspace {
             std::slice::from_ref(&snapshot.root),
         );
         if let Some(host) = self.workspace_window.clone() {
-            let _ = host.update(cx, |host, cx| {
-                if host.slots.iter().any(|slot| slot.workspace.id == id) {
-                    host.select(&id, window, cx);
-                    return;
-                }
-                let destination = host.append(None, None, window, cx);
-                destination.update(cx, |view, cx| {
-                    view.recent_id = id;
-                    view.remote = Some(session);
-                    view.page = super::Page::Document;
-                    view.add_folder(snapshot, window, cx);
-                    view.remember_remote(cx);
-                    view.remember_current_workspace(cx);
+            // Appending suspends and reads the current workspace. Release its
+            // entity update before asking the window host to switch workspaces.
+            window.defer(cx, move |window, cx| {
+                let _ = host.update(cx, |host, cx| {
+                    if host.slots.iter().any(|slot| slot.workspace.id == id) {
+                        host.select(&id, window, cx);
+                        return;
+                    }
+                    let destination = host.append(None, None, window, cx);
+                    destination.update(cx, |view, cx| {
+                        view.recent_id = id;
+                        view.remote = Some(session);
+                        view.page = super::Page::Document;
+                        view.add_folder(snapshot, window, cx);
+                        view.remember_current_workspace(cx);
+                    });
                 });
             });
         }

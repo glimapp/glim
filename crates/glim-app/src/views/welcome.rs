@@ -121,6 +121,9 @@ pub fn welcome(
         .collect::<Vec<_>>();
     let locations = current.remote_locations(cx);
     let location_owner = cx.entity().downgrade();
+    let workspace_ink = super::accent(cx);
+    let workspace_surface = cx.theme().background.blend(workspace_ink.opacity(0.14));
+    let workspace_border = cx.theme().border.blend(workspace_ink.opacity(0.40));
     let content = v_flex()
         .w_full()
         .max_w(px(860.))
@@ -153,7 +156,10 @@ pub fn welcome(
                         .flex_1()
                         .flex_basis(relative(0.5))
                         .min_w_0()
-                        .gap_1()
+                        .rounded(px(10.))
+                        .border_1()
+                        .border_color(workspace_border)
+                        .bg(workspace_surface)
                         .child(
                             quick_action(
                                 "welcome-new-workspace",
@@ -163,6 +169,11 @@ pub fn welcome(
                                 1.0,
                                 cx,
                             )
+                            .rounded(px(0.))
+                            .rounded_tl(px(10.))
+                            .rounded_bl(px(10.))
+                            .border_0()
+                            .bg(gpui_kit::transparent_black())
                             .on_click(|_, window, cx| {
                                 window.dispatch_action(Box::new(OpenFolder), cx)
                             }),
@@ -170,8 +181,22 @@ pub fn welcome(
                         .child(
                             Button::new("welcome-workspace-location")
                                 .h(px(60.))
-                                .w(px(32.))
-                                .rounded(px(10.))
+                                .w(px(36.))
+                                .rounded(px(0.))
+                                .rounded_tr(px(10.))
+                                .rounded_br(px(10.))
+                                .border_0()
+                                .border_l_1()
+                                .border_color(workspace_border)
+                                .text_color(workspace_ink)
+                                .custom(
+                                    ButtonCustomVariant::new(cx)
+                                        .color(workspace_surface)
+                                        .hover(workspace_surface.blend(workspace_ink.opacity(0.08)))
+                                        .active(
+                                            workspace_surface.blend(workspace_ink.opacity(0.12)),
+                                        ),
+                                )
                                 .icon(IconName::ChevronDown)
                                 .tooltip(glim_services::locale::tr("Choose Workspace Location"))
                                 .accessibility_label(glim_services::locale::tr(
