@@ -88,6 +88,8 @@ Feeds use `/releases/latest/download/appcast-macos-<arch>.xml`; enclosures use i
 
 CI Cargo steps consistently use `--release --target <arch> --features macos-updater --locked`. There are no dev/debug builds or pre-packaging `cargo clean` steps. CI keeps release optimization and sets `CARGO_PROFILE_RELEASE_LTO=false` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16` to shorten linking/code generation; the default local release profile is unchanged.
 
+Compilation and packaging share the build channel and one build timestamp, so packaging can reuse the executable without recompiling it to update build identity.
+
 Ordinary branch pushes do not start macOS builds. ARM/Intel production builds run only for a pushed `v*` version tag or an explicit manual dispatch. To warm default-branch caches before a release, manually run `macOS builds` on main; this is optional and uploads no installers. Version-tag pushes produce both DMGs and check package integrity and metadata. Different tag caches cannot be reused directly, but tags can restore visible default-branch caches. Repeated manual runs on the same branch cancel obsolete runs; tag builds are not automatically cancelled. The signing workflow accepts only a successful push run for the exact tag and commit. GitHub-managed CodeQL scans run independently of this build trigger policy.
 
 Telemetry defaults to debug even for local optimized bundles. Only official tag pushes set `GLIM_DISTRIBUTION=github-release`; build provenance gates release routing and CI checks the executable with `--build-info` before packaging. Manual cache-warming runs remain debug. Normal app upgrades preserve the installation identity in the application database. See [telemetry routing](telemetry.md#development-and-release-routing).

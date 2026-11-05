@@ -88,6 +88,8 @@ feed 地址是 `/releases/latest/download/appcast-macos-<arch>.xml`，安装包�
 
 CI 的 Cargo 步骤统一使用 `--release --target <arch> --features macos-updater --locked`，不构建 dev／debug，不在打包前执行 `cargo clean`。CI 保持 release 优化，设置 `CARGO_PROFILE_RELEASE_LTO=false` 和 `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16` 以缩短链接／代码生成；本地默认 release profile 不受影响。
 
+编译与打包共用发行渠道和同一构建时间，打包可直接复用可执行文件，避免仅因构建身份变化再次编译。
+
 普通分支 push 不触发 macOS 构建；ARM／Intel 正式构建只在推送 `v*` 版本 tag 或明确手动运行时执行。发布前如需预热默认分支缓存，可在 main 上手动运行 `macOS builds`，该操作可选且不上传安装包。版本 tag 的 push 生成两种 DMG，并校验安装包完整性和元数据；不同 tag 的缓存不能直接互用，但可以恢复默认分支可见缓存。同一分支重复手动运行会取消过时任务，tag 构建不会自动取消。签名发布工作流只接受同一 tag、同一提交的成功 push 构建。GitHub 托管的 CodeQL 安全扫描独立于该构建触发策略。
 
 本地优化包的遥测默认仍为 debug。只有官方 tag push 设置 `GLIM_DISTRIBUTION=github-release`，由构建来源条件决定 release 路由，CI 在打包前通过 `--build-info` 核验可执行文件；手动预热构建保持 debug。正常应用升级保留应用数据库中的安装标识。见[遥测渠道](telemetry.zh-CN.md#开发与正式渠道)。

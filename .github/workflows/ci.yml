@@ -33,11 +33,14 @@ jobs:
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
       CARGO_INCREMENTAL: '0'
       GLIM_ENABLE_UPDATER: '1'
+      GLIM_BUILD_CHANNEL: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.intel-cross-compile) && 'release' || 'local' }}
       GLIM_DISTRIBUTION: ${{ github.repository == 'glimapp/glim' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'github-release' || 'development' }}
       GLIM_UPDATE_PUBLIC_KEY: ${{ vars.GLIM_UPDATE_PUBLIC_KEY }}
       GLIM_SPARKLE_DIR: ${{ github.workspace }}/target/sparkle/2.10.0
     steps:
       - uses: actions/checkout@v4
+      - name: Set build time once for compilation and packaging
+        run: echo "GLIM_BUILD_TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S %z')" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.99.0
         with:
           targets: ${{ matrix.target }}

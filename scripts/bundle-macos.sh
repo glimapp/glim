@@ -8,7 +8,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 python3 scripts/check-icons.py
 export GLIM_BUILD_CHANNEL="${GLIM_BUILD_CHANNEL:-local}"
-export GLIM_BUILD_TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S %z')"
+export GLIM_BUILD_TIMESTAMP="${GLIM_BUILD_TIMESTAMP:-$(date '+%Y-%m-%d %H:%M:%S %z')}"
 build_profile="${1:-release}"
 build_target="${2:-}"
 cargo_args=(build --locked)
