@@ -2,7 +2,7 @@ use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::documents::{ReadFailure, ReadFailureKind};
 use glim_services::limits as reader_limits;
 use gpui_kit::base::Disableable;
-use gpui_kit::component::{ActiveTheme, Icon};
+use gpui_kit::component::ActiveTheme;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
@@ -677,23 +677,32 @@ impl UnavailableReader {
     pub fn render(&self, cx: &mut App) -> AnyElement {
         use crate::app::actions::{CloseWindow, Refresh};
         use glim_services::locale::tr;
+        use gpui_kit::component::{
+            Sizable, button::ButtonCustomVariant, clipboard::Clipboard, tooltip::Tooltip,
+        };
+        let accent = crate::views::accent(cx);
         let (title, explanation) = match self.reason.kind {
             ReadFailureKind::NotFound => (
                 "File not found",
-                "This file may have been moved, renamed or deleted. If it is on an external drive, check that the drive is connected.",
+                Some("Check the file location or reconnect its drive."),
             ),
             ReadFailureKind::PermissionDenied => (
                 "Permission needed",
-                "Glim cannot read this file. Check its permissions in Finder, then try again.",
+                Some("Check read permissions in Finder, then retry."),
             ),
-            ReadFailureKind::Other => (
-                "Cannot open this file",
-                "Glim could not read this file. Try again, or copy the error details if you need to report a problem.",
-            ),
+            ReadFailureKind::Other => ("Cannot open this file", None),
         };
         let url = self.issue_url.clone();
         let detail = self.reason.detail.clone();
         let path = self.path.display().to_string();
+        let path_hint = path.clone();
+        let filename = self
+            .path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let filename_hint = filename.clone();
         v_flex()
             .id("unavailable-reader")
             .size_full()
@@ -705,98 +714,124 @@ impl UnavailableReader {
                     .w_full()
                     .my_auto()
                     .flex_shrink_0()
-                    .max_w(px(520.))
+                    .max_w(px(380.))
                     .gap_4()
+                    .font_family(cx.theme().font_family.clone())
                     .text_color(cx.theme().foreground)
                     .child(
-                        Icon::new(gpui_kit::assets::IconName::File)
-                            .size(px(32.))
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .child(div().text_xl().child(tr(title)))
-                    .child(
                         div()
-                            .text_sm()
-                            .whitespace_normal()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(tr(explanation)),
-                    )
-                    .child(
-                        v_flex()
-                            .gap_1()
-                            .p_3()
-                            .rounded_md()
-                            .bg(cx.theme().muted)
-                            .child(
-                                div().w_full().truncate().text_sm().child(
-                                    self.path
-                                        .file_name()
-                                        .unwrap_or_default()
-                                        .to_string_lossy()
-                                        .into_owned(),
-                                ),
-                            )
-                            .child(
-                                div()
-                                    .w_full()
-                                    .truncate()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(path.clone()),
-                            )
-                            .child(
-                                Button::new("copy-unavailable-path")
-                                    .ghost()
-                                    .label(tr("Copy path"))
-                                    .on_click(move |_, _, cx| {
-                                        cx.write_to_clipboard(ClipboardItem::new_string(
-                                            path.clone(),
-                                        ))
-                                    }),
-                            ),
+                            .text_size(px(18.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(tr(title)),
                     )
                     .child(
                         h_flex()
+                            .w_full()
+                            .gap_3()
+                            .child(crate::views::file_icons::file_icon(&self.path, cx))
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .id("unavailable-filename")
+                                            .truncate()
+                                            .text_size(px(14.))
+                                            .child(filename)
+                                            .tooltip(move |window, cx| {
+                                                Tooltip::new(filename_hint.clone())
+                                                    .build(window, cx)
+                                            }),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("unavailable-path")
+                                            .truncate()
+                                            .text_size(px(12.))
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(
+                                                self.path
+                                                    .parent()
+                                                    .unwrap_or(Path::new(""))
+                                                    .display()
+                                                    .to_string(),
+                                            )
+                                            .tooltip(move |window, cx| {
+                                                Tooltip::new(path_hint.clone()).build(window, cx)
+                                            }),
+                                    ),
+                            )
+                            .child(
+                                Clipboard::new("copy-unavailable-path")
+                                    .with_size(px(28.))
+                                    .tooltip(tr("Copy path"))
+                                    .accessibility_label(tr("Copy path"))
+                                    .value(path),
+                            ),
+                    )
+                    .when_some(explanation, |view, explanation| {
+                        view.child(
+                            div()
+                                .text_size(px(13.))
+                                .whitespace_normal()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(tr(explanation)),
+                        )
+                    })
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .flex_wrap()
                             .gap_2()
                             .child(
                                 Button::new("retry-unavailable")
-                                    .primary()
-                                    .label(tr("Check again"))
+                                    .custom(
+                                        ButtonCustomVariant::new(cx)
+                                            .color(accent)
+                                            .foreground(cx.theme().background)
+                                            .hover(accent.opacity(0.9))
+                                            .active(accent.opacity(0.8)),
+                                    )
+                                    .small()
+                                    .h(px(30.))
+                                    .px_3()
+                                    .label(tr("Retry"))
                                     .on_click(|_, window, cx| {
                                         window.dispatch_action(Box::new(Refresh), cx)
                                     }),
                             )
                             .child(
                                 Button::new("close-unavailable")
-                                    .ghost()
+                                    .small()
+                                    .h(px(30.))
+                                    .px_3()
                                     .label(tr("Close tab"))
                                     .on_click(|_, window, cx| {
                                         window.dispatch_action(Box::new(CloseWindow), cx)
                                     }),
-                            ),
-                    )
-                    .when(self.reason.kind == ReadFailureKind::Other, |view| {
-                        view.child(
-                            h_flex()
-                                .gap_2()
-                                .child(
-                                    Button::new("copy-read-error")
-                                        .ghost()
-                                        .label(tr("Copy error details"))
-                                        .on_click(move |_, _, cx| {
-                                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                                detail.clone(),
-                                            ))
-                                        }),
+                            )
+                            .child(div().flex_1())
+                            .when(self.reason.kind == ReadFailureKind::Other, |row| {
+                                row.child(
+                                    Clipboard::new("copy-read-error")
+                                        .with_size(px(28.))
+                                        .tooltip(tr("Copy error details"))
+                                        .accessibility_label(tr("Copy error details"))
+                                        .value(detail),
                                 )
                                 .child(
-                                    Button::new("unsupported-issue")
-                                        .ghost()
-                                        .label(tr("Report an issue on GitHub"))
-                                        .on_click(move |_, _, cx| cx.open_url(&url)),
-                                ),
-                        )
-                    }),
+                                    crate::views::icon_button(
+                                        "unsupported-issue",
+                                        gpui_kit::assets::IconName::ArrowUpRight,
+                                        tr("Report an issue on GitHub"),
+                                    )
+                                    .ghost()
+                                    .on_click(move |_, _, cx| cx.open_url(&url)),
+                                )
+                            }),
+                    ),
             )
             .into_any_element()
     }

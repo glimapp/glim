@@ -3,10 +3,11 @@ use gpui_kit::{
     assets::IconName,
     base::{RangeHighlight, RenderedText, TextViewState, input::SearchMatcher},
     component::{
-        ActiveTheme, Disableable, Icon, Selectable, Sizable,
-        button::{Button, ButtonVariants},
+        ActiveTheme, Disableable, Icon, Sizable,
+        button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         input::{EditorState, Escape, Input, InputEvent, InputState, Replace, Search},
+        tooltip::Tooltip,
         v_flex,
     },
     prelude::FluentBuilder,
@@ -256,10 +257,33 @@ impl FindBar {
             .tooltip(tr(label))
             .accessibility_label(tr(label))
     }
+
+    fn option(id: &'static str, label: &str, icon: IconName, enabled: bool, cx: &App) -> Button {
+        let accent = crate::views::accent(cx);
+        Self::control(id, label, icon).toggled(enabled).custom(
+            ButtonCustomVariant::new(cx)
+                .color(if enabled {
+                    accent.opacity(0.12)
+                } else {
+                    cx.theme().transparent
+                })
+                .foreground(if enabled {
+                    accent
+                } else {
+                    cx.theme().muted_foreground
+                })
+                .hover(if enabled {
+                    accent.opacity(0.18)
+                } else {
+                    cx.theme().muted
+                })
+                .active(accent.opacity(0.22)),
+        )
+    }
 }
 
 impl Render for FindBar {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.open {
             return Empty.into_any_element();
         }
@@ -269,38 +293,83 @@ impl Render for FindBar {
         };
         let label = matcher.label();
         let empty = matcher.is_empty() || self.pending.is_some() || self.error;
+        let query_empty = self.input.read(cx).value().is_empty();
+        let focused = self.input.read(cx).focus_handle(cx).is_focused(window)
+            || self
+                .replacement
+                .read(cx)
+                .focus_handle(cx)
+                .is_focused(window);
+        let status = if self.error {
+            div()
+                .id("find-error")
+                .flex()
+                .justify_center()
+                .child(Icon::new(IconName::CircleAlert).size(px(18.)))
+                .tooltip(|window, cx| {
+                    Tooltip::new(tr("Invalid regular expression")).build(window, cx)
+                })
+                .role(Role::Status)
+                .aria_label(tr("Invalid regular expression"))
+                .into_any_element()
+        } else {
+            div()
+                .id("find-count")
+                .truncate()
+                .child(if query_empty {
+                    String::new()
+                } else if self.pending.is_some() {
+                    "…".to_owned()
+                } else {
+                    label.clone()
+                })
+                .tooltip(move |window, cx| Tooltip::new(label.clone()).build(window, cx))
+                .into_any_element()
+        };
         let options = h_flex()
-            .gap(px(2.))
+            .gap(px(1.))
             .child(
-                Self::control("find-case", "Match case", IconName::CaseSensitive)
-                    .selected(self.case_sensitive)
-                    .toggled(self.case_sensitive)
-                    .on_click(cx.listener(|view, _, _, cx| {
-                        view.case_sensitive = !view.case_sensitive;
-                        view.refresh(true, cx);
-                    })),
+                Self::option(
+                    "find-case",
+                    "Match case",
+                    IconName::CaseSensitive,
+                    self.case_sensitive,
+                    cx,
+                )
+                .on_click(cx.listener(|view, _, _, cx| {
+                    view.case_sensitive = !view.case_sensitive;
+                    view.refresh(true, cx);
+                })),
             )
             .child(
-                Self::control("find-word", "Match whole word", IconName::WholeWord)
-                    .selected(self.whole_word)
-                    .toggled(self.whole_word)
-                    .on_click(cx.listener(|view, _, _, cx| {
-                        view.whole_word = !view.whole_word;
-                        view.refresh(true, cx);
-                    })),
+                Self::option(
+                    "find-word",
+                    "Match whole word",
+                    IconName::WholeWord,
+                    self.whole_word,
+                    cx,
+                )
+                .on_click(cx.listener(|view, _, _, cx| {
+                    view.whole_word = !view.whole_word;
+                    view.refresh(true, cx);
+                })),
             )
             .child(
-                Self::control("find-regex", "Use regular expression", IconName::Regex)
-                    .selected(self.regex)
-                    .toggled(self.regex)
-                    .on_click(cx.listener(|view, _, _, cx| {
-                        view.regex = !view.regex;
-                        view.refresh(true, cx);
-                    })),
+                Self::option(
+                    "find-regex",
+                    "Use regular expression",
+                    IconName::Regex,
+                    self.regex,
+                    cx,
+                )
+                .on_click(cx.listener(|view, _, _, cx| {
+                    view.regex = !view.regex;
+                    view.refresh(true, cx);
+                })),
             );
         let panel = v_flex()
             .id("reader-find")
-            .w(px(496.))
+            .w(px(480.))
             .max_w(relative(1.))
             .p(px(6.))
             .gap(px(4.))
@@ -310,9 +379,13 @@ impl Render for FindBar {
             .font_family(cx.theme().font_family.clone())
             .text_size(px(13.))
             .border_1()
-            .border_color(cx.theme().border)
-            .rounded(px(8.))
-            .shadow_md()
+            .border_color(if focused {
+                crate::views::accent(cx).opacity(0.5)
+            } else {
+                cx.theme().border
+            })
+            .rounded(px(6.))
+            .shadow_sm()
             .on_action(cx.listener(|view, _: &Escape, window, cx| view.close(window, cx)))
             .on_action(cx.listener(|view, _: &Search, window, cx| view.show(false, window, cx)))
             .on_action(cx.listener(|view, _: &Replace, window, cx| view.show(true, window, cx)))
@@ -340,10 +413,13 @@ impl Render for FindBar {
                         )
                     })
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(Input::new(&self.input).small().suffix(options)),
+                        div().flex_1().min_w_0().child(
+                            Input::new(&self.input)
+                                .small()
+                                .appearance(false)
+                                .bordered(false)
+                                .suffix(options),
+                        ),
                     )
                     .child(
                         div()
@@ -351,18 +427,17 @@ impl Render for FindBar {
                             .flex_shrink_0()
                             .text_center()
                             .text_color(
-                                if self.error || (empty && !self.input.read(cx).value().is_empty())
+                                if self.error
+                                    || (matcher.is_empty()
+                                        && !query_empty
+                                        && self.pending.is_none())
                                 {
                                     cx.theme().danger
                                 } else {
                                     cx.theme().muted_foreground
                                 },
                             )
-                            .child(if self.pending.is_some() {
-                                "…".to_owned()
-                            } else {
-                                label
-                            }),
+                            .child(status),
                     )
                     .child(
                         Self::control(
@@ -389,41 +464,47 @@ impl Render for FindBar {
                         .gap(px(4.))
                         .child(div().w(px(28.)))
                         .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .child(Input::new(&self.replacement).small()),
+                            div().flex_1().min_w_0().child(
+                                Input::new(&self.replacement)
+                                    .small()
+                                    .appearance(false)
+                                    .bordered(false),
+                            ),
                         )
                         .child(
-                            Self::control("find-replace-one", "Replace", IconName::Replace)
-                                .disabled(empty)
-                                .on_click(cx.listener(|view, _, window, cx| {
-                                    view.replace_matches(false, window, cx)
-                                })),
-                        )
-                        .child(
-                            Self::control("find-replace-all", "Replace all", IconName::ReplaceAll)
-                                .disabled(empty)
-                                .on_click(cx.listener(|view, _, window, cx| {
-                                    view.replace_matches(true, window, cx)
-                                })),
+                            h_flex()
+                                .w(px(150.))
+                                .flex_shrink_0()
+                                .gap(px(4.))
+                                .child(
+                                    Self::control("find-replace-one", "Replace", IconName::Replace)
+                                        .disabled(empty)
+                                        .on_click(cx.listener(|view, _, window, cx| {
+                                            view.replace_matches(false, window, cx)
+                                        })),
+                                )
+                                .child(
+                                    Self::control(
+                                        "find-replace-all",
+                                        "Replace all",
+                                        IconName::ReplaceAll,
+                                    )
+                                    .disabled(empty)
+                                    .on_click(cx.listener(
+                                        |view, _, window, cx| {
+                                            view.replace_matches(true, window, cx)
+                                        },
+                                    )),
+                                ),
                         ),
-                )
-            })
-            .when(self.error, |panel| {
-                panel.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(tr("Invalid regular expression")),
                 )
             })
             .into_any_element();
         div()
             .absolute()
-            .top(px(8.))
-            .left(px(8.))
-            .right(px(8.))
+            .top(px(12.))
+            .left(px(12.))
+            .right(px(12.))
             .flex()
             .justify_end()
             .child(panel)

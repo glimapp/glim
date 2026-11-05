@@ -3,9 +3,10 @@ import WebKit
 import PDFKit
 
 private final class ReaderFindPanel: NSView {
+    var inputFocused = false { didSet { needsDisplay = true } }
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {
-        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.borderColor = (inputFocused ? NSColor.keyboardFocusIndicatorColor.withAlphaComponent(0.5) : NSColor.separatorColor).cgColor
         layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
     }
 }
@@ -35,15 +36,16 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
         self.host = host; self.content = content; self.search = search; self.cancel = cancel
         super.init()
         panel.wantsLayer = true
-        panel.layer?.cornerRadius = 8; panel.layer?.borderWidth = 1
+        panel.layer?.cornerRadius = 6; panel.layer?.borderWidth = 1
         panel.layer?.borderColor = NSColor.separatorColor.cgColor
         panel.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        panel.layer?.shadowOpacity = 0.12; panel.layer?.shadowRadius = 6
+        panel.layer?.shadowOpacity = 0.08; panel.layer?.shadowRadius = 3
         panel.layer?.shadowOffset = NSSize(width: 0, height: -2)
         panel.translatesAutoresizingMaskIntoConstraints = false
         panel.isHidden = true; host.addSubview(panel)
         field.placeholderString = L("Find"); field.setAccessibilityLabel(L("Find"))
         field.font = .systemFont(ofSize: 13); field.delegate = self
+        field.isBordered = false; field.drawsBackground = false; field.focusRingType = .none
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         configure(caseButton, label: L("Match case"), symbol: "textformat", action: #selector(toggleCase))
@@ -58,16 +60,16 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
         let row = NSStackView(views: [field, caseButton, count, previous, next, dismiss])
         row.spacing = 4; row.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(row)
-        let width = panel.widthAnchor.constraint(equalToConstant: 440); width.priority = .defaultHigh
+        let width = panel.widthAnchor.constraint(equalToConstant: 420); width.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            width, panel.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -8),
-            panel.leadingAnchor.constraint(greaterThanOrEqualTo: host.leadingAnchor, constant: 8),
-            panel.topAnchor.constraint(equalTo: host.topAnchor, constant: 8),
+            width, panel.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -12),
+            panel.leadingAnchor.constraint(greaterThanOrEqualTo: host.leadingAnchor, constant: 12),
+            panel.topAnchor.constraint(equalTo: host.topAnchor, constant: 12),
             row.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 6),
             row.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -6),
             row.topAnchor.constraint(equalTo: panel.topAnchor, constant: 6),
             row.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -6),
-            field.heightAnchor.constraint(equalToConstant: 28)
+            field.heightAnchor.constraint(equalToConstant: 20)
         ])
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self, let host = self.host, !host.isHiddenOrHasHiddenAncestor,
@@ -94,7 +96,8 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
         button.title = ""; button.toolTip = label; button.setAccessibilityLabel(label)
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
             .withSymbolConfiguration(.init(pointSize: 16, weight: .regular))
-        button.imagePosition = .imageOnly; button.bezelStyle = .rounded; button.isBordered = true
+        button.imagePosition = .imageOnly; button.bezelStyle = .accessoryBarAction
+        button.isBordered = true; button.showsBorderOnlyWhileMouseInside = true
         button.target = self; button.action = action
         button.widthAnchor.constraint(equalToConstant: 28).isActive = true
         button.heightAnchor.constraint(equalToConstant: 28).isActive = true
@@ -114,6 +117,8 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
     @objc private func toggleCase() { run(backwards: false, changed: true) }
     @objc private func previousMatch() { run(backwards: true, changed: pending != nil) }
     @objc private func nextMatch() { run(backwards: false, changed: pending != nil) }
+    func controlTextDidBeginEditing(_ notification: Notification) { panel.inputFocused = true }
+    func controlTextDidEndEditing(_ notification: Notification) { panel.inputFocused = false }
     func controlTextDidChange(_ notification: Notification) {
         generation += 1; pending?.cancel(); cancel()
         previous.isEnabled = false; next.isEnabled = false; count.stringValue = "…"
