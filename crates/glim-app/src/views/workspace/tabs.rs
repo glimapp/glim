@@ -210,7 +210,6 @@ impl Workspace {
             );
             self.page = super::Page::Document;
             self.load_task = None;
-            self.remote_progress_task = None;
             self.loading = false;
             self.load_incoming_file(window, cx);
             self.active = Some(index);
@@ -624,10 +623,17 @@ impl Workspace {
                                     view.path_hint.hide_for(&hint_path, hint_bounds.get());
                                 }
                             }))
-                            .child(crate::views::file_icons::file_icon(
-                                &reader.document.path,
-                                cx,
-                            ))
+                            .child(if self.pending_open_path() == Some(&reader.document.path) {
+                                crate::views::loading_icon(
+                                    ("file-loading", index),
+                                    px(16.),
+                                    glim_services::locale::tr("Loading…"),
+                                    cx,
+                                )
+                            } else {
+                                crate::views::file_icons::file_icon(&reader.document.path, cx)
+                                    .into_any_element()
+                            })
                             .child(div().max_w(px(210.)).truncate().text_xs().child(label)),
                     )
                     .child(
@@ -692,9 +698,74 @@ impl Workspace {
                     .min_w_0()
                     .h_full()
                     .overflow_x_scroll()
+                    .children(self.pending_open_tab(cx))
                     .children(tabs),
             )
             .into_any_element()
+    }
+
+    fn pending_open_tab(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let path = self.pending_open_path()?;
+        if self.tabs.iter().any(|reader| reader.document.path == *path) {
+            return None;
+        }
+        let label = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let status = format!(
+            "{} · {}",
+            glim_services::locale::tr("Loading…"),
+            path.display()
+        );
+        Some(
+            h_flex()
+                .id("pending-document-tab")
+                .role(Role::Tab)
+                .aria_label(label.clone())
+                .aria_description(status.clone())
+                .aria_selected(false)
+                .h(px(30.))
+                .flex_shrink_0()
+                .gap_1()
+                .pl(px(7.))
+                .pr(px(3.))
+                .border_1()
+                .border_color(cx.theme().border)
+                .rounded(px(7.))
+                .bg(cx.theme().background)
+                .child(
+                    h_flex()
+                        .gap(px(5.))
+                        .child(crate::views::loading_icon(
+                            "pending-file-loading",
+                            px(16.),
+                            status,
+                            cx,
+                        ))
+                        .child(div().max_w(px(210.)).truncate().text_xs().child(label)),
+                )
+                .child(
+                    Button::new("cancel-pending-file")
+                        .ghost()
+                        .xsmall()
+                        .w(px(22.))
+                        .h(px(22.))
+                        .icon(
+                            gpui_kit::component::Icon::new(gpui_kit::assets::IconName::X)
+                                .size(px(12.)),
+                        )
+                        .text_color(cx.theme().muted_foreground)
+                        .tooltip(glim_services::locale::tr("Cancel"))
+                        .accessibility_label(glim_services::locale::tr("Cancel"))
+                        .on_click(cx.listener(|view, _, window, cx| {
+                            cx.stop_propagation();
+                            view.cancel_pending_open(window, cx);
+                        })),
+                )
+                .into_any_element(),
+        )
     }
 }
 

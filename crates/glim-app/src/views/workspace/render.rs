@@ -27,18 +27,8 @@ impl Render for Workspace {
         if self.page != Page::Document || self.active_reader().is_none() {
             self.set_file_fullscreen(false, window);
         }
-        let loading_preview = self.page == Page::Document
-            && if self.loading {
-                self.loading_preview
-            } else {
-                self.incoming_file_task.is_some()
-                    && self
-                        .incoming_files
-                        .front()
-                        .is_some_and(|path| Self::csv_preview_for_path(path, cx))
-            };
         for (index, reader) in self.tabs.iter().enumerate() {
-            if self.page != Page::Document || self.active != Some(index) || loading_preview {
+            if self.page != Page::Document || self.active != Some(index) {
                 reader.deactivate(cx);
             } else {
                 reader.activate(cx);
@@ -114,7 +104,6 @@ impl Render for Workspace {
         let content = match self.page {
             Page::Settings => self.settings_page(cx),
             Page::Start => welcome(self, cx.entity_id(), cx).into_any_element(),
-            Page::Document if loading_preview => crate::views::reader::preview_loading(cx),
             Page::Document => match self.active.and_then(|i| self.tabs.get_mut(i)) {
                 Some(reader) => {
                     reader.set_archive_action(archive_label, archive_action, cx);
@@ -178,7 +167,7 @@ impl Render for Workspace {
             })
             .bg(cx.theme().background)
             .when(
-                self.page == Page::Document && !self.tabs.is_empty() && !self.file_fullscreen,
+                self.page == Page::Document && (!self.tabs.is_empty() || self.pending_open_path().is_some()) && !self.file_fullscreen,
                 |view| view.child(tab_bar),
             )
             .when(!self.file_fullscreen && document_page && !self.csv_hint_dismissed
@@ -201,22 +190,6 @@ impl Render for Workspace {
                     .min_h_0()
                     .w_full()
                     .child(content)
-                    .when(self.loading && self.remote_restore.is_none() && document_page && !loading_preview, |view| {
-                        view.child(
-                            div()
-                                .absolute()
-                                .top(px(12.))
-                                .right(px(12.))
-                                .px_3()
-                                .py_2()
-                                .rounded(px(8.))
-                                .bg(cx.theme().background)
-                                .border_1()
-                                .border_color(cx.theme().border)
-                                .text_sm()
-                                .child(glim_services::locale::tr("Loading…")),
-                        )
-                    })
                     .child(
                         canvas(
                             |_, _, _| (),

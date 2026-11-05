@@ -596,9 +596,6 @@ impl RemoteDialog {
                     .size_full(),
                 )
             })
-            .when(self.busy && self.activity == "Loading folders…", |list| {
-                list.child(self.feedback_overlay(cx))
-            })
             .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
                 view.directory_key(event, window, cx)
             }));
@@ -617,6 +614,7 @@ impl RemoteDialog {
                             .small()
                             .outline()
                             .icon(IconName::RotateCw)
+                            .loading(self.busy && self.activity == "Loading folders…")
                             .tooltip(tr("Refresh"))
                             .accessibility_label(tr("Refresh"))
                             .disabled(self.blocked())

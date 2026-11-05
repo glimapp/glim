@@ -7,8 +7,6 @@ use gpui_kit::{
         h_flex,
         input::{Input, InputEvent, InputState},
         menu::{ContextMenuExt, PopupMenuItem},
-        spinner::Spinner,
-        tooltip::Tooltip,
         v_flex,
     },
     *,
@@ -193,7 +191,7 @@ impl Workspace {
                         };
                         (
                             slot.workspace.clone(),
-                            view.loading && view.remote_restore.is_some(),
+                            view.loading && view.pending_open_path().is_none(),
                         )
                     })
                     .collect::<Vec<_>>()
@@ -272,25 +270,15 @@ impl Workspace {
                                     .min_w_0()
                                     .gap_3()
                                     .child(if restoring {
-                                        let status = glim_services::locale::tr("Loading…");
-                                        div()
-                                            .id(SharedString::from(format!(
+                                        crate::views::loading_icon(
+                                            SharedString::from(format!(
                                                 "workspace-loading-{}",
                                                 workspace.id
-                                            )))
-                                            .size(px(16.))
-                                            .flex_shrink_0()
-                                            .role(Role::Status)
-                                            .aria_label(status.clone())
-                                            .tooltip(move |window, cx| {
-                                                Tooltip::new(status.clone()).build(window, cx)
-                                            })
-                                            .child(
-                                                Spinner::new()
-                                                    .with_size(px(16.))
-                                                    .color(crate::views::accent(cx)),
-                                            )
-                                            .into_any_element()
+                                            )),
+                                            px(16.),
+                                            glim_services::locale::tr("Loading…"),
+                                            cx,
+                                        )
                                     } else if glim_services::remote::is_remote_id(&workspace.id) {
                                         crate::views::connection_icon(
                                             SharedString::from(format!(

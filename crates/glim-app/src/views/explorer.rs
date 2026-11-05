@@ -981,22 +981,37 @@ impl Explorer {
                                         .flex()
                                         .items_center()
                                         .justify_center()
-                                        .child(if row.entry.is_dir {
-                                            // Keep the same icon box during loading; replacing
-                                            // a font glyph with an ellipsis makes it flicker.
-                                            Icon::new(if expanded {
-                                                gpui_kit::assets::IconName::ChevronDown
-                                            } else {
-                                                gpui_kit::assets::IconName::ChevronRight
-                                            })
-                                            .size(px(14.))
-                                            .flex_shrink_0()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .into_any_element()
-                                        } else {
-                                            super::file_icons::file_icon(&row.entry.path, cx)
+                                        .child(
+                                            if row.entry.is_dir
+                                                && self.tasks.contains_key(&row.entry.path)
+                                            {
+                                                super::loading_icon(
+                                                    row.element_id(if sticky {
+                                                        "sticky-loading"
+                                                    } else {
+                                                        "loading"
+                                                    }),
+                                                    px(14.),
+                                                    glim_services::locale::tr("Loading folder"),
+                                                    cx,
+                                                )
+                                            } else if row.entry.is_dir {
+                                                // Keep the same icon box during loading; replacing
+                                                // a font glyph with an ellipsis makes it flicker.
+                                                Icon::new(if expanded {
+                                                    gpui_kit::assets::IconName::ChevronDown
+                                                } else {
+                                                    gpui_kit::assets::IconName::ChevronRight
+                                                })
+                                                .size(px(14.))
+                                                .flex_shrink_0()
+                                                .text_color(cx.theme().muted_foreground)
                                                 .into_any_element()
-                                        }),
+                                            } else {
+                                                super::file_icons::file_icon(&row.entry.path, cx)
+                                                    .into_any_element()
+                                            },
+                                        ),
                                 )
                                 .child(
                                     div()

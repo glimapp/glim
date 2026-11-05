@@ -14,18 +14,32 @@ enum Opened {
     File(PathBuf, anyhow::Result<Box<Content>>),
 }
 impl Workspace {
-    pub(super) fn csv_preview_for_path(path: &std::path::Path, cx: &App) -> bool {
-        glim_services::documents::presentation::TextPresentation::for_path(path)
-            .table
-            .is_some_and(glim_services::documents::presentation::TableFormat::is_delimited)
-            && cx
-                .try_global::<crate::app::ReaderPreferences>()
-                .is_some_and(|prefs| prefs.csv_preview)
+    pub(super) fn pending_open_path(&self) -> Option<&PathBuf> {
+        if self.loading {
+            self.loading_path.as_ref()
+        } else if self.incoming_file_task.is_some() {
+            self.incoming_files.front()
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn cancel_pending_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.loading_path.is_some() && self.loading {
+            self.load_task = None;
+            self.loading = false;
+            self.loading_path = None;
+        } else if self.incoming_file_task.is_some() {
+            self.incoming_file_task = None;
+            self.incoming_files.pop_front();
+        }
+        self.load_incoming_file(window, cx);
+        cx.notify();
     }
 
     pub(crate) fn restore_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.loading = true;
-        self.loading_preview = false;
+        self.loading_path = None;
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let work = cx.background_executor().spawn(async move {
             let paths = glim_services::preferences::workspace_folders()?;
@@ -143,6 +157,7 @@ impl Workspace {
         let Some(path) = self.incoming_files.front().cloned() else {
             return;
         };
+        self.tab_scroll.scroll_to_item(0);
         let (cancel, cancel_on_drop) = glim_services::work::Cancellation::task();
         let work = reader_jobs::run(
             cx.background_executor().clone(),
@@ -197,6 +212,9 @@ impl Workspace {
     }
 
     pub(super) fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending_open_path() == Some(&path) {
+            return;
+        }
         if glim_services::remote::is_remote_id(&self.recent_id) {
             self.open_remote_file(path, window, cx);
             return;
@@ -223,7 +241,8 @@ impl Workspace {
         glim_services::telemetry::file_event("file_open_requested", &path, []);
         self.restoring_roots = None;
         self.loading = true;
-        self.loading_preview = Self::csv_preview_for_path(&path, cx);
+        self.loading_path = Some(path.clone());
+        self.tab_scroll.scroll_to_item(0);
         self.error = None;
         let (cancel, cancel_on_drop) = glim_services::work::Cancellation::task();
         let read = reader_jobs::run(

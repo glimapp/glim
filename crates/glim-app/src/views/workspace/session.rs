@@ -172,7 +172,7 @@ impl Workspace {
             super::Page::Document
         };
         self.loading = true;
-        self.loading_preview = false;
+        self.loading_path = None;
         self.restoring_roots = Some(session.roots.clone());
         let folders = session.roots.clone();
         let (cancel, guard) = glim_services::work::Cancellation::task();

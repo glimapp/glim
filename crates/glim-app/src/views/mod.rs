@@ -44,6 +44,27 @@ fn connection_color(connected: bool, cx: &gpui_kit::App) -> gpui_kit::Hsla {
     }
 }
 
+fn loading_icon(
+    id: impl Into<gpui_kit::ElementId>,
+    icon_size: gpui_kit::Pixels,
+    label: String,
+    cx: &gpui_kit::App,
+) -> gpui_kit::AnyElement {
+    use gpui_kit::{
+        component::{Sizable, spinner::Spinner, tooltip::Tooltip},
+        *,
+    };
+    div()
+        .id(id)
+        .size(icon_size)
+        .flex_shrink_0()
+        .role(Role::Status)
+        .aria_label(label.clone())
+        .tooltip(move |window, cx| Tooltip::new(label.clone()).build(window, cx))
+        .child(Spinner::new().with_size(icon_size).color(accent(cx)))
+        .into_any_element()
+}
+
 fn connection_icon(
     id: impl Into<gpui_kit::ElementId>,
     connected: bool,

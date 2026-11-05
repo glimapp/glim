@@ -79,7 +79,7 @@ impl Workspace {
         reader.set_word_wrap(self.word_wrap, window, cx);
         self.load_task = None;
         self.loading = false;
-        self.loading_preview = false;
+        self.loading_path = None;
         self.page = super::Page::Document;
         self.error = None;
         self.tabs.insert(0, reader);

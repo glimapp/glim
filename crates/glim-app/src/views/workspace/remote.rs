@@ -665,6 +665,9 @@ impl Workspace {
             return;
         };
         let path = session.remote_path(&path).unwrap_or(path);
+        if self.pending_open_path() == Some(&path) {
+            return;
+        }
         if let Some(index) = self
             .tabs
             .iter()
@@ -682,6 +685,13 @@ impl Workspace {
         self.page = super::Page::Document;
         self.loading = true;
         self.error = None;
+        self.loading_path = Some(path.clone());
+        self.tab_scroll.scroll_to_item(
+            self.tabs
+                .iter()
+                .position(|reader| reader.document.path == path)
+                .unwrap_or(0),
+        );
         session.received.store(0, Ordering::Relaxed);
         let transfer = session.clone();
         let remote_path = path.clone();
@@ -698,7 +708,6 @@ impl Workspace {
             let result = work.await;
             let _ = view.update_in(cx, |view, window, cx| {
                 view.loading = false;
-                view.remote_progress_task = None;
                 match result {
                     Ok(content) => {
                         let mut reader =
@@ -727,16 +736,6 @@ impl Workspace {
                 cx.notify();
             });
         }));
-        self.remote_progress_task = Some(cx.spawn(async move |view, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_millis(200))
-                    .await;
-                if view.update(cx, |_, cx| cx.notify()).is_err() {
-                    break;
-                }
-            }
-        }));
         cx.notify();
     }
     pub(super) fn restore_remote_workspace(
@@ -764,6 +763,7 @@ impl Workspace {
         };
         self.remote_disconnected = true;
         self.loading = false;
+        self.loading_path = None;
         let Some(connection) = connection else {
             self.error = Some(
                 tr("SSH connection was removed. Open a folder using an available connection.")
