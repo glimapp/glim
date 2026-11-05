@@ -92,6 +92,8 @@ CI 的 Cargo 步骤统一使用 `--release --target <arch> --features macos-upda
 
 缓存按架构和工具链／Cargo 配置区分，保留依赖及工作区编译产物；Sparkle 仅缓存固定压缩包，每次从验过摘要的字节重新解压。DMG 已压缩，上传不再重复压缩，构建附件保留七天。Job Summary 记录缓存命中和磁盘占用，Actions 步骤记录耗时。目标是热缓存下约 1–5 分钟，冷缓存、工具链／依赖变化、排队和网络波动不保证五分钟内完成。Intel 通过实际 release 构建和包校验，ARM 测试不能视为 Intel 实机交互验收。
 
+要单独试验交叉编译，可在分支上手动运行 `macOS builds`，设置 `intel-cross-compile=true`。该模式只在 Apple Silicon runner 上构建并打包 `x86_64-apple-darwin`，再由 Intel runner 校验 DMG 摘要、架构、签名并执行 `--build-info`。试验不运行工作区测试，上传保留七天的试验附件，不创建 Release。首次运行使用独立冷缓存，还应对比重复运行的耗时。普通版本 tag 构建继续使用原生 runner 及完整验证；执行 `--build-info` 不代表阅读器交互已验证。
+
 ### 隔离更新验证
 
 ```sh

@@ -92,6 +92,8 @@ Telemetry defaults to debug even for local optimized bundles. Only official tag 
 
 Caches distinguish architectures and toolchain/Cargo configuration, retaining dependencies and workspace outputs. Only the pinned Sparkle archive is cached; extraction always follows checksum verification. DMGs are already compressed, so artifact upload uses no additional compression and retains build artifacts for seven days. Job summaries record cache hits and disk usage; Actions steps record durations. Aim for roughly 1–5 minutes with warm caches; cold caches, toolchain/dependency changes, queueing and network delays are not guaranteed to fit five minutes. Intel's actual release build and package checks remain required; ARM tests do not certify Intel hardware interactions.
 
+For an isolated cross-compilation experiment, manually dispatch `macOS builds` on a branch with `intel-cross-compile=true`. It builds and packages only `x86_64-apple-darwin` on an Apple Silicon runner, then checks the DMG checksum, architecture, signature and `--build-info` on an Intel runner. This mode runs no workspace tests, uploads a seven-day experimental artifact and does not create a release. Its first run has a separate cold cache; compare a repeat run as well. Normal version-tag builds retain their native runners and full validation. Executing `--build-info` does not verify reader interactions.
+
 ### Isolated updater validation
 
 ```sh

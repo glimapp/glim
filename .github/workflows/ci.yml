@@ -3,6 +3,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      intel-cross-compile:
+        description: 'Experiment: build only the Intel package on Apple Silicon and verify it on Intel'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -14,17 +19,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-15
-            target: aarch64-apple-darwin
-            platform: macos-arm64
-            arch: arm64
-            validate: true
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            platform: macos-x86_64
-            arch: x86_64
-            validate: false
+        include: >-
+          ${{ fromJSON(inputs.intel-cross-compile &&
+          '[{"os":"macos-15","target":"x86_64-apple-darwin","platform":"macos-x86_64-cross","arch":"x86_64","validate":false}]' ||
+          '[{"os":"macos-15","target":"aarch64-apple-darwin","platform":"macos-arm64","arch":"arm64","validate":true},
+          {"os":"macos-15-intel","target":"x86_64-apple-darwin","platform":"macos-x86_64","arch":"x86_64","validate":false}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -83,6 +82,7 @@ jobs:
           trap 'glim_stage_status=$?; printf "\n**Release executable**: %s seconds (exit %s)\n" "$(( $(date +%s) - glim_stage_started ))" "$glim_stage_status" >> "$GITHUB_STEP_SUMMARY"; exit "$glim_stage_status"' EXIT
           cargo build --release --target ${{ matrix.target }} --features macos-updater --locked
       - name: Verify telemetry distribution
+        if: ${{ !inputs.intel-cross-compile }}
         env:
           DYLD_FRAMEWORK_PATH: ${{ env.GLIM_SPARKLE_DIR }}
         run: |
@@ -95,7 +95,7 @@ jobs:
           print("Verified telemetry environment:", expected)
           '
       - name: Package version tag
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.intel-cross-compile
         run: |
           glim_stage_started=$(date +%s)
           trap 'glim_stage_status=$?; printf "\n**DMG packaging**: %s seconds (exit %s)\n" "$(( $(date +%s) - glim_stage_started ))" "$glim_stage_status" >> "$GITHUB_STEP_SUMMARY"; exit "$glim_stage_status"' EXIT
@@ -114,7 +114,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.intel-cross-compile
         with:
           name: Glim-${{ matrix.platform }}
           path: |
@@ -123,3 +123,34 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 7
+  verify-intel-cross-compile:
+    if: inputs.intel-cross-compile
+    needs: build
+    runs-on: macos-15-intel
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Glim-macos-x86_64-cross
+          path: dist
+      - name: Verify the cross-compiled package on Intel
+        run: |
+          [[ "$(uname -m)" == x86_64 ]]
+          cd dist
+          shasum -a 256 -c ./*.sha256
+          glim_mount="$RUNNER_TEMP/glim-intel-cross"
+          mkdir -p "$glim_mount"
+          hdiutil attach -readonly -nobrowse -mountpoint "$glim_mount" ./*.dmg
+          trap 'hdiutil detach "$glim_mount"' EXIT
+          glim_bundle="$glim_mount/Glim.app"
+          [[ "$(lipo -archs "$glim_bundle/Contents/MacOS/glim")" == x86_64 ]]
+          codesign --verify --deep --strict "$glim_bundle"
+          plutil -lint "$glim_bundle/Contents/Info.plist"
+          "$glim_bundle/Contents/MacOS/glim" --build-info | python3 -c '
+          import json, sys
+          info = json.load(sys.stdin)
+          assert info["telemetry_environment"] == "debug", info
+          assert info["is_debug"], info
+          print(json.dumps(info, indent=2))
+          '
+          echo 'Intel package architecture, checksum, signature and --build-info passed on an Intel runner.' >> "$GITHUB_STEP_SUMMARY"
