@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 
 impl Workspace {
     pub(super) fn choose_new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if glim_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
         if self.picking || crate::app::workspace_editors_locked(cx) || crate::app::updates::busy(cx)
         {
             return;
@@ -37,6 +40,9 @@ impl Workspace {
         }));
     }
     pub(super) fn choose_new_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if glim_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
         let directory = self
             .active_reader()
             .and_then(|reader| {
@@ -58,6 +64,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if glim_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
         if self.picking
             || self.close_request.is_some()
             || crate::app::updates::busy(cx)
@@ -95,6 +104,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if glim_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
         if self.confirm_task.is_some() || crate::app::workspace_editors_locked(cx) {
             return;
         }

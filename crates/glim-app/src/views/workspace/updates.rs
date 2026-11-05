@@ -32,6 +32,9 @@ impl Workspace {
         }));
     }
     pub(super) fn watch_file_parent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if glim_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
         let parents = self
             .tabs
             .iter()
@@ -60,6 +63,10 @@ impl Workspace {
         }));
     }
     pub(super) fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.remote.is_some() || self.remote_disconnected {
+            self.refresh_remote(window, cx);
+            return;
+        }
         self.refresh_notice = None;
         self.refresh_files(window, cx);
     }

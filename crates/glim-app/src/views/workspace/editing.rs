@@ -154,6 +154,12 @@ impl Workspace {
     }
 
     pub(super) fn save_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .active_reader()
+            .is_some_and(|reader| reader.document.remote.is_some())
+        {
+            return;
+        }
         if let Some(reader) = self.active_reader() {
             glim_services::telemetry::file_event(
                 "file_save_requested",
@@ -170,6 +176,9 @@ impl Workspace {
     }
 
     pub(super) fn observe_autosave(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if glim_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
         let keys = self
             .tabs
             .iter()

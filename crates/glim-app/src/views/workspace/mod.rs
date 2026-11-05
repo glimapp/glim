@@ -4,6 +4,7 @@ mod gestures;
 mod header;
 mod loading;
 mod reader_actions;
+mod remote;
 mod render;
 mod session;
 mod settings;
@@ -30,6 +31,10 @@ const DEFAULT_SIDEBAR_RATIO: f32 = 0.20;
 const SIDEBAR_COLLAPSE_WIDTH: f32 = 120.;
 
 pub struct Workspace {
+    remote: Option<glim_services::remote::Session>,
+    remote_disconnected: bool,
+    remote_restore: Option<glim_core::session::WorkspaceSession>,
+    remote_progress_task: Option<Task<()>>,
     pub(crate) workspace_window: Option<WeakEntity<super::workspace_window::WorkspaceWindow>>,
     workspace_name: Option<String>,
     workspace_rename: Option<(String, Entity<InputState>, Subscription)>,
@@ -141,7 +146,9 @@ impl Workspace {
         workspace: &glim_services::preferences::RecentWorkspace,
     ) -> bool {
         self.recent_id == workspace.id
-            || (!workspace.folders.is_empty()
+            || (!glim_services::remote::is_remote_id(&workspace.id)
+                && !glim_services::remote::is_remote_id(&self.recent_id)
+                && !workspace.folders.is_empty()
                 && (self.roots == workspace.folders
                     || self.restoring_roots.as_ref() == Some(&workspace.folders)))
     }
@@ -215,6 +222,10 @@ impl Workspace {
             .unwrap_or(true)
         });
         let mut workspace = Self {
+            remote: None,
+            remote_disconnected: false,
+            remote_restore: None,
+            remote_progress_task: None,
             workspace_window: None,
             workspace_name: None,
             workspace_rename: None,

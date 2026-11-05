@@ -381,3 +381,11 @@ This page is generated from the same policy. After editing it, run `python3 scri
 | --- | ---: | --- | --- | --- |
 | `resources.cache_bytes` | 256 MiB | bytes | budget | Process-wide budget for tracked reclaimable reader caches; evict background then least recently used unpinned values. Live state and active work are accounted separately and never discarded as cache. Framework allocations are outside this ledger. |
 | `resources.working_bytes` | 512 MiB | bytes | budget | Shared target for reader working buffers. Producers using atomic reservations adapt their output window to remaining capacity before allocation; reservations follow retained results. Legacy tracked allocations count against availability but are not yet constrained by admission. Protected editing state and opaque framework allocations are separate. |
+
+## remote
+
+| Key | Value | Unit | Effect | Behavior |
+| --- | ---: | --- | --- | --- |
+| `remote.packet_bytes` | 1 MiB | bytes | budget | Maximum active SFTP protocol packet; files are transferred as successive packets without a total-size limit. |
+| `remote.transfer_bytes` | 32 KiB | bytes | budget | Bytes requested per SFTP read, independent of the total remote file size. |
+| `remote.diagnostic_bytes` | 16 KiB | bytes | budget | Tail of SSH diagnostics retained for connection failures; earlier output is discarded. |

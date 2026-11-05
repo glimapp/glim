@@ -74,7 +74,7 @@
 | safetensors | 仅读取头部，显示张量名称、shape、精度、参数量与元数据，不加载或执行权重 |
 | OBJ/STL | 静态网格投影，支持 OBJ 面与 ASCII／二进制 STL，不提供交互旋转、材质或纹理 |
 | GPX/KML | 离线坐标表与 XML 原文，不加载地图底图或外部资源 |
-| ZIP / TAR 及压缩 TAR / 7z / RAR / CAB / CPIO / AR / XAR / ISO9660 / LHA | 共用目录浏览、条目大小、目录导航和可取消解压；解压到独立新目录并打开为新工作空间，不覆盖已有目录。支持 TGZ/TBZ/TBZ2/TXZ/TLZ/TZST/TAZ 别名，隐藏 AppleDouble 元数据；加密、分卷及不支持的编解码变体报告错误 |
+| ZIP / TAR 及压缩 TAR / 7z / RAR / CAB / CPIO / AR / XAR / ISO9660 / LHA | 共用目录浏览、条目大小、目录导航和可取消解压；解压到独立新目录并打开为新工作区，不覆盖已有目录。支持 TGZ/TBZ/TBZ2/TXZ/TLZ/TZST/TAZ 别名，隐藏 AppleDouble 元数据；加密、分卷及不支持的编解码变体报告错误 |
 | GZ / BZ2 / XZ / LZMA / LZIP / LZ4 / Zstandard / Unix compress | 压缩归档使用同一个浏览器；独立压缩流显示一个解压后文件，复用解压操作 |
 | NPY | v1/v2/v3 头部及预览范围内的基础小端 f8/f4/i8/i4/u1 数值；其他类型保留元数据，不执行 pickle |
 

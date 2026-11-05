@@ -93,6 +93,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if glim_services::remote::is_remote_id(&self.recent_id) {
+            return false;
+        }
         if self.roots.iter().any(|root| root == path) {
             self.select_workspace(self.recent_id.clone(), window, cx);
             self.page = super::Page::Document;
@@ -194,6 +197,10 @@ impl Workspace {
     }
 
     pub(super) fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if glim_services::remote::is_remote_id(&self.recent_id) {
+            self.open_remote_file(path, window, cx);
+            return;
+        }
         glim_services::diagnostics::event(
             "INFO",
             &format!("open requested file={}", path.display()),
@@ -309,7 +316,12 @@ impl Workspace {
                 v.add_folder(snapshot.root, snapshot.entries, cx)
             });
         } else {
-            let explorer = cx.new(|cx| Explorer::new(snapshot.root, snapshot.entries, cx));
+            let remote = self.remote.clone();
+            let explorer = cx.new(|cx| {
+                let mut explorer = Explorer::new(snapshot.root, snapshot.entries, cx);
+                explorer.set_remote(remote);
+                explorer
+            });
             self.subscriptions.push(cx.subscribe_in(
                 &explorer,
                 window,
@@ -336,6 +348,10 @@ impl Workspace {
                         crate::app::remember_explorer(roots.clone(), expanded.clone(), cx);
                     }
                     ExplorerEvent::Error(error) => {
+                        view.remote_disconnected = view
+                            .remote
+                            .as_ref()
+                            .is_some_and(|remote| !remote.is_connected());
                         view.error = Some(error.clone().into());
                         cx.notify();
                     }
@@ -372,6 +388,7 @@ impl Workspace {
             self.workspace_name = Some(self.workspace_descriptor().title());
         }
         self.roots.remove(index);
+        self.remember_remote(cx);
         self.root = self.roots.first().cloned();
         self.restoring_roots = None;
         self.results.clear();
@@ -387,6 +404,9 @@ impl Workspace {
     }
 
     fn scan_workspace_roots(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if glim_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
         self.refresh_task = None;
         self.watch_scan_task = None;
         self.watch_setup = None;
@@ -497,6 +517,13 @@ impl Workspace {
         }
     }
     pub(super) fn choose_add_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if glim_services::remote::is_remote_id(&self.recent_id) && self.remote.is_none() {
+            return;
+        }
+        if let Some(connection) = self.remote_connection(cx) {
+            self.show_remote(Some(connection), false, true, window, cx);
+            return;
+        }
         if self.picking || crate::app::updates::busy(cx) {
             return;
         }
@@ -573,7 +600,9 @@ impl Workspace {
                 match result {
                     Ok(Ok(Some(paths))) => {
                         if let Some(path) = paths.into_iter().next() {
-                            if folder && let Some(host) = view.workspace_window.clone() {
+                            if (folder || glim_services::remote::is_remote_id(&view.recent_id))
+                                && let Some(host) = view.workspace_window.clone()
+                            {
                                 window.defer(cx, move |window, cx| {
                                     let _ = host.update(cx, |host, cx| {
                                         host.append(Some(path), None, window, cx);

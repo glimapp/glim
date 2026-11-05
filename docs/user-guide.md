@@ -13,6 +13,12 @@ See [installation](../README.md#download) first.
 - Home offers file, workspace and new-file actions, plus recent workspaces. Renaming a workspace changes its display name, not the directory on disk.
 - Title-bar search finds workspace files by name or path, not by their contents. Use source-editor search within the current text.
 
+## Open a remote folder
+
+Use the arrow beside Home’s **Open Workspace…** button to add an SSH connection or choose a saved connection. Settings → Files → SSH Connections manages multiple connections and offers a connection test. Enter a host (an SSH configuration alias also works), optionally a username, port or private key; Glim otherwise uses your Mac’s SSH configuration and agent. OpenSSH asks for host trust, passwords or key passphrases when needed.
+
+Choose the connection, enter a directory path or browse folders, then confirm **Open Folder**. Recent remote workspaces reconnect directly. Files download on demand and stay read-only, including text. The workspace status offers refresh, reconnection and cancellation; remote changes are not watched automatically. Downloads use temporary local storage and large files must finish downloading before preview. Directory document packages and complete HTML sites are not mirrored. For a consistent SQLite view, open a database copy that is no longer changing.
+
 ## Keep related files open
 
 Opening a file leaves a tab so you can return after opening another. Reopening the same file activates its existing tab or window. Back and Forward revisit previously opened files.

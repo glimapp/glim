@@ -95,8 +95,18 @@ impl Reader {
     }
     pub fn set_editing_locked(&mut self, locked: bool, cx: &mut App) {
         if let Some(edit) = &self.document.edit {
-            edit.set_locked(locked, cx);
+            edit.set_locked(locked || self.document.remote.is_some(), cx);
         }
+    }
+    pub(crate) fn set_remote(
+        &mut self,
+        session: glim_services::remote::Session,
+        path: std::path::PathBuf,
+        cx: &mut App,
+    ) {
+        self.document.path = path;
+        self.document.remote = Some(session);
+        self.set_editing_locked(true, cx);
     }
     pub fn is_dirty(&self) -> bool {
         self.document

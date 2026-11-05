@@ -238,7 +238,10 @@ impl WorkspaceWindow {
             .slots
             .iter()
             .find(|slot| {
-                slot.workspace.id == workspace.id || slot.workspace.folders == workspace.folders
+                slot.workspace.id == workspace.id
+                    || (!glim_services::remote::is_remote_id(&workspace.id)
+                        && !glim_services::remote::is_remote_id(&slot.workspace.id)
+                        && slot.workspace.folders == workspace.folders)
             })
             .map(|slot| slot.workspace.id.clone())
         {

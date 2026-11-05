@@ -79,7 +79,12 @@ impl Workspace {
             cx.notify();
             return;
         }
+        if glim_services::remote::is_remote_id(&self.recent_id) && self.remote.is_none() {
+            cx.notify();
+            return;
+        }
         let roots = self.roots.clone();
+        let remote = self.remote.clone();
         let offset = self.search_offset;
         let (cancel, guard) = glim_services::work::Cancellation::task();
         self.search_task = Some(cx.spawn_in(window, async move |view, cx| {
@@ -90,7 +95,12 @@ impl Workspace {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    glim_services::workspace::search_page(&roots, &query, offset, &cancel)
+                    match remote {
+                        Some(remote) => remote.search(&roots, &query, offset, &cancel),
+                        None => {
+                            glim_services::workspace::search_page(&roots, &query, offset, &cancel)
+                        }
+                    }
                 })
                 .await;
             let _ = view.update(cx, |view, cx| {

@@ -1,0 +1,309 @@
+//! SSH connection records and read-only SFTP access. Call on background workers.
+mod sftp;
+
+use crate::{storage, work::Cancellation};
+use anyhow::{Context, Result, ensure};
+use glim_core::DirectoryEntry;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::BTreeMap,
+    path::{Component, Path, PathBuf},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+};
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Connection {
+    pub id: String,
+    pub name: String,
+    pub host: String,
+    pub user: String,
+    pub port: Option<u16>,
+    pub identity: Option<PathBuf>,
+    #[serde(default)]
+    pub last_directory: Option<PathBuf>,
+}
+impl Connection {
+    pub fn label(&self) -> String {
+        if self.name.trim().is_empty() {
+            self.address()
+        } else {
+            self.name.clone()
+        }
+    }
+    pub fn address(&self) -> String {
+        let host = if self.user.is_empty() {
+            self.host.clone()
+        } else {
+            format!("{}@{}", self.user, self.host)
+        };
+        self.port
+            .map_or(host.clone(), |port| format!("{host}:{port}"))
+    }
+    pub fn validate(&mut self) -> Result<()> {
+        self.host = self.host.trim().to_owned();
+        self.user = self.user.trim().to_owned();
+        if let Some((user, host)) = self.host.rsplit_once('@') {
+            if self.user.is_empty() {
+                self.user = user.to_owned();
+            }
+            self.host = host.to_owned();
+        }
+        ensure!(
+            !self.host.is_empty()
+                && !self.host.starts_with('-')
+                && !self.host.chars().any(char::is_whitespace),
+            "Enter a valid SSH host"
+        );
+        ensure!(
+            !self.user.starts_with('-') && !self.user.chars().any(char::is_whitespace),
+            "Enter a valid SSH username"
+        );
+        ensure!(self.port != Some(0), "SSH port must be between 1 and 65535");
+        if let Some(identity) = &self.identity {
+            ensure!(identity.is_file(), "The private key file does not exist");
+        }
+        if self.id.is_empty() {
+            self.id = format!(
+                "ssh-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_nanos()
+            );
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RemoteWorkspace {
+    pub connection: String,
+    pub roots: Vec<PathBuf>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct Catalog {
+    pub connections: Vec<Connection>,
+    pub workspaces: BTreeMap<String, RemoteWorkspace>,
+}
+pub fn load_catalog() -> Result<Catalog> {
+    storage::record(&storage::open()?, "remote", "catalog")?
+        .map(|text| serde_json::from_str(&text).context("Cannot read SSH connections"))
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+pub fn save_catalog(catalog: &Catalog) -> Result<()> {
+    storage::set_record(
+        &storage::open()?,
+        "remote",
+        "catalog",
+        &serde_json::to_string(catalog)?,
+    )
+}
+pub fn workspace_id(connection: &str, roots: &[PathBuf]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(connection.as_bytes());
+    for root in roots {
+        hash.update([0]);
+        hash.update(root.as_os_str().as_encoded_bytes());
+    }
+    format!("ssh-workspace-{:x}", hash.finalize())
+}
+pub fn is_remote_id(id: &str) -> bool {
+    id.starts_with("ssh-workspace-")
+}
+
+#[derive(Clone)]
+pub struct Session {
+    pub connection: Connection,
+    pub home: PathBuf,
+    transport: Arc<Mutex<sftp::Sftp>>,
+    pub received: Arc<AtomicU64>,
+    connected: Arc<std::sync::atomic::AtomicBool>,
+    cache: Arc<tempfile::TempDir>,
+}
+impl Session {
+    pub fn connect(connection: Connection, cancel: &Cancellation) -> Result<Self> {
+        let mut transport = sftp::Sftp::connect(&connection, cancel)?;
+        let home = transport.realpath(Path::new("."), cancel)?;
+        let cache = tempfile::Builder::new().prefix("glim-remote-").tempdir()?;
+        Ok(Self {
+            connection,
+            home,
+            transport: Arc::new(Mutex::new(transport)),
+            received: Arc::new(AtomicU64::new(0)),
+            cache: Arc::new(cache),
+            connected: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        })
+    }
+    fn with_transport<T>(
+        &self,
+        cancel: &Cancellation,
+        operation: impl FnOnce(&mut sftp::Sftp) -> Result<T>,
+    ) -> Result<T> {
+        loop {
+            cancel.check()?;
+            match self.transport.try_lock() {
+                Ok(mut transport) => {
+                    if !transport.healthy() {
+                        self.connected.store(false, Ordering::Relaxed);
+                        *transport = sftp::Sftp::connect(&self.connection, cancel)?;
+                    }
+                    let result = operation(&mut transport);
+                    self.connected.store(transport.healthy(), Ordering::Relaxed);
+                    return result;
+                }
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    anyhow::bail!("SSH connection closed; reconnect to continue")
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(std::time::Duration::from_millis(20))
+                }
+            }
+        }
+    }
+    pub fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Relaxed)
+    }
+    pub fn list(
+        &self,
+        path: &Path,
+        cancel: &Cancellation,
+    ) -> Result<(PathBuf, Vec<DirectoryEntry>)> {
+        self.with_transport(cancel, |transport| {
+            let path = transport.realpath(path, cancel)?;
+            let entries = transport.list(&path, cancel)?;
+            Ok((path, entries))
+        })
+    }
+    pub fn list_entries(&self, path: &Path, cancel: &Cancellation) -> Result<Vec<DirectoryEntry>> {
+        self.with_transport(cancel, |transport| transport.list(path, cancel))
+    }
+    pub fn search(
+        &self,
+        roots: &[PathBuf],
+        query: &str,
+        offset: usize,
+        cancel: &Cancellation,
+    ) -> Result<crate::workspace::SearchPage> {
+        let query = query.trim().to_lowercase();
+        let mut paths = Vec::new();
+        let mut skipped = 0;
+        let mut pending = roots.iter().rev().cloned().collect::<Vec<_>>();
+        let mut seen = std::collections::HashSet::new();
+        while let Some(directory) = pending.pop() {
+            cancel.check()?;
+            if !seen.insert(directory.clone()) {
+                continue;
+            }
+            for entry in self.list_entries(&directory, cancel)?.into_iter().rev() {
+                if entry.path.file_name().is_some_and(|name| name == ".git") {
+                    continue;
+                }
+                if entry.is_dir {
+                    if !entry.is_symlink {
+                        pending.push(entry.path);
+                    }
+                    continue;
+                }
+                if !entry.path.to_string_lossy().to_lowercase().contains(&query) {
+                    continue;
+                }
+                if skipped < offset {
+                    skipped += 1;
+                    continue;
+                }
+                if paths.len() == crate::limits::WORKSPACE_SEARCH_RESULTS {
+                    return Ok(crate::workspace::SearchPage { paths, more: true });
+                }
+                paths.push(entry.path);
+            }
+        }
+        Ok(crate::workspace::SearchPage { paths, more: false })
+    }
+    pub fn cache_path(&self, path: &Path) -> Result<PathBuf> {
+        ensure!(path.is_absolute(), "Remote path must be absolute");
+        let mut cache = self.cache.path().to_path_buf();
+        for component in path.components() {
+            match component {
+                Component::RootDir => {}
+                Component::Normal(name) => cache.push(name),
+                _ => anyhow::bail!("Invalid remote path"),
+            }
+        }
+        Ok(cache)
+    }
+    pub fn remote_path(&self, cached: &Path) -> Option<PathBuf> {
+        let relative = cached.strip_prefix(self.cache.path()).ok()?;
+        let mut path = PathBuf::from("/");
+        for component in relative.components() {
+            match component {
+                Component::Normal(name) => path.push(name),
+                Component::ParentDir => {
+                    path.pop();
+                }
+                _ => {}
+            }
+        }
+        Some(path)
+    }
+    pub fn download(&self, path: &Path, cancel: &Cancellation) -> Result<PathBuf> {
+        let target = self.cache_path(path)?;
+        std::fs::create_dir_all(target.parent().context("Invalid remote file path")?)?;
+        self.received.store(0, Ordering::Relaxed);
+        self.with_transport(cancel, |transport| {
+            transport.download(path, &target, &self.received, cancel)
+        })?;
+        Ok(target)
+    }
+    pub fn read_content(
+        &self,
+        path: &Path,
+        cancel: &Cancellation,
+    ) -> Result<crate::documents::Content> {
+        let target = self.download(path, cancel)?;
+        let content = crate::documents::read_content_cancellable(&target, cancel)?;
+        if matches!(content, crate::documents::Content::Sqlite(_)) {
+            for suffix in ["-wal", "-journal"] {
+                let sidecar = PathBuf::from(format!("{}{suffix}", path.display()));
+                if let Ok(cached) = self.cache_path(&sidecar) {
+                    let _ = std::fs::remove_file(cached);
+                }
+                let _ = self.download(&sidecar, cancel);
+                cancel.check()?;
+            }
+        }
+        if let crate::documents::Content::File(document) = &content {
+            let extension = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default();
+            let html =
+                extension.eq_ignore_ascii_case("html") || extension.eq_ignore_ascii_case("htm");
+            if html || document.kind == glim_core::DocumentKind::Markdown {
+                let base = url::Url::from_file_path(path)
+                    .map_err(|_| anyhow::anyhow!("Invalid remote document path"))?;
+                for uri in crate::markup_images::image_uris(&document.text, html) {
+                    cancel.check()?;
+                    let Ok(url) = base.join(&uri) else {
+                        continue;
+                    };
+                    if url.scheme() != "file" || url.host_str().is_some() {
+                        continue;
+                    }
+                    if let Ok(resource) = url.to_file_path()
+                        && resource != path
+                    {
+                        let _ = self.download(&resource, cancel);
+                    }
+                }
+            }
+        }
+        cancel.check()?;
+        Ok(content)
+    }
+}

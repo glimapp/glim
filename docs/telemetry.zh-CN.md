@@ -83,7 +83,7 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 
 `scope=main_process`、`includes_helpers=false`：不包含 WebKit 服务、渲染助手或转换子进程的独立内存。`gpu_counter_scope=metal_device_allocations`、`gpu_total_vram_available=false`：Metal 数值不是整机显存、独占显存、完整 GPU 驻留量或 GPU 使用率；API 返回零也不能证明没有 GPU 资源。不能将它与 RAM 相加。资源样本关联活动格式，但其他标签和缓存也占资源，不能宣称是该格式独自消耗的内存。缺失指标用可用性字段区分，不伪造零。
 
-`resource_sample` 另含区间计数 `diagram_image_cache_hits/misses`、`diagram_view_cache_hits/misses/pending` 和区间长度 `diagram_cache_interval_ms`。每层只统计消费者查找，排除发布和驻留检查；等待中的请求已经排队，不加入命中率分母，缓存错误预览的复用也算驻留命中。这些字段不依赖系统内存查询是否可用。采样重新开始时重置基线，不补发关闭统计或没有工作空间期间的查找。参见[缓存统计口径](reader-resources.zh-CN.md#图表缓存与命中率)。
+`resource_sample` 另含区间计数 `diagram_image_cache_hits/misses`、`diagram_view_cache_hits/misses/pending` 和区间长度 `diagram_cache_interval_ms`。每层只统计消费者查找，排除发布和驻留检查；等待中的请求已经排队，不加入命中率分母，缓存错误预览的复用也算驻留命中。这些字段不依赖系统内存查询是否可用。采样重新开始时重置基线，不补发关闭统计或没有工作区期间的查找。参见[缓存统计口径](reader-resources.zh-CN.md#图表缓存与命中率)。
 
 ### 滚动与快捷键
 

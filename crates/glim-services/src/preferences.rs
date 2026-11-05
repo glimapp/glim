@@ -118,11 +118,20 @@ pub fn remember_recent_workspace(mut workspace: RecentWorkspace) -> Result<Vec<R
     if workspace.name.is_none() {
         workspace.name = recent
             .iter()
-            .find(|e| e.id == workspace.id || e.folders == workspace.folders)
+            .find(|e| {
+                e.id == workspace.id
+                    || (!crate::remote::is_remote_id(&workspace.id)
+                        && !crate::remote::is_remote_id(&e.id)
+                        && e.folders == workspace.folders)
+            })
             .and_then(|e| e.name.clone());
     }
     recent.retain(|e| {
-        e.id != workspace.id && (workspace.folders.is_empty() || e.folders != workspace.folders)
+        e.id != workspace.id
+            && (crate::remote::is_remote_id(&workspace.id)
+                || crate::remote::is_remote_id(&e.id)
+                || workspace.folders.is_empty()
+                || e.folders != workspace.folders)
     });
     if !workspace.folders.is_empty() {
         recent.insert(0, workspace);

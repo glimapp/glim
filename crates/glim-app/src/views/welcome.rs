@@ -5,7 +5,7 @@ use gpui_kit::{
         ActiveTheme, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
-        menu::{ContextMenuExt, PopupMenuItem},
+        menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
         v_flex,
     },
     prelude::FluentBuilder,
@@ -119,6 +119,8 @@ pub fn welcome(
         .into_iter()
         .take(current.recent_visible())
         .collect::<Vec<_>>();
+    let locations = current.remote_locations(cx);
+    let location_owner = cx.entity().downgrade();
     let content = v_flex()
         .w_full()
         .max_w(px(860.))
@@ -147,15 +149,78 @@ pub fn welcome(
                 .w_full()
                 .gap_3()
                 .child(
-                    quick_action(
-                        "welcome-new-workspace",
-                        "Open New Workspace",
-                        "⌘⇧O",
-                        IconName::FolderOpen,
-                        0.5,
-                        cx,
-                    )
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFolder), cx)),
+                    h_flex()
+                        .flex_1()
+                        .flex_basis(relative(0.5))
+                        .min_w_0()
+                        .gap_1()
+                        .child(
+                            quick_action(
+                                "welcome-new-workspace",
+                                "Open Workspace…",
+                                "⌘⇧O",
+                                IconName::FolderOpen,
+                                1.0,
+                                cx,
+                            )
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(OpenFolder), cx)
+                            }),
+                        )
+                        .child(
+                            Button::new("welcome-workspace-location")
+                                .h(px(60.))
+                                .w(px(32.))
+                                .rounded(px(10.))
+                                .icon(IconName::ChevronDown)
+                                .tooltip(glim_services::locale::tr("Choose Workspace Location"))
+                                .accessibility_label(glim_services::locale::tr(
+                                    "Choose Workspace Location",
+                                ))
+                                .dropdown_menu(move |mut menu, _, _| {
+                                    menu = menu.item(
+                                        PopupMenuItem::new(glim_services::locale::tr("This Mac…"))
+                                            .on_click(|_, window, cx| {
+                                                window.dispatch_action(Box::new(OpenFolder), cx)
+                                            }),
+                                    );
+                                    if !locations.is_empty() {
+                                        menu = menu.separator();
+                                    }
+                                    for connection in &locations {
+                                        let connection = connection.clone();
+                                        let owner = location_owner.clone();
+                                        menu = menu.item(
+                                            PopupMenuItem::new(connection.label()).on_click(
+                                                move |_, window, cx| {
+                                                    let _ = owner.update(cx, |workspace, cx| {
+                                                        workspace.show_remote(
+                                                            Some(connection.clone()),
+                                                            false,
+                                                            false,
+                                                            window,
+                                                            cx,
+                                                        )
+                                                    });
+                                                },
+                                            ),
+                                        );
+                                    }
+                                    let owner = location_owner.clone();
+                                    menu.separator().item(
+                                        PopupMenuItem::new(glim_services::locale::tr(
+                                            "Add SSH Connection…",
+                                        ))
+                                        .on_click(
+                                            move |_, window, cx| {
+                                                let _ = owner.update(cx, |workspace, cx| {
+                                                    workspace.add_remote_connection(window, cx)
+                                                });
+                                            },
+                                        ),
+                                    )
+                                }),
+                        ),
                 )
                 .child(
                     quick_action(
@@ -207,7 +272,7 @@ pub fn welcome(
                     .child(v_flex().w_full().min_w_0().gap_1().children(
                         visible.into_iter().enumerate().map(|(index, workspace)| {
                             let title = workspace.title();
-                            let paths = workspace
+                            let mut paths = workspace
                                 .folders
                                 .iter()
                                 .map(|path| {
@@ -218,6 +283,22 @@ pub fn welcome(
                                 })
                                 .collect::<Vec<_>>()
                                 .join(" · ");
+                            let remote = cx
+                                .global::<crate::app::remote::Connections>()
+                                .catalog
+                                .workspaces
+                                .get(&workspace.id)
+                                .and_then(|descriptor| {
+                                    cx.global::<crate::app::remote::Connections>()
+                                        .catalog
+                                        .connections
+                                        .iter()
+                                        .find(|connection| connection.id == descriptor.connection)
+                                });
+                            if let Some(connection) = remote {
+                                paths = format!("{} · {paths}", connection.label());
+                            }
+                            let remote_icon = remote.is_some();
                             let is_current = current.matches_recent_workspace(&workspace);
                             let open = workspace.clone();
                             let new_window = workspace.clone();
@@ -250,14 +331,18 @@ pub fn welcome(
                                                 .items_center()
                                                 .gap_3()
                                                 .child(
-                                                    Icon::new(IconName::Folder)
-                                                        .size(px(17.))
-                                                        .text_color(if is_current {
-                                                            accent
-                                                        } else {
-                                                            cx.theme().muted_foreground
-                                                        })
-                                                        .flex_shrink_0(),
+                                                    Icon::new(if remote_icon {
+                                                        IconName::Globe
+                                                    } else {
+                                                        IconName::Folder
+                                                    })
+                                                    .size(px(17.))
+                                                    .text_color(if is_current {
+                                                        accent
+                                                    } else {
+                                                        cx.theme().muted_foreground
+                                                    })
+                                                    .flex_shrink_0(),
                                                 )
                                                 .child(
                                                     div()

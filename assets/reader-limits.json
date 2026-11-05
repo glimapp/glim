@@ -1349,7 +1349,7 @@
         "unit": "items",
         "effect": "page",
         "description": "Visible page/batch size; later search results or saved workspaces remain accessible through continuation controls.",
-        "description_zh": "可见页／批次大小，后续搜索结果或已保存工作空间可通过继续浏览入口访问。"
+        "description_zh": "可见页／批次大小，后续搜索结果或已保存工作区可通过继续浏览入口访问。"
       },
       "search_entries": {
         "value": null,
@@ -1365,7 +1365,7 @@
         "unit": "items",
         "effect": "page",
         "description": "Visible page/batch size; later search results or saved workspaces remain accessible through continuation controls.",
-        "description_zh": "可见页／批次大小，后续搜索结果或已保存工作空间可通过继续浏览入口访问。"
+        "description_zh": "可见页／批次大小，后续搜索结果或已保存工作区可通过继续浏览入口访问。"
       }
     },
     "update": {
@@ -1602,6 +1602,32 @@
         "effect": "budget",
         "description": "Shared target for reader working buffers. Producers using atomic reservations adapt their output window to remaining capacity before allocation; reservations follow retained results. Legacy tracked allocations count against availability but are not yet constrained by admission. Protected editing state and opaque framework allocations are separate.",
         "description_zh": "阅读器工作缓冲共享目标。使用原子预留的生产者在分配前按剩余容量缩小输出窗口，预留随驻留结果存活。旧路径已记账的分配占用可用容量，但尚未全部受准入约束。受保护的编辑状态与框架内部内存另计。"
+      }
+    },
+    "remote": {
+      "packet_bytes": {
+        "value": 1048576,
+        "type": "usize",
+        "unit": "bytes",
+        "effect": "budget",
+        "description": "Maximum active SFTP protocol packet; files are transferred as successive packets without a total-size limit.",
+        "description_zh": "单个活动 SFTP 协议包的预算；文件通过连续分块传输，不限制总大小。"
+      },
+      "transfer_bytes": {
+        "value": 32768,
+        "type": "u32",
+        "unit": "bytes",
+        "effect": "budget",
+        "description": "Bytes requested per SFTP read, independent of the total remote file size.",
+        "description_zh": "每次 SFTP 读取请求的字节数，与远端文件总大小无关。"
+      },
+      "diagnostic_bytes": {
+        "value": 16384,
+        "type": "usize",
+        "unit": "bytes",
+        "effect": "budget",
+        "description": "Tail of SSH diagnostics retained for connection failures; earlier output is discarded.",
+        "description_zh": "为连接失败保留的 SSH 诊断尾部预算，更早的输出会被丢弃。"
       }
     }
   }

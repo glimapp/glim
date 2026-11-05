@@ -13,6 +13,7 @@ pub(crate) mod reader_jobs;
 #[cfg(feature = "reader-measurements")]
 pub(crate) mod reader_measurement;
 pub(crate) mod recovery;
+pub(crate) mod remote;
 mod shortcuts;
 pub(crate) mod spreadsheet_prepare;
 pub(crate) mod telemetry;
@@ -118,8 +119,11 @@ pub(crate) fn remember_named_workspace(
             .background_executor()
             .spawn(async move {
                 let folders = workspace.folders.clone();
+                let remote = glim_services::remote::is_remote_id(&workspace.id);
                 let recent = glim_services::preferences::remember_recent_workspace(workspace)?;
-                glim_services::preferences::save_workspace_folders(&folders)?;
+                if !remote {
+                    glim_services::preferences::save_workspace_folders(&folders)?;
+                }
                 anyhow::Ok(recent)
             })
             .await;
@@ -336,6 +340,9 @@ pub fn print_build_info() {
 }
 
 pub fn run() -> Result<()> {
+    if std::env::var_os("GLIM_SSH_ASKPASS").is_some() {
+        return remote::askpass();
+    }
     #[cfg(feature = "reader-measurements")]
     let startup = reader_measurement::StartupMeasurement::start();
     glim_services::diagnostics::initialize()?;
@@ -356,6 +363,10 @@ pub fn run() -> Result<()> {
     glim_services::storage::initialize()?;
     let language = glim_services::preferences::language().unwrap_or_else(|| "system".into());
     glim_services::locale::set(&language);
+    let remote_catalog = glim_services::remote::load_catalog().unwrap_or_else(|error| {
+        log::error!("Cannot load SSH connections: {error:#}");
+        Default::default()
+    });
     let saved_sessions = glim_services::preferences::workspace_sessions().unwrap_or_else(|error| {
         log::error!("Cannot restore workspace files: {error:#}");
         Default::default()
@@ -400,6 +411,10 @@ pub fn run() -> Result<()> {
             startup.observe(cx);
         }
         gpui_kit::init(cx);
+        cx.set_global(remote::Connections {
+            catalog: remote_catalog,
+            write: None,
+        });
         finder_integration::init(cx);
         telemetry::initialize(cx);
         cx.set_quit_mode(QuitMode::Explicit);
@@ -436,6 +451,7 @@ pub fn run() -> Result<()> {
             let recovery = recovery::shutdown(cx);
             let pending = cx.global_mut::<ExplorerSaveTask>().0.take();
             let workspace = cx.global_mut::<WorkspaceSaveTask>().0.take();
+            let remote_connections = cx.global_mut::<remote::Connections>().write.take();
             let sessions = cx
                 .global_mut::<workspace_sessions::SavedWorkspaces>()
                 .write
@@ -454,6 +470,9 @@ pub fn run() -> Result<()> {
                 }
                 if let Some(workspace) = workspace {
                     workspace.await;
+                }
+                if let Some(connections) = remote_connections {
+                    connections.await;
                 }
                 if let Some(sessions) = sessions {
                     sessions.await;

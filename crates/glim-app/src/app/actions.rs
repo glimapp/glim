@@ -24,6 +24,8 @@ gpui_kit::actions!(
         Quit,
         OpenFile,
         OpenFolder,
+        OpenRemote,
+        ManageConnections,
         AddFolder,
         SaveFile,
         Refresh,

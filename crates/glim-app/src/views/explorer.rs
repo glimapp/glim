@@ -90,6 +90,7 @@ enum FileMenuAction {
 
 /// Only expanded directories are loaded, and only visible rows are rendered.
 pub struct Explorer {
+    remote: Option<glim_services::remote::Session>,
     roots: Vec<PathBuf>,
     root_ids: Vec<u64>,
     next_root_id: u64,
@@ -132,6 +133,7 @@ impl Explorer {
 
     pub fn new(root: PathBuf, entries: Vec<DirectoryEntry>, cx: &mut Context<Self>) -> Self {
         let mut view = Self {
+            remote: None,
             roots: vec![root.clone()],
             root_ids: vec![0],
             next_root_id: 1,
@@ -160,6 +162,9 @@ impl Explorer {
         };
         view.rebuild();
         view
+    }
+    pub fn set_remote(&mut self, remote: Option<glim_services::remote::Session>) {
+        self.remote = remote;
     }
 
     pub fn add_folder(
@@ -332,6 +337,9 @@ impl Explorer {
     }
 
     fn toggle_all_folders(&mut self, root_id: u64, cx: &mut Context<Self>) {
+        if self.remote.is_some() {
+            return;
+        }
         let Some(root_index) = self.root_ids.iter().position(|id| *id == root_id) else {
             return;
         };
@@ -601,10 +609,14 @@ impl Explorer {
             return;
         }
         let read_path = path.clone();
+        let remote = self.remote.clone();
         let (cancel, guard) = glim_services::work::Cancellation::task();
-        let read = cx
-            .background_executor()
-            .spawn(async move { list_directory_cancellable(&read_path, &cancel) });
+        let read = cx.background_executor().spawn(async move {
+            match remote {
+                Some(remote) => remote.list_entries(&read_path, &cancel),
+                None => list_directory_cancellable(&read_path, &cancel),
+            }
+        });
         let key = path.clone();
         let task = cx.spawn(async move |view, cx| {
             let _guard = guard;
@@ -696,6 +708,9 @@ impl Explorer {
     }
 
     fn check_folder_media(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if self.remote.is_some() {
+            return;
+        }
         if self.media_presence.contains_key(&path) || self.media_tasks.contains_key(&path) {
             return;
         }
@@ -1020,7 +1035,7 @@ impl Explorer {
                         );
                     })),
             )
-            .when(row.depth == 0, |entry| {
+            .when(row.depth == 0 && self.remote.is_none(), |entry| {
                 let label = glim_services::locale::tr(if expanded {
                     "Collapse all folders"
                 } else {
@@ -1179,6 +1194,9 @@ impl Explorer {
                 (None, None),
                 (Some("Remove Folder from Workspace"), Some(RemoveFolder(id))),
             ]);
+        }
+        if self.remote.is_some() {
+            items.retain(|(_, action)| !matches!(action, Some(NewFile | Play(_) | Reveal | Trash)));
         }
         let titles = items
             .iter()

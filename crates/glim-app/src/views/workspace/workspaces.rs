@@ -151,14 +151,17 @@ impl Workspace {
     }
 
     pub(super) fn remember_current_workspace(&mut self, cx: &mut Context<Self>) {
+        self.remember_remote(cx);
         if self.workspace_name.is_none() {
             self.workspace_name = cx
                 .try_global::<crate::app::RecentWorkspaces>()
                 .and_then(|history| {
-                    history
-                        .0
-                        .iter()
-                        .find(|workspace| workspace.folders == self.roots)
+                    history.0.iter().find(|workspace| {
+                        workspace.id == self.recent_id
+                            || (!glim_services::remote::is_remote_id(&self.recent_id)
+                                && !glim_services::remote::is_remote_id(&workspace.id)
+                                && workspace.folders == self.roots)
+                    })
                 })
                 .and_then(|workspace| workspace.name.clone());
         }

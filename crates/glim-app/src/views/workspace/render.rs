@@ -1,9 +1,9 @@
 use super::{DEFAULT_SIDEBAR_RATIO, Page, SIDEBAR_COLLAPSE_WIDTH, Workspace};
 use crate::{
     app::actions::{
-        AddFolder, CloseWindow, CloseWorkspace, NavigateBack, NavigateForward, NewFile, NextTab,
-        OpenFile, OpenFolder, OpenSettings, PreviousTab, Refresh, SaveFile, SearchWorkspace,
-        TogglePreview, ToggleSidebar, ToggleWordWrap,
+        AddFolder, CloseWindow, CloseWorkspace, ManageConnections, NavigateBack, NavigateForward,
+        NewFile, NextTab, OpenFile, OpenFolder, OpenRemote, OpenSettings, PreviousTab, Refresh,
+        SaveFile, SearchWorkspace, TogglePreview, ToggleSidebar, ToggleWordWrap,
     },
     views::welcome::welcome,
 };
@@ -181,6 +181,21 @@ impl Render for Workspace {
                 self.page == Page::Document && !self.tabs.is_empty() && !self.file_fullscreen,
                 |view| view.child(tab_bar),
             )
+            .when(document_page && glim_services::remote::is_remote_id(&self.recent_id), |view| {
+                let connection = self.remote_connection(cx).map(|connection| connection.label()).unwrap_or_default();
+                let mut status = format!("{} · {}", glim_services::locale::tr("Remote · Read-only"), connection);
+                if self.remote_disconnected { status.push_str(&format!(" · {}", glim_services::locale::tr("Disconnected"))); }
+                if self.loading {
+                    let received = self.remote.as_ref().map(|session| session.received.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or_default();
+                    status.push_str(&format!(" · {} {:.1} MiB", glim_services::locale::tr("Downloading…"), received as f64 / (1024. * 1024.)));
+                }
+                view.child(h_flex().px_3().py_1().gap_2().items_center()
+                    .child(div().flex_1().min_w_0().truncate().text_xs().text_color(cx.theme().muted_foreground).child(status))
+                    .when(self.loading, |row| row.child(Button::new("cancel-remote-read").small().ghost().label(glim_services::locale::tr("Cancel Download"))
+                        .on_click(cx.listener(|view, _, _, cx| { view.load_task = None; view.remote_progress_task = None; view.loading = false; view.remote_disconnected = view.remote.is_none() || view.remote_restore.is_some(); cx.notify(); }))))
+                    .when(!self.loading, |row| row.child(Button::new("reconnect-remote").small().ghost().label(glim_services::locale::tr(if self.remote_disconnected { "Reconnect" } else { "Refresh" }))
+                        .on_click(cx.listener(|view, _, window, cx| view.refresh_remote(window, cx))))))
+            })
             .when(!self.file_fullscreen && document_page && !self.csv_hint_dismissed
                 && self.active_reader().is_some_and(|reader| reader.is_csv() && reader.mode() == glim_core::ReaderMode::Source), |view| {
                 view.child(h_flex().w_full().gap_3().px_3().py_1().items_center()
@@ -320,6 +335,7 @@ impl Render for Workspace {
                     )
                     .child(
                         Button::new("workspace-new-file")
+                            .disabled(glim_services::remote::is_remote_id(&self.recent_id))
                             .custom(workspace_action_style)
                             .small()
                             .icon(gpui_kit::assets::IconName::FilePlus)
@@ -334,7 +350,10 @@ impl Render for Workspace {
                             .custom(workspace_action_style)
                             .small()
                             .icon(gpui_kit::assets::IconName::FolderPlus)
-                            .disabled(self.roots.is_empty())
+                            .disabled(
+                                self.roots.is_empty()
+                                    || glim_services::remote::is_remote_id(&self.recent_id),
+                            )
                             .tooltip(glim_services::locale::tr("New Folder…"))
                             .accessibility_label(glim_services::locale::tr("New Folder…"))
                             .on_click(cx.listener(|view, _, window, cx| {
@@ -605,6 +624,12 @@ impl Render for Workspace {
             .on_action(cx.listener(|v, _: &NewFile, w, cx| v.choose_new_file(w, cx)))
             .on_action(cx.listener(|v, _: &OpenFile, w, cx| v.choose_path(false, w, cx)))
             .on_action(cx.listener(|v, _: &OpenFolder, w, cx| v.choose_path(true, w, cx)))
+            .on_action(
+                cx.listener(|v, _: &OpenRemote, w, cx| v.show_remote(None, false, false, w, cx)),
+            )
+            .on_action(cx.listener(|v, _: &ManageConnections, w, cx| {
+                v.show_remote(None, true, false, w, cx)
+            }))
             .on_action(cx.listener(|v, _: &Refresh, w, cx| v.refresh(w, cx)))
             .on_action(cx.listener(|v, _: &SaveFile, w, cx| v.save_active(w, cx)))
             .on_action(cx.listener(|v, _: &CloseWindow, w, cx| {

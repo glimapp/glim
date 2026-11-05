@@ -29,6 +29,27 @@ impl Workspace {
         }
     }
     fn session_snapshot(&self, cx: &App) -> WorkspaceSession {
+        if let Some(pending) = &self.remote_restore {
+            let mut session = pending.clone();
+            session.name = self.workspace_name.clone();
+            session.show_home = self.is_home();
+            for reader in &self.tabs {
+                let tab = reader.session_tab(cx);
+                let path = |tab: &SessionTab| match tab {
+                    SessionTab::File { path, .. } | SessionTab::Playlist { path, .. } => {
+                        path.clone()
+                    }
+                };
+                if !session
+                    .tabs
+                    .iter()
+                    .any(|existing| path(existing) == path(&tab))
+                {
+                    session.tabs.push(tab);
+                }
+            }
+            return session;
+        }
         WorkspaceSession {
             roots: self.roots.clone(),
             tabs: self
@@ -109,6 +130,38 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(descriptor) = cx
+            .try_global::<crate::app::remote::Connections>()
+            .and_then(|state| {
+                session
+                    .workspace_id
+                    .as_ref()
+                    .and_then(|id| state.catalog.workspaces.get(id))
+            })
+            .cloned()
+        {
+            self.restore_remote_workspace(session, descriptor, window, cx);
+            return;
+        }
+        if session
+            .workspace_id
+            .as_deref()
+            .is_some_and(glim_services::remote::is_remote_id)
+        {
+            self.remote_restore = Some(session.clone());
+            self.recent_id = session.workspace_id.unwrap_or_default();
+            self.roots = session.roots;
+            self.workspace_name = session.name;
+            self.page = super::Page::Document;
+            self.remote_disconnected = true;
+            self.error = Some(
+                glim_services::locale::tr(
+                    "SSH connection was removed. Open a folder using an available connection.",
+                )
+                .into(),
+            );
+            return;
+        }
         if let Some(id) = &session.workspace_id {
             self.recent_id = id.clone();
         }

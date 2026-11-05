@@ -180,7 +180,15 @@ impl super::Workspace {
         let Some(reader) = self.active_reader().filter(|r| r.is_archive()) else {
             return;
         };
-        let path = reader.document.path.clone();
+        let path = if let Some(remote) = &reader.document.remote {
+            match remote.cache_path(&reader.document.path) {
+                Ok(path) => path,
+                Err(_) => return,
+            }
+        } else {
+            reader.document.path.clone()
+        };
+        let remote_lease = reader.document.remote.clone();
         self.picking = true;
         let selection = cx.prompt_for_paths(PathPromptOptions {
             files: false,
@@ -189,6 +197,7 @@ impl super::Workspace {
             prompt: Some(glim_services::locale::tr("Choose extraction location").into()),
         });
         self.picker_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let _remote_lease = remote_lease;
             let outcome = selection.await;
             let parent = match outcome {
                 Ok(Ok(Some(paths))) => paths.into_iter().next(),

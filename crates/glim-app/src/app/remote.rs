@@ -1,0 +1,89 @@
+use glim_services::remote::Catalog;
+use gpui_kit::*;
+
+#[derive(Default)]
+pub(crate) struct Connections {
+    pub catalog: Catalog,
+    pub write: Option<Task<()>>,
+}
+impl Global for Connections {}
+pub(crate) fn connection_in_use(id: &str, cx: &App) -> bool {
+    let catalog = &cx.global::<Connections>().catalog;
+    super::OpenWorkspaces::windows(cx).iter().any(|(view, _)| {
+        view.upgrade().is_some_and(|view| {
+            let workspace_id = view.read(cx).workspace_descriptor().id;
+            catalog
+                .workspaces
+                .get(&workspace_id)
+                .is_some_and(|workspace| workspace.connection == id)
+        })
+    })
+}
+
+pub(crate) fn persist(cx: &mut App) {
+    let state = cx.global_mut::<Connections>();
+    let catalog = state.catalog.clone();
+    let previous = state.write.take();
+    let task = cx.spawn(async move |cx| {
+        if let Some(previous) = previous {
+            previous.await;
+        }
+        if let Err(error) = cx
+            .background_executor()
+            .spawn(async move { glim_services::remote::save_catalog(&catalog) })
+            .await
+        {
+            log::error!("Cannot save SSH connections: {error:#}");
+            cx.update(|cx| {
+                for window in cx.windows() {
+                    let message = glim_services::locale::tr("Cannot save SSH connections");
+                    let _ = window.update(cx, |_, window, cx| {
+                        use gpui_kit::component::WindowExt;
+                        window.push_notification(message, cx);
+                    });
+                }
+            });
+        }
+    });
+    cx.global_mut::<Connections>().write = Some(task);
+    cx.refresh_windows();
+}
+
+/// OpenSSH launches this executable as its askpass helper, before GPUI startup.
+pub(crate) fn askpass() -> anyhow::Result<()> {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    glim_services::locale::initialize();
+    let question = std::env::args().nth(1).unwrap_or_default();
+    let confirmation = std::env::var("SSH_ASKPASS_PROMPT").as_deref() == Ok("confirm")
+        || question.contains("yes/no");
+    let script = if confirmation {
+        "on run argv\nset result to display dialog (item 1 of argv) with title \"Glim · SSH\" buttons {item 2 of argv, item 3 of argv} default button 2 cancel button 1\nreturn \"yes\"\nend run"
+    } else {
+        "on run argv\nset result to display dialog (item 1 of argv) with title \"Glim · SSH\" default answer \"\" with hidden answer buttons {item 2 of argv, item 3 of argv} default button 2 cancel button 1\nreturn text returned of result\nend run"
+    };
+    let mut child = Command::new("/usr/bin/osascript")
+        .args([
+            "-",
+            &question,
+            &glim_services::locale::tr("Cancel"),
+            &glim_services::locale::tr("Connect"),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .expect("piped AppleScript input")
+        .write_all(script.as_bytes())?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        std::process::exit(1);
+    }
+    std::io::stdout().write_all(&output.stdout)?;
+    Ok(())
+}

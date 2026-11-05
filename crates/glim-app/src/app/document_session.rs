@@ -12,6 +12,7 @@ pub(crate) struct DocumentVersion {
 }
 
 pub(crate) struct DocumentSession {
+    pub remote: Option<glim_services::remote::Session>,
     pub path: PathBuf,
     pub edit: Option<super::edit_session::EditSession>,
     pub snapshot: ContentSnapshot,
@@ -23,6 +24,7 @@ impl DocumentSession {
     pub fn new(path: PathBuf, snapshot: ContentSnapshot) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         Self {
+            remote: None,
             path,
             edit: None,
             snapshot,
@@ -46,6 +48,7 @@ impl DocumentSession {
         self.version.revision += 1;
     }
     pub fn inherit_identity(&mut self, previous: &Self) {
+        self.remote = previous.remote.clone();
         self.version = previous.version;
         self.version.revision += 1;
         self.recovery_key.clone_from(&previous.recovery_key);

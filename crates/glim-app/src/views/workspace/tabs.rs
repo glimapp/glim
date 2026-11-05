@@ -140,6 +140,18 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(remote) = reader.document.remote.clone() {
+            self.remote = Some(remote);
+            self.recent_id = format!("ssh-workspace-detached-{}", self.recent_id);
+            self.roots = reader
+                .document
+                .path
+                .parent()
+                .map(|path| vec![path.to_path_buf()])
+                .unwrap_or_default();
+            self.root = self.roots.first().cloned();
+            self.remember_remote(cx);
+        }
         self.workspace_name = Some(
             reader
                 .document
@@ -198,6 +210,7 @@ impl Workspace {
             );
             self.page = super::Page::Document;
             self.load_task = None;
+            self.remote_progress_task = None;
             self.loading = false;
             self.load_incoming_file(window, cx);
             self.active = Some(index);
@@ -311,8 +324,10 @@ impl Workspace {
         actions.push(Some(TabMenuAction::Detach(target.clone())));
         if self.tabs[index].document.draft_directory.is_none() {
             let path = self.tabs[index].document.path.clone();
-            items.push((Some(glim_services::locale::tr("Reveal in Finder")), true));
-            actions.push(Some(TabMenuAction::Reveal(path.clone())));
+            if self.tabs[index].document.remote.is_none() {
+                items.push((Some(glim_services::locale::tr("Reveal in Finder")), true));
+                actions.push(Some(TabMenuAction::Reveal(path.clone())));
+            }
             items.push((Some(glim_services::locale::tr("Copy Absolute Path")), true));
             let relative = self
                 .roots
@@ -350,7 +365,7 @@ impl Workspace {
             actions.push(Some(TabMenuAction::Close(targets)));
         }
         let reader = &self.tabs[index];
-        if reader.document.draft_directory.is_none() {
+        if reader.document.draft_directory.is_none() && reader.document.remote.is_none() {
             items.push((None, true));
             actions.push(None);
             items.push((Some(glim_services::locale::tr("Move to Trash…")), true));

@@ -114,6 +114,11 @@ impl Workspace {
             .accessibility_label(glim_services::locale::tr("Finder Integration"))
             .on_click(|_, _, cx| crate::app::finder_integration::manage(cx))
             .into_any_element();
+        let connections = action_button("settings-ssh", "Manage…")
+            .on_click(
+                cx.listener(|view, _, window, cx| view.show_remote(None, true, false, window, cx)),
+            )
+            .into_any_element();
         let updates = action_button("settings-updates", crate::app::updates::check_label(cx))
             .disabled(crate::app::updates::busy(cx))
             .accessibility_label(glim_services::locale::tr("Check for Updates…"))
@@ -189,7 +194,7 @@ impl Workspace {
                             "Finder Integration",
                             "Open folders as workspaces from the Finder context menu.",
                             finder,
-                        )))
+                        )).child(divider()).child(row("SSH Connections", "", connections)))
                         .child(heading("Application").mt_3())
                         .child(
                             group()

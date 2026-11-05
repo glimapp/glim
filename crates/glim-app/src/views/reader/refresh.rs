@@ -25,7 +25,10 @@ impl Reader {
     }
 
     pub(crate) fn refresh_request(&self, force: bool, cx: &App) -> Option<RefreshRequest> {
-        if self.document.draft_directory.is_some() || self.is_dirty() {
+        if self.document.remote.is_some()
+            || self.document.draft_directory.is_some()
+            || self.is_dirty()
+        {
             return None;
         }
         let path = self.document.path.clone();
