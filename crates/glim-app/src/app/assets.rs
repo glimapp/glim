@@ -43,7 +43,21 @@ gpui_kit::assets::icon_assets!(
         Folder,
         FolderPlus,
         Folders,
-        PanelsTopLeft
+        PanelsTopLeft,
+        ArrowUp,
+        Bookmark,
+        ChevronLeft,
+        ChevronsLeft,
+        ChevronsRight,
+        CircleAlert,
+        CircleCheck,
+        Copy,
+        Globe,
+        Maximize,
+        RotateCcw,
+        RotateCw,
+        ZoomIn,
+        ZoomOut,
     ]
 );
 

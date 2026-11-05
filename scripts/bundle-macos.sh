@@ -6,6 +6,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
     echo 'The app bundle requires macOS.' >&2
     exit 1
 fi
+python3 scripts/check-icons.py
 build_profile="${1:-release}"
 build_target="${2:-}"
 cargo_args=(build --locked)
