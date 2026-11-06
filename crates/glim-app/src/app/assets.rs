@@ -86,6 +86,11 @@ impl AssetSource for Assets {
             return Ok(Some(Cow::Borrowed(bytes)));
         }
         match path {
+            "navigation/github.svg" => {
+                return Ok(Some(Cow::Borrowed(include_bytes!(
+                    "../../../../assets/navigation/github.svg"
+                ))));
+            }
             "navigation/appearance.svg" => {
                 return Ok(Some(Cow::Borrowed(include_bytes!(
                     "../../../../assets/navigation/appearance.svg"

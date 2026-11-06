@@ -20,45 +20,6 @@ enum PreferenceChoice {
     Language(&'static str),
 }
 
-pub(super) fn prompt_telemetry_consent(window: &mut Window, cx: &mut App) {
-    use crate::app::telemetry::{self, Telemetry};
-    use glim_services::{locale::tr, telemetry::Consent};
-    if !cx
-        .try_global::<Telemetry>()
-        .is_some_and(|state| state.needs_consent)
-    {
-        return;
-    }
-    cx.global_mut::<Telemetry>().needs_consent = false;
-    let response = window.prompt(
-        PromptLevel::Info,
-        &tr("Help improve Glim"),
-        Some(&tr("Error diagnostics help the developer fix failures and crashes. Usage statistics measure active installations, formats and features using a random installation ID that links sessions. Neither includes document contents or paths. Both are optional and can be changed independently in Settings.")),
-        &[
-            PromptButton::ok(tr("Error diagnostics only")),
-            PromptButton::new(tr("Enable both")),
-            PromptButton::cancel(tr("Not now")),
-        ],
-        cx,
-    );
-    cx.global_mut::<Telemetry>().consent_prompt = Some(cx.spawn(async move |cx| {
-        let choice = response.await;
-        cx.update(|cx| {
-            if let Ok(choice) = choice {
-                telemetry::set_consent(
-                    Consent {
-                        usage: choice == 1,
-                        diagnostics: choice == 0 || choice == 1,
-                    },
-                    cx,
-                );
-            } else {
-                cx.global_mut::<Telemetry>().needs_consent = true;
-            }
-        });
-    }));
-}
-
 fn preference_picker(
     id: &'static str,
     label: &'static str,
@@ -220,7 +181,6 @@ impl Workspace {
         let information = |label: &'static str, value: String| {
             h_flex()
                 .w_full()
-                .min_h(px(36.))
                 .gap_4()
                 .text_sm()
                 .child(
@@ -259,7 +219,6 @@ impl Workspace {
         let telemetry = cx.global::<crate::app::telemetry::Telemetry>();
         let privacy_status = h_flex()
             .w_full()
-            .min_h(px(36.))
             .gap_2()
             .text_xs()
             .text_color(cx.theme().muted_foreground)
@@ -308,6 +267,7 @@ impl Workspace {
                                 .child(divider())
                                 .child(row("Keyboard Shortcuts…", "", shortcuts)),
                         )
+                        .child(self.integrations.clone())
                         .child(heading("Help improve Glim").mt_3())
                         .child(group()
                             .child(row("Error diagnostics", "Help the developer find failures and fix crashes. Sends sanitized error types, application source locations and version information.", diagnostics))
@@ -324,8 +284,7 @@ impl Workspace {
                             } else {
                                 "https://github.com/glimapp/glim/blob/main/docs/privacy.md"
                             }))))
-                        .child(privacy_status)
-                        .child(self.integrations.clone())
+                        .when(telemetry.persistence_error || telemetry.saving, |view| view.child(privacy_status))
                         .child(heading("About").mt_3())
                         .child(about),
                 ),

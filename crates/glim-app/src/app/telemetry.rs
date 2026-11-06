@@ -4,10 +4,8 @@ use gpui_kit::*;
 #[derive(Default)]
 pub(crate) struct Telemetry {
     pub consent: Consent,
-    pub needs_consent: bool,
     pub persistence_error: bool,
     pub saving: bool,
-    pub consent_prompt: Option<Task<()>>,
     report: Option<Task<()>>,
     cancel: Option<glim_services::work::CancelOnDrop>,
     save: Option<Task<()>>,
@@ -18,12 +16,17 @@ impl Global for Telemetry {}
 
 pub(crate) fn initialize(stored: anyhow::Result<Option<Consent>>, cx: &mut App) {
     let persistence_error = stored.is_err();
-    let needs_consent = matches!(stored, Ok(None));
-    let consent = stored.ok().flatten().unwrap_or_default();
+    let consent = match stored {
+        Ok(Some(consent)) => consent,
+        Ok(None) => Consent {
+            usage: true,
+            diagnostics: true,
+        },
+        Err(_) => Consent::default(),
+    };
     crate::views::set_native_telemetry_consent(consent);
     cx.set_global(Telemetry {
         consent,
-        needs_consent,
         persistence_error,
         ..Default::default()
     });
@@ -83,7 +86,6 @@ pub(crate) fn set_consent(consent: Consent, cx: &mut App) {
 }
 pub(crate) fn persist(cx: &mut App) {
     let state = cx.global_mut::<Telemetry>();
-    state.needs_consent = false;
     state.saving = true;
     state.persistence_error = false;
     state.save_revision += 1;

@@ -171,7 +171,7 @@ impl Workspace {
                                 let unavailable = view.tabs[index].is_unavailable();
                                 let failure = glim_services::documents::ReadFailure::from(&error);
                                 log::warn!("Cannot refresh {}: {error:#}", path.display());
-                                if force || !unavailable {
+                                if !unavailable {
                                     failures.push((path.clone(), failure.kind, !unavailable));
                                 }
                                 // A failed refresh must never replace readable or edited content.

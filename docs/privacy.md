@@ -23,9 +23,9 @@ Ebooks do not fetch remote images or execute active content. Offline diagram eng
 
 ## How do I choose what to share?
 
-Settings → Help improve Glim has independent **Error diagnostics** and **Usage statistics** switches. On an installation with no recorded choice, Glim waits for a first-use decision: diagnostics only, both, or neither. Error diagnostics help the developer locate failures and fix crashes without collecting feature-use history. Either choice can be changed later; declining does not restrict file viewing or editing.
+Settings → Help improve Glim has independent **Error diagnostics** and **Usage statistics** switches. Both options are enabled by default on installations with no recorded choice; there is no startup prompt. Disable either option in Settings at any time. Error diagnostics help the developer locate failures and fix crashes without collecting feature-use history. Either choice can be changed later; declining does not restrict file viewing or editing.
 
-An explicit old combined-switch choice is preserved for both new switches. An old installation with no saved choice receives the same first-use prompt as a new installation. Unreadable preferences disable both channels. Choices are stored together; a save failure is shown in Settings with a retry action, and the live choices still apply for the current run.
+An explicit old combined-switch choice is preserved for both new switches. An old installation with no saved choice uses the same defaults as a new installation. Unreadable preferences disable both channels. Choices are stored together; a save failure is shown in Settings with a retry action, and the live choices still apply for the current run.
 
 ## What do usage statistics send?
 

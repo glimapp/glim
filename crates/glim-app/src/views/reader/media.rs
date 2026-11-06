@@ -675,12 +675,9 @@ impl UnavailableReader {
         }
     }
     pub fn render(&self, cx: &mut App) -> AnyElement {
-        use crate::app::actions::{CloseWindow, Refresh};
+        use crate::app::actions::CloseWindow;
         use glim_services::locale::tr;
-        use gpui_kit::component::{
-            Sizable, button::ButtonCustomVariant, clipboard::Clipboard, tooltip::Tooltip,
-        };
-        let accent = crate::views::accent(cx);
+        use gpui_kit::component::{Sizable, tooltip::Tooltip};
         let (title, explanation) = match self.reason.kind {
             ReadFailureKind::NotFound => (
                 "File not found",
@@ -688,14 +685,14 @@ impl UnavailableReader {
             ),
             ReadFailureKind::PermissionDenied => (
                 "Permission needed",
-                Some("Check read permissions in Finder, then retry."),
+                Some("Check this file’s permissions in Finder, then try again."),
             ),
             ReadFailureKind::Other => ("Cannot open this file", None),
         };
         let url = self.issue_url.clone();
         let detail = self.reason.detail.clone();
         let path = self.path.display().to_string();
-        let path_hint = path.clone();
+        let path_hint = path;
         let filename = self
             .path
             .file_name()
@@ -762,13 +759,6 @@ impl UnavailableReader {
                                                 Tooltip::new(path_hint.clone()).build(window, cx)
                                             }),
                                     ),
-                            )
-                            .child(
-                                Clipboard::new("copy-unavailable-path")
-                                    .with_size(px(28.))
-                                    .tooltip(tr("Copy path"))
-                                    .accessibility_label(tr("Copy path"))
-                                    .value(path),
                             ),
                     )
                     .when_some(explanation, |view, explanation| {
@@ -780,28 +770,21 @@ impl UnavailableReader {
                                 .child(tr(explanation)),
                         )
                     })
+                    .when(self.reason.kind == ReadFailureKind::Other, |view| {
+                        view.child(
+                            div()
+                                .min_w_0()
+                                .text_size(px(13.))
+                                .whitespace_normal()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(detail),
+                        )
+                    })
                     .child(
                         h_flex()
                             .w_full()
                             .flex_wrap()
                             .gap_2()
-                            .child(
-                                Button::new("retry-unavailable")
-                                    .custom(
-                                        ButtonCustomVariant::new(cx)
-                                            .color(accent)
-                                            .foreground(cx.theme().background)
-                                            .hover(accent.opacity(0.9))
-                                            .active(accent.opacity(0.8)),
-                                    )
-                                    .small()
-                                    .h(px(30.))
-                                    .px_3()
-                                    .label(tr("Retry"))
-                                    .on_click(|_, window, cx| {
-                                        window.dispatch_action(Box::new(Refresh), cx)
-                                    }),
-                            )
                             .child(
                                 Button::new("close-unavailable")
                                     .small()
@@ -815,20 +798,19 @@ impl UnavailableReader {
                             .child(div().flex_1())
                             .when(self.reason.kind == ReadFailureKind::Other, |row| {
                                 row.child(
-                                    Clipboard::new("copy-read-error")
-                                        .with_size(px(28.))
-                                        .tooltip(tr("Copy error details"))
-                                        .accessibility_label(tr("Copy error details"))
-                                        .value(detail),
-                                )
-                                .child(
-                                    crate::views::icon_button(
-                                        "unsupported-issue",
-                                        gpui_kit::assets::IconName::ArrowUpRight,
-                                        tr("Report an issue on GitHub"),
-                                    )
-                                    .ghost()
-                                    .on_click(move |_, _, cx| cx.open_url(&url)),
+                                    Button::new("unsupported-issue")
+                                        .small()
+                                        .w(px(28.))
+                                        .h(px(28.))
+                                        .icon(
+                                            gpui_kit::component::Icon::default()
+                                                .path("navigation/github.svg")
+                                                .size(px(16.)),
+                                        )
+                                        .tooltip(tr("Report an issue on GitHub"))
+                                        .accessibility_label(tr("Report an issue on GitHub"))
+                                        .ghost()
+                                        .on_click(move |_, _, cx| cx.open_url(&url)),
                                 )
                             }),
                     ),

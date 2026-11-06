@@ -218,7 +218,7 @@ pub fn save_language(language: &str) -> Result<()> {
     anyhow::ensure!(crate::locale::supported(language), "Unknown language");
     set("language", language)
 }
-/// No stored choice requires consent; callers fail closed on unreadable data.
+/// A missing choice lets the app apply its defaults; unreadable data fails closed.
 pub fn telemetry_consent() -> Result<Option<crate::telemetry::Consent>> {
     telemetry_consent_in(&storage::open()?)
 }
