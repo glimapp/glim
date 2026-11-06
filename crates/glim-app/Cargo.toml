@@ -26,6 +26,7 @@ reader-measurements = ["gpui-kit/profiler"]
 
 [dependencies]
 log = "0.4"
+futures-channel = "0.3"
 glim-core.workspace = true
 glim-services.workspace = true
 gpui-kit.workspace = true

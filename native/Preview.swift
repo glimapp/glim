@@ -735,6 +735,10 @@ final class MediaPreparation {
     }
 }
 
+enum PDFReloadOutcome {
+    case applied, cancelled, notFound, permissionDenied, invalidDocument, locked
+}
+
 final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private var findBar: ReaderFindBar?
     private var pdfFind: PDFReaderFind?
@@ -761,9 +765,11 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     lazy var playerView = AVPlayerView()
     lazy var pdfView = ReaderPDFView()
     var pdfSlideshow: PDFSlideshow?
-    private let pdfReloadQueue = DispatchQueue(label: "glim.pdf.reload", qos: .userInitiated)
+    private static let pdfReloadQueue = DispatchQueue(label: "glim.pdf.reload", qos: .userInitiated)
     private var pdfReloadGeneration = 0
     private var pdfReloadWork: DispatchWorkItem?
+    private var pdfReloadPending = false
+    private var pdfReloadCompletion: ((PDFReloadOutcome) -> Void)?
 
     lazy var audioBackdrop = AudioBackdrop()
     private var artworkSnapshot: ArtworkSnapshot?
@@ -1056,7 +1062,10 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         let slideshow = PDFSlideshow(document: document, page: pdfView.currentPage) { [weak self] page in
             guard let self = self else { return }
             self.pdfSlideshow = nil
-            if !self.closed, let page = page { self.pdfView.go(to: page) }
+            if !self.closed {
+                if let page = page { self.pdfView.go(to: page) }
+                if self.pdfReloadPending { self.resumePDFReload() }
+            }
         }
         pdfSlideshow = slideshow
         if !slideshow.start(in: host) { slideshow.exit() }
@@ -1357,27 +1366,59 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     @objc func zoomOut() { pdfView.zoomOut(nil) }
     @objc func fit() { pdfView.fitToWidth() }
     // The workspace owns file watching; this controller only replaces its document.
-    func reloadPDF() -> Bool {
-        guard !closed, pdf, let url = urls.first, pdfView.document != nil else { return false }
+    var canReloadPDF: Bool { !closed && pdf && !urls.isEmpty && pdfView.document != nil }
+    func startPDFReload(completion: @escaping (PDFReloadOutcome) -> Void) {
         pdfReloadGeneration += 1
-        pdfReloadWork?.cancel()
+        pdfReloadWork?.cancel(); pdfReloadWork = nil
+        finishPDFReload(.cancelled)
+        pdfReloadCompletion = completion
+        resumePDFReload()
+    }
+    private func resumePDFReload() {
+        guard !closed, let url = urls.first, pdfReloadCompletion != nil else { return }
+        pdfReloadPending = pdfSlideshow != nil
+        // The Rust task keeps waiting while presentation owns the old document.
+        if pdfReloadPending { return }
         schedulePDFReload(url, generation: pdfReloadGeneration, attempt: 0)
-        return true
+    }
+    private func finishPDFReload(_ outcome: PDFReloadOutcome) {
+        let completion = pdfReloadCompletion
+        pdfReloadCompletion = nil
+        completion?(outcome)
     }
     private func schedulePDFReload(_ url: URL, generation: Int, attempt: Int) {
         // Coalesce writes and retry transient partial output without discarding the old view.
         let work = DispatchWorkItem { [weak self] in
-            let document = PDFDocument(url: url)
-            let readable = document.map { !$0.isLocked && $0.pageCount > 0 } ?? false
+            let document: PDFDocument?
+            let failure: PDFReloadOutcome?
+            do {
+                // Opening the source preserves filesystem error classification without
+                // copying a potentially large PDF into memory.
+                let source = try FileHandle(forReadingFrom: url)
+                try source.close()
+                document = PDFDocument(url: url)
+                if let document = document {
+                    failure = document.isLocked ? .locked : (document.pageCount > 0 ? nil : .invalidDocument)
+                } else { failure = .invalidDocument }
+            } catch let error as NSError {
+                document = nil
+                if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError { failure = .notFound }
+                else if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError { failure = .permissionDenied }
+                else { failure = .invalidDocument }
+            }
             DispatchQueue.main.async { [weak self] in
                 guard let self = self, !self.closed, self.pdfReloadGeneration == generation else { return }
                 self.pdfReloadWork = nil
-                guard readable, let document = document else {
+                if self.pdfSlideshow != nil {
+                    self.pdfReloadPending = true
+                    return
+                }
+                guard failure == nil, let document = document else {
                     if attempt < 4 {
                         self.schedulePDFReload(url, generation: generation, attempt: attempt + 1)
                     } else {
                         // Keep the readable document, including an already-unlocked encrypted PDF.
-                        NSLog("Glim: PDF refresh failed; keeping the displayed document")
+                        self.finishPDFReload(failure ?? .invalidDocument)
                     }
                     return
                 }
@@ -1386,10 +1427,9 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 let oldPage = destination?.page ?? self.pdfView.currentPage
                 let oldIndex = oldPage.flatMap { self.pdfView.document?.index(for: $0) } ?? 0
                 let scale = self.pdfView.scaleFactor
-                self.findBar?.close(); self.pdfFind?.cancel()
-                self.pdfSlideshow?.exit(); self.pdfSlideshow = nil
+                self.findBar?.prepareForDocumentReplacement()
                 self.pdfView.document = document
-                self.pdfFind?.replaceDocument()
+                self.pdfFind?.rebindDocument()
                 self.pdfView.scaleFactor = scale
                 self.pdfView.layoutSubtreeIfNeeded()
                 if let page = document.page(at: min(max(0, oldIndex), document.pageCount - 1)) {
@@ -1404,10 +1444,11 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 }
                 self.pageChanged()
                 self.host.updateAccessibility()
+                self.finishPDFReload(.applied)
             }
         }
         pdfReloadWork = work
-        pdfReloadQueue.asyncAfter(deadline: .now() + 0.2, execute: work)
+        Self.pdfReloadQueue.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
     @objc func pageChanged() { if let document = pdfView.document, let page = pdfView.currentPage { detailLabel.stringValue = "\(document.index(for: page) + 1) / \(document.pageCount)" } }
@@ -1419,6 +1460,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     func close() {
         closed = true
         pdfReloadGeneration += 1; pdfReloadWork?.cancel(); pdfReloadWork = nil
+        pdfReloadPending = false; finishPDFReload(.cancelled)
         findBar?.close(); pdfFind?.cancel()
         previewCopy?.cancel(); previewCopy = nil
         if let monitor = presentationStartKeys { NSEvent.removeMonitor(monitor); presentationStartKeys = nil }

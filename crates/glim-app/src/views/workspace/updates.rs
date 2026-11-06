@@ -5,6 +5,30 @@ use gpui_kit::*;
 use std::time::Duration;
 
 impl Workspace {
+    pub(super) fn refresh_failure_handler(
+        &self,
+        version: crate::views::reader::RefreshVersion,
+        cx: &Context<Self>,
+    ) -> crate::views::reader::RefreshFailureHandler {
+        let workspace = cx.entity().downgrade();
+        std::rc::Rc::new(move |kind, cx| {
+            let _ = workspace.update(cx, |view, cx| {
+                let Some(reader) = view
+                    .tabs
+                    .iter()
+                    .find(|reader| reader.refresh_version(cx) == version)
+                else {
+                    return;
+                };
+                let failures = [(reader.document.path.clone(), kind, true)];
+                if let Some(notice) = refresh_failure_notice(&failures) {
+                    view.refresh_notice = Some(notice);
+                    cx.notify();
+                }
+            });
+        })
+    }
+
     pub(super) fn start_watching(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.watch_task = Some(cx.spawn_in(window, async move |view, cx| {
             loop {
@@ -184,7 +208,8 @@ impl Workspace {
                                 return;
                             }
                         };
-                        if view.tabs[index].refresh_in_place(&content, cx) {
+                        let on_failure = view.refresh_failure_handler(version, cx);
+                        if view.tabs[index].refresh_in_place(&content, on_failure, cx) {
                             return;
                         }
                         if content.matches_snapshot(&view.tabs[index].document.snapshot)

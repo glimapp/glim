@@ -114,8 +114,18 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
         run(backwards: false, changed: true)
     }
     @objc func hide() {
+        let window = host?.window
+        let restoreContentFocus: Bool
+        if !panel.isHiddenOrHasHiddenAncestor, let responder = window?.firstResponder {
+            restoreContentFocus = responder === field.currentEditor()
+                || (responder as? NSView)?.isDescendant(of: panel) == true
+        } else {
+            restoreContentFocus = false
+        }
         generation += 1; pending?.cancel(); pending = nil; cancel()
-        panel.isHidden = true; host?.window?.makeFirstResponder(content)
+        panel.isHidden = true
+        // Background resets must not move focus out of another reader or settings.
+        if restoreContentFocus { window?.makeFirstResponder(content) }
     }
     @objc private func toggleCase() { run(backwards: false, changed: true) }
     @objc private func previousMatch() { run(backwards: true, changed: pending != nil) }
@@ -153,6 +163,11 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
             self.previous.isEnabled = found; self.next.isEnabled = found
         }
     }
+    // Reset document-specific search without destroying the live keyboard monitor.
+    func prepareForDocumentReplacement() {
+        hide()
+        count.stringValue = ""; previous.isEnabled = false; next.isEnabled = false
+    }
     func close() {
         generation += 1; pending?.cancel(); pending = nil; cancel()
         if let monitor = monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
@@ -188,7 +203,7 @@ final class PDFReaderFind: NSObject, PDFDocumentDelegate {
         self.view = view; self.document = view.document
         super.init(); document?.delegate = self
     }
-    func replaceDocument() {
+    func rebindDocument() {
         cancel()
         document?.delegate = nil
         document = view?.document

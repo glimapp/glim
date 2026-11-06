@@ -160,6 +160,44 @@ pub(crate) fn set_telemetry_consent(consent: glim_services::telemetry::Consent) 
         glim_set_telemetry_consent(i32::from(consent.usage), i32::from(consent.diagnostics));
     }
 }
+// Stable C ABI values are decoded only here; app code consumes typed results.
+#[derive(Clone, Copy)]
+pub(super) enum PdfReloadFailure {
+    Cancelled,
+    NotFound,
+    PermissionDenied,
+    InvalidDocument,
+    Locked,
+}
+impl PdfReloadFailure {
+    pub fn failure_kind(self) -> Option<glim_services::documents::ReadFailureKind> {
+        use glim_services::documents::ReadFailureKind;
+        match self {
+            Self::Cancelled => None,
+            Self::NotFound => Some(ReadFailureKind::NotFound),
+            Self::PermissionDenied => Some(ReadFailureKind::PermissionDenied),
+            Self::InvalidDocument | Self::Locked => Some(ReadFailureKind::Other),
+        }
+    }
+}
+type PdfReloadResult = Result<(), PdfReloadFailure>;
+type PdfReloadSender = futures_channel::oneshot::Sender<PdfReloadResult>;
+
+extern "C" fn pdf_reload_complete(context: *mut c_void, status: i32) {
+    // SAFETY: accepted contexts are consumed exactly once by Swift completion,
+    // supersession, or close. They contain only a sender, never a GPUI pointer.
+    let sender = *unsafe { Box::from_raw(context.cast::<PdfReloadSender>()) };
+    let result = match status {
+        0 => Ok(()),
+        1 => Err(PdfReloadFailure::Cancelled),
+        2 => Err(PdfReloadFailure::NotFound),
+        3 => Err(PdfReloadFailure::PermissionDenied),
+        5 => Err(PdfReloadFailure::Locked),
+        _ => Err(PdfReloadFailure::InvalidDocument),
+    };
+    let _ = sender.send(result);
+}
+
 unsafe extern "C" {
     fn glim_set_reader_resources(callback: Option<extern "C" fn(u64, u64) -> u64>);
     fn glim_set_telemetry_consent(usage: i32, diagnostics: i32);
@@ -176,7 +214,11 @@ unsafe extern "C" {
         height: f64,
     );
     fn glim_preview_hide(handle: *mut c_void);
-    fn glim_preview_reload_pdf(handle: *mut c_void) -> bool;
+    fn glim_preview_reload_pdf(
+        handle: *mut c_void,
+        context: *mut c_void,
+        complete: extern "C" fn(*mut c_void, i32),
+    ) -> bool;
     fn glim_preview_find(handle: *mut c_void, show: bool) -> bool;
     fn glim_preview_release(handle: *mut c_void);
     fn glim_preview_take_navigation(handle: *mut c_void) -> *mut std::ffi::c_char;
@@ -191,9 +233,21 @@ pub(super) struct NativePreview {
     _main_thread: PhantomData<Rc<()>>,
 }
 impl NativePreview {
-    pub fn reload_pdf(&self) -> bool {
-        // SAFETY: the retained preview is owned and accessed on the UI thread.
-        unsafe { glim_preview_reload_pdf(self.handle.as_ptr()) }
+    pub fn start_pdf_reload(&self) -> Option<futures_channel::oneshot::Receiver<PdfReloadResult>> {
+        // The channel carries exactly one completion. Swift owns the boxed sender
+        // only after acceptance, including when Rust drops the receiving task.
+        let (completion_tx, completion_rx) = futures_channel::oneshot::channel();
+        let context = Box::into_raw(Box::new(completion_tx)).cast::<c_void>();
+        // SAFETY: main-thread retained controller; Swift takes the sender only on true.
+        let accepted =
+            unsafe { glim_preview_reload_pdf(self.handle.as_ptr(), context, pdf_reload_complete) };
+        if accepted {
+            Some(completion_rx)
+        } else {
+            // SAFETY: rejected requests never transfer context ownership to Swift.
+            drop(unsafe { Box::from_raw(context.cast::<PdfReloadSender>()) });
+            None
+        }
     }
 
     pub fn find(&self, show: bool) -> bool {

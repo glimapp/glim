@@ -16,6 +16,7 @@ pub(super) struct NativeReader {
     shuffle: bool,
     autoplay: bool,
     task: Option<Task<()>>,
+    pdf_refresh_task: Option<Task<()>>,
     // Drop the native controller before its prepared data (including SQLite snapshots).
     preview: Option<super::native_bridge::NativePreview>,
     prepared: Option<glim_services::preview::PreparedPreview>,
@@ -56,6 +57,7 @@ impl NativeReader {
             shuffle: false,
             autoplay: false,
             task: None,
+            pdf_refresh_task: None,
             preview: None,
             prepared: None,
             error: None,
@@ -197,9 +199,39 @@ impl NativeReader {
         cx.notify();
     }
     pub(super) fn can_move_to_window(&self, cx: &App) -> bool {
-        self.raw
+        self.pdf_refresh_task.is_none()
+            && self
+                .raw
+                .as_ref()
+                .is_none_or(|raw| raw.read(cx).can_move_to_window())
+    }
+
+    fn refresh_pdf(
+        &mut self,
+        on_failure: super::surface::RefreshFailureHandler,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(completion_rx) = self
+            .preview
             .as_ref()
-            .is_none_or(|raw| raw.read(cx).can_move_to_window())
+            .and_then(|preview| preview.start_pdf_reload())
+        else {
+            return false;
+        };
+        // Replacing this task drops the old receiver. Swift owns the sender until
+        // completion or cancellation; its callback never accesses this reader.
+        self.pdf_refresh_task = Some(cx.spawn(async move |view, cx| {
+            let reload_result = completion_rx.await;
+            let _ = view.update(cx, |view, cx| {
+                view.pdf_refresh_task = None;
+                if let Ok(Err(failure)) = reload_result
+                    && let Some(kind) = failure.failure_kind()
+                {
+                    on_failure(kind, cx);
+                }
+            });
+        }));
+        true
     }
 
     pub fn image_stamp(&self) -> Option<(u64, Option<std::time::SystemTime>)> {
@@ -229,6 +261,7 @@ impl NativeReader {
             shuffle,
             autoplay,
             task: None,
+            pdf_refresh_task: None,
             preview: None,
             prepared: None,
             error: None,
@@ -445,7 +478,12 @@ impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntit
     }
 }
 impl super::surface::ReaderSurface for super::surface::SurfaceEntity<NativeReader> {
-    fn refresh_in_place(&self, content: &glim_services::documents::Content, cx: &mut App) -> bool {
+    fn refresh_in_place(
+        &self,
+        content: &glim_services::documents::Content,
+        on_failure: super::surface::RefreshFailureHandler,
+        cx: &mut App,
+    ) -> bool {
         let glim_services::documents::Content::Native(path, false, false) = content else {
             return false;
         };
@@ -455,10 +493,7 @@ impl super::surface::ReaderSurface for super::surface::SurfaceEntity<NativeReade
         {
             return false;
         }
-        self.read(cx)
-            .preview
-            .as_ref()
-            .is_some_and(|preview| preview.reload_pdf())
+        self.update(cx, |view, cx| view.refresh_pdf(on_failure, cx))
     }
 
     fn refresh_request(
