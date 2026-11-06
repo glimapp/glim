@@ -14,6 +14,7 @@ pub(crate) mod reader_jobs;
 pub(crate) mod reader_measurement;
 pub(crate) mod recovery;
 pub(crate) mod remote;
+mod remote_open;
 mod shortcuts;
 pub(crate) mod spreadsheet_prepare;
 pub(crate) mod telemetry;
@@ -413,6 +414,7 @@ pub fn run() -> Result<()> {
         gpui_kit::init(cx);
         remote::init(remote_catalog, cx);
         finder_integration::init(cx);
+        remote_open::init(cx);
         telemetry::initialize(cx);
         cx.set_quit_mode(QuitMode::Explicit);
         gpui_kit::component::set_locale(glim_services::locale::code());
@@ -598,6 +600,11 @@ pub(crate) fn reveal_existing_file(
 fn open_system_files(urls: Vec<String>, cx: &mut App) {
     updates::interrupt_for_files(cx);
     for value in urls {
+        if let Ok(url) = url::Url::parse(&value)
+            && remote_open::receive(&url, cx)
+        {
+            continue;
+        }
         if let Ok(url) = url::Url::parse(&value)
             && finder_integration::receive(&url, cx)
         {

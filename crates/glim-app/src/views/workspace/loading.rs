@@ -34,6 +34,7 @@ impl Workspace {
             self.incoming_files.pop_front();
         }
         self.load_incoming_file(window, cx);
+        self.drain_remote_open_paths(window, cx);
         cx.notify();
     }
 

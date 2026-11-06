@@ -6,7 +6,7 @@
 
 | 应用 | 用户级配置位置 | 使用方式 |
 | --- | --- | --- |
-| Codex | `~/.codex/config.toml`、检测到的 `~/.codex-*` 目录、`CODEX_HOME` 或手动选择的目录 | 添加 Glim 打开入口，并设为默认。 |
+| Codex | `~/.codex/config.toml`、检测到的 `~/.codex-*` 目录、`CODEX_HOME` 或手动选择的目录 | 添加本地与 SSH 远端路径的 Glim 打开入口，并设为默认。 |
 | Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` | 在对话中要求用 Glim 打开本地文件或文件夹。 |
 | Claude Code | `~/.claude.json` 或 `$CLAUDE_CONFIG_DIR/.claude.json` | 同上，使用本地工具。 |
 | Cursor | `~/.cursor/mcp.json` | 同上。 |
@@ -23,7 +23,9 @@
 
 应用识别会读取 `/Applications`、`~/Applications` 及其下一层分类目录中的 bundle ID，支持改名安装；同时检查当前进程环境、launchd 环境和应用的 `LSEnvironment`，识别 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`COPILOT_HOME`、`OPENCODE_CONFIG`、`OPENCODE_CONFIG_DIR`、`XDG_CONFIG_HOME` 等配置覆盖。不会执行启动脚本、读取进程凭据或扫描整个磁盘；藏在任意脚本或非常规位置的配置仍可手动添加。
 
-项目级设置、组织策略及客户端版本差异可能覆盖用户级配置。纯网页工具与远端、云端文件不适用这条本地通道。
+Codex 使用 `glim --open-from-codex`，配置为 `input = "json_stdin"` 与 `supports_ssh = true`。SSH 请求携带连接信息、远端工作区和文件路径；Glim 复用匹配的 SSH 连接与工作区，再通过现有 SFTP 阅读流程打开文件。主机别名沿用本机 OpenSSH 配置，连接失败复用工作区原有错误展示。Glim 不执行 Codex 提供的终端命令，也不复制私钥。启动时会升级识别为 Glim 的旧版本地关联，沿用备份与冲突检查，保留全部默认编辑器偏好；每个受影响的 Codex 实例需要重启以重新加载处理器。
+
+项目级设置、组织策略及客户端版本差异可能覆盖用户级配置。纯网页工具与非 SSH 云端环境暂不支持，其他客户端的 MCP 集成仅接收本地路径。
 
 MCP 命令使用已安装的 `Glim.app/Contents/MacOS/glim --mcp`，无需额外安装 Node.js、Python、网络监听器或常驻服务。`open_in_glim` 接收一个本地绝对路径。调用成功表示已交给 macOS 打开，不代表文件渲染完成；工具不上传或返回文档内容。
 

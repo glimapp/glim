@@ -1,4 +1,5 @@
 //! User-level app integrations. Discovery and configuration edits run off the UI thread.
+pub mod codex;
 mod discovery;
 mod json_edit;
 pub mod mcp;
@@ -110,9 +111,10 @@ fn entry(kind: Kind) -> Result<Value> {
         json!({
             "label":"Glim",
             "icon":crate::preferences::directory()?.join("Integrations/glim.png"),
-            "command":"/usr/bin/open",
-            "args":["-a",app,"--"],
-            "input":"path"
+            "command":app.join("Contents/MacOS/glim"),
+            "args":["--open-from-codex"],
+            "input":"json_stdin",
+            "supports_ssh":true
         })
     } else if kind == Kind::OpenCode {
         json!({"type":"local", "command":[app.join("Contents/MacOS/glim"), "--mcp"], "enabled":true})
@@ -142,6 +144,9 @@ fn value(source: &str, kind: Kind) -> Result<Option<Value>> {
 
 fn managed(value: &Value, kind: Kind) -> Result<bool> {
     let expected = entry(kind)?;
+    if kind == Kind::Codex && legacy_codex(value)? {
+        return Ok(true);
+    }
     if kind == Kind::OpenCode {
         return Ok(value.get("command") == expected.get("command")
             && value.get("type").and_then(Value::as_str) == Some("local")
@@ -152,11 +157,40 @@ fn managed(value: &Value, kind: Kind) -> Result<bool> {
         && value.get("args") == expected.get("args")
         && if kind == Kind::Codex {
             value.get("label").and_then(Value::as_str) == Some("Glim")
-                && value.get("input").and_then(Value::as_str).unwrap_or("path") == "path"
-                && value.get("supports_ssh").and_then(Value::as_bool) != Some(true)
+                && value.get("input").and_then(Value::as_str) == Some("json_stdin")
+                && value.get("supports_ssh").and_then(Value::as_bool) == Some(true)
         } else {
             value.get("type").and_then(Value::as_str).unwrap_or("stdio") == "stdio"
         })
+}
+
+fn legacy_codex(value: &Value) -> Result<bool> {
+    Ok(
+        value.get("command").and_then(Value::as_str) == Some("/usr/bin/open")
+            && value.get("args") == Some(&json!(["-a", bundle()?, "--"]))
+            && value.get("label").and_then(Value::as_str) == Some("Glim")
+            && value.get("input").and_then(Value::as_str).unwrap_or("path") == "path"
+            && value.get("supports_ssh").and_then(Value::as_bool) != Some(true),
+    )
+}
+
+/// Upgrade only Glim's old handler; preserve editor choices made in Codex.
+pub fn upgrade_codex_handlers() -> Result<()> {
+    for target in discover()? {
+        if target.kind == Kind::Codex
+            && target.status == Status::Configured
+            && let Some(source) = &target.original
+            && let Some(value) = value(source, Kind::Codex)?
+            && legacy_codex(&value)?
+            && let Err(error) = configure_inner(&target, true, false)
+        {
+            log::warn!(
+                "Cannot upgrade Codex integration at {}: {error:#}",
+                target.config.display()
+            );
+        }
+    }
+    Ok(())
 }
 
 fn inspect(kind: Kind, config: PathBuf, detail: String) -> Target {
@@ -325,7 +359,7 @@ pub fn remember_configuration(kind: Kind, selected: &Path) -> Result<()> {
     Ok(())
 }
 
-fn edit_codex(source: &str, install: bool) -> Result<String> {
+fn edit_codex(source: &str, install: bool, preferences: bool) -> Result<String> {
     let mut document: toml_edit::DocumentMut = source.parse()?;
     if install {
         let entry = entry(Kind::Codex)?;
@@ -341,6 +375,7 @@ fn edit_codex(source: &str, install: bool) -> Result<String> {
             args.push(arg.as_str().context("Invalid handler argument")?);
         }
         table["args"] = toml_edit::value(args);
+        table["supports_ssh"] = toml_edit::value(true);
         let desktop = &mut document["desktop"];
         if desktop.is_none() {
             *desktop = toml_edit::Item::Table(toml_edit::Table::new());
@@ -366,7 +401,9 @@ fn edit_codex(source: &str, install: bool) -> Result<String> {
     {
         handlers.remove("glim");
     }
-    edit_codex_preference(&mut document, install)?;
+    if preferences {
+        edit_codex_preference(&mut document, install)?;
+    }
     Ok(document.to_string())
 }
 
@@ -429,6 +466,10 @@ fn edit_codex_preference(document: &mut toml_edit::DocumentMut, install: bool) -
 }
 
 pub fn configure(target: &Target, install: bool) -> Result<()> {
+    configure_inner(target, install, true)
+}
+
+fn configure_inner(target: &Target, install: bool, preferences: bool) -> Result<()> {
     let _lock = CONFIG_WRITE
         .lock()
         .map_err(|_| anyhow::anyhow!("Configuration writer unavailable"))?;
@@ -462,7 +503,7 @@ pub fn configure(target: &Target, install: bool) -> Result<()> {
         return Ok(());
     }
     let updated = if target.kind == Kind::Codex {
-        edit_codex(source, install)?
+        edit_codex(source, install, preferences)?
     } else {
         json_edit::edit(
             source,

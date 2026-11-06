@@ -6,7 +6,7 @@ Open **Settings → App integrations**, then choose **Add integration** beside a
 
 | Client | User-level destination | Usage |
 | --- | --- | --- |
-| Codex | `~/.codex/config.toml`, detected `~/.codex-*` homes, `CODEX_HOME`, or a selected configuration folder | Adds Glim to **Open in** and makes it the default. |
+| Codex | `~/.codex/config.toml`, detected `~/.codex-*` homes, `CODEX_HOME`, or a selected configuration folder | Adds Glim to **Open in** for local and SSH paths and makes it the default. |
 | Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` | Ask to open a local file or folder in Glim. |
 | Claude Code | `~/.claude.json` or `$CLAUDE_CONFIG_DIR/.claude.json` | Same local tool. |
 | Cursor | `~/.cursor/mcp.json` | Same local tool. |
@@ -23,7 +23,9 @@ Discovery runs when opening Settings, returning to its window, or using Refresh.
 
 Application discovery checks bundle identifiers under `/Applications` and `~/Applications`, including one level of grouping folders, so renaming a supported app does not hide it. It also checks the current environment, launchd environment and application `LSEnvironment` for documented configuration overrides such as `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `COPILOT_HOME`, `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR` and `XDG_CONFIG_HOME`. It does not execute launcher scripts, inspect process secrets or scan the entire disk. A configuration hidden in an arbitrary script or unrelated location can still be added manually.
 
-Project-specific settings, application policies and client version differences can override a user-level entry. Browser-only services and remote/cloud files are not supported by this local integration.
+Codex uses `glim --open-from-codex` with `input = "json_stdin"` and `supports_ssh = true`. SSH requests carry the connection and remote workspace/file paths; Glim reuses matching SSH connections and workspaces, then opens the requested file through its existing SFTP reader. Host aliases use the local OpenSSH configuration. Connection failures appear in the workspace's existing error state. Glim does not execute Codex's terminal command or copy private keys. On startup, Glim upgrades recognized older local-only Codex handlers with the usual backup and conflict checks, preserving all default-editor preferences. Restart each affected Codex instance to reload the handler.
+
+Project-specific settings, application policies and client version differences can override a user-level entry. Browser-only services and non-SSH cloud environments are unsupported. Other clients' MCP integrations accept local paths only.
 
 The MCP command is the installed `Glim.app/Contents/MacOS/glim --mcp`; no Node.js, Python, network listener or always-running service is installed. The `open_in_glim` tool accepts one absolute local path. A successful tool result confirms handoff to macOS, not completion of document rendering. It does not upload or return document contents.
 

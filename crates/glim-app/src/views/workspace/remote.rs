@@ -554,6 +554,39 @@ impl RemoteDialog {
 use gpui_kit::assets::IconName;
 
 impl Workspace {
+    pub(crate) fn open_external_remote(
+        &mut self,
+        path: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = path
+            && !self.remote_open_paths.contains(&path)
+        {
+            self.remote_open_paths.push_back(path);
+        }
+        if self.loading {
+            return;
+        }
+        if !self.remote_workspace_is_connected() || self.remote_restore.is_some() {
+            self.reconnect_remote(window, cx);
+        } else {
+            self.drain_remote_open_paths(window, cx);
+        }
+    }
+
+    pub(super) fn drain_remote_open_paths(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.remote_restore.is_some() || !self.remote_workspace_is_connected() {
+            return;
+        }
+        while !self.loading {
+            let Some(path) = self.remote_open_paths.pop_front() else {
+                break;
+            };
+            self.open_remote_file(path, window, cx);
+        }
+    }
+
     pub(crate) fn remote_workspace_is_connected(&self) -> bool {
         self.remote.as_ref().is_some_and(Session::is_connected)
     }
@@ -733,6 +766,8 @@ impl Workspace {
                         view.error = Some(error.to_string().into());
                     }
                 }
+                view.loading_path = None;
+                view.drain_remote_open_paths(window, cx);
                 cx.notify();
             });
         }));
@@ -879,6 +914,7 @@ impl Workspace {
                 if let Some(index) = view.active {
                     view.tabs[index].focus_source(window, cx);
                 }
+                view.drain_remote_open_paths(window, cx);
                 cx.notify();
             });
         }));
