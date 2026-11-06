@@ -841,8 +841,42 @@ impl Workspace {
                         view.record_history(cx);
                     }
                     Err(error) => {
+                        if error.is::<glim_services::work::Cancelled>() {
+                            view.loading_path = None;
+                            cx.notify();
+                            return;
+                        }
                         view.remote_disconnected = !session.is_connected();
-                        view.error = Some(error.to_string().into());
+                        let existing = view
+                            .tabs
+                            .iter()
+                            .position(|reader| reader.document.path == path);
+                        if refresh
+                            && existing.is_some_and(|index| !view.tabs[index].is_unavailable())
+                        {
+                            // Preserve a readable snapshot when refreshing fails.
+                            view.error = Some(error.to_string().into());
+                        } else {
+                            let mut reader = crate::views::reader::Reader::unavailable(
+                                path.clone(),
+                                (&error).into(),
+                                window,
+                                cx,
+                            );
+                            reader.set_remote(session, path, cx);
+                            if !refresh {
+                                reader.report_opened("open");
+                            }
+                            if let Some(index) = existing {
+                                view.tabs[index] = reader;
+                                view.active = Some(index);
+                            } else {
+                                view.tabs.insert(0, reader);
+                                view.active = Some(0);
+                            }
+                            view.reveal_active_file(cx);
+                            view.record_history(cx);
+                        }
                     }
                 }
                 view.loading_path = None;
@@ -982,7 +1016,6 @@ impl Workspace {
                                 reader.set_preview(preview, cx);
                                 reader.report_opened("restore");
                                 restored.push(reader);
-                                view.error = Some(error.to_string().into());
                             }
                         }
                         cx.notify();
