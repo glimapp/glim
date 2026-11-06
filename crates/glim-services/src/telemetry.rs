@@ -23,6 +23,7 @@ const CONFIG_URL: &str =
 const QUEUE_CAPACITY: usize = 256;
 const BATCH_SIZE: usize = 25;
 const ERROR_KEYS: usize = 128;
+const ERROR_QUEUE_CAPACITY: usize = 128;
 const FLUSH_INTERVAL: Duration = Duration::from_secs(2);
 const ERROR_INTERVAL: Duration = Duration::from_secs(60);
 static CURRENT: Mutex<Option<Arc<Session>>> = Mutex::new(None);
@@ -165,6 +166,9 @@ pub fn track(name: &'static str, props: impl IntoIterator<Item = (&'static str, 
         name,
         "error_logged" | "operation_failed" | "app_panicked" | "native_reader_error" | "app_exited"
     );
+    if is_error_event(name) {
+        props.insert("error_event", name.into());
+    }
     if urgent
         && let Some(key) = props
             .get("error_signature")
@@ -713,6 +717,172 @@ fn installation_id_in(db: &rusqlite::Connection) -> Result<String> {
     crate::storage::setting(db, "telemetry-installation-id")?
         .context("Missing installation identity")
 }
+
+fn is_error_event(name: &str) -> bool {
+    matches!(
+        name,
+        "error_logged" | "operation_failed" | "app_panicked" | "native_reader_error"
+    )
+}
+
+fn error_payload(
+    event: &Event,
+    session_id: &str,
+    os_version: &str,
+    build_number: &str,
+) -> Option<serde_json::Value> {
+    if !is_error_event(event.name) && event.name != "error_repeated" {
+        return None;
+    }
+    let property = |key| event.props.get(key).and_then(serde_json::Value::as_str);
+    let source = property("error_event")
+        .filter(|name| is_error_event(name))
+        .unwrap_or(event.name);
+    let kind = property("error_kind").unwrap_or("native_error");
+    // Only existing sanitized diagnostics enter the error API. Never serialize
+    // arbitrary event properties as an exception message or stack trace.
+    let mut message = format!("{source}: {kind}; event={}", event.name);
+    for key in [
+        "component",
+        "operation",
+        "phase",
+        "reader_stage",
+        "reader_kind",
+        "action",
+        "file_extension",
+        "error_signature",
+        "architecture",
+        "previous_event_1",
+        "previous_event_2",
+        "previous_event_3",
+    ] {
+        if let Some(value) = property(key) {
+            message.push_str(&format!(
+                "; {key}={}",
+                value.chars().take(180).collect::<String>()
+            ));
+        }
+    }
+    for key in ["error_code", "os_error_code", "event_sequence"] {
+        if let Some(value) = event.props.get(key).and_then(serde_json::Value::as_u64) {
+            message.push_str(&format!("; {key}={value}"));
+        }
+    }
+    let occurrences = event
+        .props
+        .get("occurrences")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1);
+    message.push_str(&format!(
+        "; occurrences={occurrences}; app_build={build_number}"
+    ));
+    let stack = [
+        "code_site",
+        "stack_frame_1",
+        "stack_frame_2",
+        "stack_frame_3",
+    ]
+    .into_iter()
+    .filter_map(property)
+    .map(|value| value.chars().take(180).collect::<String>())
+    .collect::<Vec<_>>()
+    .join("\n");
+    Some(serde_json::json!({
+        "timestamp": event.timestamp,
+        "errorMessage": message,
+        "errorType": format!("{source}.{kind}").chars().take(100).collect::<String>(),
+        "stackTrace": stack,
+        "platform": "macOS",
+        "osName": "macOS",
+        "osVersion": os_version,
+        "appVersion": env!("CARGO_PKG_VERSION"),
+        "sdkVersion": "glim@3",
+        "sessionId": session_id,
+        "severity": if source == "app_panicked" { "fatal" } else { "error" },
+        "kind": if source == "app_panicked" { "unhandled" } else { "handled" },
+        "isDebug": is_debug(),
+    }))
+}
+
+struct ErrorDelivery {
+    pending: VecDeque<serde_json::Value>,
+    next_upload: Instant,
+    consecutive_failures: u64,
+    failures: u64,
+    dropped: u64,
+}
+impl ErrorDelivery {
+    fn new() -> Self {
+        Self {
+            pending: VecDeque::new(),
+            next_upload: Instant::now(),
+            consecutive_failures: 0,
+            failures: 0,
+            dropped: 0,
+        }
+    }
+
+    fn enqueue(&mut self, payload: serde_json::Value) {
+        if self.pending.len() == ERROR_QUEUE_CAPACITY {
+            self.pending.pop_front();
+            self.dropped = self.dropped.saturating_add(1);
+        }
+        self.pending.push_back(payload);
+    }
+
+    fn flush_one(&mut self, config: &Config, cancel: &Cancellation, closing: bool) -> Result<()> {
+        if self.pending.is_empty() || (!closing && Instant::now() < self.next_upload) {
+            return Ok(());
+        }
+        cancel.check()?;
+        let body = tempfile::NamedTempFile::new()?;
+        serde_json::to_writer(body.reopen()?, &self.pending[0])?;
+        let response = tempfile::NamedTempFile::new()?;
+        let status = crate::work::run(
+            curl()
+                .args([
+                    "--request",
+                    "POST",
+                    "--header",
+                    "Content-Type: application/json",
+                    "--header",
+                    &format!("App-Key: {}", config.app_key),
+                    "--data-binary",
+                    &format!("@{}", body.path().display()),
+                    "--output",
+                    "/dev/null",
+                    "--write-out",
+                    "%{http_code}",
+                    "--url",
+                    &format!("{}/api/v0/error", config.host.trim_end_matches('/')),
+                ])
+                .stdout(Stdio::from(response.reopen()?)),
+            cancel,
+        );
+        cancel.check()?;
+        let mut code = String::new();
+        response.reopen()?.take(3).read_to_string(&mut code)?;
+        let code = code.parse::<u16>().unwrap_or(0);
+        if status.is_ok_and(|status| status.success()) && (200..300).contains(&code) {
+            self.pending.pop_front();
+            self.consecutive_failures = 0;
+            self.next_upload = Instant::now();
+        } else {
+            self.failures = self.failures.saturating_add(1);
+            self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+            self.next_upload =
+                Instant::now() + Duration::from_secs(1 << self.consecutive_failures.min(6));
+            // Retry transport failures, timeouts, rate limits and server errors.
+            // Rejected payloads/keys cannot recover by retrying the same report.
+            if closing || ((400..500).contains(&code) && !matches!(code, 408 | 429)) {
+                self.pending.pop_front();
+                self.dropped = self.dropped.saturating_add(1);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Worker {
     pub fn run(self, cancel: &Cancellation) {
         // Telemetry transport errors must never enter the ordinary error logger
@@ -724,8 +894,9 @@ impl Worker {
         let installation = installation_id().ok();
         let config = configuration(cancel)?;
         let os_build = os_version("-buildVersion", cancel);
+        let os_version = os_version("-productVersion", cancel);
         let system = serde_json::json!({
-            "osName": "macOS", "osVersion": os_version("-productVersion", cancel),
+            "osName": "macOS", "osVersion": os_version,
             "engineName": "GPUI", "engineVersion": "0.7.1",
             "appVersion": env!("CARGO_PKG_VERSION"), "isDebug": is_debug(),
             "appBuildNumber": self.session.build_number,
@@ -736,6 +907,7 @@ impl Worker {
         let mut last_flush = Instant::now();
         let mut failures = 0_u64;
         let mut next_upload = Instant::now();
+        let mut errors = ErrorDelivery::new();
         loop {
             cancel.check()?;
             if session_started.elapsed() >= Duration::from_secs(24 * 60 * 60) {
@@ -751,26 +923,21 @@ impl Worker {
             {
                 return Ok(());
             }
-            if Instant::now() < next_upload && !self.session.closing.load(Ordering::Relaxed) {
-                let _ = self.wake.recv_timeout(
-                    next_upload
-                        .saturating_duration_since(Instant::now())
-                        .min(Duration::from_secs(1)),
-                );
-                continue;
-            }
+            let closing = self.session.closing.load(Ordering::Relaxed);
             let ready = {
                 let queue = self
                     .session
                     .queue
                     .lock()
                     .unwrap_or_else(|error| error.into_inner());
-                queue.urgent
-                    || queue.events.len() >= BATCH_SIZE
-                    || last_flush.elapsed() >= FLUSH_INTERVAL
-                    || self.session.closing.load(Ordering::Relaxed)
+                (Instant::now() >= next_upload || closing)
+                    && (queue.urgent
+                        || queue.events.len() >= BATCH_SIZE
+                        || last_flush.elapsed() >= FLUSH_INTERVAL
+                        || closing)
             };
             if !ready {
+                errors.flush_one(&config, cancel, closing)?;
                 let _ = self.wake.recv_timeout(Duration::from_millis(100));
                 continue;
             }
@@ -810,8 +977,18 @@ impl Worker {
                 let count = queue.events.len().min(BATCH_SIZE);
                 queue.events.drain(..count).collect::<Vec<_>>()
             };
+            for event in &events {
+                if let Some(payload) =
+                    error_payload(event, &session_id, &os_version, self.session.build_number)
+                {
+                    errors.enqueue(payload);
+                }
+            }
+            errors.flush_one(&config, cancel, closing)?;
             let dropped = self.session.dropped.swap(0, Ordering::Relaxed);
             let suppressed = self.session.suppressed.swap(0, Ordering::Relaxed);
+            let error_dropped = errors.dropped;
+            let error_failures = errors.failures;
             let mut payload = events
                 .iter()
                 .map(|event| {
@@ -826,12 +1003,18 @@ impl Worker {
                     })
                 })
                 .collect::<Vec<_>>();
-            let health_included =
-                (dropped > 0 || suppressed > 0 || failures > 0) && payload.len() < BATCH_SIZE;
+            let health_included = (dropped > 0
+                || suppressed > 0
+                || failures > 0
+                || error_dropped > 0
+                || error_failures > 0)
+                && payload.len() < BATCH_SIZE;
             if health_included {
                 let mut props = serde_json::json!({
                     "events_dropped": dropped, "errors_suppressed": suppressed,
                     "upload_failures": failures, "schema_version": 3,
+                    "error_reports_dropped": error_dropped,
+                    "error_upload_failures": error_failures,
                     "telemetry_environment": environment(),
                     "architecture": std::env::consts::ARCH, "os_build": os_build,
                     "event_sequence": self.session.sequence.fetch_add(1, Ordering::Relaxed),
@@ -870,6 +1053,10 @@ impl Worker {
                 .is_ok_and(|status| status.success());
                 if delivered {
                     failures = 0;
+                    if health_included {
+                        errors.dropped = 0;
+                        errors.failures = 0;
+                    }
                 } else {
                     failures = failures.saturating_add(1);
                     next_upload = Instant::now() + Duration::from_secs(1 << failures.min(6));
@@ -885,6 +1072,7 @@ impl Worker {
                 }
             }
             if self.session.closing.load(Ordering::Relaxed)
+                && errors.pending.is_empty()
                 && self
                     .session
                     .queue

@@ -61,6 +61,10 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 
 失败率以操作结果为准。同一次故障可能同时触发 `operation_failed` 和 `error_logged`，不能把诊断事件相加当失败次数。同指纹错误一分钟内去重，后续刷新或正常退出以 `error_repeated.occurrences` 聚合；有限指纹表淘汰可能丢失重复细节。`telemetry_health.errors_suppressed` 是压缩信息，不能再与 occurrence 相加。
 
+诊断同时发送到 Aptabase 专用 `/api/v0/error` 接口，写入 Errors 页面；普通统计仍使用 `/api/v0/events`。覆盖 `error_logged`、`operation_failed`、`app_panicked`、`native_reader_error` 和 `error_repeated`。报告仅由既有脱敏字段构成：分类、组件／操作／阶段、源码位置、指纹、格式、错误码和有限 panic 符号。摘要包含 `occurrences`（首次报告为 1）；一条聚合对应 Errors 的一行，不按重复次数逐行发送。聚合保留原始 `error_event`，包括 panic 的严重程度。panic 标记为 `fatal`／`unhandled`，其他诊断为 `error`／`handled`。顶层 `isDebug` 与普通统计采用相同构建来源规则；历史统计事件不会回填 Errors。
+
+错误通道使用独立的 128 条内存队列和指数退避。既有可取消后台任务每轮最多发送一条错误，共用遥测开关和退出生命周期。网络失败、HTTP 408／429 和服务端失败保留报告待重试；其余 HTTP 4xx 丢弃该报告。退出时在应用既有刷新期限内尽力发送。队列满时淘汰最旧待发送报告，通过普通统计中的 `telemetry_health.error_reports_dropped` 和 `error_upload_failures` 披露丢失与请求失败。服务器确认丢失后重试可能产生重复记录，不保证恰好一次送达。
+
 内存队列最多 256 条、每批最多 25 条、约两秒刷新；支持取消、有限退出等待和指数退避。没有磁盘发件箱或原始日志上传。断网、锁竞争、队列淘汰会丢事件，后续成功发送时用 health 事件披露。长时间运行每天轮换 Aptabase 会话，安装身份保持稳定；网络发送失败不会递归产生错误埋点。
 
 ## 功能使用采集（schema 3）
