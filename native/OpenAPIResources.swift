@@ -165,7 +165,10 @@ final class OpenAPIResources: NSObject, WKURLSchemeHandler {
                 let mime = main ? "text/html" : "application/json"
                 DispatchQueue.main.async {
                     guard let (task, _) = self.active.removeValue(forKey: id) else { return }
-                    task.didReceive(URLResponse(url: url, mimeType: mime, expectedContentLength: data.count, textEncodingName: "utf-8"))
+                    let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                        headerFields: ["Content-Type": "\(mime); charset=utf-8", "Content-Length": String(data.count)])
+                        ?? URLResponse(url: url, mimeType: mime, expectedContentLength: data.count, textEncodingName: "utf-8")
+                    task.didReceive(response)
                     task.didReceive(data); task.didFinish()
                 }
             } catch {
@@ -174,7 +177,10 @@ final class OpenAPIResources: NSObject, WKURLSchemeHandler {
                     // Query errors stay local and retryable; no document data is
                     // sent to a validator, a server or an external reference.
                     let data = (try? JSONSerialization.data(withJSONObject: ["error": error.localizedDescription])) ?? Data()
-                    task.didReceive(URLResponse(url: url, mimeType: "application/json", expectedContentLength: data.count, textEncodingName: "utf-8"))
+                    let response = HTTPURLResponse(url: url, statusCode: 500, httpVersion: "HTTP/1.1",
+                        headerFields: ["Content-Type": "application/json; charset=utf-8", "Content-Length": String(data.count)])
+                        ?? URLResponse(url: url, mimeType: "application/json", expectedContentLength: data.count, textEncodingName: "utf-8")
+                    task.didReceive(response)
                     task.didReceive(data); task.didFinish()
                 }
             }

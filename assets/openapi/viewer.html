@@ -83,9 +83,10 @@
     const url=new URL(route,location.href);
     for(const [key,value] of Object.entries(args))url.searchParams.set(key,value);
     const response=await fetch(url,{signal});
-    if(!response.ok)throw new Error(tr('Cannot load API reference.'));
     const data=await response.json();
     if(data.error)throw new Error(data.error);
+    // WebKit can report status 0 for a successful custom-scheme URLResponse.
+    if(!response.ok&&response.status!==0)throw new Error(tr('Cannot load API reference.'));
     return data;
   }
   function failure(host,error,retry) {
