@@ -6,6 +6,14 @@ Build scripts use `scripts/generate-reader-limits.py` to generate Rust constants
 
 This page is generated from the same policy. After editing it, run `python3 scripts/generate-reader-limits.py --docs` to update both language inventories. Ordinary builds write generated files only to OUT_DIR.
 
+## openapi
+
+| Key | Value | Unit | Effect | Behavior |
+| --- | ---: | --- | --- | --- |
+| `openapi.field_bytes` | 4 KiB | bytes | page | Decoded label/value prefix per indexed JSON node. Complete original tokens remain available through raw-value byte pages. |
+| `openapi.page_nodes` | 60 | items | page | Endpoint or child-node window. Navigation replaces the current window; collapsed content releases its DOM. |
+| `openapi.depth` | 96 | levels | fallback | Active streaming-index parser stack depth. Deeper JSON retains the ordinary source reader. |
+
 ## text
 
 | Key | Value | Unit | Effect | Behavior |

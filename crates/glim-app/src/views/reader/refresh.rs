@@ -32,6 +32,13 @@ impl Reader {
             return None;
         }
         let path = self.document.path.clone();
+        if self
+            .projection
+            .as_ref()
+            .is_some_and(super::Projection::is_openapi)
+        {
+            return Some(RefreshRequest::Reload(path));
+        }
         match &self.renderer {
             Renderer::Surface(view) => view.refresh_request(&path, force, cx),
             Renderer::Paged { view, .. } => view

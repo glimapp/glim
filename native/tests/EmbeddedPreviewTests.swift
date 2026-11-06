@@ -16,7 +16,7 @@ struct EmbeddedPreviewTests {
     static func requestContract() throws {
         let fixture = URL(fileURLWithPath: "native/tests/fixtures/preview-requests.json")
         let entries = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as! [[String: Any]]
-        precondition(entries.count == 8)
+        precondition(entries.count == 9)
         for entry in entries {
             let request = try NativePreviewRequest.decode(JSONSerialization.data(withJSONObject: entry))
             switch request.content {
@@ -26,6 +26,7 @@ struct EmbeddedPreviewTests {
             case .office(let office): precondition(office.imagePages && office.reading == "/cache/reading.html")
             case .workbook(let workbook): precondition(workbook.database == "/cache/index.sqlite" && workbook.cache == "/cache/sheets")
             case .html(let html): precondition(html.text == "<p>中文</p>")
+            case .openApi(let api): precondition(api.source == "/documents/openapi.json" && api.database == "/cache/api/index.sqlite")
             case .media(let media): precondition(!media.autoplay && media.preparation?.directory == "/cache/media" && media.files == ["/documents/movie.mkv"])
             case .associations(let associations): precondition(associations.bundle == "/Applications/Glim.app")
             }
@@ -34,6 +35,7 @@ struct EmbeddedPreviewTests {
             ["version": 2, "localizations": [:], "content": ["kind": "pdf", "source": "/document.pdf"]],
             ["version": 1, "localizations": [:], "content": ["kind": "unknown"]],
             ["version": 1, "localizations": [:], "content": ["kind": "workbook", "source": "/table.xlsx"]],
+            ["version": 1, "localizations": [:], "content": ["kind": "open_api", "source": "/openapi.json"]],
         ] {
             let data = try JSONSerialization.data(withJSONObject: invalid)
             precondition((try? NativePreviewRequest.decode(data)) == nil)

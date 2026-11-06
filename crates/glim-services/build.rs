@@ -63,6 +63,17 @@ fn main() {
     println!("cargo:rerun-if-changed=../../native/ReaderActions.swift");
     println!("cargo:rerun-if-changed=../../native/ReaderFind.swift");
     println!("cargo:rerun-if-changed=../../native/HTMLPreview.swift");
+    println!("cargo:rerun-if-changed=../../native/OpenAPIResources.swift");
+    println!("cargo:rerun-if-changed=../../assets/openapi/viewer.html");
+    println!("cargo:rerun-if-changed=../../scripts/embed-openapi.py");
+    assert!(
+        Command::new("python3")
+            .arg("../../scripts/embed-openapi.py")
+            .arg(&limits_out)
+            .status()
+            .expect("Embed API reference")
+            .success()
+    );
     println!("cargo:rerun-if-changed=../../native/WorkbookPreview.swift");
     println!("cargo:rerun-if-changed=../../native/WordPreview.swift");
     println!("cargo:rerun-if-changed=../../native/PreviewMain.swift");
@@ -121,8 +132,10 @@ fn main() {
             "../../native/ReaderActions.swift",
             "../../native/ReaderFind.swift",
             "../../native/HTMLPreview.swift",
+            "../../native/OpenAPIResources.swift",
         ])
         .arg(output.with_file_name("ReaderLimits.swift"))
+        .arg(output.with_file_name("OpenAPIAssets.swift"))
         .arg(main)
         .arg("-o")
         .arg(output)

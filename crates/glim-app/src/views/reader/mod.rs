@@ -22,6 +22,7 @@ mod native;
 mod text;
 
 mod native_bridge;
+mod openapi;
 mod opml;
 mod paged;
 mod pictures;
@@ -133,6 +134,9 @@ impl Reader {
         );
     }
     pub fn telemetry_kind(&self) -> &'static str {
+        if self.projection.as_ref().is_some_and(Projection::is_openapi) {
+            return "openapi";
+        }
         match &self.renderer {
             Renderer::Source(_) => "source",
             Renderer::Markup(markup) => {
@@ -285,7 +289,12 @@ impl Reader {
         }
         let _scope = glim_services::diagnostics::FileScope::enter(&self.document.path, "render");
         let content = self.render_content(open, cx);
-        let content = if let Some(controls) = &self.structured_controls {
+        let content = if let Some(controls) = &self.structured_controls
+            && !self
+                .projection
+                .as_ref()
+                .is_some_and(|view| view.is_openapi() && view.visible())
+        {
             let blocked = matches!(&self.renderer, Renderer::Paged { .. }) && self.is_dirty();
             controls.update(cx, |controls, _| controls.blocked = blocked);
             div()

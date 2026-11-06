@@ -102,6 +102,7 @@ fn build_native_preview() {
         "ReaderActions.swift",
         "ReaderFind.swift",
         "HTMLPreview.swift",
+        "OpenAPIResources.swift",
         "WorkbookPreview.swift",
         "WordPreview.swift",
         "EmbeddedPreview.swift",
@@ -115,6 +116,15 @@ fn build_native_preview() {
         _ => panic!("Unsupported macOS architecture"),
     };
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    println!("cargo:rerun-if-changed=../../scripts/embed-openapi.py");
+    assert!(
+        Command::new("python3")
+            .arg("../../scripts/embed-openapi.py")
+            .arg(&output)
+            .status()
+            .expect("Embed API reference")
+            .success()
+    );
     let mut compiler = Command::new("xcrun");
     let sdk = Command::new("xcrun")
         .arg("--show-sdk-path")
@@ -151,12 +161,14 @@ fn build_native_preview() {
             "../../native/ReaderActions.swift",
             "../../native/ReaderFind.swift",
             "../../native/HTMLPreview.swift",
+            "../../native/OpenAPIResources.swift",
             "../../native/WorkbookPreview.swift",
             "../../native/WordPreview.swift",
             "../../native/EmbeddedPreview.swift",
             "../../native/FinderIntegration.swift",
         ])
         .arg(output.join("ReaderLimits.swift"))
+        .arg(output.join("OpenAPIAssets.swift"))
         .args(["-o"])
         .arg(output.join("libGlimNativePreview.a"))
         .status()

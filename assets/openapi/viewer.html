@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src glim-api:; base-uri 'none'; form-action 'none'">
+<title>API reference</title>
+<style>
+  :root { color-scheme: light dark; --background:Canvas; --foreground:CanvasText; --muted:#5b6068; --border:#d4d6da; --control:ButtonFace; --accent:LinkText; }
+  @media(prefers-color-scheme:dark) { :root { --muted:#b9bdc4; --border:#484b51; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--background); color:var(--foreground); font:13px/1.5 -apple-system,BlinkMacSystemFont,sans-serif; overflow-wrap:anywhere; }
+  main { padding:20px 24px 48px; max-width:1200px; margin:0 auto; }
+  h1 { font-size:20px; line-height:1.3; margin:0 0 4px; font-weight:600; }
+  h2 { font-size:15px; margin:24px 0 8px; font-weight:600; }
+  p { margin:6px 0; white-space:pre-wrap; }
+  code,pre,.method { font-family:ui-monospace,Menlo,monospace; font-size:12px; }
+  code,pre { overflow-wrap:anywhere; white-space:pre-wrap; }
+  pre { margin:8px 0; tab-size:2; }
+  .muted,.meta,.type { color:var(--muted); }
+  .meta { margin-bottom:12px; }
+  .group { margin-top:24px; }
+  .operation { border-top:1px solid var(--border); }
+  .operation:last-child { border-bottom:1px solid var(--border); }
+  summary { cursor:pointer; padding:8px 2px; }
+  summary:hover { background:var(--control); }
+  summary:focus-visible,button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .operation>summary { display:flex; align-items:baseline; gap:10px; min-height:38px; }
+  .operation>summary:before { content:'▸'; flex:none; color:var(--muted); }
+  .operation[open]>summary:before { content:'▾'; }
+  .operation>summary::-webkit-details-marker { display:none; }
+  .method { color:var(--accent); font-weight:600; min-width:54px; flex:none; }
+  .path { font-weight:600; min-width:0; }
+  .summary { color:var(--muted); margin-left:8px; font-size:13px; font-weight:400; }
+  .operation-body { padding:4px 0 16px 22px; }
+  .children { padding-left:16px; border-left:1px solid var(--border); margin:4px 0 8px; }
+  .field { padding:5px 2px; }
+  .field-name { font-weight:600; margin-right:10px; }
+  .field-value { white-space:pre-wrap; }
+  .type { font-size:12px; margin-left:10px; font-weight:400; }
+  .required { color:var(--foreground); font-weight:600; font-size:12px; margin-left:10px; }
+  .pager { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:14px; min-height:30px; }
+  button { font:inherit; color:var(--foreground); background:var(--control); border:1px solid var(--border); border-radius:4px; padding:4px 10px; cursor:pointer; }
+  button:hover:enabled { border-color:var(--accent); }
+  button:active:enabled { opacity:.75; }
+  button:disabled { opacity:.5; cursor:default; }
+  .reference { color:var(--accent); text-align:left; overflow-wrap:anywhere; }
+  .raw { margin:6px 0; color:var(--muted); }
+  .raw summary { font-size:12px; }
+  .raw pre { color:var(--foreground); }
+  .status { margin:8px 0; min-height:22px; }
+  #document { margin-top:24px; }
+  @media(max-width:600px) { main { padding:14px 12px 32px; } .operation>summary { gap:6px; } .summary { display:block; margin:4px 0 0; } .operation-body { padding-left:8px; } .children { padding-left:10px; } }
+</style>
+<main>
+  <header id="header"></header>
+  <div id="status" class="status" role="status">Loading preview…</div>
+  <section id="endpoints" aria-label="Endpoints"></section>
+  <nav id="pager" class="pager" aria-label="Endpoint pages"></nav>
+  <section id="document"></section>
+</main>
+<script>
+(() => {
+  'use strict';
+  let config, pageController, currentOperation, pageOffset=0;
+  const $=id=>document.getElementById(id);
+  const tr=text=>config?.translations[text]||text;
+  const labels={parameters:'Parameters',requestBody:'Request body',responses:'Responses',schema:'Schema',schemas:'Schemas',definitions:'Schemas',properties:'Properties',required:'Required',description:'Description',security:'Security',securityDefinitions:'Security schemes',securitySchemes:'Security schemes',components:'Components',servers:'Servers',content:'Content',headers:'Headers',example:'Example',examples:'Examples',summary:'Summary',operationId:'Operation ID',tags:'Tags',name:'Name',type:'Type',in:'Location',items:'Items',default:'Default',enum:'Enum',deprecated:'Deprecated','Path parameters':'Path parameters'};
+  const label=name=>tr(labels[name]||name);
+  function el(tag,text,className) {
+    const node=document.createElement(tag);
+    if(text!==undefined)node.textContent=text;
+    if(className)node.className=className;
+    return node;
+  }
+  function button(text,action) {
+    const node=el('button',tr(text));node.type='button';node.addEventListener('click',action);return node;
+  }
+  function clear(host,...nodes) {
+    for(const detail of host.querySelectorAll('details'))detail.release?.();
+    host.replaceChildren(...nodes);
+  }
+  async function api(route,args={},signal) {
+    const url=new URL(route,location.href);
+    for(const [key,value] of Object.entries(args))url.searchParams.set(key,value);
+    const response=await fetch(url,{signal});
+    if(!response.ok)throw new Error(tr('Cannot load API reference.'));
+    const data=await response.json();
+    if(data.error)throw new Error(data.error);
+    return data;
+  }
+  function failure(host,error,retry) {
+    if(error.name==='AbortError')return;
+    clear(host,el('p',error.message));
+    host.append(button('Retry',retry));
+  }
+  function loading(host) { clear(host,el('p',tr('Loading preview…'),'muted')); }
+  function pager(host,offset,more,change) {
+    const row=el('div',undefined,'pager');
+    if(offset>0)row.append(button('Previous',()=>change(Math.max(0,offset-config.pageSize))));
+    if(more)row.append(button('Next page',()=>change(offset+config.pageSize)));
+    if(row.childNodes.length)host.append(row);
+  }
+  function disclosure(summary,host,render,parentSignal) {
+    const details=el('details');details.append(summary);
+    let controller;
+    function dispose() {
+      parentSignal?.removeEventListener('abort',dispose);
+      controller?.abort();controller=null;clear(host);host.remove();
+    }
+    details.release=dispose;
+    details.addEventListener('toggle',async()=>{
+      if(!details.open) { dispose();return; }
+      // One expanded sibling bounds resident content without limiting the spec.
+      for(const sibling of details.parentElement?.children||[])if(sibling!==details&&sibling.tagName==='DETAILS')sibling.open=false;
+      controller?.abort();controller=new AbortController();
+      parentSignal?.addEventListener('abort',dispose,{once:true});
+      const signal=controller.signal;
+      details.append(host);loading(host);
+      try { await render(host,signal); }
+      catch(error) { if(!signal.aborted)failure(host,error,()=>{details.open=false;queueMicrotask(()=>details.open=true);}); }
+    });
+    return details;
+  }
+  function raw(node,signal) {
+    const host=el('div');
+    const details=disclosure(el('summary',tr('Raw JSON')),host,async(host,childSignal)=>{
+      async function page(offset) {
+        loading(host);
+        try {
+          const data=await api('/raw',{id:node.id,offset},childSignal);
+          if(childSignal.aborted)return;
+          clear(host,el('pre',data.text));
+          const controls=el('div',undefined,'pager');
+          if(data.offset>0)controls.append(button('Previous',()=>page(Math.max(0,data.offset-config.fieldBytes))));
+          if(data.more)controls.append(button('Next page',()=>page(data.next)));
+          host.append(controls);
+        } catch(error) { if(!childSignal.aborted)failure(host,error,()=>page(offset)); }
+      }
+      await page(0);
+    },signal);
+    details.className='raw';return details;
+  }
+  function reference(node,ancestors,depth,signal) {
+    const summary=el('summary');summary.append(el('span','$ref','field-name'),el('code',node.value+(node.value_complete===0?'…':'')));
+    return disclosure(summary,el('div',undefined,'children'),async(host,childSignal)=>{
+      if(node.value_complete===0) { clear(host,raw(node,childSignal));return; }
+      if(!node.value.startsWith('#')) { clear(host,el('p',tr('External references are shown as paths and are not loaded.')));return; }
+      const target=await api('/pointer',{value:decodeURIComponent(node.value.slice(1))},childSignal);
+      if(childSignal.aborted)return;
+      clear(host);
+      if(ancestors.has(target.id)||depth>=config.depth) {
+        host.append(el('p',tr('Recursive reference. Inspect the referenced JSON below.')));
+        host.append(raw(target,childSignal));return;
+      }
+      const next=new Set(ancestors);next.add(target.id);
+      await children(host,target,next,depth+1,childSignal);
+    },signal);
+  }
+  function field(node,ancestors,depth,signal) {
+    if(node.name==='$ref'&&node.kind==='string')return reference(node,ancestors,depth,signal);
+    const name=node.title||label(node.name)+(node.name_complete===0?'…':'');
+    if(node.kind!=='object'&&node.kind!=='array') {
+      const row=el('div',undefined,'field');
+      if(node.name)row.append(el('span',label(node.name),'field-name'));
+      row.append(el('span',node.value+(node.value_complete===0?'…':''),'field-value'));
+      if(node.value_complete===0)row.append(raw(node,signal));
+      return row;
+    }
+    const summary=el('summary');summary.append(el('span',name,'field-name'));
+    const hint=[node.type,node.location].filter(Boolean).join(' · ');
+    if(hint)summary.append(el('span',hint,'type'));
+    if(node.required==='true')summary.append(el('span',tr('Required'),'required'));
+    return disclosure(summary,el('div',undefined,'children'),async(host,childSignal)=>{
+      const next=new Set(ancestors);next.add(node.id);
+      await children(host,node,next,depth+1,childSignal);
+    },signal);
+  }
+  async function children(host,node,ancestors,depth,signal,offset=0,exclude=[]) {
+    const data=await api('/children',{id:node.id,offset},signal);
+    if(signal.aborted)return;
+    clear(host);
+    const visible=data.items.filter(item=>!exclude.includes(item.name));
+    if(!data.items.length)host.append(el('p',tr('No fields are defined.'),'muted'));
+    for(const item of visible)host.append(field(item,ancestors,depth,signal));
+    pager(host,offset,data.more,async offset=>{
+      loading(host);
+      try { await children(host,node,ancestors,depth,signal,offset,exclude); }
+      catch(error) { if(!signal.aborted)failure(host,error,()=>children(host,node,ancestors,depth,signal,offset,exclude)); }
+    });
+    host.append(raw(node,signal));
+  }
+  async function operation(item,signal) {
+    const summary=el('summary');
+    summary.append(el('span',item.method.toUpperCase(),'method'));
+    const path=el('span');path.append(el('code',item.path,'path'));
+    if(item.summary)path.append(el('span',item.summary,'summary'));
+    summary.append(path);
+    const details=disclosure(summary,el('div',undefined,'operation-body'),async(host,childSignal)=>{
+      if(currentOperation&&currentOperation!==details)currentOperation.open=false;
+      currentOperation=details;
+      const node=await api('/node',{id:item.id},childSignal);
+      if(childSignal.aborted)return;
+      await children(host,node,new Set([node.id]),0,childSignal,0,['summary']);
+      // Path-item parameters apply to every method; operation parameters with
+      // matching name/location take precedence according to OpenAPI.
+      const inherited=await api('/child',{id:node.parent,name:'parameters'},childSignal);
+      if(inherited.id&&!childSignal.aborted) {
+        inherited.name='Path parameters';
+        const inheritedView=field(inherited,new Set([node.id]),0,childSignal);
+        host.prepend(inheritedView);
+        host.prepend(el('p',tr('Operation parameters override path parameters with the same name and location.'),'muted'));
+      }
+    },signal);
+    details.className='operation';return details;
+  }
+  async function page(offset) {
+    pageController?.abort();pageController=new AbortController();
+    const signal=pageController.signal;
+    pageOffset=offset;currentOperation=null;
+    $('status').textContent=tr('Loading preview…');
+    const previousHeight=$('endpoints').getBoundingClientRect().height;
+    $('endpoints').style.minHeight=previousHeight+'px';
+    clear($('endpoints'));
+    clear($('pager'));
+    try {
+      const data=await api('/endpoints',{offset},signal);
+      if(signal.aborted)return;
+      clear($('endpoints'));
+      if(!data.items.length)$('endpoints').append(el('p',tr('No endpoints are defined in paths.'),'muted'));
+      let tag,group;
+      for(const item of data.items) {
+        if(tag!==item.tag) {
+          tag=item.tag;group=el('section',undefined,'group');group.append(el('h2',tag||tr('Endpoints')));$('endpoints').append(group);
+        }
+        group.append(await operation(item,signal));
+      }
+      pager($('pager'),offset,data.more,page);
+      if(offset>0||data.more)$('pager').prepend(el('span',`${offset+1}–${offset+data.items.length}`,'muted'));
+      $('status').textContent='';
+      $('endpoints').style.minHeight='';
+    } catch(error) { if(!signal.aborted)failure($('status'),error,()=>page(offset)); }
+  }
+  async function theme() {
+    config=await api('/config');
+    for(const [key,value] of Object.entries(config.colors))document.documentElement.style.setProperty('--'+key,value);
+  }
+  async function start() {
+    try {
+      await theme();
+      document.documentElement.lang=config.translations['API reference']==='API 接口文档'?'zh-CN':'en';
+      document.title=tr('API reference');
+      $('endpoints').setAttribute('aria-label',tr('Endpoints'));
+      $('pager').setAttribute('aria-label',tr('Endpoint pages'));
+      const info=await api('/pointer',{value:'/info'});
+      const data=info.id?await api('/children',{id:info.id}):{items:[]};
+      const infoFields=Object.fromEntries(data.items.map(item=>[item.name,item]));
+      clear($('header'),el('h1',infoFields.title?.value||tr('API reference')));
+      let version;
+      try { version=await api('/pointer',{value:'/openapi'}); }
+      catch { version=await api('/pointer',{value:'/swagger'}); }
+      $('header').append(el('div',[version.name==='swagger'?'Swagger '+version.value:'OpenAPI '+version.value,infoFields.version?.value].filter(Boolean).join(' · '),'meta'));
+      if(infoFields.description)$('header').append(field({...infoFields.description,name:''},new Set(),0));
+      const root=await api('/node',{id:1});
+      const summary=el('summary',tr('Document details'));
+      clear($('document'),disclosure(summary,el('div',undefined,'children'),(host,signal)=>children(host,root,new Set([1]),0,signal,0,['paths']),undefined));
+      await page(pageOffset);
+    } catch(error) { failure($('status'),error,start); }
+  }
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>theme().catch(()=>{}));
+  start();
+})();
+</script>
+</html>

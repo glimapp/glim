@@ -12,6 +12,7 @@ pub(super) struct Projection {
     error: Option<String>,
 }
 enum View {
+    OpenApi(Entity<super::openapi::OpenApiReader>),
     Table {
         view: Entity<CsvTable>,
         format: TableFormat,
@@ -19,6 +20,19 @@ enum View {
     Json(Entity<JsonTree>),
 }
 impl Projection {
+    pub fn openapi(path: std::path::PathBuf, cx: &mut App) -> Self {
+        Self {
+            view: View::OpenApi(cx.new(|_| super::openapi::OpenApiReader::new(path))),
+            visible: false,
+            error: None,
+        }
+    }
+    pub fn is_openapi(&self) -> bool {
+        matches!(self.view, View::OpenApi(_))
+    }
+    pub fn find(&self, show: bool, cx: &App) -> bool {
+        matches!(&self.view, View::OpenApi(view) if self.visible && view.read(cx).find(show, cx))
+    }
     pub fn new(presentation: &TextPresentation, file: Option<&Path>, cx: &mut App) -> Option<Self> {
         let view = if let Some(format) = presentation.table {
             View::Table {
@@ -43,7 +57,7 @@ impl Projection {
     pub fn table_format(&self) -> Option<TableFormat> {
         match self.view {
             View::Table { format, .. } => Some(format),
-            View::Json(_) => None,
+            View::Json(_) | View::OpenApi(_) => None,
         }
     }
     pub fn is_json(&self) -> bool {
@@ -58,6 +72,7 @@ impl Projection {
         cx: &App,
     ) -> Result<Arc<TextSnapshot>, WorkingPressure> {
         let current = match &self.view {
+            View::OpenApi(view) => view.read(cx).input_snapshot(),
             View::Table { view, .. } => view.read(cx).input_snapshot(),
             View::Json(view) => view.read(cx).input_snapshot(),
         };
@@ -89,6 +104,7 @@ impl Projection {
             }
         };
         match &self.view {
+            View::OpenApi(view) => view.update(cx, |view, cx| view.load(text, cx)),
             View::Table { view, format } => view.update(cx, |table, cx| match text {
                 Some(text) => match format.geo_name() {
                     Some(name) => table.load_geo(text, name, cx),
@@ -106,6 +122,7 @@ impl Projection {
     pub fn set_active(&self, active: bool, cx: &mut App) {
         let active = active && self.visible && self.error.is_none();
         match &self.view {
+            View::OpenApi(view) => view.update(cx, |view, cx| view.set_active(active, cx)),
             View::Table { view, .. } => view.update(cx, |table, cx| {
                 if active {
                     table.resume(cx);
@@ -128,6 +145,7 @@ impl Projection {
                 return div().p_4().child(error.clone()).into_any_element();
             }
             match &self.view {
+                View::OpenApi(view) => view.clone().into_any_element(),
                 View::Table { view, .. } => view.clone().into_any_element(),
                 View::Json(view) => view.clone().into_any_element(),
             }

@@ -50,6 +50,7 @@ pub mod books;
 
 pub mod drawio;
 
+pub mod openapi;
 pub mod opml;
 
 pub mod plist;

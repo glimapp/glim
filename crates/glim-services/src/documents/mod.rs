@@ -46,6 +46,7 @@ impl From<String> for ReadFailure {
 }
 
 pub enum Content {
+    OpenApi(Box<Content>),
     Archive(crate::archive::Archive),
     File(Document),
     Page(crate::paged::TextPage),
@@ -60,6 +61,7 @@ pub enum Content {
 impl Content {
     pub fn path(&self) -> &Path {
         match self {
+            Self::OpenApi(source) => source.path(),
             Self::Archive(d) => &d.path,
             Self::File(d) => &d.path,
             Self::Page(d) => &d.path,
@@ -73,6 +75,7 @@ impl Content {
     pub fn matches_snapshot(&self, snapshot: &glim_core::ContentSnapshot) -> bool {
         use glim_core::ContentSnapshot;
         match (self, snapshot) {
+            (Self::OpenApi(source), snapshot) => source.matches_snapshot(snapshot),
             (Self::File(d), ContentSnapshot::Text(text)) => d.text == text.as_ref(),
             (Self::Image(d), ContentSnapshot::Fingerprint(value)) => &d.fingerprint == value,
             (Self::Opml(d), ContentSnapshot::Fingerprint(value)) => &d.fingerprint == value,
@@ -136,7 +139,15 @@ fn read_content_inner(path: &Path, cancel: &crate::work::Cancellation) -> anyhow
             return Ok(content);
         }
     }
-    text_or_bytes(path, cancel)
+    let content = text_or_bytes(path, cancel)?;
+    if crate::openapi::supports(path) {
+        let detected = crate::openapi::is_spec(path, cancel).unwrap_or(false);
+        cancel.check()?;
+        if detected {
+            return Ok(Content::OpenApi(Box::new(content)));
+        }
+    }
+    Ok(content)
 }
 
 fn source_fallback(

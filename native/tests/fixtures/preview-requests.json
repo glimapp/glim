@@ -63,6 +63,15 @@
     "version": 1,
     "localizations": {},
     "content": {
+      "kind": "open_api",
+      "source": "/documents/openapi.json",
+      "database": "/cache/api/index.sqlite"
+    }
+  },
+  {
+    "version": 1,
+    "localizations": {},
+    "content": {
       "kind": "media",
       "files": [
         "/documents/movie.mkv"

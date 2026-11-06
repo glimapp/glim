@@ -12,6 +12,10 @@ pub struct NativeRequest {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NativeContent {
+    OpenApi {
+        source: PathBuf,
+        database: PathBuf,
+    },
     Pdf {
         source: PathBuf,
     },
@@ -112,6 +116,10 @@ mod tests {
             NativeContent::Html {
                 source: "/documents/page.html".into(),
                 text: Some("<p>中文</p>".into()),
+            },
+            NativeContent::OpenApi {
+                source: "/documents/openapi.json".into(),
+                database: "/cache/api/index.sqlite".into(),
             },
             NativeContent::Media {
                 files: vec!["/documents/movie.mkv".into()],

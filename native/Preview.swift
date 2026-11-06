@@ -818,6 +818,11 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         }
         guard !urls.isEmpty else { throw NSError(domain: "Glim", code: 1, userInfo: [NSLocalizedDescriptionKey: "No preview files found."]) }
         switch request.content {
+        case .openApi(let api):
+            let preview = HTMLPreview(document: urls[0], contents: nil, apiDatabase: api.database); htmlPreview = preview
+            preview.view.frame = host.bounds; preview.view.autoresizingMask = [.width, .height]
+            host.addSubview(preview.view)
+            return
         case .html(let html):
             let preview = HTMLPreview(document: urls[0], contents: html.text); htmlPreview = preview
             preview.view.frame = host.bounds; preview.view.autoresizingMask = [.width, .height]

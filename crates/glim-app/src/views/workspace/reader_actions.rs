@@ -114,7 +114,9 @@ pub(super) fn document_items(
     }
     if reader.can_preview() {
         let mut preview = ToolbarItem::new(ToolbarAction::Preview);
-        if reader.is_json() {
+        if reader.is_openapi() {
+            preview.label = "API reference";
+        } else if reader.is_json() {
             preview.label = "JSON tree";
             preview.icon = Some(IconName::ListTree);
         } else if reader.is_csv() {

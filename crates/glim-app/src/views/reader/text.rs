@@ -3,7 +3,10 @@ use super::*;
 impl Reader {
     pub fn can_find(&self, cx: &App) -> bool {
         if self.projection.as_ref().is_some_and(Projection::visible) {
-            return false;
+            return self
+                .projection
+                .as_ref()
+                .is_some_and(|view| view.find(false, cx));
         }
         match &self.renderer {
             Renderer::Surface(view) => view.can_find(cx),
@@ -22,6 +25,12 @@ impl Reader {
 
     pub fn find(&self, window: &mut Window, cx: &mut App) {
         if !self.can_find(cx) {
+            return;
+        }
+        if let Some(view) = &self.projection
+            && view.visible()
+        {
+            view.find(true, cx);
             return;
         }
         match &self.renderer {
@@ -163,6 +172,9 @@ impl Reader {
     }
     pub fn is_json(&self) -> bool {
         self.projection.as_ref().is_some_and(Projection::is_json)
+    }
+    pub fn is_openapi(&self) -> bool {
+        self.projection.as_ref().is_some_and(Projection::is_openapi)
     }
     pub(super) fn restore_csv_preview(&mut self, cx: &mut App) {
         if self.table_format().is_some()

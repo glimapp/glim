@@ -32,6 +32,7 @@ struct PreviewWorkbook: Decodable {
     let information: String
 }
 struct PreviewHTML: Decodable { let source: String; let text: String? }
+struct PreviewOpenAPI: Decodable { let source: String; let database: String }
 struct PreviewMedia: Decodable {
     struct Preparation: Decodable { let files: [String]; let helper: String; let directory: String }
     let files: [String]
@@ -42,6 +43,7 @@ struct PreviewMedia: Decodable {
 struct PreviewAssociations: Decodable { let bundle: String }
 
 enum NativePreviewContent: Decodable {
+    case openApi(PreviewOpenAPI)
     case pdf(PreviewFile)
     case image(PreviewImage)
     case font(PreviewFile)
@@ -52,10 +54,11 @@ enum NativePreviewContent: Decodable {
     case associations(PreviewAssociations)
 
     private enum CodingKeys: String, CodingKey { case kind }
-    private enum Kind: String, Decodable { case pdf, image, font, office, workbook, html, media, associations }
+    private enum Kind: String, Decodable { case pdf, image, font, office, workbook, html, media, associations; case openApi = "open_api" }
     init(from decoder: Decoder) throws {
         let kind = try decoder.container(keyedBy: CodingKeys.self).decode(Kind.self, forKey: .kind)
         switch kind {
+        case .openApi: self = .openApi(try PreviewOpenAPI(from: decoder))
         case .pdf: self = .pdf(try PreviewFile(from: decoder))
         case .image: self = .image(try PreviewImage(from: decoder))
         case .font: self = .font(try PreviewFile(from: decoder))
@@ -68,6 +71,7 @@ enum NativePreviewContent: Decodable {
     }
     var files: [String] {
         switch self {
+        case .openApi(let file): return [file.source]
         case .pdf(let file), .font(let file): return [file.source]
         case .image(let file): return [file.source]
         case .office(let file): return [file.source]

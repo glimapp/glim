@@ -39,6 +39,12 @@ impl Reader {
         cx: &mut App,
     ) -> Reader {
         match content {
+            Content::OpenApi(source) => {
+                let mut reader = Self::from_content_inner(*source, autoplay, window, cx);
+                reader.projection = Some(Projection::openapi(reader.document.path.clone(), cx));
+                reader.set_preview(true, cx);
+                reader
+            }
             Content::Archive(d) => Reader::from_archive(d, cx),
             Content::File(d) => Reader::new(d, window, cx),
             Content::Page(d) => Reader::from_page(d, window, cx),

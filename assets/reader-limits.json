@@ -2,6 +2,32 @@
   "schema_version": 1,
   "description": "Shared reader policy: total-size gates are replaced by scalable access. Null values retire a gate; finite values describe active pages, previews and resource budgets.",
   "limits": {
+    "openapi": {
+      "field_bytes": {
+        "value": 4096,
+        "type": "usize",
+        "unit": "bytes",
+        "effect": "page",
+        "description": "Decoded label/value prefix per indexed JSON node. Complete original tokens remain available through raw-value byte pages.",
+        "description_zh": "每个索引 JSON 节点的标签／值解码前缀预算；完整原始 token 仍可通过原始值字节分页访问。"
+      },
+      "page_nodes": {
+        "value": 60,
+        "type": "usize",
+        "unit": "items",
+        "effect": "page",
+        "description": "Endpoint or child-node window. Navigation replaces the current window; collapsed content releases its DOM.",
+        "description_zh": "接口或子节点的单页数量；导航替换当前页面，折叠内容释放 DOM。"
+      },
+      "depth": {
+        "value": 96,
+        "type": "usize",
+        "unit": "levels",
+        "effect": "fallback",
+        "description": "Active streaming-index parser stack depth. Deeper JSON retains the ordinary source reader.",
+        "description_zh": "流式索引解析器的活动栈深度；更深的 JSON 保留普通源码阅读入口。"
+      }
+    },
     "text": {
       "editable_bytes": {
         "value": 33554432,

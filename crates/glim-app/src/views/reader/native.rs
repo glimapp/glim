@@ -41,6 +41,14 @@ impl NativeReader {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Self {
+        Self::browser(path, text)
+    }
+    pub fn openapi(path: PathBuf, configuration: &[u8]) -> Self {
+        let mut reader = Self::browser(path, Some(String::new()));
+        reader.preview = Some(super::native_bridge::NativePreview::new(configuration));
+        reader
+    }
+    fn browser(path: PathBuf, text: Option<String>) -> Self {
         // WebKit and navigation polling start only when this preview is visible.
         Self {
             path,
@@ -62,7 +70,10 @@ impl NativeReader {
         }
     }
     fn start_html_navigation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self._html_navigation.is_some() || !(self.html_file || self.html.is_some()) {
+        if self._html_navigation.is_some()
+            || self.html_open.is_none()
+            || !(self.html_file || self.html.is_some())
+        {
             return;
         }
         self._html_navigation = Some(cx.spawn_in(window, async move |view, cx| {

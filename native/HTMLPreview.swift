@@ -97,7 +97,8 @@ private final class HTMLResources: NSObject, WKURLSchemeHandler {
 final class HTMLPreview: NSObject, WKNavigationDelegate {
     let view = NSView()
     private let web: WKWebView
-    private let resources: HTMLResources
+    private let resources: HTMLResources?
+    private let apiResources: OpenAPIResources?
     private let document: URL
     private let documentURL: URL
     private let loading = NSTextField(labelWithString: L("Loading preview…"))
@@ -107,16 +108,18 @@ final class HTMLPreview: NSObject, WKNavigationDelegate {
     var pendingNavigation: String?
     var didLoad: (() -> Void)?
     private(set) var findBar: ReaderFindBar?
-    init(document: URL, contents: String?) {
+    init(document: URL, contents: String?, apiDatabase: String? = nil) {
         self.document = document.standardizedFileURL
         var components = URLComponents()
-        components.scheme = "glim-html"; components.host = "local"; components.path = document.path
+        components.scheme = apiDatabase == nil ? "glim-html" : "glim-api"; components.host = "local"; components.path = document.path
         documentURL = components.url!
-        resources = HTMLResources(document: document, contents: contents)
+        resources = apiDatabase == nil ? HTMLResources(document: document, contents: contents) : nil
+        apiResources = apiDatabase.map { OpenAPIResources(database: $0, document: document) }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        configuration.setURLSchemeHandler(resources, forURLScheme: "glim-html")
+        if let resources = resources { configuration.setURLSchemeHandler(resources, forURLScheme: "glim-html") }
+        if let resources = apiResources { configuration.setURLSchemeHandler(resources, forURLScheme: "glim-api") }
         // WebKit may keep the outgoing 3D slide visible during Reveal transitions.
         // Scope the compatibility rule to presentation mode; overview/printing
         // still show all slides. This decorates the preview, not the source file.
@@ -167,7 +170,7 @@ final class HTMLPreview: NSObject, WKNavigationDelegate {
         guard let url = action.request.url else { decisionHandler(.cancel); return }
         if action.navigationType == .linkActivated || action.targetFrame == nil {
             ReaderTelemetry.record(7, 28)
-            if url.scheme == "glim-html", url.path == document.path, let fragment = URLComponents(url: url, resolvingAgainstBaseURL: false)?.fragment {
+            if url.scheme == documentURL.scheme, url.path == document.path, let fragment = URLComponents(url: url, resolvingAgainstBaseURL: false)?.fragment {
                 reveal(fragment); decisionHandler(.cancel); return
             }
             if url.scheme == "glim-html" {
@@ -226,6 +229,6 @@ final class HTMLPreview: NSObject, WKNavigationDelegate {
         findBar?.close()
         if let monitor = escapeMonitor { NSEvent.removeMonitor(monitor); escapeMonitor = nil }
         web.stopLoading(); web.navigationDelegate = nil
-        resources.close(); web.removeFromSuperview()
+        resources?.close(); apiResources?.close(); web.removeFromSuperview()
     }
 }

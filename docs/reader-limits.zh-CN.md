@@ -6,6 +6,14 @@
 
 本页由同一配置自动生成。修改配置后执行 `python3 scripts/generate-reader-limits.py --docs` 更新中英文清单；普通构建只生成 OUT_DIR 文件。
 
+## openapi
+
+| Key | 当前值 | 单位 | 超限效果 | 实际行为 |
+| --- | ---: | --- | --- | --- |
+| `openapi.field_bytes` | 4 KiB | bytes | 分页，可继续访问 | 每个索引 JSON 节点的标签／值解码前缀预算；完整原始 token 仍可通过原始值字节分页访问。 |
+| `openapi.page_nodes` | 60 | items | 分页，可继续访问 | 接口或子节点的单页数量；导航替换当前页面，折叠内容释放 DOM。 |
+| `openapi.depth` | 96 | levels | 降级处理 | 流式索引解析器的活动栈深度；更深的 JSON 保留普通源码阅读入口。 |
+
 ## text
 
 | Key | 当前值 | 单位 | 超限效果 | 实际行为 |
