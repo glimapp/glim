@@ -7,3 +7,5 @@ README download links use the stable GitHub `/releases/latest` page. Do not pin 
 [repository-banner.svg](../branding/repository-banner.svg) is the shared header artwork for both READMEs. Keep it unchanged unless explicitly requested. Its file cards are a branding illustration.
 
 `workspace.png` and `sqlite.png` are user-provided product captures. The first shows a Markdown report with an embedded GitHub Star chart; the second shows filtered records in a SQLite snapshot from the same workspace. Both language READMEs use these full, unmodified captures. Do not infer product usage metrics from the chart: it is document content, not Glim adoption data. Captions and alternative text should describe the visible task.
+
+`walkthrough.gif` is a sixteen-second, non-looping sequence of actual Glim screenshots using the public `report.md`, `settings.json` and `releases.csv` examples on the website. It demonstrates the three reader views; frame duration does not measure application loading speed. The expanded README section links to an interactive, static-image equivalent.

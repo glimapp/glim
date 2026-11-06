@@ -2,11 +2,11 @@
 
 # Glim · Your files in one Mac workspace
 
-Glim is a free, open-source file viewer for Mac. Open a contract, a folder of reference material or a project, and keep documents, images, spreadsheets, audio, video and code in one window. You can also make and save small text edits.
+Glim is a free, open-source file viewer for Mac. Read Markdown with Mermaid diagrams, inspect JSON trees and CSV tables, and keep PDFs, images, Office documents and code in adjacent tabs. Ordinary UTF-8 text supports small edits and saving.
 
 <p align="center">Free and open source · macOS · Apple Silicon &amp; Intel · <b>English</b> / <a href="README.zh-CN.md">简体中文</a></p>
 
-<p align="center"><a href="https://glimapp.github.io/">Website / 官网</a> · <a href="https://github.com/glimapp/glim/releases/latest"><strong>Download Glim →</strong></a></p>
+<p align="center"><a href="https://glimapp.github.io/?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=readme">Website / 官网</a> · <a href="https://github.com/glimapp/glim/releases/latest"><strong>Download Glim →</strong></a></p>
 
 <p align="center"><a href="https://github.com/glimapp/glim/releases/latest">Latest release · Release notes &amp; checksums</a> · <a href="#download">Installation help</a></p>
 
@@ -18,6 +18,21 @@ Glim is a free, open-source file viewer for Mac. Open a contract, a folder of re
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License" /></a>
   <a href="https://github.com/glimapp/glim/stargazers"><img src="https://img.shields.io/github/stars/glimapp/glim?style=social" alt="GitHub stars" /></a>
 </p>
+
+## Try three files in one folder
+
+[Markdown and Mermaid](https://glimapp.github.io/markdown-viewer/?utm_source=github&utm_medium=referral&utm_campaign=readme) · [JSON trees](https://glimapp.github.io/json-viewer/?utm_source=github&utm_medium=referral&utm_campaign=readme) · [CSV tables](https://glimapp.github.io/csv-viewer/?utm_source=github&utm_medium=referral&utm_campaign=readme)
+
+Each walkthrough includes a downloadable sample. Keep `report.md`, `settings.json` and `releases.csv` in one folder, open it with ⌘⇧O, then inspect the document, configuration and export. Source edits save automatically to the original file; use a copy when experimenting.
+
+<details>
+<summary>See a 16-second screenshot walkthrough</summary>
+
+<img src="assets/readme/walkthrough.gif" alt="Actual Glim captures showing a sample Markdown Mermaid preview, JSON tree and CSV table in sequence." width="100%" />
+
+This sequence uses actual app screenshots and sample data; it does not demonstrate loading speed. You can also [choose each view on the website](https://glimapp.github.io/?utm_source=github&utm_medium=referral&utm_campaign=readme#walkthrough).
+
+</details>
 
 ## What would you use Glim for?
 
@@ -87,6 +102,8 @@ Open the DMG and drag Glim into Applications. The app is ad-hoc signed, without 
 [Release notes & SHA-256 checksums](https://github.com/glimapp/glim/releases/latest) · [All releases](https://github.com/glimapp/glim/releases) · [Build from source](docs/releasing.md)
 
 ## Get involved
+
+If Glim is useful to you, a Star helps others find the project.
 
 Found a file Glim should open better? [Report a bug](https://github.com/glimapp/glim/issues/new?template=bug_report.yml), [request a format](https://github.com/glimapp/glim/issues/new?template=feature_request.yml), or [start a discussion](https://github.com/glimapp/glim/discussions). English and Chinese are welcome.
 

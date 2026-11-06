@@ -2,11 +2,11 @@
 
 # Glim · 在一个 Mac 工作区里查看你的文件
 
-Glim 是免费开源的 Mac 文件查看器。收到一份合同、一个资料包，或者打开自己的项目文件夹，都可以把文档、图片、表格、音视频和代码放在同一个窗口里查看。普通文本还能顺手修改并保存。
+Glim 是免费开源的 Mac 文件查看器。在同一工作区阅读带 Mermaid 图表的 Markdown、查看 JSON 树和 CSV 表格，也可以把 PDF、图片、Office 文档和代码留在相邻标签中。普通 UTF-8 文本支持简单修改与保存。
 
 <p align="center">免费开源 · macOS · Apple Silicon 与 Intel · <a href="README.md">English</a> / <b>简体中文</b></p>
 
-<p align="center"><a href="https://glimapp.github.io/">Website / 官网</a> · <a href="https://github.com/glimapp/glim/releases/latest"><strong>下载 Glim →</strong></a></p>
+<p align="center"><a href="https://glimapp.github.io/zh/?utm_source=github&amp;utm_medium=referral&amp;utm_campaign=readme">Website / 官网</a> · <a href="https://github.com/glimapp/glim/releases/latest"><strong>下载 Glim →</strong></a></p>
 
 <p align="center"><a href="https://github.com/glimapp/glim/releases/latest">最新发布 · 更新说明与校验文件</a> · <a href="#下载与安装">安装帮助</a></p>
 
@@ -18,6 +18,21 @@ Glim 是免费开源的 Mac 文件查看器。收到一份合同、一个资料�
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT 许可证" /></a>
   <a href="https://github.com/glimapp/glim/stargazers"><img src="https://img.shields.io/github/stars/glimapp/glim?style=social" alt="GitHub Star 数量" /></a>
 </p>
+
+## 先看一个文件夹里的三种文件
+
+[Markdown 与 Mermaid](https://glimapp.github.io/zh/markdown-viewer/?utm_source=github&utm_medium=referral&utm_campaign=readme) · [JSON 树](https://glimapp.github.io/zh/json-viewer/?utm_source=github&utm_medium=referral&utm_campaign=readme) · [CSV 表格](https://glimapp.github.io/zh/csv-viewer/?utm_source=github&utm_medium=referral&utm_campaign=readme)
+
+三篇操作指南都附有可下载样例。把 `report.md`、`settings.json` 和 `releases.csv` 放在同一个文件夹，用 ⌘⇧O 打开后，依次查看文档、配置和导出记录。原文中的修改会自动写回原文件，试改时请使用副本。
+
+<details>
+<summary>展开查看 16 秒实拍截图演示</summary>
+
+<img src="assets/readme/walkthrough.gif" alt="使用公开样例文件，依次展示 Glim 的 Markdown Mermaid 预览、JSON 树和 CSV 表格。" width="100%" />
+
+演示由真实应用截图组成，展示样例数据，不代表加载速度。也可以在[官网切换查看各个画面](https://glimapp.github.io/zh/?utm_source=github&utm_medium=referral&utm_campaign=readme#walkthrough)。
+
+</details>
 
 ## 你平时会用它看什么？
 
@@ -87,6 +102,8 @@ Glim 是免费开源的 Mac 文件查看器。收到一份合同、一个资料�
 [更新说明与 SHA-256 校验文件](https://github.com/glimapp/glim/releases/latest) · [历史版本](https://github.com/glimapp/glim/releases) · [从源码构建](docs/releasing.zh-CN.md)
 
 ## 参与项目
+
+如果 Glim 对你有用，欢迎点个 Star，帮助更多人找到这个项目。
 
 [报告问题](https://github.com/glimapp/glim/issues/new?template=bug_report.yml) · [申请格式或功能](https://github.com/glimapp/glim/issues/new?template=feature_request.yml) · [讨论与交流](https://github.com/glimapp/glim/discussions)，欢迎中文和英文。
 
