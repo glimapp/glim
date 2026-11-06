@@ -1,28 +1,39 @@
+use glim_services::telemetry::Consent;
 use gpui_kit::*;
 
 #[derive(Default)]
 pub(crate) struct Telemetry {
-    pub enabled: bool,
+    pub consent: Consent,
+    pub needs_consent: bool,
+    pub persistence_error: bool,
+    pub saving: bool,
+    pub consent_prompt: Option<Task<()>>,
     report: Option<Task<()>>,
     cancel: Option<glim_services::work::CancelOnDrop>,
     save: Option<Task<()>>,
     started: Option<std::time::Instant>,
+    save_revision: u64,
 }
 impl Global for Telemetry {}
 
-pub(crate) fn initialize(cx: &mut App) {
-    let enabled = glim_services::preferences::telemetry_enabled();
-    crate::views::set_native_telemetry_enabled(enabled);
+pub(crate) fn initialize(stored: anyhow::Result<Option<Consent>>, cx: &mut App) {
+    let persistence_error = stored.is_err();
+    let needs_consent = matches!(stored, Ok(None));
+    let consent = stored.ok().flatten().unwrap_or_default();
+    crate::views::set_native_telemetry_consent(consent);
     cx.set_global(Telemetry {
-        enabled,
+        consent,
+        needs_consent,
+        persistence_error,
         ..Default::default()
     });
-    if enabled {
+    if consent.any() {
         start("app_started", cx);
     }
 }
 fn start(event: &'static str, cx: &mut App) {
-    let worker = glim_services::telemetry::start(env!("GLIM_BUILD_NUMBER"));
+    let consent = cx.global::<Telemetry>().consent;
+    let worker = glim_services::telemetry::start(env!("GLIM_BUILD_NUMBER"), consent);
     glim_services::telemetry::track(
         event,
         [(
@@ -39,39 +50,72 @@ fn start(event: &'static str, cx: &mut App) {
     state.cancel = Some(guard);
     state.report = Some(task);
 }
-pub(crate) fn set_enabled(enabled: bool, cx: &mut App) {
-    let state = cx.global_mut::<Telemetry>();
-    if state.enabled == enabled {
-        return;
+pub(crate) fn set_usage(enabled: bool, cx: &mut App) {
+    let mut consent = cx.global::<Telemetry>().consent;
+    consent.usage = enabled;
+    set_consent(consent, cx);
+}
+pub(crate) fn set_diagnostics(enabled: bool, cx: &mut App) {
+    let mut consent = cx.global::<Telemetry>().consent;
+    consent.diagnostics = enabled;
+    set_consent(consent, cx);
+}
+pub(crate) fn set_consent(consent: Consent, cx: &mut App) {
+    let changed = cx.global::<Telemetry>().consent != consent;
+    if changed {
+        // Invalidate native aggregates and cancel the old worker before either
+        // channel starts again. Revoked data cannot survive a consent change.
+        crate::views::set_native_telemetry_consent(consent);
+        glim_services::telemetry::stop(false);
+        let state = cx.global_mut::<Telemetry>();
+        state.cancel.take();
+        state.report.take();
+        state.started = None;
+        state.consent = consent;
+        if consent.any() {
+            start("telemetry_enabled", cx);
+        }
+        for (view, _) in super::OpenWorkspaces::windows(cx) {
+            let _ = view.update(cx, |view, _| view.reset_usage());
+        }
     }
-    state.enabled = enabled;
-    crate::views::set_native_telemetry_enabled(enabled);
-    glim_services::telemetry::stop(false);
-    state.cancel.take();
-    state.report.take();
+    persist(cx);
+}
+pub(crate) fn persist(cx: &mut App) {
+    let state = cx.global_mut::<Telemetry>();
+    state.needs_consent = false;
+    state.saving = true;
+    state.persistence_error = false;
+    state.save_revision += 1;
+    let revision = state.save_revision;
+    let consent = state.consent;
     let previous = state.save.take();
     let task = cx.spawn(async move |cx| {
         if let Some(previous) = previous {
             previous.await;
         }
-        cx.background_executor()
-            .spawn(async move {
-                let _ = glim_services::preferences::save_telemetry_enabled(enabled);
-            })
+        let result = cx
+            .background_executor()
+            .spawn(async move { glim_services::preferences::save_telemetry_consent(consent) })
             .await;
+        if let Err(error) = &result {
+            log::warn!("Cannot save telemetry preferences: {error:#}");
+        }
+        cx.update(|cx| {
+            let state = cx.global_mut::<Telemetry>();
+            if state.save_revision == revision {
+                state.saving = false;
+                state.persistence_error = result.is_err();
+            }
+            cx.refresh_windows();
+        });
     });
     cx.global_mut::<Telemetry>().save = Some(task);
-    if enabled {
-        start("telemetry_enabled", cx);
-    }
-    for (view, _) in super::OpenWorkspaces::windows(cx) {
-        let _ = view.update(cx, |view, _| view.reset_usage());
-    }
     cx.refresh_windows();
 }
 pub(crate) fn shutdown(cx: &mut App) -> Option<Task<()>> {
     let state = cx.global_mut::<Telemetry>();
-    if state.enabled {
+    if state.consent.usage {
         glim_services::telemetry::track(
             "app_exited",
             [(
@@ -108,6 +152,9 @@ pub(crate) fn shutdown(cx: &mut App) -> Option<Task<()>> {
 
 pub(crate) fn observe_commands(cx: &mut App) {
     cx.observe_keystrokes(|event, window, cx| {
+        if !cx.global::<Telemetry>().consent.usage {
+            return;
+        }
         let Some(action) = &event.action else {
             return;
         };

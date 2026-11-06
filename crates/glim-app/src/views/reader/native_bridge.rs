@@ -154,15 +154,15 @@ extern "C" fn reader_telemetry(
         telemetry::native_event(kind, action, error.max(0) as u32, source, value, secondary);
     }
 }
-pub(crate) fn set_telemetry_enabled(enabled: bool) {
+pub(crate) fn set_telemetry_consent(consent: glim_services::telemetry::Consent) {
     // SAFETY: numeric-only synchronized Swift preference; no retained arguments.
     unsafe {
-        glim_set_telemetry_enabled(i32::from(enabled));
+        glim_set_telemetry_consent(i32::from(consent.usage), i32::from(consent.diagnostics));
     }
 }
 unsafe extern "C" {
     fn glim_set_reader_resources(callback: Option<extern "C" fn(u64, u64) -> u64>);
-    fn glim_set_telemetry_enabled(enabled: i32);
+    fn glim_set_telemetry_consent(usage: i32, diagnostics: i32);
     fn glim_set_reader_telemetry(
         callback: Option<extern "C" fn(i32, i32, i32, i32, u64, u64, u64, u64)>,
     );

@@ -261,12 +261,14 @@ final class ReaderKeyboardShortcuts {
 typealias ReaderTelemetryCallback = @convention(c) (Int32, Int32, Int32, Int32, UInt64, UInt64, UInt64, UInt64) -> Void
 private var readerTelemetryCallback: ReaderTelemetryCallback?
 private let readerTelemetryLock = NSLock()
-private var readerTelemetryEnabled = false
+private var readerUsageEnabled = false
+private var readerDiagnosticsEnabled = false
 private var readerTelemetryGeneration: UInt64 = 0
-@_cdecl("glim_set_telemetry_enabled")
-func glimSetTelemetryEnabled(_ enabled: Int32) {
+@_cdecl("glim_set_telemetry_consent")
+func glimSetTelemetryConsent(_ usage: Int32, _ diagnostics: Int32) {
     readerTelemetryLock.lock()
-    readerTelemetryEnabled = enabled != 0
+    readerUsageEnabled = usage != 0
+    readerDiagnosticsEnabled = diagnostics != 0
     readerTelemetryGeneration &+= 1
     readerTelemetryLock.unlock()
 }
@@ -282,7 +284,7 @@ enum ReaderTelemetry {
     }
     static var generation: UInt64? {
         readerTelemetryLock.lock(); defer { readerTelemetryLock.unlock() }
-        return readerTelemetryEnabled ? readerTelemetryGeneration : nil
+        return readerUsageEnabled ? readerTelemetryGeneration : nil
     }
     static func withSource(_ source: Int32, _ body: () -> Void) {
         let key = "glim.reader-telemetry-source"
@@ -293,7 +295,11 @@ enum ReaderTelemetry {
     }
     static func record(_ kind: Int32, _ action: Int32, _ error: Int32 = 0,
                        value: UInt64 = 0, secondary: UInt64 = 0, count: UInt64 = 0, duration: UInt64 = 0) {
-        guard generation != nil else { return }
+        readerTelemetryLock.lock()
+        let enabled = error != 0 ? readerDiagnosticsEnabled : readerUsageEnabled
+        let callback = readerTelemetryCallback
+        readerTelemetryLock.unlock()
+        guard enabled else { return }
         let source: Int32
         if [Int32(0), 22, 23, 24, 25, 26, 33, 34, 35, 36].contains(action) { source = 0 }
         else if action == 30 || action == 32 { source = 1 }
@@ -301,7 +307,6 @@ enum ReaderTelemetry {
         else if Thread.isMainThread, let event = NSApp.currentEvent, ProcessInfo.processInfo.systemUptime - event.timestamp < 0.5 {
             source = event.type == .keyDown ? 2 : [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .scrollWheel].contains(event.type) ? 1 : 0
         } else { source = 0 }
-        readerTelemetryLock.lock(); let callback = readerTelemetryCallback; readerTelemetryLock.unlock()
         if action >= 100, Thread.isMainThread, let event = NSApp.currentEvent, event.type == .keyDown {
             let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
             callback?(kind, action, error, source, UInt64(modifiers.rawValue), UInt64(event.keyCode), count, duration)

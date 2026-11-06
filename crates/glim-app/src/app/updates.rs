@@ -60,41 +60,29 @@ impl UpdateState {
                     "cancelled" => "cancelled",
                     _ => "other",
                 };
-                glim_services::telemetry::track(
-                    "update_phase_changed",
-                    [
-                        ("phase", glim_services::telemetry::text(phase)),
-                        (
-                            "error_stage",
-                            glim_services::telemetry::text(match snapshot.error_stage.as_str() {
-                                "checking" => "checking",
-                                "downloading" => "downloading",
-                                "extracting" => "extracting",
-                                "ready" => "ready",
-                                "installing" => "installing",
-                                "preparing" => "preparing",
-                                "disabled" => "disabled",
-                                "idle" => "idle",
-                                _ => "other",
-                            }),
-                        ),
-                        (
-                            "error_kind",
-                            glim_services::telemetry::text(match snapshot.error_kind.as_str() {
-                                "network" => "network",
-                                "permission" => "permission",
-                                "verification" => "verification",
-                                "archive" => "archive",
-                                "installation" => "installation",
-                                "configuration" => "configuration",
-                                _ => "other",
-                            }),
-                        ),
-                        (
-                            "error_code",
-                            glim_services::telemetry::integer(snapshot.error_code),
-                        ),
-                    ],
+                glim_services::telemetry::updater_phase(
+                    phase,
+                    match snapshot.error_stage.as_str() {
+                        "checking" => "checking",
+                        "downloading" => "downloading",
+                        "extracting" => "extracting",
+                        "ready" => "ready",
+                        "installing" => "installing",
+                        "preparing" => "preparing",
+                        "disabled" => "disabled",
+                        "idle" => "idle",
+                        _ => "other",
+                    },
+                    match snapshot.error_kind.as_str() {
+                        "network" => "network",
+                        "permission" => "permission",
+                        "verification" => "verification",
+                        "archive" => "archive",
+                        "installation" => "installation",
+                        "configuration" => "configuration",
+                        _ => "other",
+                    },
+                    snapshot.error_code,
                 );
             }
             let cancelled = snapshot.phase == "cancelled" && self.snapshot.phase != "cancelled";

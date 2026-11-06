@@ -65,7 +65,7 @@ impl Workspace {
     pub(super) fn update_usage(&mut self, window: &Window, cx: &App) {
         let enabled = cx
             .try_global::<crate::app::telemetry::Telemetry>()
-            .is_some_and(|t| t.enabled);
+            .is_some_and(|t| t.consent.usage);
         if !enabled {
             self.usage = None;
             return;
@@ -163,7 +163,7 @@ impl Workspace {
     ) {
         if !cx
             .try_global::<crate::app::telemetry::Telemetry>()
-            .is_some_and(|t| t.enabled)
+            .is_some_and(|t| t.consent.usage)
         {
             return;
         }

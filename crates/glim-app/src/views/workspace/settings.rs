@@ -1,6 +1,7 @@
 use super::Workspace;
 use crate::app::actions::{CheckForUpdates, DefaultApplications, KeyboardShortcuts};
 use glim_services::preferences::Appearance;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Icon, Sizable,
@@ -17,6 +18,45 @@ use gpui_kit::{
 enum PreferenceChoice {
     Theme(Appearance),
     Language(&'static str),
+}
+
+pub(super) fn prompt_telemetry_consent(window: &mut Window, cx: &mut App) {
+    use crate::app::telemetry::{self, Telemetry};
+    use glim_services::{locale::tr, telemetry::Consent};
+    if !cx
+        .try_global::<Telemetry>()
+        .is_some_and(|state| state.needs_consent)
+    {
+        return;
+    }
+    cx.global_mut::<Telemetry>().needs_consent = false;
+    let response = window.prompt(
+        PromptLevel::Info,
+        &tr("Help improve Glim"),
+        Some(&tr("Error diagnostics help the developer fix failures and crashes. Usage statistics measure active installations, formats and features using a random installation ID that links sessions. Neither includes document contents or paths. Both are optional and can be changed independently in Settings.")),
+        &[
+            PromptButton::ok(tr("Error diagnostics only")),
+            PromptButton::new(tr("Enable both")),
+            PromptButton::cancel(tr("Not now")),
+        ],
+        cx,
+    );
+    cx.global_mut::<Telemetry>().consent_prompt = Some(cx.spawn(async move |cx| {
+        let choice = response.await;
+        cx.update(|cx| {
+            if let Ok(choice) = choice {
+                telemetry::set_consent(
+                    Consent {
+                        usage: choice == 1,
+                        diagnostics: choice == 0 || choice == 1,
+                    },
+                    cx,
+                );
+            } else {
+                cx.global_mut::<Telemetry>().needs_consent = true;
+            }
+        });
+    }));
 }
 
 fn preference_picker(
@@ -129,15 +169,23 @@ impl Workspace {
             .accessibility_label(glim_services::locale::tr("Keyboard Shortcuts…"))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(KeyboardShortcuts), cx))
             .into_any_element();
-        let telemetry = Switch::new("settings-telemetry")
+        let consent = cx.global::<crate::app::telemetry::Telemetry>().consent;
+        let usage = Switch::new("settings-usage-statistics")
             .small()
-            .checked(cx.global::<crate::app::telemetry::Telemetry>().enabled)
-            .accessibility_label(glim_services::locale::tr("Anonymous usage telemetry"))
-            .on_click(|enabled, _, cx| crate::app::telemetry::set_enabled(*enabled, cx))
+            .checked(consent.usage)
+            .accessibility_label(glim_services::locale::tr("Usage statistics"))
+            .on_click(|enabled, _, cx| crate::app::telemetry::set_usage(*enabled, cx))
+            .into_any_element();
+        let diagnostics = Switch::new("settings-error-diagnostics")
+            .small()
+            .checked(consent.diagnostics)
+            .accessibility_label(glim_services::locale::tr("Error diagnostics"))
+            .on_click(|enabled, _, cx| crate::app::telemetry::set_diagnostics(*enabled, cx))
             .into_any_element();
         let row = |label: &'static str, detail: &'static str, control: AnyElement| {
             let mut text = v_flex()
                 .flex_1()
+                .min_w(px(0.))
                 .gap_1()
                 .child(div().text_sm().child(glim_services::locale::tr(label)));
             if !detail.is_empty() {
@@ -154,7 +202,7 @@ impl Workspace {
                 .py_3()
                 .gap_4()
                 .child(text)
-                .child(control)
+                .child(div().flex_shrink_0().child(control))
         };
         let group = || {
             v_flex().w_full().px_4().rounded(px(12.)).bg(cx
@@ -208,6 +256,24 @@ impl Workspace {
                 about = about.child(information("Commit", revision));
             }
         }
+        let telemetry = cx.global::<crate::app::telemetry::Telemetry>();
+        let privacy_status = h_flex()
+            .w_full()
+            .min_h(px(36.))
+            .gap_2()
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .when(telemetry.persistence_error, |row| {
+                row.child(div().flex_1().min_w(px(0.)).child(glim_services::locale::tr(
+                    "Could not save privacy settings. Your choices apply only until Glim quits."
+                ))).child(Button::new("retry-privacy-save")
+                    .small()
+                    .label(glim_services::locale::tr("Retry"))
+                    .on_click(|_, _, cx| crate::app::telemetry::persist(cx)))
+            })
+            .when(telemetry.saving, |row| {
+                row.child(glim_services::locale::tr("Saving…"))
+            });
         div()
             .id("workspace-settings-scroll")
             .size_full()
@@ -240,10 +306,25 @@ impl Workspace {
                             group()
                                 .child(row("Check for Updates…", "", updates))
                                 .child(divider())
-                                .child(row("Keyboard Shortcuts…", "", shortcuts))
-                                .child(divider())
-                                .child(row("Anonymous usage telemetry", "Reports feature actions, system/resource metrics and sanitized errors with a random installation ID; excludes document contents and paths.", telemetry)),
+                                .child(row("Keyboard Shortcuts…", "", shortcuts)),
                         )
+                        .child(heading("Help improve Glim").mt_3())
+                        .child(group()
+                            .child(row("Error diagnostics", "Help the developer find failures and fix crashes. Sends sanitized error types, application source locations and version information.", diagnostics))
+                            .child(divider())
+                            .child(row("Usage statistics", "Help measure active installations and improve frequently used formats and features. A random installation ID links usage across sessions.", usage)))
+                        .child(div().text_xs().text_color(cx.theme().muted_foreground).child(glim_services::locale::tr(
+                            "Each option is independent. Turning both off stops usage and diagnostic reports. Document contents, filenames and paths are never included."
+                        )))
+                        .child(h_flex().child(Button::new("settings-privacy")
+                            .small()
+                            .label(glim_services::locale::tr("Privacy details"))
+                            .on_click(|_, _, cx| cx.open_url(if glim_services::locale::code() == "zh-CN" {
+                                "https://github.com/glimapp/glim/blob/main/docs/privacy.zh-CN.md"
+                            } else {
+                                "https://github.com/glimapp/glim/blob/main/docs/privacy.md"
+                            }))))
+                        .child(privacy_status)
                         .child(self.integrations.clone())
                         .child(heading("About").mt_3())
                         .child(about),

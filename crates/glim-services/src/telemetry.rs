@@ -28,6 +28,25 @@ const FLUSH_INTERVAL: Duration = Duration::from_secs(2);
 const ERROR_INTERVAL: Duration = Duration::from_secs(60);
 static CURRENT: Mutex<Option<Arc<Session>>> = Mutex::new(None);
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct Consent {
+    pub usage: bool,
+    pub diagnostics: bool,
+}
+impl Consent {
+    pub fn any(self) -> bool {
+        self.usage || self.diagnostics
+    }
+
+    fn accepts(self, name: &str) -> bool {
+        if is_error_event(name) || name == "error_repeated" {
+            self.diagnostics
+        } else {
+            self.usage
+        }
+    }
+}
+
 /// Fixed by build provenance; local optimized builds still use debug telemetry.
 pub fn environment() -> &'static str {
     env!("GLIM_TELEMETRY_ENVIRONMENT")
@@ -75,6 +94,7 @@ struct Queue {
     urgent: bool,
 }
 struct Session {
+    consent: Consent,
     queue: Mutex<Queue>,
     wake: mpsc::SyncSender<()>,
     accepting: AtomicBool,
@@ -91,10 +111,11 @@ pub struct Worker {
     wake: mpsc::Receiver<()>,
 }
 
-pub fn start(build_number: &'static str) -> Worker {
+pub fn start(build_number: &'static str, consent: Consent) -> Worker {
     let now = chrono::Utc::now();
     let (tx, rx) = mpsc::sync_channel(1);
     let session = Arc::new(Session {
+        consent,
         queue: Mutex::new(Queue::default()),
         build_number,
         started: Instant::now(),
@@ -143,7 +164,7 @@ pub fn track(name: &'static str, props: impl IntoIterator<Item = (&'static str, 
     let Some(session) = CURRENT.try_lock().ok().and_then(|state| state.clone()) else {
         return;
     };
-    if !session.accepting.load(Ordering::Relaxed) {
+    if !session.accepting.load(Ordering::Relaxed) || !session.consent.accepts(name) {
         return;
     }
     let Ok(mut queue) = session.queue.try_lock() else {
@@ -160,12 +181,10 @@ pub fn track(name: &'static str, props: impl IntoIterator<Item = (&'static str, 
         session.started.elapsed().as_secs().into(),
     );
     props.insert("architecture", std::env::consts::ARCH.into());
-    props.insert("schema_version", 3.into());
+    props.insert("schema_version", 4.into());
+    props.insert("usage_statistics", session.consent.usage.into());
     props.insert("telemetry_environment", environment().into());
-    let urgent = matches!(
-        name,
-        "error_logged" | "operation_failed" | "app_panicked" | "native_reader_error" | "app_exited"
-    );
+    let urgent = is_error_event(name) || name == "app_exited";
     if is_error_event(name) {
         props.insert("error_event", name.into());
     }
@@ -721,7 +740,11 @@ fn installation_id_in(db: &rusqlite::Connection) -> Result<String> {
 fn is_error_event(name: &str) -> bool {
     matches!(
         name,
-        "error_logged" | "operation_failed" | "app_panicked" | "native_reader_error"
+        "error_logged"
+            | "operation_failed"
+            | "app_panicked"
+            | "native_reader_error"
+            | "updater_error"
     )
 }
 
@@ -747,6 +770,7 @@ fn error_payload(
         "operation",
         "phase",
         "reader_stage",
+        "error_stage",
         "reader_kind",
         "action",
         "file_extension",
@@ -764,7 +788,7 @@ fn error_payload(
         }
     }
     for key in ["error_code", "os_error_code", "event_sequence"] {
-        if let Some(value) = event.props.get(key).and_then(serde_json::Value::as_u64) {
+        if let Some(value) = event.props.get(key).filter(|value| value.is_number()) {
             message.push_str(&format!("; {key}={value}"));
         }
     }
@@ -796,12 +820,30 @@ fn error_payload(
         "osName": "macOS",
         "osVersion": os_version,
         "appVersion": env!("CARGO_PKG_VERSION"),
-        "sdkVersion": "glim@3",
+        "sdkVersion": "glim@4",
         "sessionId": session_id,
         "severity": if source == "app_panicked" { "fatal" } else { "error" },
         "kind": if source == "app_panicked" { "unhandled" } else { "handled" },
         "isDebug": is_debug(),
     }))
+}
+
+pub fn updater_phase(phase: &'static str, stage: &'static str, kind: &'static str, code: i64) {
+    track("update_phase_changed", [("phase", text(phase))]);
+    if phase == "error" {
+        track(
+            "updater_error",
+            [
+                ("error_stage", text(stage)),
+                ("error_kind", text(kind)),
+                ("error_code", integer(code)),
+                (
+                    "error_signature",
+                    signature(&["updater", stage, kind, &code.to_string()]),
+                ),
+            ],
+        );
+    }
 }
 
 struct ErrorDelivery {
@@ -891,7 +933,15 @@ impl Worker {
     }
     fn run_inner(&self, cancel: &Cancellation) -> Result<()> {
         cancel.check()?;
-        let installation = installation_id().ok();
+        if !self.session.consent.any() {
+            return Ok(());
+        }
+        let installation = self
+            .session
+            .consent
+            .usage
+            .then(installation_id)
+            .and_then(Result::ok);
         let config = configuration(cancel)?;
         let os_build = os_version("-buildVersion", cancel);
         let os_version = os_version("-productVersion", cancel);
@@ -900,7 +950,7 @@ impl Worker {
             "engineName": "GPUI", "engineVersion": "0.7.1",
             "appVersion": env!("CARGO_PKG_VERSION"), "isDebug": is_debug(),
             "appBuildNumber": self.session.build_number,
-            "sdkVersion": "glim@3", "locale": crate::locale::code(),
+            "sdkVersion": "glim@4", "locale": crate::locale::code(),
         });
         let mut session_id = self.session.id.clone();
         let mut session_started = Instant::now();
@@ -991,6 +1041,7 @@ impl Worker {
             let error_failures = errors.failures;
             let mut payload = events
                 .iter()
+                .filter(|_| self.session.consent.usage)
                 .map(|event| {
                     let mut props = event.props.clone();
                     props.insert("os_build", os_build.clone().into());
@@ -1003,16 +1054,18 @@ impl Worker {
                     })
                 })
                 .collect::<Vec<_>>();
-            let health_included = (dropped > 0
-                || suppressed > 0
-                || failures > 0
-                || error_dropped > 0
-                || error_failures > 0)
+            let health_included = self.session.consent.usage
+                && (dropped > 0
+                    || suppressed > 0
+                    || failures > 0
+                    || error_dropped > 0
+                    || error_failures > 0)
                 && payload.len() < BATCH_SIZE;
             if health_included {
                 let mut props = serde_json::json!({
                     "events_dropped": dropped, "errors_suppressed": suppressed,
-                    "upload_failures": failures, "schema_version": 3,
+                    "upload_failures": failures, "schema_version": 4,
+                    "usage_statistics": true,
                     "error_reports_dropped": error_dropped,
                     "error_upload_failures": error_failures,
                     "telemetry_environment": environment(),

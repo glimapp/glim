@@ -381,6 +381,7 @@ pub fn run() -> Result<()> {
     let html_preview = glim_services::preferences::preview_mode("html");
     let markdown_preview = glim_services::preferences::preview_mode("markdown");
     let csv_preview = glim_services::preferences::preview_mode("csv");
+    let telemetry_consent = glim_services::preferences::telemetry_consent();
     let application = gpui_kit::application().with_assets(assets::Assets);
     let image_client = image_http::ImageHttpClient::new(application.background_executor());
     let application = application.with_http_client(std::sync::Arc::new(image_client));
@@ -415,7 +416,7 @@ pub fn run() -> Result<()> {
         remote::init(remote_catalog, cx);
         finder_integration::init(cx);
         remote_open::init(cx);
-        telemetry::initialize(cx);
+        telemetry::initialize(telemetry_consent, cx);
         cx.set_quit_mode(QuitMode::Explicit);
         gpui_kit::component::set_locale(glim_services::locale::code());
         cx.set_global(LanguageSaveTask::default());

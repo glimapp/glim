@@ -50,7 +50,7 @@ Supported readers use paging, streaming or on-demand decoding. Complex content m
 
 ## Are files uploaded? Can I avoid network access?
 
-Local viewing does not require uploading files. HTML can execute scripts and use the network; Markdown can load remote images. Updates and enabled usage statistics also use the network. Turning off statistics and updates does not block a document's own network content. See [privacy and network access](privacy.md).
+Local viewing does not require uploading files. HTML can execute scripts and use the network; Markdown can load remote images. Updates, enabled usage statistics and independently enabled error diagnostics also use the network. Turning off statistics, diagnostics and updates does not block a document's own network content. See [privacy and network access](privacy.md).
 
 ## What if macOS blocks installation or a file won't open?
 

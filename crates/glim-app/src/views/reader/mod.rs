@@ -335,8 +335,8 @@ impl Reader {
     }
 }
 
-pub(crate) fn set_native_telemetry_enabled(enabled: bool) {
-    native_bridge::set_telemetry_enabled(enabled);
+pub(crate) fn set_native_telemetry_consent(consent: glim_services::telemetry::Consent) {
+    native_bridge::set_telemetry_consent(consent);
 }
 
 pub(super) fn host() -> crate::views::reader::contract::ReaderHost {

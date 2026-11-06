@@ -338,6 +338,7 @@ impl Workspace {
         if let Some(path) = path {
             workspace.open_path(path, window, cx);
         }
+        window.defer(cx, settings::prompt_telemetry_consent);
         workspace
     }
 }

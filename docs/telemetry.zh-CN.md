@@ -4,9 +4,25 @@
 
 普通用户请先看[隐私与联网说明](privacy.zh-CN.md)，了解开关、上传范围和本地记录。本文供维护者核对事件字段、指标口径和离线分析；安装数、下载量和使用人数分别统计。
 
-沿用设置中的遥测开关。开启时发送功能事件和脱敏错误；关闭立即取消发送并清空队列。仅在启用的后台任务中创建随机 128 位安装标识 `installation_id`，保存在 Glim 应用数据库的 settings 表，不读取账号、硬件身份、路径或文档内容。标识跨启动、关闭后重新开启保持一致；缺少该设置记录时会生成新标识。身份存储不可写时省略标识，避免把每次启动误算成新人。
+设置将使用统计与错误诊断分开。类型化事件在入队前按所属通道检查授权：使用统计控制前台片段、原生输入聚合、功能事件与安装标识；错误诊断控制 Rust／原生错误分类、panic 与重复聚合。仅错误诊断模式只发送专用错误接口，不发送使用事件、持久安装标识或统计 health 事件。更改选择会取消旧后台任务、清空待发送数据并使原生聚合失效。两项都关闭时不启动遥测任务，也不请求远程配置。
+
+`telemetry-consent` 设置原子保存两个选项。缺少新设置时，旧 `telemetry` 明确保存的值作为两个开关的初值；没有记录过选择时先显示一次选择提示，再启动获准的通道。读取失败时全部关闭。保存时同步维护旧总开关，仅在两个新开关都开启时写 true，防止降级后重新启用已拒绝的通道。保存失败会在设置中显示并允许重试，当前选择仍对本次运行有效。
+
+仅使用统计获准的后台任务读取或创建随机 128 位安装标识 `installation_id`，保存在 Glim 应用数据库的 settings 表，不读取账号、硬件身份、路径或文档内容。该标识可以跨会话关联记录，属于假名化标识。它跨启动、关闭后重新开启保持一致；缺少该设置记录时会生成新标识。身份存储不可写时省略标识，避免把每次启动误算成新人。
 
 按 `installation_id` 去重得到的是安装数，作为使用人数的近似。换电脑、清除应用数据、关闭遥测和发送失败都会影响结果。Aptabase 内置会话数不能直接叫人数；跨会话去重需要导出分析或支持 distinct 的自定义查询。
+
+## 活跃安装与观察到的回访
+
+指标统一称为**开启使用统计的活跃安装数**。以正数 `foreground_segment.duration_ms` 对应的安装标识去重，包含主页、设置和未命名草稿。仅启动、后台通信、诊断和下载不证明前台使用；前台停留仍可能包含空闲。没有上报的状态是未知，不能算作流失；关闭使用统计后没有替代心跳。
+
+```sh
+python3 scripts/telemetry-activity-report.py events.jsonl --app-id <正式应用ID> --output-dir activity-report
+```
+
+报表支持与格式报表相同的导出格式和私有安装排除列表，输出 `active-installations.csv`、`observed-return.csv`、`summary.json`。摘要统计截至 UTC+8 的 `--as-of YYYY-MM-DD` 当日、近 7 个和近 30 个日历日的去重活跃安装数，默认截至各应用最后导出日期。跨天数值对整个窗口去重，不相加每日数量。需导出完整目标区间；摘要记录实际观察到的导出日期，不据此保证数据完整。缺少标识的记录单列，不补造身份。schema 4 之前的前台记录沿用旧总开关，schema 4 要求 `usage_statistics=true`。
+
+回访队列以导出中首次观察到的前台日期分组，不推断安装日期；D1／D7／D30 统计对应日期实际观察到的回访，其余成员状态未知。比例表示这份已开启统计的导出数据中的观察回访率，不能证明全部安装的留存或流失。开发与正式数据必须分开查询。Aptabase 原生会话指标保持原义；活跃安装数使用该报表或等价的后台 distinct-ID 查询。
 
 ## 开发与正式渠道
 
@@ -61,15 +77,15 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 
 失败率以操作结果为准。同一次故障可能同时触发 `operation_failed` 和 `error_logged`，不能把诊断事件相加当失败次数。同指纹错误一分钟内去重，后续刷新或正常退出以 `error_repeated.occurrences` 聚合；有限指纹表淘汰可能丢失重复细节。`telemetry_health.errors_suppressed` 是压缩信息，不能再与 occurrence 相加。
 
-诊断同时发送到 Aptabase 专用 `/api/v0/error` 接口，写入 Errors 页面；普通统计仍使用 `/api/v0/events`。覆盖 `error_logged`、`operation_failed`、`app_panicked`、`native_reader_error` 和 `error_repeated`。报告仅由既有脱敏字段构成：分类、组件／操作／阶段、源码位置、指纹、格式、错误码和有限 panic 符号。摘要包含 `occurrences`（首次报告为 1）；一条聚合对应 Errors 的一行，不按重复次数逐行发送。聚合保留原始 `error_event`，包括 panic 的严重程度。panic 标记为 `fatal`／`unhandled`，其他诊断为 `error`／`handled`。顶层 `isDebug` 与普通统计采用相同构建来源规则；历史统计事件不会回填 Errors。
+诊断发送到 Aptabase 专用 `/api/v0/error` 接口，写入 Errors 页面；普通统计使用 `/api/v0/events`。覆盖 `error_logged`、`operation_failed`、`app_panicked`、`native_reader_error`、`updater_error` 和 `error_repeated`。报告仅由既有脱敏字段构成：分类、组件／操作／阶段、源码位置、指纹、格式、有符号错误码和有限 panic 符号。摘要包含 `occurrences`（首次报告为 1）；一条聚合对应 Errors 的一行，不按重复次数逐行发送。聚合保留原始 `error_event`，包括 panic 的严重程度。panic 标记为 `fatal`／`unhandled`，其他诊断为 `error`／`handled`。顶层 `isDebug` 与普通统计采用相同构建来源规则；历史统计事件不会回填 Errors。
 
-错误通道使用独立的 128 条内存队列和指数退避。既有可取消后台任务每轮最多发送一条错误，共用遥测开关和退出生命周期。网络失败、HTTP 408／429 和服务端失败保留报告待重试；其余 HTTP 4xx 丢弃该报告。退出时在应用既有刷新期限内尽力发送。队列满时淘汰最旧待发送报告，通过普通统计中的 `telemetry_health.error_reports_dropped` 和 `error_upload_failures` 披露丢失与请求失败。服务器确认丢失后重试可能产生重复记录，不保证恰好一次送达。
+错误通道使用独立的 128 条内存队列和指数退避。既有可取消后台任务每轮最多发送一条错误，遵守错误诊断开关和退出生命周期。网络失败、HTTP 408／429 和服务端失败保留报告待重试；其余 HTTP 4xx 丢弃该报告。退出时在应用既有刷新期限内尽力发送。队列满时淘汰最旧待发送报告；同时开启使用统计时，通过 `telemetry_health.error_reports_dropped` 和 `error_upload_failures` 披露丢失与请求失败。仅错误诊断模式不向统计接口发送这些计数。服务器确认丢失后重试可能产生重复记录，不保证恰好一次送达。
 
 内存队列最多 256 条、每批最多 25 条、约两秒刷新；支持取消、有限退出等待和指数退避。没有磁盘发件箱或原始日志上传。断网、锁竞争、队列淘汰会丢事件，后续成功发送时用 health 事件披露。长时间运行每天轮换 Aptabase 会话，安装身份保持稳定；网络发送失败不会递归产生错误埋点。
 
-## 功能使用采集（schema 3）
+## 功能使用采集（schema 4）
 
-普通事件带 `schema_version=3`、架构、操作系统 build，Aptabase 系统字段带 macOS 版本、应用版本/build、语言和 SDK 版本。常规上报不再采集硬件配置、CPU／内存／GPU 资源、缓存计数或逐任务排队耗时，停止发送 `reader_job`、`resource_sample`、`system_profile`。本地资源准入、缓存回收、取消机制和性能测量工具独立保留。
+统计事件带 `schema_version=4`、`usage_statistics=true`、架构和操作系统 build，Aptabase 系统字段带 macOS 版本、应用版本/build、语言和 SDK 版本。常规上报不再采集硬件配置、CPU／内存／GPU 资源、缓存计数或逐任务排队耗时，停止发送 `reader_job`、`resource_sample`、`system_profile`。本地资源准入、缓存回收、取消机制和性能测量工具独立保留。
 
 主动打开文件的覆盖率看成功的 `file_open`；阅读器可用能力看 `reader_opened`，包含恢复的标签。`reader_opened.trigger=open|restore` 区分新打开与恢复，`storage=local|ssh` 区分本地与 SSH，远端阅读器的 `can_edit=false`。SSH 的 `file_open` 记录主动打开的格式、结果和耗时；成功的自动／手动刷新不重复计为打开文件。带 `storage=ssh` 的 `workspace_open` 记录打开或恢复远端工作区，由 `trigger` 区分；恢复加载路径也用于最近工作区与外部请求。前台停留事件也标注存储类型。应用驻留时间与事件总数不等于使用时长；文档前台时间是占用时长，可能包含发呆。
 
@@ -126,4 +142,4 @@ XMind 解析或工作预算失败但源码分页成功时上报 reader_fallback�
 
 `process_session_id` 在 Aptabase 满 24 小时轮换 `sessionId` 后仍保留本次启用遥测的会话标识，`session_uptime_s` 记录事件采集时的单调运行时长；遥测重启或关闭后重新开启都会重置。它们用于关联同一进程的持续使用，不能代表人数或证明主动回访。`foreground_segment` 和当前阅读器上下文增加 `untitled`，区分草稿与文件阅读。统计有效使用安装时需包含草稿创建、编辑与保存，仅依赖成功 `file_open` 会漏掉纯记事本使用。
 
-`tab_closed.reason=preview_replaced` 区分连续浏览替换与主动关闭；`update_phase_changed` 包含固定 `error_stage`、固定 `error_kind` 和有符号数字 `error_code`，不上传原生错误消息、网址或路径。错误码仅提供诊断线索，不能完整解释失败原因。
+`tab_closed.reason=preview_replaced` 区分连续浏览替换与主动关闭。`update_phase_changed` 在使用统计获准时仅记录固定阶段；`updater_error` 在错误诊断获准时独立记录固定 `error_stage`、固定 `error_kind` 和有符号数字 `error_code`。不上传原生错误消息、网址或路径；错误码仅提供诊断线索，不能完整解释失败原因。
