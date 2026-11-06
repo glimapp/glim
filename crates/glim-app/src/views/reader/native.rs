@@ -445,12 +445,37 @@ impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntit
     }
 }
 impl super::surface::ReaderSurface for super::surface::SurfaceEntity<NativeReader> {
+    fn refresh_in_place(&self, content: &glim_services::documents::Content, cx: &mut App) -> bool {
+        let glim_services::documents::Content::Native(path, false, false) = content else {
+            return false;
+        };
+        if !path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        {
+            return false;
+        }
+        self.read(cx)
+            .preview
+            .as_ref()
+            .is_some_and(|preview| preview.reload_pdf())
+    }
+
     fn refresh_request(
         &self,
         path: &std::path::Path,
         _force: bool,
         cx: &App,
     ) -> Option<glim_services::documents::refresh::RefreshRequest> {
+        // PDFs share the workspace watcher, including atomic file replacements.
+        if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        {
+            return Some(glim_services::documents::refresh::RefreshRequest::Reload(
+                path.to_path_buf(),
+            ));
+        }
         self.read(cx).image_stamp().map(|stamp| {
             glim_services::documents::refresh::RefreshRequest::NativeImage {
                 path: path.to_path_buf(),

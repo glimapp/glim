@@ -188,6 +188,13 @@ final class PDFReaderFind: NSObject, PDFDocumentDelegate {
         self.view = view; self.document = view.document
         super.init(); document?.delegate = self
     }
+    func replaceDocument() {
+        cancel()
+        document?.delegate = nil
+        document = view?.document
+        document?.delegate = self
+        total = 0; seen = 0; index = 0
+    }
     func search(_ query: String, sensitive: Bool, backwards: Bool, changed: Bool, completion: @escaping (String, Bool) -> Void) {
         let target = changed || total == 0 ? 0 : (index + (backwards ? total - 1 : 1)) % total
         cancel(); index = target; seen = 0; selected = nil

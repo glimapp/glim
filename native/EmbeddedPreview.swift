@@ -292,3 +292,11 @@ func glimPathHintRelease(_ pointer: UnsafeMutableRawPointer) {
     precondition(Thread.isMainThread)
     let hint = Unmanaged<FilePathHint>.fromOpaque(pointer).takeRetainedValue(); hint.close()
 }
+
+// Reload through the existing controller so page/zoom and native view identity survive.
+@_cdecl("glim_preview_reload_pdf")
+func glimPreviewReloadPDF(_ handle: UnsafeMutableRawPointer) -> Bool {
+    precondition(Thread.isMainThread)
+    let preview = Unmanaged<NativePreviewController>.fromOpaque(handle).takeUnretainedValue()
+    return preview.reloadPDF()
+}

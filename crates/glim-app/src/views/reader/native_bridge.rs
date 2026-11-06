@@ -176,6 +176,7 @@ unsafe extern "C" {
         height: f64,
     );
     fn glim_preview_hide(handle: *mut c_void);
+    fn glim_preview_reload_pdf(handle: *mut c_void) -> bool;
     fn glim_preview_find(handle: *mut c_void, show: bool) -> bool;
     fn glim_preview_release(handle: *mut c_void);
     fn glim_preview_take_navigation(handle: *mut c_void) -> *mut std::ffi::c_char;
@@ -190,6 +191,11 @@ pub(super) struct NativePreview {
     _main_thread: PhantomData<Rc<()>>,
 }
 impl NativePreview {
+    pub fn reload_pdf(&self) -> bool {
+        // SAFETY: the retained preview is owned and accessed on the UI thread.
+        unsafe { glim_preview_reload_pdf(self.handle.as_ptr()) }
+    }
+
     pub fn find(&self, show: bool) -> bool {
         unsafe { glim_preview_find(self.handle.as_ptr(), show) }
     }
