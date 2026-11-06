@@ -54,7 +54,7 @@ final class WordPreview: NSObject, WKNavigationDelegate {
         reset.target = self; reset.action = #selector(resetZoom)
         zoomLabel.alignment = .center; zoomLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         zoomLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 60).isActive = true
-        let find = ReaderFindBar.web(host: view, web: web); findBar = find
+        let find = ReaderFindBar.web(host: view, web: web, telemetryKind: 3); findBar = find
         let controls = ReaderControls([
             ReaderControl.find(find),
             ReaderControl("word-mode", mode),

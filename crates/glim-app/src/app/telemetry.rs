@@ -7,8 +7,6 @@ pub(crate) struct Telemetry {
     cancel: Option<glim_services::work::CancelOnDrop>,
     save: Option<Task<()>>,
     started: Option<std::time::Instant>,
-    resources: Option<Task<()>>,
-    profiled: bool,
 }
 impl Global for Telemetry {}
 
@@ -38,10 +36,8 @@ fn start(event: &'static str, cx: &mut App) {
     });
     let state = cx.global_mut::<Telemetry>();
     state.started = Some(std::time::Instant::now());
-    state.profiled = false;
     state.cancel = Some(guard);
     state.report = Some(task);
-    refresh_resource_sampling(cx);
 }
 pub(crate) fn set_enabled(enabled: bool, cx: &mut App) {
     let state = cx.global_mut::<Telemetry>();
@@ -53,7 +49,6 @@ pub(crate) fn set_enabled(enabled: bool, cx: &mut App) {
     glim_services::telemetry::stop(false);
     state.cancel.take();
     state.report.take();
-    state.resources.take();
     let previous = state.save.take();
     let task = cx.spawn(async move |cx| {
         if let Some(previous) = previous {
@@ -88,7 +83,6 @@ pub(crate) fn shutdown(cx: &mut App) -> Option<Task<()>> {
         );
     }
     glim_services::telemetry::stop(true);
-    state.resources.take();
     let report = state.report.take();
     let cancel = state.cancel.take();
     let save = state.save.take();
@@ -110,202 +104,6 @@ pub(crate) fn shutdown(cx: &mut App) -> Option<Task<()>> {
             save.await;
         }
     }))
-}
-
-pub(crate) fn refresh_resource_sampling(cx: &mut App) {
-    let has_windows = !super::OpenWorkspaces::windows(cx).is_empty();
-    if cx.try_global::<Telemetry>().is_none() {
-        return;
-    }
-    let state = cx.global_mut::<Telemetry>();
-    if !state.enabled || !has_windows {
-        state.resources.take();
-    } else if state.resources.is_none() {
-        start_resource_sampling(cx);
-    }
-}
-
-fn start_resource_sampling(cx: &mut App) {
-    use glim_services::telemetry::{flag, number, text, track};
-    let mut initial = !cx.global::<Telemetry>().profiled;
-    let mut previous_images = glim_services::markdown_preview::cache_activity();
-    let mut previous_previews = crate::views::diagram_cache_activity();
-    let mut cache_sampled = std::time::Instant::now();
-    let task = cx.spawn(async move |cx| {
-        let mut previous: Option<(std::time::Instant, u64)> = None;
-        loop {
-            let (available, values) = cx
-                .background_executor()
-                .spawn(async { crate::views::resource_snapshot() })
-                .await;
-            let now = std::time::Instant::now();
-            let images = glim_services::markdown_preview::cache_activity();
-            let previews = crate::views::diagram_cache_activity();
-            let mut props = vec![
-                (
-                    "diagram_image_cache_hits",
-                    number(images.hits.saturating_sub(previous_images.hits)),
-                ),
-                (
-                    "diagram_image_cache_misses",
-                    number(images.misses.saturating_sub(previous_images.misses)),
-                ),
-                (
-                    "diagram_view_cache_hits",
-                    number(previews.hits.saturating_sub(previous_previews.hits)),
-                ),
-                (
-                    "diagram_view_cache_misses",
-                    number(previews.misses.saturating_sub(previous_previews.misses)),
-                ),
-                (
-                    "diagram_view_cache_pending",
-                    number(previews.pending.saturating_sub(previous_previews.pending)),
-                ),
-                (
-                    "diagram_cache_interval_ms",
-                    number(now.duration_since(cache_sampled).as_millis() as u64),
-                ),
-                ("scope", text("main_process")),
-                ("includes_helpers", flag(false)),
-                ("memory_available", flag(available & 1 != 0)),
-                ("cpu_available", flag(available & 2 != 0)),
-                ("gpu_counter_available", flag(available & 4 != 0)),
-                ("gpu_counter_scope", text("metal_device_allocations")),
-                ("gpu_total_vram_available", flag(false)),
-                (
-                    "thermal_state",
-                    text(match values[12] {
-                        0 => "nominal",
-                        1 => "fair",
-                        2 => "serious",
-                        3 => "critical",
-                        _ => "unknown",
-                    }),
-                ),
-                ("low_power_available", flag(available & 8 != 0)),
-            ];
-            previous_images = images;
-            previous_previews = previews;
-            cache_sampled = now;
-            if available & 1 != 0 {
-                let readers = glim_services::resources::pool().snapshot();
-                props.extend([
-                    ("reader_state_bytes", number(readers.state_bytes)),
-                    ("reader_working_bytes", number(readers.working_bytes)),
-                    (
-                        "reader_working_budget_bytes",
-                        number(readers.working_budget),
-                    ),
-                    ("reader_cache_bytes", number(readers.cache_bytes)),
-                    ("reader_cache_budget", number(readers.cache_budget)),
-                    ("reader_cache_evictions", number(readers.evictions)),
-                ]);
-                for (key, index) in [
-                    ("resident_bytes", 0),
-                    ("physical_footprint_bytes", 1),
-                    ("virtual_bytes", 2),
-                    ("compressed_bytes", 3),
-                ] {
-                    props.push((key, number(values[index])));
-                }
-            }
-            if available & 2 != 0 {
-                props.extend([
-                    ("cpu_total_ns", number(values[4])),
-                    ("peak_resident_bytes", number(values[5])),
-                ]);
-                if let Some((at, cpu)) = previous {
-                    let wall = now.duration_since(at).as_nanos().max(1);
-                    let basis_points = (u128::from(values[4].saturating_sub(cpu)) * 10_000 / wall)
-                        .min(u128::from(u64::MAX)) as u64;
-                    props.push(("cpu_percent_x100", number(basis_points)));
-                    props.push((
-                        "sample_interval_ms",
-                        number(now.duration_since(at).as_millis() as u64),
-                    ));
-                }
-                previous = Some((now, values[4]));
-            }
-            if available & 4 != 0 {
-                props.push(("metal_allocated_bytes", number(values[10])));
-            }
-            if available & 8 != 0 {
-                props.push(("low_power_enabled", flag(values[13] != 0)));
-            }
-            let context = cx.update(|cx| {
-                let workspaces = super::OpenWorkspaces::windows(cx);
-                let window_count = workspaces
-                    .iter()
-                    .map(|(_, handle)| *handle)
-                    .collect::<std::collections::HashSet<_>>()
-                    .len();
-                let mut props = vec![("workspace_windows", number(window_count as u64))];
-                let mut tabs = 0;
-                let mut pdf_tabs = 0;
-                let mut fullscreen_windows = 0;
-                let mut viewport_pixels = 0_u64;
-                let mut active = false;
-                for (view, window) in workspaces {
-                    let _ = window.update(cx, |_, window, cx| {
-                        let Some(view) = view.upgrade() else {
-                            return;
-                        };
-                        tabs += view.read(cx).telemetry_tab_count();
-                        pdf_tabs += view.read(cx).telemetry_pdf_tab_count();
-                        if !view.read(cx).is_visible_workspace(cx) {
-                            return;
-                        }
-                        fullscreen_windows += usize::from(window.is_fullscreen());
-                        let size = window.viewport_size();
-                        let scale = f64::from(window.scale_factor());
-                        viewport_pixels = viewport_pixels.saturating_add(
-                            (f64::from(f32::from(size.width))
-                                * f64::from(f32::from(size.height))
-                                * scale
-                                * scale) as u64,
-                        );
-                        if window.is_window_active() {
-                            active = true;
-                            props.extend(view.read(cx).usage_context());
-                        }
-                    });
-                }
-                props.push(("open_tabs", number(tabs as u64)));
-                props.push(("pdf_tabs", number(pdf_tabs as u64)));
-                props.push(("fullscreen_windows", number(fullscreen_windows as u64)));
-                props.push(("viewport_pixels", number(viewport_pixels)));
-                props.push(("workspace_active", flag(active)));
-                props
-            });
-            props.extend(context);
-            if initial {
-                let mut profile = vec![
-                    ("build_number", text(env!("GLIM_BUILD_NUMBER"))),
-                    ("hardware_memory_bytes", number(values[6])),
-                    ("logical_processors", number(values[7])),
-                    ("active_processors", number(values[8])),
-                    ("unified_memory", flag(values[11] != 0)),
-                    ("metal_devices", number(values[14])),
-                    ("system_uptime_s", number(values[9])),
-                ];
-                profile.push(("resource_scope", text("main_process")));
-                profile.push(("rosetta_detection_available", flag(available & 16 != 0)));
-                if available & 16 != 0 {
-                    profile.push(("rosetta_translated", flag(values[15] != 0)));
-                }
-                profile.push(("debug_build", flag(cfg!(debug_assertions))));
-                track("system_profile", profile);
-                cx.update(|cx| cx.global_mut::<Telemetry>().profiled = true);
-                initial = false;
-            }
-            track("resource_sample", props);
-            cx.background_executor()
-                .timer(std::time::Duration::from_secs(120))
-                .await;
-        }
-    });
-    cx.global_mut::<Telemetry>().resources = Some(task);
 }
 
 pub(crate) fn observe_commands(cx: &mut App) {

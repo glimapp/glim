@@ -30,26 +30,13 @@ pub(crate) async fn run_with_scheduler<T: Send + 'static>(
     cancel: Cancellation,
     work: impl FnOnce(&Cancellation) -> anyhow::Result<T> + Send + 'static,
 ) -> anyhow::Result<T> {
-    let queued = std::time::Instant::now();
     let permit = scheduler.acquire(class, priority, cancel.clone()).await?;
     cancel.check()?;
-    let queue_ms = queued.elapsed().as_millis() as u64;
     executor
         .spawn(async move {
             let _permit = permit;
             cancel.check()?;
-            let started = std::time::Instant::now();
             let result = work(&cancel);
-            use glim_services::telemetry::{number, text, track};
-            track(
-                "reader_job",
-                [
-                    ("class", text(class.name())),
-                    ("priority", text(priority.name())),
-                    ("queue_ms", number(queue_ms)),
-                    ("work_ms", number(started.elapsed().as_millis() as u64)),
-                ],
-            );
             cancel.check()?;
             result
         })

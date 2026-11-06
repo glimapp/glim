@@ -233,6 +233,7 @@ impl Workspace {
                             reader.set_preview(preview, cx);
                         }
                         reader.set_word_wrap(view.word_wrap, window, cx);
+                        reader.report_opened("restore");
                         view.tabs.push(reader);
                         view.active = Some(view.tabs.len() - 1);
                         cx.notify();

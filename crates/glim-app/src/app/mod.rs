@@ -756,7 +756,6 @@ fn open_workspace_session(
     }) {
         Ok(_) => {
             glim_services::telemetry::track("window_opened", []);
-            telemetry::refresh_resource_sampling(cx);
             cx.activate(true);
         }
         Err(error) => log::error!("Cannot open Glim window: {error:#}"),
@@ -792,7 +791,6 @@ pub(crate) fn open_detached_window(
         host
     })?;
     glim_services::telemetry::track("window_opened", []);
-    telemetry::refresh_resource_sampling(cx);
     cx.activate(true);
     Ok((host.read(cx).slots[0].view.clone(), handle))
 }

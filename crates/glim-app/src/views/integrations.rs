@@ -74,9 +74,23 @@ impl Integrations {
         self.pending_config = Some(target.config.clone());
         self.notice = None;
         self.notice_task = None;
-        let work = cx
-            .background_executor()
-            .spawn(async move { integrations::configure(&target, install) });
+        let client = target.kind.label();
+        let work = cx.background_executor().spawn(async move {
+            let started = std::time::Instant::now();
+            let result = integrations::configure(&target, install);
+            use glim_services::telemetry::{result_with, text};
+            result_with(
+                "integration_configured",
+                None,
+                started,
+                &result,
+                [
+                    ("client", text(client)),
+                    ("action", text(if install { "add" } else { "remove" })),
+                ],
+            );
+            result
+        });
         self.task = Some(cx.spawn(async move |view, cx| {
             let result = work.await;
             let _ = view.update(cx, |view, cx| {

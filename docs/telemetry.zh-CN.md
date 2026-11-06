@@ -12,7 +12,7 @@
 
 Aptabase 的 `systemProps.isDebug` 按构建来源区分。本地 `cargo run`、本地优化构建和本地 `.app`／DMG 打包统一上报 debug。只有官方仓库推送 `v*` 标签的工作流，在 `GLIM_DISTRIBUTION=github-release` 且使用优化 Cargo profile 时编入 release 路由；手动工作流、普通分支和 fork 保持 debug。渠道固定在二进制内，移动应用或修改运行时环境变量不会改变它。CI 在打包前核验可执行文件。`/Applications/Glim.app/Contents/MacOS/glim --build-info` 只输出渠道和版本，不启动应用、不读取安装标识、不发送遥测。
 
-事件另带 `telemetry_environment=debug|release`。`system_profile.debug_build` 仍表示编译器是否启用 debug assertions，与遥测渠道独立。此前本地优化包被计入 release，修改不会重分类历史数据；分析旧导出时需排除已知开发安装 ID。
+事件另带 `telemetry_environment=debug|release`。历史 `system_profile.debug_build` 表示编译器是否启用 debug assertions，与遥测渠道独立；当前构建不再发送该事件。此前本地优化包被计入 release，修改不会重分类历史数据；分析旧导出时需排除已知开发安装 ID。
 
 正常升级、替换应用包、关闭后重新开启遥测，以及开发／正式渠道切换，都复用应用数据库中既有的 `telemetry-installation-id`；版本、build 和渠道均不参与该键。清除应用数据或换设备可能产生新安装标识，会话标识独立轮换。安装数仍不等同于人数，当前没有基于账号的跨设备合并。回归覆盖数据库升级／重启、并发首次启动和只读／无效存储，不重建已有身份。
 
@@ -42,7 +42,9 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 | 数据与书籍 | CSV/SQLite 分页请求及加载结果、数据库表切换、分页文本模式、书籍加载/翻页/章节/书签 |
 | 图表 | `diagram_render`：固定类型和渲染结果，按完成计算，不逐帧上报 |
 | 原生阅读器 | 图片复制/OCR/缩放/分页，PDF 适配/布局/演示/导航，Word 模式/缩放，表格分页/工作表，字体选择，媒体播放，演示/外部打开；仅数字枚举跨 Swift/Rust 边界 |
-| 设置与更新 | 设置/快捷键打开、主题/语言、更新操作，编译启用更新器时的状态变化 |
+| 设置与更新 | 设置/快捷键打开、主题/语言、应用关联与取消结果、更新操作，编译启用更新器时的状态变化 |
+| 远端工作区 | SSH 测试/保存/连接/删除结果，远端工作区与文件打开，本地/SSH 阅读能力与前台停留 |
+| 查找与内嵌图片 | 源码/预览/原生查找入口、单个/全部替换、图片详情打开与首次缩放 |
 | 诊断 | 操作错误、ERROR 日志分类、panic、原生错误、重复错误聚合、队列丢失和上传失败计数 |
 
 分页/加载事件包含初始化与刷新，代表工作量，不能都解释成独立主动点击。工具栏意图和实际状态变化是同一操作的不同阶段，不能相加。原生按钮事件代表调用，不保证操作完成；保持原有按钮目标、菜单和快捷键分发。
@@ -61,29 +63,13 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 
 内存队列最多 256 条、每批最多 25 条、约两秒刷新；支持取消、有限退出等待和指数退避。没有磁盘发件箱或原始日志上传。断网、锁竞争、队列淘汰会丢事件，后续成功发送时用 health 事件披露。长时间运行每天轮换 Aptabase 会话，安装身份保持稳定；网络发送失败不会递归产生错误埋点。
 
-## 细粒度操作与资源指标（schema 3）
+## 功能使用采集（schema 3）
 
-普通事件带 `schema_version=3`、架构、操作系统 build，Aptabase 系统字段带 macOS 版本、应用版本/build、语言和 SDK 版本。`system_profile` 每次开启采集后的首个资源样本报告一次：物理内存字节数、逻辑/活跃处理器数量、Metal 设备数、统一内存、系统运行秒数、调试构建，以及系统支持查询时的 Rosetta 翻译状态。不采集硬件序列号、用户名、设备名称或其他应用的使用情况。
+普通事件带 `schema_version=3`、架构、操作系统 build，Aptabase 系统字段带 macOS 版本、应用版本/build、语言和 SDK 版本。常规上报不再采集硬件配置、CPU／内存／GPU 资源、缓存计数或逐任务排队耗时，停止发送 `reader_job`、`resource_sample`、`system_profile`。本地资源准入、缓存回收、取消机制和性能测量工具独立保留。
 
-`resource_sample` 在启用采集且存在工作区窗口时立即采一次，此后每两分钟采样；关闭最后一个工作区窗口、关闭开关或退出时取消任务。重新打开工作区会恢复采样并重置 CPU 区间基线，同一次开启采集期间不重复报告系统配置。指标均来自 Glim 主进程：
+主动打开文件的覆盖率看成功的 `file_open`；阅读器可用能力看 `reader_opened`，包含恢复的标签。`reader_opened.trigger=open|restore` 区分新打开与恢复，`storage=local|ssh` 区分本地与 SSH，远端阅读器的 `can_edit=false`。SSH 的 `file_open` 记录主动打开的格式、结果和耗时；成功的自动／手动刷新不重复计为打开文件。带 `storage=ssh` 的 `workspace_open` 记录打开或恢复远端工作区，由 `trigger` 区分；恢复加载路径也用于最近工作区与外部请求。前台停留事件也标注存储类型。应用驻留时间与事件总数不等于使用时长；文档前台时间是占用时长，可能包含发呆。
 
-| 属性 | 单位与解释 |
-| --- | --- |
-| `resident_bytes` | 常驻内存字节数 |
-| `physical_footprint_bytes` | Mach 统计的物理内存占用；与常驻内存口径不同 |
-| `virtual_bytes` | 虚拟地址空间字节数，不能当实际 RAM 占用 |
-| `compressed_bytes` | 压缩内存字节数，不能直接与 footprint 相加 |
-| `peak_resident_bytes` | 主进程生命周期内的常驻内存高水位 |
-| `cpu_total_ns` | 用户态与内核态累计 CPU 纳秒数 |
-| `cpu_percent_x100` | 相邻有效采样的 CPU 时间增量/墙钟增量，百分比乘 100；多核可超过 10000，首样本不提供区间值 |
-| `metal_allocated_bytes` | Metal 设备对象公开的资源分配量，可能包括共享内存；可用性由 `gpu_counter_available` 表示 |
-| `thermal_state` / `low_power_enabled` | 当前热状态、系统支持查询时的低电量模式 |
-| `open_tabs` / `workspace_windows` | 当前所有工作区的标签和窗口数量 |
-| `workspace_active` / `file_extension` / `reader_kind` | 当前是否有活动工作区，以及当时活动格式/阅读器 |
-
-`scope=main_process`、`includes_helpers=false`：不包含 WebKit 服务、渲染助手或转换子进程的独立内存。`gpu_counter_scope=metal_device_allocations`、`gpu_total_vram_available=false`：Metal 数值不是整机显存、独占显存、完整 GPU 驻留量或 GPU 使用率；API 返回零也不能证明没有 GPU 资源。不能将它与 RAM 相加。资源样本关联活动格式，但其他标签和缓存也占资源，不能宣称是该格式独自消耗的内存。缺失指标用可用性字段区分，不伪造零。
-
-`resource_sample` 另含区间计数 `diagram_image_cache_hits/misses`、`diagram_view_cache_hits/misses/pending` 和区间长度 `diagram_cache_interval_ms`。每层只统计消费者查找，排除发布和驻留检查；等待中的请求已经排队，不加入命中率分母，缓存错误预览的复用也算驻留命中。这些字段不依赖系统内存查询是否可用。采样重新开始时重置基线，不补发关闭统计或没有工作区期间的查找。参见[缓存统计口径](reader-resources.zh-CN.md#图表缓存与命中率)。
+`ssh_connection` 记录测试、保存、连接、删除的结果；`integration_configured` 记录应用类别和关联／取消关联结果，仅由用户主动操作产生，实例扫描和自动配置迁移不计入。`reader_feature.find_opened` 覆盖源码及文本预览查找；原生 `find_opened` 覆盖 PDF、Word、HTML 的查找，包括直接使用快捷键。替换操作只记录单个／全部标记。内嵌图片记录打开详情，以及每次打开后至多一次的缩放使用，包含手势缩放。不会上传搜索词、替换文本、主机名、用户名、私钥路径、连接名称或配置路径。
 
 ### 滚动与快捷键
 
@@ -118,6 +104,8 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 
 ### 明细导出
 
+默认 `timeline.csv` 和 `actions.csv` 排除历史 `reader_job`、`resource_sample`、`system_profile`；排查旧版本时可传 `--include-performance`。历史资源样本仍进入 `resources.csv` 与 `resource-peaks.csv`，当前构建不产生新样本。
+
 ```sh
 python3 scripts/telemetry-detail-report.py events.json --output-dir report
 ```
@@ -128,16 +116,10 @@ python3 scripts/telemetry-detail-report.py events.json --output-dir report
 
 两个报表脚本支持 ClickHouse JSONEachRow/CSV 的 string_props、numeric_props、os_version、app_version 列，以及 .jsonl.gz 流式读取。用 --app-id 选择生产应用，避免混入其他产品和 DEBUG；用 --exclude-installations-file 读取本地 UTF-8 安装 ID 清单（每行一个，允许 # 注释），也可重复传 --exclude-installation-id。个人 ID 清单放在仓库之外；缺少身份的事件保持未归属。
 
-格式报表统计成功打开安装数、在导出范围内跨 UTC+8 自然日成功打开的安装数，以及源码回退次数。跨日观察不等于 cohort 留存率。详细报表生成 activity.csv，按安装与 UTC+8 日期统计打开次数、成功次数、有打开的会话数和文档前台片段秒数；resource-peaks.csv 保留每个安装各指标峰值对应的时间、版本、格式和窗口/标签数。Aptabase 会话时长含后台驻留，总事件量含大量资源采样，不用它们替代有效使用；前台片段仍包含空闲，不能证明阅读完成。
+格式报表统计成功打开安装数、在导出范围内跨 UTC+8 自然日成功打开的安装数，以及源码回退次数。跨日观察不等于 cohort 留存率。详细报表生成 activity.csv，按安装与 UTC+8 日期统计打开次数、成功次数、有打开的会话数和文档前台片段秒数；resource-peaks.csv 保留每个安装各指标峰值对应的时间、版本、格式和窗口/标签数。Aptabase 会话时长含后台驻留，旧版导出的总事件量含大量资源采样，不用它们替代有效使用；前台片段仍包含空闲，不能证明阅读完成。
 
 XMind 解析或工作预算失败但源码分页成功时上报 reader_fallback，固定 reason 区分 container/content_entry/decompression/json/xml/structure/unknown，preview_budget 标识工作预算回退。file_open 成功不保证思维导图渲染成功，需同时查看回退事件。operation_failed 包含 reader_stage 并纳入错误签名，均不上传文档或错误原文。telemetry_health 包含可用的安装 ID、schema、架构、系统构建和独立序号；error_repeated 聚合使用新序号。历史缺失 ID 无法补算。
 
 `process_session_id` 在 Aptabase 满 24 小时轮换 `sessionId` 后仍保留本次启用遥测的会话标识，`session_uptime_s` 记录事件采集时的单调运行时长；遥测重启或关闭后重新开启都会重置。它们用于关联同一进程的持续使用，不能代表人数或证明主动回访。`foreground_segment` 和当前阅读器上下文增加 `untitled`，区分草稿与文件阅读。统计有效使用安装时需包含草稿创建、编辑与保存，仅依赖成功 `file_open` 会漏掉纯记事本使用。
 
-资源样本增加 `pdf_tabs`、`fullscreen_windows`、窗口设备像素总量 `viewport_pixels` 与当前阅读器的 `file_fullscreen`。像素数描述窗口尺寸，不代表纹理分配或 GPU 使用量。`tab_closed.reason=preview_replaced` 区分连续浏览替换与主动关闭；`update_phase_changed` 包含固定 `error_stage`、固定 `error_kind` 和有符号数字 `error_code`，不上传原生错误消息、网址或路径。错误码仅提供诊断线索，不能完整解释失败原因。
-
-## 阅读器准备调度
-
-`reader_job` 在准入后的准备任务返回时记录 `class`（document/projection/decode/native/diagram）、`priority`（viewport/interactive/background）、`queue_ms` 和 `work_ms`，包括返回错误的任务。排队耗时截止到准入，执行耗时测量阻塞操作且不含排队；启动前取消和发生 panic 的任务不产生该事件。它不代表首屏延迟、用户操作次数、单文档内存或完整取消率，采集沿用现有遥测同意与有界投递策略。
-
-受管资源另含 `reader_state_bytes`、`reader_working_bytes`、`reader_working_budget_bytes`、`reader_cache_bytes`、`reader_cache_budget` 和 `reader_cache_evictions`。这些是已接入所有者的字节估算及回收次数，不是进程内存硬上限；覆盖范围见[资源与渲染](reader-resources.zh-CN.md)，不可与系统内存／Metal 指标相加。
+`tab_closed.reason=preview_replaced` 区分连续浏览替换与主动关闭；`update_phase_changed` 包含固定 `error_stage`、固定 `error_kind` 和有符号数字 `error_code`，不上传原生错误消息、网址或路径。错误码仅提供诊断线索，不能完整解释失败原因。

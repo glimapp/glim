@@ -487,28 +487,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let mut reader = Reader::from_content(content, window, cx);
-        glim_services::telemetry::file_event(
-            "reader_opened",
-            &reader.document.path,
-            [
-                (
-                    "reader_kind",
-                    glim_services::telemetry::text(reader.telemetry_kind()),
-                ),
-                (
-                    "unavailable",
-                    glim_services::telemetry::flag(reader.is_unavailable()),
-                ),
-                (
-                    "can_preview",
-                    glim_services::telemetry::flag(reader.can_preview()),
-                ),
-                (
-                    "can_edit",
-                    glim_services::telemetry::flag(reader.editor().is_some()),
-                ),
-            ],
-        );
+        reader.report_opened("open");
         reader.set_editing_locked(self.editing_locked, cx);
         reader.set_word_wrap(self.word_wrap, window, cx);
         if let Some(i) = self

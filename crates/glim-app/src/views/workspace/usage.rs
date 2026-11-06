@@ -14,21 +14,17 @@ impl Workspace {
     pub(crate) fn telemetry_tab_count(&self) -> usize {
         self.tabs.len()
     }
-    pub(crate) fn telemetry_pdf_tab_count(&self) -> usize {
-        self.tabs
-            .iter()
-            .filter(|reader| {
-                reader
-                    .document
-                    .path
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
-            })
-            .count()
-    }
     pub(crate) fn usage_context(&self) -> Vec<(&'static str, Property)> {
         let mut props = vec![
             ("file_fullscreen", flag(self.file_fullscreen)),
+            (
+                "storage",
+                text(if self.remote.is_some() || self.remote_restore.is_some() {
+                    "ssh"
+                } else {
+                    "local"
+                }),
+            ),
             (
                 "page",
                 text(match self.page {
@@ -94,6 +90,14 @@ impl Workspace {
             return;
         }
         let mut props = vec![
+            (
+                "storage",
+                text(if self.remote.is_some() || self.remote_restore.is_some() {
+                    "ssh"
+                } else {
+                    "local"
+                }),
+            ),
             (
                 "page",
                 text(match self.page {

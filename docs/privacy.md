@@ -22,7 +22,7 @@ Ebooks do not fetch remote images or execute active content. Offline diagram eng
 
 ## What do usage statistics send?
 
-When enabled, collection covers feature actions, fixed format categories, success/failure, timings, foreground segments and Glim main-process resources. System information includes versions, architecture and selected memory/processor properties. Scroll and shortcut metrics do not record typed document text.
+When enabled, collection covers feature actions, fixed format categories, success/failure, operation timings and foreground segments. System information includes versions, architecture and locale. Routine collection excludes process resource samples and hardware profiles. Scroll and shortcut metrics do not record typed document text.
 
 A random installation identifier links usage across sessions for an installation. Collection excludes accounts, hardware serial numbers, usernames and device names. It does not upload document content, filenames, full paths, search terms, database/table/column names, URLs, recognized text or raw logs/error messages.
 

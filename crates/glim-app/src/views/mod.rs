@@ -119,9 +119,6 @@ fn connection_icon(
         .into_any_element()
 }
 
-pub(crate) use reader::diagram_cache_activity;
-pub(crate) use reader::resource_snapshot;
-
 pub(crate) use reader::set_native_telemetry_enabled;
 
 pub(crate) use reader::{

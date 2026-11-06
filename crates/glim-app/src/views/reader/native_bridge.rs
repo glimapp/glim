@@ -1,5 +1,5 @@
 //! Main-thread ownership boundary for AppKit views, plus synchronized numeric
-//! telemetry preference and own-process resource calls safe off the main thread.
+//! telemetry preference and reader resource accounting.
 #![allow(unsafe_code)]
 
 use gpui_kit::{Bounds, Pixels, Window};
@@ -105,6 +105,7 @@ extern "C" fn reader_telemetry(
         34 => "playback_position_observed",
         35 => "playback_state_observed",
         36 => "mute_state_observed",
+        37 => "find_opened",
         _ => return,
     };
     let source = match source {
@@ -159,16 +160,9 @@ pub(crate) fn set_telemetry_enabled(enabled: bool) {
         glim_set_telemetry_enabled(i32::from(enabled));
     }
 }
-pub(crate) fn resource_snapshot() -> (i32, [u64; 16]) {
-    let mut values = [0; 16];
-    // SAFETY: Swift writes only within this fixed capacity and retains no pointer.
-    let available = unsafe { glim_telemetry_resources(values.as_mut_ptr(), values.len()) };
-    (available, values)
-}
 unsafe extern "C" {
     fn glim_set_reader_resources(callback: Option<extern "C" fn(u64, u64) -> u64>);
     fn glim_set_telemetry_enabled(enabled: i32);
-    fn glim_telemetry_resources(output: *mut u64, capacity: usize) -> i32;
     fn glim_set_reader_telemetry(
         callback: Option<extern "C" fn(i32, i32, i32, i32, u64, u64, u64, u64)>,
     );

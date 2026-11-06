@@ -15,11 +15,13 @@ pub(super) fn show_pinned(
     window: &mut Window,
     cx: &mut App,
 ) {
+    glim_services::telemetry::reader_feature("embedded_image", "open_detail", []);
     let content = cx.new(|_| ImageDetail {
         source,
         zoom: 1.,
         scroll: ScrollHandle::new(),
         pan: None,
+        zoom_reported: false,
         _resource: Box::new(resource),
     });
     window.open_dialog(cx, move |dialog, window, _| {
@@ -46,6 +48,7 @@ struct ImageDetail {
     zoom: f32,
     scroll: ScrollHandle,
     pan: Option<(Point<Pixels>, Point<Pixels>)>,
+    zoom_reported: bool,
     _resource: Box<dyn Any>,
 }
 
@@ -53,6 +56,10 @@ impl ImageDetail {
     fn zoom_at(&mut self, zoom: f32, anchor: Point<Pixels>, cx: &mut Context<Self>) {
         if !zoom.is_finite() {
             return;
+        }
+        if zoom.clamp(1., 8.) != self.zoom && !self.zoom_reported {
+            glim_services::telemetry::reader_feature("embedded_image", "zoom", []);
+            self.zoom_reported = true;
         }
         let ratio = zoom.clamp(1., 8.) / self.zoom;
         self.zoom = zoom.clamp(1., 8.);

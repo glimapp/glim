@@ -95,6 +95,10 @@ impl FindBar {
         };
         self.open = true;
         self.replace = replace && self.replaceable(cx);
+        self.record(
+            "find_opened",
+            [("replace", glim_services::telemetry::flag(self.replace))],
+        );
         self.input.update(cx, |input, cx| {
             if !selected.is_empty() && !selected.contains('\n') {
                 input.set_value(selected, window, cx);
@@ -235,6 +239,10 @@ impl FindBar {
             return;
         }
         if let Target::Editor(editor) = &self.target {
+            if !self.replaceable(cx) {
+                return;
+            }
+            self.record("replace", [("all", glim_services::telemetry::flag(all))]);
             let replacement = self.replacement.read(cx).value();
             editor.update(cx, |editor, cx| {
                 if all {
@@ -245,6 +253,21 @@ impl FindBar {
             });
         }
         cx.notify();
+    }
+
+    fn record(
+        &self,
+        action: &'static str,
+        extra: impl IntoIterator<Item = (&'static str, glim_services::telemetry::Property)>,
+    ) {
+        glim_services::telemetry::reader_feature(
+            match &self.target {
+                Target::Editor(_) => "source",
+                Target::Preview(_) => "text_preview",
+            },
+            action,
+            extra,
+        );
     }
 
     fn control(id: &'static str, label: &str, icon: IconName) -> Button {

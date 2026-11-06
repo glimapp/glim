@@ -1,6 +1,5 @@
 use super::OpenLink;
 use crate::app::reader_jobs::{self, JobClass, Priority};
-use glim_core::resources::{CacheActivity, CacheActivitySnapshot, CacheLookup};
 use glim_services::markdown_preview::{self, Diagram};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -150,10 +149,6 @@ impl MarkdownPlugin for AlertPlugin {
 type PreviewResource = Arc<glim_services::resources::ResourceValue<Preview>>;
 type Snapshot = Arc<Mutex<PreviewStore>>;
 static REVISION: AtomicU64 = AtomicU64::new(1);
-static CACHE_ACTIVITY: CacheActivity = CacheActivity::new();
-pub(crate) fn cache_activity() -> CacheActivitySnapshot {
-    CACHE_ACTIVITY.snapshot()
-}
 struct PreviewEntry {
     preview: glim_services::resources::CachedResource<Preview>,
     encoded: usize,
@@ -231,14 +226,8 @@ impl PreviewStore {
             .lookup(diagram)
             .or_else(|| self.errors.lookup(diagram));
         if let Some(preview) = preview {
-            CACHE_ACTIVITY.record(CacheLookup::Hit);
             return (Some(preview), false);
         }
-        CACHE_ACTIVITY.record(if self.pending.contains(diagram) {
-            CacheLookup::Pending
-        } else {
-            CacheLookup::Miss
-        });
         let cost = diagram
             .source
             .len()

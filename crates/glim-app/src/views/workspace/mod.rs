@@ -176,7 +176,7 @@ impl Workspace {
     }
 
     pub fn new(path: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.on_release(|view, cx| {
+        cx.on_release(|view, _| {
             view.flush_usage();
             glim_services::telemetry::track(
                 "window_closed",
@@ -191,7 +191,6 @@ impl Workspace {
                     ),
                 ],
             );
-            cx.defer(crate::app::telemetry::refresh_resource_sampling);
         })
         .detach();
         let focus = cx.focus_handle();

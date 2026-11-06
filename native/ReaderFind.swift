@@ -27,13 +27,15 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
     private var generation = 0
     private let search: (String, Bool, Bool, Bool, @escaping (String, Bool) -> Void) -> Void
     private let cancel: () -> Void
+    private let telemetryKind: Int32
     let button = NSButton()
     var isOpen: Bool { !panel.isHidden }
 
-    init(host: NSView, content: NSView,
+    init(host: NSView, content: NSView, telemetryKind: Int32,
          search: @escaping (String, Bool, Bool, Bool, @escaping (String, Bool) -> Void) -> Void,
          cancel: @escaping () -> Void = {}) {
         self.host = host; self.content = content; self.search = search; self.cancel = cancel
+        self.telemetryKind = telemetryKind
         super.init()
         panel.wantsLayer = true
         panel.layer?.cornerRadius = 6; panel.layer?.borderWidth = 1
@@ -105,6 +107,7 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
 
     @objc func show() {
         guard content?.isHiddenOrHasHiddenAncestor == false else { return }
+        ReaderTelemetry.record(telemetryKind, 37)
         panel.isHidden = false
         host?.addSubview(panel, positioned: .above, relativeTo: nil)
         field.selectText(nil)
@@ -156,8 +159,8 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
     }
     deinit { if let monitor = monitor { NSEvent.removeMonitor(monitor) } }
 
-    static func web(host: NSView, web: WKWebView) -> ReaderFindBar {
-        ReaderFindBar(host: host, content: web, search: { [weak web] query, sensitive, backwards, _, completion in
+    static func web(host: NSView, web: WKWebView, telemetryKind: Int32 = 7) -> ReaderFindBar {
+        ReaderFindBar(host: host, content: web, telemetryKind: telemetryKind, search: { [weak web] query, sensitive, backwards, _, completion in
             guard let web = web else { return }
             let config = WKFindConfiguration()
             config.caseSensitive = sensitive; config.backwards = backwards; config.wraps = true

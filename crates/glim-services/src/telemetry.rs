@@ -295,6 +295,16 @@ pub fn file_event(
     track(name, props);
 }
 pub fn result<T>(event: &'static str, path: Option<&Path>, started: Instant, outcome: &Result<T>) {
+    result_with(event, path, started, outcome, []);
+}
+
+pub fn result_with<T>(
+    event: &'static str,
+    path: Option<&Path>,
+    started: Instant,
+    outcome: &Result<T>,
+    extra: impl IntoIterator<Item = (&'static str, Property)>,
+) {
     let mut props = vec![
         (
             "result",
@@ -308,6 +318,7 @@ pub fn result<T>(event: &'static str, path: Option<&Path>, started: Instant, out
     if let Some(path) = path {
         props.extend(file_properties(path));
     }
+    props.extend(extra);
     track(event, props);
     if let Err(error) = outcome {
         operation_failed(event, path, error);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export sanitized event timelines, action/shortcut reach and resource summaries."""
+"""Export feature timelines and reach; keep historical performance samples separate."""
 import argparse
 import csv
 import json
@@ -16,6 +16,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('export', type=Path)
     parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--include-performance', action='store_true', help='Include legacy reader_job, resource_sample and system_profile events in timelines and action counts')
     helpers['add_filters'](parser)
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -43,7 +44,9 @@ def main():
             action = props.get('action', '')
             source = props.get('input_source', '')
             result = props.get('result', '')
-            timeline.writerow([event.get('timestamp', ''), identity, session, sequence, name, extension, reader, action, source, result, props.get('duration_ms', ''), system.get('osVersion', ''), system.get('appVersion', ''), json.dumps(props, ensure_ascii=False, separators=(',', ':')), event['appId']])
+            include_event = args.include_performance or name not in {'reader_job', 'resource_sample', 'system_profile'}
+            if include_event:
+                timeline.writerow([event.get('timestamp', ''), identity, session, sequence, name, extension, reader, action, source, result, props.get('duration_ms', ''), system.get('osVersion', ''), system.get('appVersion', ''), json.dumps(props, ensure_ascii=False, separators=(',', ':')), event['appId']])
             if name == 'file_open' or (name == 'foreground_segment' and props.get('page') == 'document'):
                 day = helpers['local_day'](event)
                 usage = activity[(event['appId'], identity, day)]
@@ -54,15 +57,16 @@ def main():
                         usage['open_sessions'].add(session)
                 else:
                     usage['foreground_ms'] += props.get('duration_ms', 0)
-            row = groups[(name, extension, reader, action, source, result)]
-            row['events'] += 1
-            if identity:
-                row['people'].add(identity)
-            if session:
-                row['sessions'].add(session)
-            duration = props.get('duration_ms')
-            if isinstance(duration, (int, float)) and duration >= 0:
-                row['duration'].append(duration)
+            if include_event:
+                row = groups[(name, extension, reader, action, source, result)]
+                row['events'] += 1
+                if identity:
+                    row['people'].add(identity)
+                if session:
+                    row['sessions'].add(session)
+                duration = props.get('duration_ms')
+                if isinstance(duration, (int, float)) and duration >= 0:
+                    row['duration'].append(duration)
             if name in {'shortcut_used', 'native_shortcut_used'}:
                 modifiers = '+'.join(key for key in ['command', 'control', 'option', 'shift'] if props.get(key) in (True, 1, 'true', '1'))
                 key = props.get('key_token', 'keycode:' + str(props.get('key_code', 'unknown')))

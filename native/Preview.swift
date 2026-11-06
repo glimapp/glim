@@ -890,7 +890,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
             }
             pdfView.document = document; pdfView.displayMode = .singlePageContinuous; pdfView.fitToWidth()
             let search = PDFReaderFind(view: pdfView); pdfFind = search
-            let find = ReaderFindBar(host: host, content: pdfView, search: { query, sensitive, backwards, changed, completion in
+            let find = ReaderFindBar(host: host, content: pdfView, telemetryKind: 2, search: { query, sensitive, backwards, changed, completion in
                 search.search(query, sensitive: sensitive, backwards: backwards, changed: changed, completion: completion)
             }, cancel: { search.cancel() })
             findBar = find; toolbar.insertArrangedSubview(ReaderControl.find(find).view, at: 0)

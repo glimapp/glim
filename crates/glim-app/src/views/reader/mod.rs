@@ -9,7 +9,6 @@ mod contract;
 mod controls;
 mod csv;
 mod diagrams;
-pub(crate) use diagrams::cache_activity as diagram_cache_activity;
 mod editing;
 mod find;
 pub(crate) use find::{NextMatch, PreviousMatch};
@@ -108,6 +107,31 @@ pub struct Reader {
     structured_controls: Option<Entity<json_format::JsonFormat>>,
 }
 impl Reader {
+    pub(crate) fn report_opened(&self, trigger: &'static str) {
+        use glim_services::telemetry::{file_event, flag, text};
+        file_event(
+            "reader_opened",
+            &self.document.path,
+            [
+                ("reader_kind", text(self.telemetry_kind())),
+                ("unavailable", flag(self.is_unavailable())),
+                ("can_preview", flag(self.can_preview())),
+                (
+                    "can_edit",
+                    flag(self.document.remote.is_none() && self.editor().is_some()),
+                ),
+                (
+                    "storage",
+                    text(if self.document.remote.is_some() {
+                        "ssh"
+                    } else {
+                        "local"
+                    }),
+                ),
+                ("trigger", text(trigger)),
+            ],
+        );
+    }
     pub fn telemetry_kind(&self) -> &'static str {
         match &self.renderer {
             Renderer::Source(_) => "source",
@@ -300,10 +324,6 @@ impl Reader {
             Renderer::Paged { view, .. } => view.clone().into_any_element(),
         }
     }
-}
-
-pub(crate) fn resource_snapshot() -> (i32, [u64; 16]) {
-    native_bridge::resource_snapshot()
 }
 
 pub(crate) fn set_native_telemetry_enabled(enabled: bool) {

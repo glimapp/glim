@@ -258,6 +258,7 @@ impl RemoteDialog {
         self.message = None;
         let (cancel, guard) = Cancellation::task();
         let tested_session = self.tested_session.take();
+        let started = std::time::Instant::now();
         let work = cx.background_executor().spawn(async move {
             connection.validate()?;
             let session = if test {
@@ -277,6 +278,16 @@ impl RemoteDialog {
         self.task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
             let result = work.await;
+            glim_services::telemetry::result_with(
+                "ssh_connection",
+                None,
+                started,
+                &result,
+                [(
+                    "action",
+                    glim_services::telemetry::text(if test { "test" } else { "save" }),
+                )],
+            );
             let _ = view.update_in(cx, |view, window, cx| {
                 view.busy = false;
                 match result {
@@ -339,6 +350,7 @@ impl RemoteDialog {
         self.message_success = false;
         self.busy = true;
         self.activity = "Connecting…";
+        let started = std::time::Instant::now();
         let (cancel, guard) = Cancellation::task();
         let work = cx.background_executor().spawn(async move {
             let session = match cached {
@@ -354,6 +366,13 @@ impl RemoteDialog {
         self.task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
             let result = work.await;
+            glim_services::telemetry::result_with(
+                "ssh_connection",
+                None,
+                started,
+                &result,
+                [("action", glim_services::telemetry::text("connect"))],
+            );
             let _ = view.update_in(cx, |view, window, cx| {
                 view.busy = false;
                 match result {
@@ -432,6 +451,7 @@ impl RemoteDialog {
         self.message = None;
         self.message_success = false;
         let reader = session.clone();
+        let started = std::time::Instant::now();
         let (cancel, guard) = Cancellation::task();
         let work = cx
             .background_executor()
@@ -439,6 +459,16 @@ impl RemoteDialog {
         self.task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
             let result = work.await;
+            glim_services::telemetry::result_with(
+                "workspace_open",
+                None,
+                started,
+                &result,
+                [
+                    ("storage", glim_services::telemetry::text("ssh")),
+                    ("trigger", glim_services::telemetry::text("open")),
+                ],
+            );
             let _ = view.update_in(cx, |view, window, cx| {
                 view.busy = false;
                 match result {
@@ -524,6 +554,13 @@ impl RemoteDialog {
                 // Keep source descriptors for closed, persisted windows; a removed
                 // connection must never turn their remote paths into local paths.
                 persist(cx);
+                glim_services::telemetry::track(
+                    "ssh_connection",
+                    [
+                        ("action", glim_services::telemetry::text("delete")),
+                        ("result", glim_services::telemetry::text("success")),
+                    ],
+                );
                 view.message = None;
                 window.focus(&view.modal_focus, cx);
                 cx.notify();
@@ -709,9 +746,15 @@ impl Workspace {
             self.activate_tab(index, window, cx);
             return;
         }
-        self.read_remote_file(path, window, cx);
+        self.read_remote_file(path, false, window, cx);
     }
-    fn read_remote_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    fn read_remote_file(
+        &mut self,
+        path: PathBuf,
+        refresh: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(session) = self.remote.clone() else {
             return;
         };
@@ -728,13 +771,46 @@ impl Workspace {
         session.received.store(0, Ordering::Relaxed);
         let transfer = session.clone();
         let remote_path = path.clone();
+        if !refresh {
+            glim_services::telemetry::file_event(
+                "file_open_requested",
+                &path,
+                [("storage", glim_services::telemetry::text("ssh"))],
+            );
+        }
+        let started = std::time::Instant::now();
         let (cancel, guard) = Cancellation::task();
         let work = crate::app::reader_jobs::run(
             cx.background_executor().clone(),
             crate::app::reader_jobs::JobClass::Document,
             crate::app::reader_jobs::Priority::Interactive,
             cancel,
-            move |cancel| transfer.read_content(&remote_path, cancel),
+            move |cancel| {
+                let result = transfer.read_content(&remote_path, cancel);
+                if cancel.check().is_ok() {
+                    if refresh {
+                        if let Err(error) = &result {
+                            glim_services::telemetry::operation_failed(
+                                "remote_file_refresh",
+                                Some(&remote_path),
+                                error,
+                            );
+                        }
+                    } else {
+                        glim_services::telemetry::result_with(
+                            "file_open",
+                            Some(&remote_path),
+                            started,
+                            &result,
+                            [
+                                ("storage", glim_services::telemetry::text("ssh")),
+                                ("trigger", glim_services::telemetry::text("open")),
+                            ],
+                        );
+                    }
+                }
+                result
+            },
         );
         self.load_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
@@ -746,6 +822,9 @@ impl Workspace {
                         let mut reader =
                             crate::views::reader::Reader::from_content(content, window, cx);
                         reader.set_remote(session, path, cx);
+                        if !refresh {
+                            reader.report_opened("open");
+                        }
                         if let Some(index) = view
                             .tabs
                             .iter()
@@ -810,6 +889,7 @@ impl Workspace {
         cx.refresh_windows();
         let (cancel, guard) = Cancellation::task();
         let worker_cancel = cancel.clone();
+        let started = std::time::Instant::now();
         let work = cx.background_executor().spawn(async move {
             let remote = Session::connect(connection, &worker_cancel)?;
             let mut folders = Vec::new();
@@ -821,7 +901,18 @@ impl Workspace {
         });
         self.load_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
-            let (remote, folders) = match work.await {
+            let result = work.await;
+            glim_services::telemetry::result_with(
+                "workspace_open",
+                None,
+                started,
+                &result,
+                [
+                    ("storage", glim_services::telemetry::text("ssh")),
+                    ("trigger", glim_services::telemetry::text("restore")),
+                ],
+            );
+            let (remote, folders) = match result {
                 Ok(result) => result,
                 Err(error) => {
                     let _ = view.update(cx, |view, cx| {
@@ -876,6 +967,7 @@ impl Workspace {
                                     );
                                 reader.set_remote(remote, path, cx);
                                 reader.set_preview(preview, cx);
+                                reader.report_opened("restore");
                                 restored.push(reader);
                             }
                             Err(error) => {
@@ -888,6 +980,7 @@ impl Workspace {
                                 );
                                 reader.set_remote(remote, path, cx);
                                 reader.set_preview(preview, cx);
+                                reader.report_opened("restore");
                                 restored.push(reader);
                                 view.error = Some(error.to_string().into());
                             }
@@ -946,7 +1039,7 @@ impl Workspace {
             explorer.update(cx, |view, cx| view.refresh(cx));
         }
         if let Some(reader) = self.active_reader() {
-            self.read_remote_file(reader.document.path.clone(), window, cx);
+            self.read_remote_file(reader.document.path.clone(), true, window, cx);
         }
     }
 }
