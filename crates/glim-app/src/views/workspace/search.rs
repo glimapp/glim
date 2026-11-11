@@ -3,7 +3,7 @@ use glim_services::{limits, locale::tr};
 use gpui_kit::{
     assets::IconName,
     component::{
-        ActiveTheme, Disableable, Sizable,
+        ActiveTheme, Disableable, Icon, Selectable, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         input::Input,
@@ -12,9 +12,138 @@ use gpui_kit::{
     prelude::FluentBuilder,
     *,
 };
-use std::{collections::HashSet, path::PathBuf};
+use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
 
 impl Workspace {
+    fn watch_search_index_progress(
+        &mut self,
+        progress: Arc<glim_services::remote::SearchIndexProgress>,
+        cx: &mut Context<Self>,
+    ) {
+        self.search_indexed_files = None;
+        self.remote_index_progress_task = Some(cx.spawn(async move |view, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(limits::REMOTE_SEARCH_POLL_MS))
+                    .await;
+                let files = progress.files();
+                if !view
+                    .update(cx, |view, cx| {
+                        if !view.search_indexing {
+                            return false;
+                        }
+                        if view.search_indexed_files != files {
+                            view.search_indexed_files = files;
+                            cx.notify();
+                        }
+                        true
+                    })
+                    .unwrap_or(false)
+                {
+                    break;
+                }
+            }
+        }));
+    }
+
+    fn search_index_status(&self) -> Option<String> {
+        if self.search_indexing {
+            Some(self.search_indexed_files.map_or_else(
+                || tr("Preparing file index…"),
+                |count| {
+                    tr("Indexing files: {count} scanned").replace("{count}", &count.to_string())
+                },
+            ))
+        } else if self.search_index_error.is_some() || self.search_error.is_some() {
+            Some(tr("Remote search is incomplete"))
+        } else if self.search_index_ready {
+            Some(self.search_indexed_files.map_or_else(
+                || tr("File index is ready"),
+                |count| tr("File index: {count} files").replace("{count}", &count.to_string()),
+            ))
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn search_button(&self, cx: &mut Context<Self>) -> Button {
+        let scanning = self.search_indexing || self.search_loading;
+        let mut label = format!("{} · ⌘P", tr("Search workspace files"));
+        if let Some(status) = self.search_index_status() {
+            label.push('\n');
+            label.push_str(&status);
+        } else if self.search_loading {
+            label.push('\n');
+            label.push_str(&tr("Searching files…"));
+        }
+        let color = crate::views::accent(cx);
+        let icon = div()
+            .relative()
+            .size(px(16.))
+            .child(
+                Icon::new(IconName::Search)
+                    .size(px(16.))
+                    .when(self.search_index_error.is_some() && !scanning, |icon| {
+                        icon.text_color(cx.theme().danger)
+                    }),
+            )
+            .when(scanning, |icon| {
+                icon.child(div().absolute().inset_0().with_animation(
+                    "workspace-search-progress",
+                    Animation::new(Duration::from_millis(1200)).repeat(),
+                    move |this, phase| {
+                        this.child(
+                            canvas(
+                                |_, _, _| {},
+                                move |bounds, _, window, _| {
+                                    // The existing 24-unit search icon has its lens at (11, 11).
+                                    let unit = bounds.size.width / 24.;
+                                    let center = bounds.origin + point(unit * 11., unit * 11.);
+                                    let radius = unit * 6.;
+                                    let angle =
+                                        phase * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+                                    let edge = |angle: f32| {
+                                        center + point(radius * angle.cos(), radius * angle.sin())
+                                    };
+                                    let mut sector = PathBuilder::fill();
+                                    sector.move_to(center);
+                                    sector.line_to(edge(angle));
+                                    sector.arc_to(
+                                        point(radius, radius),
+                                        px(0.),
+                                        false,
+                                        true,
+                                        edge(angle + std::f32::consts::FRAC_PI_2),
+                                    );
+                                    sector.close();
+                                    if let Ok(path) = sector.build() {
+                                        window.paint_path(path, color);
+                                    }
+                                },
+                            )
+                            .size_full(),
+                        )
+                    },
+                ))
+            });
+        Button::new("workspace-search")
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .hover(cx.theme().foreground.opacity(0.05))
+                    .active(cx.theme().foreground.opacity(0.09)),
+            )
+            .small()
+            .w(px(28.))
+            .h(px(28.))
+            .flex_shrink_0()
+            .rounded(px(7.))
+            .child(icon)
+            .tooltip(label.clone())
+            .accessibility_label(label)
+            .selected(self.search_visible)
+            .on_click(cx.listener(|view, _, window, cx| view.show_search(window, cx)))
+    }
+
     pub(super) fn start_remote_search_index(
         &mut self,
         force: bool,
@@ -33,30 +162,51 @@ impl Workspace {
             return;
         }
         self.remote_index_task = None;
+        self.remote_index_progress_task = None;
         self.remote_index_scope = Some(scope);
         self.search_indexing = true;
+        self.search_indexed_files = None;
+        self.search_index_ready = false;
+        self.search_index_error = None;
         self.search_error = None;
         let (cancel, guard) = glim_services::work::Cancellation::task();
         self.remote_index_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
             let mut force = force;
             loop {
+                let progress = Arc::new(glim_services::remote::SearchIndexProgress::default());
+                if view
+                    .update(cx, |view, cx| {
+                        view.watch_search_index_progress(progress.clone(), cx);
+                    })
+                    .is_err()
+                {
+                    break;
+                }
                 let worker = remote.clone();
                 let roots = roots.clone();
+                let worker_progress = progress.clone();
                 let result = crate::app::reader_jobs::run(
                     cx.background_executor().clone(),
                     crate::app::reader_jobs::JobClass::RemoteSearch,
                     crate::app::reader_jobs::Priority::Background,
                     cancel.clone(),
-                    move |cancel| worker.refresh_search_index(&roots, force, cancel),
+                    move |cancel| {
+                        worker.refresh_search_index(&roots, force, cancel, &worker_progress)
+                    },
                 )
                 .await;
                 let busy = matches!(result, Ok(false));
                 let keep = view
                     .update(cx, |view, cx| {
                         view.search_indexing = busy;
+                        view.remote_index_progress_task = None;
+                        view.search_indexed_files = progress.files();
+                        view.search_index_ready = matches!(result, Ok(true));
                         if let Err(error) = &result {
-                            view.search_error = Some(format!("{error:#}").into());
+                            let message: SharedString = format!("{error:#}").into();
+                            view.search_error = Some(message.clone());
+                            view.search_index_error = Some(message);
                         }
                         let keep = result.is_ok() && (busy || view.search_visible);
                         if !keep {
@@ -86,6 +236,8 @@ impl Workspace {
                             return false;
                         }
                         view.search_indexing = true;
+                        view.search_index_ready = false;
+                        view.search_index_error = None;
                         cx.notify();
                         true
                     })
@@ -428,12 +580,14 @@ impl Workspace {
                                     .text_color(cx.theme().muted_foreground)
                                     .min_w_0()
                                     .truncate()
-                                    .child(tr(if self.search_error.is_some() {
-                                        "Remote search is incomplete"
-                                    } else if self.search_indexing || self.search_partial {
-                                        "Scanning remote files…"
-                                    } else {
-                                        "↑↓ Select · ↵ Open · Esc Close"
+                                    .child(self.search_index_status().unwrap_or_else(|| {
+                                        tr(if self.search_error.is_some() {
+                                            "Remote search is incomplete"
+                                        } else if self.search_partial {
+                                            "Scanning remote files…"
+                                        } else {
+                                            "↑↓ Select · ↵ Open · Esc Close"
+                                        })
                                     })),
                             )
                             .when(self.remote.is_some(), |footer| {

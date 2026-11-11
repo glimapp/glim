@@ -15,7 +15,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -25,6 +25,19 @@ pub struct IndexedPage {
     pub revision: i64,
     pub complete: bool,
     pub warning: Option<String>,
+}
+
+#[derive(Default)]
+pub struct SearchIndexProgress {
+    started: AtomicBool,
+    files: AtomicU64,
+}
+impl SearchIndexProgress {
+    pub fn files(&self) -> Option<u64> {
+        self.started
+            .load(Ordering::Acquire)
+            .then(|| self.files.load(Ordering::Acquire))
+    }
 }
 
 impl Session {
@@ -109,6 +122,7 @@ impl Session {
         roots: &[PathBuf],
         force: bool,
         cancel: &Cancellation,
+        progress: &SearchIndexProgress,
     ) -> Result<bool> {
         cancel.check()?;
         let roots = normalized_roots(roots);
@@ -163,12 +177,15 @@ impl Session {
         }
         db.execute_batch("BEGIN IMMEDIATE; DELETE FROM pending; UPDATE state SET generation=generation+1,revision=revision+1,complete=0,warning=NULL; COMMIT;")?;
         let generation = db.query_row("SELECT generation FROM state", [], |r| r.get(0))?;
+        progress.started.store(true, Ordering::Release);
         let mut writer = Writer {
             db,
             generation,
             changes: 0,
             first_file: true,
             published: Instant::now(),
+            files: 0,
+            progress,
         };
         let result = scan_shell(&self.connection, &roots, &mut writer, cancel);
         let result = match result {
@@ -270,14 +287,16 @@ fn configure(db: &Database, cancel: &Cancellation) -> Result<()> {
     Ok(())
 }
 
-struct Writer {
+struct Writer<'a> {
     db: Database,
     generation: i64,
     changes: usize,
     first_file: bool,
     published: Instant,
+    files: u64,
+    progress: &'a SearchIndexProgress,
 }
-impl Writer {
+impl Writer<'_> {
     fn add(&mut self, path: &Path, directory: bool) -> Result<()> {
         if self.changes == 0 {
             self.db.execute_batch("BEGIN IMMEDIATE")?;
@@ -287,7 +306,8 @@ impl Writer {
             self.db
                 .execute("INSERT OR IGNORE INTO pending(path) VALUES(?1)", [bytes])?;
         } else {
-            self.db.execute("INSERT INTO files VALUES(?1,?2,?3) ON CONFLICT(path) DO UPDATE SET generation=excluded.generation,folded=excluded.folded", (bytes, path.to_string_lossy().to_lowercase(), self.generation))?;
+            let added = self.db.execute("INSERT INTO files VALUES(?1,?2,?3) ON CONFLICT(path) DO UPDATE SET generation=excluded.generation,folded=excluded.folded WHERE files.generation<>excluded.generation", (bytes, path.to_string_lossy().to_lowercase(), self.generation))?;
+            self.files += added as u64;
         }
         self.changes += 1;
         if (!directory && self.first_file)
@@ -306,6 +326,7 @@ impl Writer {
             self.db
                 .execute_batch("UPDATE state SET revision=revision+1; COMMIT;")?;
             self.changes = 0;
+            self.progress.files.store(self.files, Ordering::Release);
             self.published = Instant::now();
         }
         Ok(())
@@ -315,7 +336,7 @@ impl Writer {
 fn scan_sftp(
     connection: &Connection,
     roots: &[PathBuf],
-    writer: &mut Writer,
+    writer: &mut Writer<'_>,
     cancel: &Cancellation,
 ) -> Result<()> {
     let mut transport = Sftp::connect(connection, cancel)?;
@@ -364,7 +385,7 @@ fn scan_sftp(
 fn scan_shell(
     connection: &Connection,
     roots: &[PathBuf],
-    writer: &mut Writer,
+    writer: &mut Writer<'_>,
     cancel: &Cancellation,
 ) -> Result<()> {
     for root in roots {

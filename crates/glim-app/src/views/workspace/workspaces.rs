@@ -37,6 +37,10 @@ impl Workspace {
         self.search_loading = false;
         self.search_previous_focus = None;
         self.remote_index_task = None;
+        self.remote_index_progress_task = None;
+        if self.search_indexing {
+            self.search_index_ready = false;
+        }
         self.search_indexing = false;
         self.set_file_fullscreen(false, window);
         self.flush_usage();

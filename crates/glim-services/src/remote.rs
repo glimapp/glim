@@ -1,7 +1,7 @@
 //! SSH connection records and read-only SFTP access. Call on background workers.
 mod search_index;
 mod sftp;
-pub use search_index::IndexedPage;
+pub use search_index::{IndexedPage, SearchIndexProgress};
 
 use crate::{storage, work::Cancellation};
 use anyhow::{Context, Result, ensure};
