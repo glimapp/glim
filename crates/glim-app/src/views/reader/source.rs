@@ -93,6 +93,9 @@ impl SourceReader {
             .min_w_0()
             .min_h_0()
             .overflow_hidden()
+            .child(super::controls::ToolbarTrailingInset(px(
+                crate::views::minimap::MINIMAP_WIDTH,
+            )))
             .child(
                 div()
                     .relative()
@@ -123,7 +126,7 @@ impl SourceReader {
             )
             .child(
                 div()
-                    .w(px(110.))
+                    .w(px(crate::views::minimap::MINIMAP_WIDTH))
                     .flex_shrink_0()
                     .h_full()
                     .child(self.minimap.clone()),

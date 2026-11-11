@@ -11,8 +11,8 @@ final class PreviewCopy: NSObject {
     private var images: OfficeImageStream?
     private let queue = DispatchQueue(label: "glim.office.images", qos: .userInitiated)
     private var generation = 0
-    private let nextImage = NSButton(title: L("Next image"), target: nil, action: nil)
-    private let recognize = NSButton(title: L("Recognize Image Text"), target: nil, action: nil)
+    private let nextImage = ReaderActionButton(title: L("Next image"), target: nil, action: nil)
+    private let recognize = ReaderActionButton(title: L("Recognize Image Text"), target: nil, action: nil)
     private let copyButton = ReaderActionButton(title: L("Copy Preview Text"), target: nil, action: nil)
     var textProvider: ((@escaping (String) -> Void) -> Void)?
     var rasterProvider: ((@escaping (NativeRaster?) -> Void) -> Void)?

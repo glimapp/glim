@@ -15,6 +15,9 @@ mod updates;
 mod usage;
 mod workspaces;
 
+pub(crate) const TITLE_BAR_HEIGHT: f32 = 40.;
+const CONTENT_INSET: f32 = 6.;
+
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 use std::path::PathBuf;

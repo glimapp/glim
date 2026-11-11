@@ -95,12 +95,12 @@ final class ImagePreview: NSObject {
     private var copyGeneration = 0
     private var liveText: AnyObject?
     private let textExtraction = ImageTextExtraction()
-    private let extractTextButton = NSButton(title: L("Extract Text"), target: nil, action: nil)
+    private let extractTextButton = ReaderActionButton(title: L("Extract Text"), target: nil, action: nil)
     private let status = NSTextField(labelWithString: "")
     private let zoomLabel = NSTextField(labelWithString: "100.0%")
-    private let zoomOutButton = NSButton(title: "−", target: nil, action: nil)
-    private let zoomInButton = NSButton(title: "+", target: nil, action: nil)
-    private let fitButton = NSButton(title: L("Fit image"), target: nil, action: nil)
+    private let zoomOutButton = ReaderActionButton(title: "−", target: nil, action: nil)
+    private let zoomInButton = ReaderActionButton(title: "+", target: nil, action: nil)
+    private let fitButton = ReaderActionButton(title: L("Fit image"), target: nil, action: nil)
     private var fitting = true
     private var requestedMagnification: CGFloat = 1
     private let loading = NSStackView()
@@ -108,9 +108,9 @@ final class ImagePreview: NSObject {
     private let loadingLabel = NSTextField(labelWithString: L("Loading preview…"))
     private var needsInitialFit = false
     private var fittedViewport = NSSize.zero
-    private let previous = NSButton(title: L("Previous page"), target: nil, action: nil)
-    private let next = NSButton(title: L("Next page"), target: nil, action: nil)
-    private let resolution = NSButton(title: L("Actual size"), target: nil, action: nil)
+    private let previous = ReaderActionButton(title: L("Previous page"), target: nil, action: nil)
+    private let next = ReaderActionButton(title: L("Next page"), target: nil, action: nil)
+    private let resolution = ReaderActionButton(title: L("Actual size"), target: nil, action: nil)
     private let url: URL
     private let sourceSize: NSSize?
     private var page = 0

@@ -789,8 +789,10 @@ fn workspace_window_options(cx: &App) -> WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         window_min_size: Some(size(px(800.), px(480.))),
         titlebar: Some(TitlebarOptions {
-            // Center macOS traffic lights in the workspace's 48px title bar.
-            traffic_light_position: Some(point(px(9.), px(17.))),
+            traffic_light_position: Some(point(
+                px(9.),
+                px((crate::views::workspace::TITLE_BAR_HEIGHT - 14.) / 2.),
+            )),
             ..gpui_kit::component::TitleBar::title_bar_options()
         }),
         ..gpui_kit::component::TitleBar::window_options()

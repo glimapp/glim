@@ -81,7 +81,10 @@ private final class ReaderMenuPolicy: NSObject, NSMenuDelegate {
 enum ReaderMenu {
     static func toolbarSymbol(for title: String) -> String? {
         let compact = ["Zoom in", "Zoom out", "Fit image", "Fit page", "Fit width",
-                       "Actual size", "Reset zoom", "Previous", "Next", "Previous page", "Next page"]
+                       "Actual size", "Reset zoom", "Previous", "Next", "Previous page", "Next page",
+                       "Extract Text", "Recognize Image Text", "Copy Preview Text", "Copy Text",
+                       "Play Slideshow", "Play / Pause", "Exit Slideshow", "Find in file · ⌘F",
+                       "Open with Another App", "Previous columns", "Next columns", "Next image"]
         guard compact.contains(where: { L($0) == title }) else { return nil }
         return symbol(for: title)
     }
@@ -130,6 +133,8 @@ enum ReaderMenu {
             ("Original layout", "doc.richtext"), ("Reading mode", "text.alignleft"),
             ("Reset zoom", "arrow.counterclockwise"), ("Previous", "chevron.left"), ("Next", "chevron.right"),
             ("Previous page", "chevron.left"), ("Next page", "chevron.right"),
+            ("Previous columns", "arrow.left.to.line"), ("Next columns", "arrow.right.to.line"),
+            ("Next image", "photo.stack"),
             ("Play Slideshow", "play.rectangle"), ("Play / Pause", "playpause"),
             ("Open with Another App", "arrow.up.forward.app"), ("Exit Slideshow", "arrow.down.right.and.arrow.up.left")
         ]

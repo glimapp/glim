@@ -175,16 +175,17 @@ impl Render for JsonFormat {
             );
         }
         if let Some(graph) = self.graph.clone().filter(|_| self.visible) {
-            for (id, label, action) in [
-                ("graph-out", "−", 0),
-                ("graph-in", "+", 1),
-                ("graph-reset", "Reset view", 2),
-                ("graph-fold", "Collapse all", 3),
-                ("graph-expand", "Expand all", 4),
-                ("graph-copy", "Copy", 5),
+            use gpui_kit::assets::IconName;
+            for (id, label, icon, action) in [
+                ("graph-out", "Zoom out", IconName::ZoomOut, 0),
+                ("graph-in", "Zoom in", IconName::ZoomIn, 1),
+                ("graph-reset", "Reset view", IconName::RotateCcw, 2),
+                ("graph-fold", "Collapse all", IconName::FoldVertical, 3),
+                ("graph-expand", "Expand all", IconName::UnfoldVertical, 4),
+                ("graph-copy", "Copy", IconName::Copy, 5),
             ] {
                 let graph = graph.clone();
-                buttons = buttons.child(Button::new(id).small().label(tr(label)).on_click(
+                buttons = buttons.child(crate::views::icon_button(id, icon, tr(label)).on_click(
                     move |_, _, cx| {
                         graph.update(cx, |graph, cx| match action {
                             0 => graph.change_zoom(-0.1, cx),

@@ -41,6 +41,7 @@ fn icon_button(
         .small()
         .w(px(28.))
         .h(px(28.))
+        .flex_shrink_0()
         .icon(Icon::new(icon).size(px(16.)))
         .tooltip(label.clone())
         .accessibility_label(label)

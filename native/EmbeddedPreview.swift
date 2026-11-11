@@ -259,26 +259,30 @@ private final class FilePathHint {
         let pathFont = NSFont.systemFont(ofSize: 11)
         let name = NSTextField(wrappingLabelWithString: title); name.font = titleFont
         name.textColor = .labelColor; name.maximumNumberOfLines = 0; name.lineBreakMode = .byCharWrapping
-        heading.addArrangedSubview(icon); heading.addArrangedSubview(name); stack.addArrangedSubview(heading)
+        if !path.isEmpty { heading.addArrangedSubview(icon) }
+        heading.addArrangedSubview(name); stack.addArrangedSubview(heading)
         let location = NSTextField(wrappingLabelWithString: path); location.font = pathFont
         location.textColor = .secondaryLabelColor; location.lineBreakMode = .byCharWrapping; location.maximumNumberOfLines = 0
-        stack.addArrangedSubview(location)
+        if !path.isEmpty { stack.addArrangedSubview(location) }
         let screen = parent.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 800, height: 600)
-        let titleWidth = (title as NSString).size(withAttributes: [.font: titleFont]).width + 20
+        let titleWidth = (title.components(separatedBy: "\n").map {
+            ($0 as NSString).size(withAttributes: [.font: titleFont]).width
+        }.max() ?? 0) + (path.isEmpty ? 0 : 20)
         let pathWidth = path.components(separatedBy: "\n").map {
             ($0 as NSString).size(withAttributes: [.font: pathFont]).width
         }.max() ?? 0
-        let width = min(max(220, ceil(max(titleWidth, pathWidth)) + 24), min(420, screen.width - 44))
-        name.preferredMaxLayoutWidth = width - 44; location.preferredMaxLayoutWidth = width - 24
+        let width = min(max(path.isEmpty ? 120 : 220, ceil(max(titleWidth, pathWidth)) + 24), min(420, screen.width - 44))
+        let nameWidth = width - (path.isEmpty ? 24 : 44)
+        name.preferredMaxLayoutWidth = nameWidth; location.preferredMaxLayoutWidth = width - 24
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 12),
             stack.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -12),
             stack.topAnchor.constraint(equalTo: surface.topAnchor, constant: 9),
             stack.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: -9)
         ])
-        let titleHeight = name.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width - 44, height: CGFloat.greatestFiniteMagnitude)).height ?? 15
+        let titleHeight = name.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: nameWidth, height: CGFloat.greatestFiniteMagnitude)).height ?? 15
         let pathHeight = location.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width - 24, height: CGFloat.greatestFiniteMagnitude)).height ?? 14
-        let height = min(ceil(max(15, titleHeight) + pathHeight + 22), screen.height - 44)
+        let height = min(ceil(max(15, titleHeight) + (path.isEmpty ? 18 : pathHeight + 22)), screen.height - 44)
         let panelWidth = width + 12, panelHeight = height + 12
         let x = min(max(screen.minX + 6, anchor.minX - 6), screen.maxX - panelWidth - 6)
         var y = anchor.minY - panelHeight

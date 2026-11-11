@@ -207,8 +207,8 @@ impl Render for Workspace {
                     .flex_1()
                     .min_h_0()
                     .w_full()
-                    .child(self.floating_reader_toolbar(window, cx))
                     .child(content)
+                    .child(self.floating_reader_toolbar(window, cx))
                     .child(crate::views::reader::ReaderToolbarDock)
                     .child(
                         canvas(
@@ -285,7 +285,9 @@ impl Render for Workspace {
             .active(cx.theme().foreground.opacity(0.08));
         let sidebar = v_flex()
             .size_full()
-            .when(!header_above_content, |view| view.pt(px(40.)))
+            .when(!header_above_content, |view| {
+                view.pt(px(super::TITLE_BAR_HEIGHT - super::CONTENT_INSET))
+            })
             .px_4()
             .pb_1()
             .gap_1()
@@ -381,9 +383,14 @@ impl Render for Workspace {
                 .flex_1()
                 .min_h_0()
                 .w_full()
-                .pr(px(8.))
-                .pb(px(8.))
-                .pt(px(if header_above_content { 56. } else { 8. }))
+                .pr(px(super::CONTENT_INSET))
+                .pb(px(super::CONTENT_INSET))
+                .pt(px(super::CONTENT_INSET
+                    + if header_above_content {
+                        super::TITLE_BAR_HEIGHT
+                    } else {
+                        0.
+                    }))
                 .when(!self.sidebar_visible, |view| {
                     view.child(
                         v_flex()
@@ -624,7 +631,6 @@ impl Render for Workspace {
                         } else {
                             sidebar_width
                         }))
-                        .overflow_hidden()
                         .child(header),
                 )
             })

@@ -681,7 +681,7 @@ impl Workspace {
             })
             .collect::<Vec<_>>();
         h_flex()
-            .h(px(if self.sidebar_visible { 40. } else { 48. }))
+            .h(px(super::TITLE_BAR_HEIGHT))
             .w_full()
             .flex_shrink_0()
             .px_1()

@@ -16,7 +16,7 @@ impl Workspace {
         controls: AnyElement,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut row = h_flex().gap_2().items_center();
+        let mut row = h_flex().gap_2().items_center().flex_shrink_0();
         let mut fullscreen = None;
         for item in self.reader_actions(cx) {
             if matches!(item.action, ToolbarAction::FileFullscreen) {
@@ -205,7 +205,10 @@ impl Workspace {
         let collapsed = self.reader_toolbar_collapsed;
         canvas(
             |_, _, _| (),
-            move |bounds, _, window, _| {
+            move |mut bounds, _, window, cx| {
+                bounds.size.width = (bounds.size.width
+                    - crate::views::reader::toolbar_trailing_inset(window, cx))
+                .max(px(0.));
                 toolbar.update(bounds, &bytes, visible, collapsed, window);
             },
         )

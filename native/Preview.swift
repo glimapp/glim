@@ -644,11 +644,11 @@ final class PDFSlideshow: NSObject {
         ])
         let toolbar = NSStackView()
         for (title, action) in [(L("Previous"), #selector(previous)), (L("Next"), #selector(next))] {
-            toolbar.addArrangedSubview(NSButton(title: title, target: self, action: action))
+            toolbar.addArrangedSubview(ReaderActionButton(title: title, target: self, action: action))
         }
         position.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         toolbar.addArrangedSubview(position)
-        toolbar.addArrangedSubview(NSButton(title: L("Exit Slideshow"), target: self, action: #selector(exit)))
+        toolbar.addArrangedSubview(ReaderActionButton(title: L("Exit Slideshow"), target: self, action: #selector(exit)))
         FloatingReaderToolbar(items: toolbar).install(in: surface, managesContextMenu: false)
         NotificationCenter.default.addObserver(self, selector: #selector(updatePosition), name: .PDFViewPageChanged, object: pages)
         updatePosition()
@@ -782,7 +782,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
 
     lazy var audioBackdrop = AudioBackdrop()
     private var artworkSnapshot: ArtworkSnapshot?
-    private let artworkButton = NSButton(title: L("Open full artwork"), target: nil, action: nil)
+    private let artworkButton = ReaderActionButton(title: L("Open full artwork"), target: nil, action: nil)
     var metadataAsset: AVURLAsset?
     let detailLabel = NSTextField(labelWithString: "")
     let table = NSTableView()
@@ -813,7 +813,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     var failed = Set<URL>()
 
     func button(_ title: String, _ action: Selector) -> NSButton {
-        NSButton(title: title, target: self, action: action)
+        ReaderActionButton(title: title, target: self, action: action)
     }
     // Called on the application main thread, once per persistent reader tab.
     func load(_ request: NativePreviewRequest) throws {

@@ -28,7 +28,7 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
     private let search: (String, Bool, Bool, Bool, @escaping (String, Bool) -> Void) -> Void
     private let cancel: () -> Void
     private let telemetryKind: Int32
-    let button = NSButton()
+    let button = ReaderActionButton()
     var isOpen: Bool { !panel.isHidden }
 
     init(host: NSView, content: NSView, telemetryKind: Int32,

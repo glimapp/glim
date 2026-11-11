@@ -105,11 +105,10 @@ final class FloatingReaderToolbar: NSView {
             }
         }
         for case let button as NSButton in items where !(button is NSPopUpButton) {
-            button.isBordered = !(button is ReaderActionButton); button.bezelStyle = .rounded
+            button.isBordered = false; button.bezelStyle = .rounded
             button.controlSize = .regular
             button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
             button.font = .systemFont(ofSize: 13, weight: .medium)
-            button.heightAnchor.constraint(greaterThanOrEqualToConstant: 28).isActive = true
             let label = button.title == "+" ? L("Zoom in") : (["−", "-"].contains(button.title) ? L("Zoom out") : button.title)
             button.toolTip = label
             button.setAccessibilityLabel(label)
@@ -182,7 +181,7 @@ final class FloatingReaderToolbar: NSView {
                 label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
                 let font = label.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize(for: label.controlSize))
                 let text = (label.stringValue as NSString).size(withAttributes: [.font: font])
-                measured.width = ceil(text.width)
+                measured.width = max(ceil(text.width) + 4, label.cell?.cellSize.width ?? 0)
                 measured.height = max(ceil(text.height), label.cell?.cellSize.height ?? 0)
             }
             if let button = item as? NSButton {
@@ -218,7 +217,11 @@ final class FloatingReaderToolbar: NSView {
                 measured.height = max(0, measured.height)
             }
             measured.width = max(0, measured.width)
-            measured.height = max(28, measured.height)
+            if let label = item as? NSTextField, !label.isEditable {
+                measured.height = ceil(measured.height)
+            } else {
+                measured.height = max(28, measured.height)
+            }
             for constraint in item.constraints where constraint.isActive && constraint.firstAttribute == .width && constraint.secondItem == nil {
                 if constraint.relation == .greaterThanOrEqual || constraint.relation == .equal {
                     measured.width = max(measured.width, constraint.constant)
@@ -237,11 +240,13 @@ final class FloatingReaderToolbar: NSView {
         return NSSize(width: size.width + 24, height: max(44, size.height + 16))
     }
     override func viewWillDraw() {
-        for case let button as NSButton in items where !(button is NSPopUpButton) && !(button is ReaderActionButton) {
-            let tint: NSColor = !button.isEnabled ? .disabledControlTextColor : (button.state == .on ? .controlAccentColor : .labelColor)
-            let fill: NSColor? = button.state == .on ? .controlAccentColor.withAlphaComponent(0.20) : nil
-            if button.contentTintColor != tint { button.contentTintColor = tint }
-            if button.bezelColor != fill { button.bezelColor = fill }
+        for case let button as NSButton in items where !(button is NSPopUpButton) && !button.title.isEmpty {
+            let label = button.title
+            button.toolTip = label; button.setAccessibilityLabel(label)
+            if let symbol = ReaderMenu.toolbarSymbol(for: label),
+               let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label) {
+                button.image = image; button.imagePosition = .imageOnly; button.title = ""
+            }
         }
         let size = contentSize
         let visible = items.filter { !$0.isHidden }.map { ObjectIdentifier($0) }

@@ -385,7 +385,7 @@ impl MarkupReader {
             // absolute scrollbar stays at the reading area's outer edge.
             .px_6()
             .py_0()
-            .pr(px(136.));
+            .pr(px(crate::views::minimap::MINIMAP_WIDTH + 26.));
         let text_view = if let Some(diagrams) = &self.diagrams {
             text_view.markdown_extensions(super::diagrams::with_alerts(
                 diagrams.read(cx).extensions.clone(),
@@ -412,6 +412,9 @@ impl MarkupReader {
             .relative()
             .size_full()
             .overflow_hidden()
+            .child(super::controls::ToolbarTrailingInset(px(
+                crate::views::minimap::MINIMAP_WIDTH + 12.,
+            )))
             .child(
                 div()
                     .id(("markdown-scroll", self.state.entity_id()))
@@ -484,7 +487,7 @@ impl MarkupReader {
                     .top_0()
                     .bottom_0()
                     .right(px(12.))
-                    .w(px(110.))
+                    .w(px(crate::views::minimap::MINIMAP_WIDTH))
                     .child(self.source.minimap.clone()),
             )
             .when(

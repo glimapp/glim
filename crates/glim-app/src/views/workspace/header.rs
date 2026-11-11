@@ -350,7 +350,7 @@ fn workspace_title_bar(content: impl IntoElement, cx: &App) -> AnyElement {
     TitleBar::new()
         .bg(cx.theme().sidebar)
         .border_b_0()
-        .h(px(48.))
+        .h(px(super::TITLE_BAR_HEIGHT))
         .pl_0()
         .pr_0()
         .child(content)

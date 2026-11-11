@@ -151,6 +151,8 @@ impl Workspace {
     }
 
     pub(super) fn search_button(&self, cx: &mut Context<Self>) -> Button {
+        let hint_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::default()));
+        let painted_bounds = hint_bounds.clone();
         let scanning = self.search_is_scanning() || self.search_loading;
         let mut label = format!("{} · ⌘P", tr("Search workspace files"));
         if let Some(status) = self.search_status() {
@@ -221,8 +223,23 @@ impl Workspace {
             .flex_shrink_0()
             .rounded(px(7.))
             .child(icon)
-            .tooltip(label.clone())
-            .accessibility_label(label)
+            .child(
+                canvas(
+                    move |bounds, _, _| painted_bounds.set(bounds),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            )
+            .accessibility_label(label.clone())
+            .on_hover(cx.listener(move |view, hovered: &bool, window, _| {
+                if *hovered {
+                    view.path_hint
+                        .show(&label, "", false, hint_bounds.get(), window);
+                } else {
+                    view.path_hint.hide_for("", hint_bounds.get());
+                }
+            }))
             .selected(self.search_visible)
             .on_click(cx.listener(|view, _, window, cx| view.show_search(window, cx)))
     }

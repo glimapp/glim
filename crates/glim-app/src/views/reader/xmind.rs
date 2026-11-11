@@ -601,27 +601,33 @@ impl Render for GraphReader {
                                 })),
                         )
                         .child(
-                            Button::new("xmind-collapse-all")
-                                .label((self.host.translate)("Collapse all"))
-                                .on_click(cx.listener(|v, _, _, cx| {
-                                    (v.host.action)("xmind", "collapse_all", &[]);
-                                    v.collapsed =
-                                        (0..v.document.sheets[v.sheet].topics.len()).collect();
-                                    v.rebuild();
-                                    v.center_root();
-                                    cx.notify();
-                                })),
+                            crate::views::icon_button(
+                                "xmind-collapse-all",
+                                gpui_kit::assets::IconName::FoldVertical,
+                                (self.host.translate)("Collapse all"),
+                            )
+                            .on_click(cx.listener(|v, _, _, cx| {
+                                (v.host.action)("xmind", "collapse_all", &[]);
+                                v.collapsed =
+                                    (0..v.document.sheets[v.sheet].topics.len()).collect();
+                                v.rebuild();
+                                v.center_root();
+                                cx.notify();
+                            })),
                         )
                         .child(
-                            Button::new("xmind-expand-all")
-                                .label((self.host.translate)("Expand all"))
-                                .on_click(cx.listener(|v, _, _, cx| {
-                                    (v.host.action)("xmind", "expand_all", &[]);
-                                    v.collapsed.clear();
-                                    v.rebuild();
-                                    v.center_root();
-                                    cx.notify();
-                                })),
+                            crate::views::icon_button(
+                                "xmind-expand-all",
+                                gpui_kit::assets::IconName::UnfoldVertical,
+                                (self.host.translate)("Expand all"),
+                            )
+                            .on_click(cx.listener(|v, _, _, cx| {
+                                (v.host.action)("xmind", "expand_all", &[]);
+                                v.collapsed.clear();
+                                v.rebuild();
+                                v.center_root();
+                                cx.notify();
+                            })),
                         )
                         .child(
                             crate::views::icon_button(

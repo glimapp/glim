@@ -217,9 +217,9 @@ impl Render for TableView {
                     .disabled(busy || !self.page.more).on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::NextRows, cx))))
                 )
                 .when(self.column_start > 0 || self.column_start + columns < self.page.columns, |bar| bar
-                .child(Button::new("csv-prev-cols").label((self.host.translate)("Previous columns"))
+                .child(crate::views::icon_button("csv-prev-cols", gpui_kit::assets::IconName::ChevronsLeft, (self.host.translate)("Previous columns"))
                     .disabled(busy || self.column_start == 0).on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::PreviousColumns, cx))))
-                .child(Button::new("csv-next-cols").label((self.host.translate)("Next columns"))
+                .child(crate::views::icon_button("csv-next-cols", gpui_kit::assets::IconName::ChevronsRight, (self.host.translate)("Next columns"))
                     .disabled(busy || self.column_start + columns >= self.page.columns).on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::NextColumns, cx))))), cx)).into_any_element()
     }
 }

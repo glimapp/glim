@@ -11,10 +11,10 @@ final class WordPreview: NSObject, WKNavigationDelegate {
     private let reading: URL?
     private var readingFailed = false
     private var readingMode = false
-    private let mode = NSButton(title: L("Reading mode"), target: nil, action: nil)
-    private let zoomOut = NSButton(title: "−", target: nil, action: nil)
-    private let zoomIn = NSButton(title: "+", target: nil, action: nil)
-    private let reset = NSButton(title: L("Reset zoom"), target: nil, action: nil)
+    private let mode = ReaderActionButton(title: L("Reading mode"), target: nil, action: nil)
+    private let zoomOut = ReaderActionButton(title: "−", target: nil, action: nil)
+    private let zoomIn = ReaderActionButton(title: "+", target: nil, action: nil)
+    private let reset = ReaderActionButton(title: L("Reset zoom"), target: nil, action: nil)
     private let zoomLabel = NSTextField(labelWithString: "100%")
     private let loading = NSTextField(labelWithString: L("Loading preview…"))
     private var original: QLPreviewView?

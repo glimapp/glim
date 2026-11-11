@@ -9,6 +9,8 @@ use gpui_kit::{
 };
 use std::{cell::Cell, rc::Rc};
 
+pub(crate) const MINIMAP_WIDTH: f32 = 110.;
+
 /// A compact document overview with retained, incrementally updated row geometry.
 pub struct Minimap {
     source: Entity<EditorState>,

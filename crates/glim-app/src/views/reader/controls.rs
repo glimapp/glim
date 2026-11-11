@@ -4,7 +4,11 @@ use gpui_kit::{
     prelude::FluentBuilder,
     *,
 };
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+};
 
 type ComposeToolbar = Rc<dyn Fn(AnyElement, &mut App) -> AnyElement>;
 
@@ -13,6 +17,7 @@ pub(crate) struct ReaderToolbarHost {
     compose: ComposeToolbar,
     hide_native: Rc<dyn Fn(&Window)>,
     controls: RefCell<Vec<(&'static str, AnyElement)>>,
+    trailing_inset: Cell<Pixels>,
 }
 impl ReaderToolbarHost {
     pub(crate) fn new(
@@ -25,6 +30,7 @@ impl ReaderToolbarHost {
             compose,
             hide_native,
             controls: RefCell::new(Vec::new()),
+            trailing_inset: Cell::new(px(0.)),
         }
     }
 }
@@ -52,6 +58,21 @@ fn host(window: &Window, cx: &App) -> Option<Rc<ReaderToolbarHost>> {
         .cloned()
 }
 
+pub(crate) fn toolbar_trailing_inset(window: &Window, cx: &App) -> Pixels {
+    host(window, cx).map_or(px(0.), |host| host.trailing_inset.get())
+}
+
+#[derive(IntoElement)]
+pub(super) struct ToolbarTrailingInset(pub Pixels);
+impl RenderOnce for ToolbarTrailingInset {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        if let Some(host) = host(window, cx) {
+            host.trailing_inset.set(self.0);
+        }
+        div().absolute()
+    }
+}
+
 #[derive(IntoElement)]
 struct ReaderControls {
     id: &'static str,
@@ -63,7 +84,7 @@ impl RenderOnce for ReaderControls {
             host.controls.borrow_mut().push((self.id, self.controls));
             div().into_any_element()
         } else {
-            capsule(self.controls, false, cx)
+            capsule(self.controls, false, px(0.), cx)
         }
     }
 }
@@ -79,13 +100,14 @@ impl RenderOnce for ReaderToolbarDock {
         if controls.is_empty() {
             return div().into_any_element();
         }
-        let groups = v_flex().gap_1().children(
+        let groups = v_flex().flex_shrink_0().gap_1().children(
             controls
                 .into_iter()
                 .map(|(id, control)| div().id(id).child(control)),
         );
         let controls = (host.compose)(groups.into_any_element(), cx);
         let collapsed = host.collapsed;
+        let trailing_inset = host.trailing_inset.get();
         div()
             .absolute()
             .size_full()
@@ -97,15 +119,15 @@ impl RenderOnce for ReaderToolbarDock {
                 .absolute()
                 .size_full(),
             )
-            .child(capsule(controls, collapsed, cx))
+            .child(capsule(controls, collapsed, trailing_inset, cx))
             .into_any_element()
     }
 }
-fn capsule(controls: AnyElement, collapsed: bool, cx: &App) -> AnyElement {
+fn capsule(controls: AnyElement, collapsed: bool, trailing_inset: Pixels, cx: &App) -> AnyElement {
     div()
         .absolute()
         .left(px(16.))
-        .right(px(16.))
+        .right(px(16.) + trailing_inset)
         .bottom(px(16.))
         .flex()
         .justify_center()
@@ -123,6 +145,7 @@ fn capsule(controls: AnyElement, collapsed: bool, cx: &App) -> AnyElement {
                     .bg(cx.theme().background.opacity(0.96))
                     .shadow_sm()
                     .overflow_x_scroll()
+                    .whitespace_nowrap()
                     .occlude()
                     .child(controls),
             )
