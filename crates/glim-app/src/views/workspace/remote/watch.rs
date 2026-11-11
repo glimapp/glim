@@ -104,7 +104,8 @@ impl Workspace {
                             }
                             match result {
                                 Ok(Some(content)) => {
-                                    if view.tabs[index].refresh_in_place(&content, cx) {
+                                    let on_failure = view.refresh_failure_handler(version, cx);
+                                    if view.tabs[index].refresh_in_place(&content, on_failure, cx) {
                                         view.tabs[index].document.remote_version =
                                             session.loaded_version(&path);
                                         cx.notify();

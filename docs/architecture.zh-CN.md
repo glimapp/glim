@@ -61,7 +61,9 @@ scripts/              打包、签名、更新清单与专项原生检查
 
 `services/documents/registry` 是有明确优先级、静态链接的格式识别与加载入口。专用容器优先于通用压缩包，SQLite 文件头和歧义 `.key` 保留内容探测；未知文本／二进制使用有界后备。提供者接收取消令牌，返回 `documents::Content`，保留格式自己的表示。`documents/presentation` 一次确定文本投影：排版类型、JSON 方言、表格格式和结构操作能力；排版、表格视图消费这些类型，不再各自维护扩展名白名单。
 
-`reader/construction` 是准备内容的统一装配入口，同时处理会话恢复时的暂停播放。`reader/contract::ReaderView` 提供持久视图、激活和窗口绑定；图片复制、解压控制、播放状态和持久化拆为可选能力接口。`reader/surface::ReaderSurface` 补充刷新策略，`SurfaceEntity` 适配现有 GPUI 实体。`reader/opml` 与 `reader/xmind` 分别消费 `glim-core::outline`、`glim-core::graph`；图视图同时用于 XMind 和结构化文本投影。普通源码、排版和分页继续共用编辑会话，工作区不参与具体格式分发；原生非图片文档保留已有重载限制。
+`reader/construction` 是准备内容的统一装配入口，同时处理会话恢复时的暂停播放。`reader/contract::ReaderView` 提供持久视图、激活和窗口绑定；图片复制、解压控制、播放状态和持久化拆为可选能力接口。`reader/surface::ReaderSurface` 补充刷新策略，`SurfaceEntity` 适配现有 GPUI 实体。`reader/opml` 与 `reader/xmind` 分别消费 `glim-core::outline`、`glim-core::graph`；图视图同时用于 XMind 和结构化文本投影。普通源码、排版和分页继续共用编辑会话，工作区不参与具体格式分发；其他原生非图片文档保留已有重载限制。
+
+PDF 通过现有工作区文件监听参与刷新，经 `glim_preview_reload_pdf` 在保留的原生控制器中替换 PDFKit 文档。后台串行加载会合并写入并有限重试，失败保留原文档；完成时恢复页码、页内位置与缩放，重新绑定搜索并保留快捷键监听，丢弃过期或已关闭控制器的加载结果。关闭查找框仅在其可见且持有焦点时将焦点归还正文，后台刷新不抢占其他阅读器或设置页的焦点。演示期间的刷新延迟到退出演示后应用；`NativeReader` 持有等待 oneshot 结果的刷新任务；Swift 只拥有发送端上下文，在完成、换代或关闭时恰好消费一次。失败经弱引用、文档版本校验的应用层回调复用工作区提示，不再轮询阅读器完成状态。PDF 使用共享串行加载队列。 C 回调所有权和 ABI 编码集中在 `EmbeddedPreview.swift`，原生控制器只接收 Swift 完成闭包；刷新期间暂不允许跨窗口转移标签页，避免失败通知仍指向原工作区。
 
 `reader/csv` 协调 CSV／地理表格的源访问、分页和取消；持续保留的 `csv/view` 接收纯 `glim-core::table::TablePage`，通过 GPUI 事件发出导航／重试请求，宿主回调与展示策略均由外部注入。结构化交互图通过 `PreparedGraph` 在准备和展示期间持续持有工作预留；XMind 状态与图布局保留原有记账。
 

@@ -31,6 +31,48 @@ func glimPreviewCreate(_ bytes: UnsafePointer<UInt8>, _ length: Int) -> UnsafeMu
     return Unmanaged.passRetained(preview).toOpaque()
 }
 
+// Owns only a Rust channel sender. All C ABI encoding and pointer lifetime
+// management stay in this bridge; the controller receives a Swift closure.
+private final class PDFReloadCallback {
+    private var context: UnsafeMutableRawPointer?
+    private let complete: @convention(c) (UnsafeMutableRawPointer, Int32) -> Void
+
+    init(context: UnsafeMutableRawPointer,
+         complete: @escaping @convention(c) (UnsafeMutableRawPointer, Int32) -> Void) {
+        self.context = context; self.complete = complete
+    }
+
+    func finish(_ outcome: PDFReloadOutcome) {
+        guard let context = context else { return }
+        self.context = nil
+        let status: Int32
+        switch outcome {
+        case .applied: status = 0
+        case .cancelled: status = 1
+        case .notFound: status = 2
+        case .permissionDenied: status = 3
+        case .invalidDocument: status = 4
+        case .locked: status = 5
+        }
+        complete(context, status)
+    }
+
+    deinit { finish(.cancelled) }
+}
+
+// On true Swift consumes context exactly once. On false ownership stays in Rust.
+@_cdecl("glim_preview_reload_pdf")
+func glimPreviewReloadPDF(_ handle: UnsafeMutableRawPointer,
+                         _ context: UnsafeMutableRawPointer,
+                         _ complete: @escaping @convention(c) (UnsafeMutableRawPointer, Int32) -> Void) -> Bool {
+    precondition(Thread.isMainThread)
+    let preview = Unmanaged<NativePreviewController>.fromOpaque(handle).takeUnretainedValue()
+    guard preview.canReloadPDF else { return false }
+    let callback = PDFReloadCallback(context: context, complete: complete)
+    preview.startPDFReload { outcome in callback.finish(outcome) }
+    return true
+}
+
 @_cdecl("glim_preview_layout")
 func glimPreviewLayout(_ handle: UnsafeMutableRawPointer, _ parentPointer: UnsafeMutableRawPointer,
                        _ x: Double, _ y: Double, _ width: Double, _ height: Double) {

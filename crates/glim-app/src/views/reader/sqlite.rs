@@ -743,7 +743,12 @@ impl super::surface::ReaderSurface for super::surface::SurfaceEntity<SqliteReade
             },
         })
     }
-    fn refresh_in_place(&self, content: &glim_services::documents::Content, cx: &mut App) -> bool {
+    fn refresh_in_place(
+        &self,
+        content: &glim_services::documents::Content,
+        _on_failure: super::surface::RefreshFailureHandler,
+        cx: &mut App,
+    ) -> bool {
         let glim_services::documents::Content::Sqlite(path) = content else {
             return false;
         };

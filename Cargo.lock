@@ -2558,6 +2558,7 @@ name = "glim-app"
 version = "0.2.25"
 dependencies = [
  "anyhow",
+ "futures-channel",
  "glim-core",
  "glim-services",
  "gpui-kit",

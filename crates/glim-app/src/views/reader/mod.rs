@@ -28,9 +28,11 @@ mod paged;
 mod pictures;
 mod projection;
 mod refresh;
+pub(crate) use refresh::RefreshVersion;
 mod source;
 mod sqlite;
 mod surface;
+pub(crate) use surface::RefreshFailureHandler;
 mod xmind;
 use crate::app::document_session::DocumentSession;
 use glim_core::{ContentSnapshot, Document, DocumentKind, ReaderMode, language_for_path};
@@ -277,9 +279,10 @@ impl Reader {
     pub(crate) fn refresh_in_place(
         &self,
         content: &glim_services::documents::Content,
+        on_failure: surface::RefreshFailureHandler,
         cx: &mut App,
     ) -> bool {
-        matches!(&self.renderer, Renderer::Surface(view) if view.refresh_in_place(content, cx))
+        matches!(&self.renderer, Renderer::Surface(view) if view.refresh_in_place(content, on_failure, cx))
     }
 
     pub fn render(&mut self, open: OpenLink, cx: &mut App) -> AnyElement {
