@@ -1,6 +1,7 @@
 use super::{Page, Workspace};
 use glim_services::preferences::RecentWorkspace;
 use gpui_kit::{
+    base::ElementExt as _,
     component::{
         ActiveTheme, Icon, Selectable, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
@@ -125,7 +126,11 @@ impl Workspace {
         }
     }
 
-    pub(super) fn collapsed_workspace_navigation(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn collapsed_workspace_navigation(
+        &self,
+        outline: &super::layout::WorkspaceOutline,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let slots = self
             .workspace_window
             .as_ref()
@@ -176,6 +181,12 @@ impl Workspace {
                 .rounded(px(7.))
                 .when(selected, |button| button.rounded_r_none())
                 .selected(selected)
+                .when(selected, |button| {
+                    let row = outline.row.clone();
+                    button.on_prepaint(move |bounds, window, _| {
+                        row.set(Some(bounds.intersect(&window.content_mask().bounds)));
+                    })
+                })
                 .icon(if glim_services::remote::is_remote_id(&workspace.id) {
                     gpui_kit::assets::IconName::Globe
                 } else {
@@ -258,7 +269,11 @@ impl Workspace {
         crate::app::remember_named_workspace(self.workspace_descriptor(), cx);
     }
 
-    pub(super) fn workspace_navigation(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn workspace_navigation(
+        &self,
+        outline: &super::layout::WorkspaceOutline,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let slots = self
             .workspace_window
             .as_ref()
@@ -331,6 +346,13 @@ impl Workspace {
                 let weak = cx.entity().downgrade();
                 let hover_group = SharedString::from(format!("workspace-row-{}", workspace.id));
                 h_flex()
+                    .relative()
+                    .when(selected, |view| {
+                        let row = outline.row.clone();
+                        view.on_prepaint(move |bounds, window, _| {
+                            row.set(Some(bounds.intersect(&window.content_mask().bounds)));
+                        })
+                    })
                     .group(hover_group.clone())
                     .w_full()
                     .min_w_0()

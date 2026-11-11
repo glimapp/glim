@@ -10,6 +10,70 @@ use gpui_kit::{
     *,
 };
 
+#[derive(Clone, Default)]
+pub(super) struct WorkspaceOutline {
+    pub row: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
+    pub tree: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
+}
+
+impl WorkspaceOutline {
+    pub fn render(self, cx: &App) -> AnyElement {
+        let color = cx.theme().border.opacity(0.65);
+        canvas(
+            |_, _, _| (),
+            move |_, _, window, _| {
+                let Some(tree) = self.tree.get() else { return };
+                let inset = px(0.5);
+                let left = tree.left() + inset;
+                let right = tree.right() - inset;
+                let top = tree.top() + inset;
+                let bottom = tree.bottom() - inset;
+                let mut corners = vec![
+                    (point(right, top), px(0.)),
+                    (point(right, bottom), px(0.)),
+                    (point(left, bottom), px(12.)),
+                ];
+                if let Some(row) = self.row.get().filter(|row| row.size.height > px(12.)) {
+                    corners.extend([
+                        (point(left, row.bottom() - inset), px(4.)),
+                        (point(row.left() + inset, row.bottom() - inset), px(6.)),
+                        (point(row.left() + inset, row.top() + inset), px(6.)),
+                        (point(left, row.top() + inset), px(4.)),
+                    ]);
+                }
+                corners.push((point(left, top), px(12.)));
+                corners.dedup_by(|a, b| a.0 == b.0);
+                let mut path = PathBuilder::stroke(px(1.));
+                for index in 0..corners.len() {
+                    let (corner, radius) = corners[index];
+                    let previous = corners[(index + corners.len() - 1) % corners.len()].0;
+                    let next = corners[(index + 1) % corners.len()].0;
+                    let before = previous - corner;
+                    let after = next - corner;
+                    let before_length = before.x.abs() + before.y.abs();
+                    let after_length = after.x.abs() + after.y.abs();
+                    let radius = radius.min(before_length / 2.).min(after_length / 2.);
+                    let entry = corner + before * (radius / before_length);
+                    let exit = corner + after * (radius / after_length);
+                    if index == 0 {
+                        path.move_to(entry);
+                    } else {
+                        path.line_to(entry);
+                    }
+                    path.curve_to(exit, corner);
+                }
+                path.close();
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, color);
+                }
+            },
+        )
+        .absolute()
+        .size_full()
+        .into_any_element()
+    }
+}
+
 impl Workspace {
     pub(super) fn workspace_column_width(&self, window_width: f32) -> f32 {
         if self.sidebar_visible {

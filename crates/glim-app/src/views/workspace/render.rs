@@ -8,7 +8,7 @@ use crate::{
     views::welcome::welcome,
 };
 use gpui_kit::{
-    base::InteractiveElementExt as _,
+    base::{ElementExt as _, InteractiveElementExt as _},
     component::{
         ActiveTheme, Disableable, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
@@ -23,6 +23,7 @@ use gpui_kit::{
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let outline = super::layout::WorkspaceOutline::default();
         self.update_usage(window, cx);
         let owner = cx.entity().downgrade();
         let native_toolbar = std::rc::Rc::downgrade(&self.reader_toolbar);
@@ -308,9 +309,14 @@ impl Render for Workspace {
                         cx.notify();
                     }))),
             )
-            .child(self.workspace_navigation(cx))
+            .child(self.workspace_navigation(&outline, cx))
             .id("workspace-sidebar");
         let file_tree = v_flex()
+            .relative()
+            .on_prepaint({
+                let tree = outline.tree.clone();
+                move |bounds, _, _| tree.set(Some(bounds))
+            })
             .size_full()
             .min_w_0()
             .overflow_hidden()
@@ -451,7 +457,7 @@ impl Render for Workspace {
                                         cx.notify();
                                     })),
                             )
-                            .child(self.collapsed_workspace_navigation(cx)),
+                            .child(self.collapsed_workspace_navigation(&outline, cx)),
                     )
                 })
                 .child(
@@ -666,6 +672,7 @@ impl Render for Workspace {
                 cx.stop_propagation();
             }))
             .child(body)
+            .child(outline.render(cx))
             .when(!self.file_fullscreen, |view| {
                 view.child(
                     div()
