@@ -770,6 +770,8 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     private var pdfReloadWork: DispatchWorkItem?
     private var pdfReloadPending = false
     private var pdfReloadCompletion: ((PDFReloadOutcome) -> Void)?
+    // Kept only for this reader's lifetime so replacement documents can be unlocked.
+    private var pdfUnlockPassword: String?
 
     lazy var audioBackdrop = AudioBackdrop()
     private var artworkSnapshot: ArtworkSnapshot?
@@ -902,6 +904,8 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 let alert = NSAlert(); alert.messageText = L("PDF password"); alert.addButton(withTitle: L("Open")); alert.addButton(withTitle: L("Cancel"))
                 let password = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24)); alert.accessoryView = password
                 guard alert.runModal() == .alertFirstButtonReturn && document.unlock(withPassword: password.stringValue) else { throw NSError(domain: "Glim", code: 3, userInfo: [NSLocalizedDescriptionKey: "PDF was not unlocked."]) }
+                pdfUnlockPassword = password.stringValue
+                password.stringValue = ""
             }
             pdfView.document = document; pdfView.displayMode = .singlePageContinuous; pdfView.fitToWidth()
             let search = PDFReaderFind(view: pdfView); pdfFind = search
@@ -1387,6 +1391,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         completion?(outcome)
     }
     private func schedulePDFReload(_ url: URL, generation: Int, attempt: Int) {
+        let password = pdfUnlockPassword
         // Coalesce writes and retry transient partial output without discarding the old view.
         let work = DispatchWorkItem { [weak self] in
             let document: PDFDocument?
@@ -1398,6 +1403,9 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 try source.close()
                 document = PDFDocument(url: url)
                 if let document = document {
+                    if document.isLocked, let password = password {
+                        _ = document.unlock(withPassword: password)
+                    }
                     failure = document.isLocked ? .locked : (document.pageCount > 0 ? nil : .invalidDocument)
                 } else { failure = .invalidDocument }
             } catch let error as NSError {
@@ -1429,6 +1437,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 let scale = self.pdfView.scaleFactor
                 self.findBar?.prepareForDocumentReplacement()
                 self.pdfView.document = document
+                if !document.isEncrypted { self.pdfUnlockPassword = nil }
                 self.pdfFind?.rebindDocument()
                 self.pdfView.scaleFactor = scale
                 self.pdfView.layoutSubtreeIfNeeded()
@@ -1459,6 +1468,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     func tableViewSelectionDidChange(_ notification: Notification) { if table.selectedRow >= 0 && table.selectedRow != index { play(table.selectedRow) } }
     func close() {
         closed = true
+        pdfUnlockPassword = nil
         pdfReloadGeneration += 1; pdfReloadWork?.cancel(); pdfReloadWork = nil
         pdfReloadPending = false; finishPDFReload(.cancelled)
         findBar?.close(); pdfFind?.cancel()
