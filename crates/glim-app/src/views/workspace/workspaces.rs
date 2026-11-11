@@ -47,6 +47,8 @@ impl Workspace {
     }
 
     pub(crate) fn resume_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sidebar_window_width = 0.;
+        self.explorer_container_width = 0.;
         if self.roots.is_empty()
             && self.workspace_name.is_none()
             && self.tabs.is_empty()
@@ -111,24 +113,18 @@ impl Workspace {
         }
     }
 
+    pub(crate) fn inherit_navigation(&mut self, source: &Entity<Self>, cx: &mut Context<Self>) {
+        let source = source.read(cx);
+        self.sidebar_visible = source.sidebar_visible;
+        self.explorer_visible = source.explorer_visible;
+        self.sidebar_ratio = source.sidebar_ratio;
+        self.explorer_ratio = source.explorer_ratio;
+    }
+
     pub(super) fn select_workspace(&self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        let sidebar_visible = self.sidebar_visible;
-        let explorer_visible = self.explorer_visible;
-        let sidebar_ratio = self.sidebar_ratio;
-        let explorer_ratio = self.explorer_ratio;
         if let Some(host) = self.workspace_window.clone() {
             window.defer(cx, move |window, cx| {
                 let _ = host.update(cx, |host, cx| {
-                    if let Some(slot) = host.slots.iter().find(|slot| slot.workspace.id == id) {
-                        slot.view.update(cx, |view, cx| {
-                            view.sidebar_visible = sidebar_visible;
-                            view.explorer_visible = explorer_visible;
-                            view.sidebar_ratio = sidebar_ratio;
-                            view.explorer_ratio = explorer_ratio;
-                            view.sidebar_window_width = 0.;
-                            cx.notify();
-                        });
-                    }
                     host.select(&id, window, cx);
                 });
             });

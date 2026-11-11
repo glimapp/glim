@@ -97,9 +97,11 @@ impl WorkspaceWindow {
             return;
         };
         if self.active != index {
-            self.slots[self.active]
+            let previous = self.slots[self.active].view.clone();
+            previous.update(cx, |view, cx| view.suspend_workspace(window, cx));
+            self.slots[index]
                 .view
-                .update(cx, |view, cx| view.suspend_workspace(window, cx));
+                .update(cx, |view, cx| view.inherit_navigation(&previous, cx));
             self.active = index;
         }
         self.slots[index]
@@ -218,9 +220,10 @@ impl WorkspaceWindow {
             }
             self.active = self.active.min(self.slots.len() - 1);
             if was_active {
-                self.slots[self.active]
-                    .view
-                    .update(cx, |view, cx| view.resume_workspace(window, cx));
+                self.slots[self.active].view.update(cx, |view, cx| {
+                    view.inherit_navigation(&removed.view, cx);
+                    view.resume_workspace(window, cx);
+                });
             }
             self.reveal_navigation();
         }
