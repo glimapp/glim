@@ -46,7 +46,15 @@ impl Workspace {
         }));
     }
 
-    fn search_index_status(&self) -> Option<String> {
+    fn search_is_scanning(&self) -> bool {
+        self.search_indexing
+            || (self.search_partial
+                && !self.search_index_ready
+                && self.search_index_error.is_none()
+                && self.search_error.is_none())
+    }
+
+    fn search_status(&self) -> Option<String> {
         if self.search_indexing {
             Some(self.search_indexed_files.map_or_else(
                 || tr("Preparing file index…"),
@@ -56,6 +64,10 @@ impl Workspace {
             ))
         } else if self.search_index_error.is_some() || self.search_error.is_some() {
             Some(tr("Remote search is incomplete"))
+        } else if self.search_is_scanning() {
+            Some(tr("Scanning remote files…"))
+        } else if self.search_loading {
+            Some(tr("Searching files…"))
         } else if self.search_index_ready {
             Some(self.search_indexed_files.map_or_else(
                 || tr("File index is ready"),
@@ -67,14 +79,11 @@ impl Workspace {
     }
 
     pub(super) fn search_button(&self, cx: &mut Context<Self>) -> Button {
-        let scanning = self.search_indexing || self.search_loading;
+        let scanning = self.search_is_scanning() || self.search_loading;
         let mut label = format!("{} · ⌘P", tr("Search workspace files"));
-        if let Some(status) = self.search_index_status() {
+        if let Some(status) = self.search_status() {
             label.push('\n');
             label.push_str(&status);
-        } else if self.search_loading {
-            label.push('\n');
-            label.push_str(&tr("Searching files…"));
         }
         let color = crate::views::accent(cx);
         let icon = div()
@@ -88,7 +97,7 @@ impl Workspace {
                     }),
             )
             .when(scanning, |icon| {
-                icon.child(div().absolute().inset_0().with_animation(
+                icon.child(div().absolute().inset_0().size(px(16.)).with_animation(
                     "workspace-search-progress",
                     Animation::new(Duration::from_millis(1200)).repeat(),
                     move |this, phase| {
@@ -121,7 +130,7 @@ impl Workspace {
                                     }
                                 },
                             )
-                            .size_full(),
+                            .size(px(16.)),
                         )
                     },
                 ))
@@ -580,15 +589,11 @@ impl Workspace {
                                     .text_color(cx.theme().muted_foreground)
                                     .min_w_0()
                                     .truncate()
-                                    .child(self.search_index_status().unwrap_or_else(|| {
-                                        tr(if self.search_error.is_some() {
-                                            "Remote search is incomplete"
-                                        } else if self.search_partial {
-                                            "Scanning remote files…"
-                                        } else {
-                                            "↑↓ Select · ↵ Open · Esc Close"
-                                        })
-                                    })),
+                                    .child(
+                                        self.search_status().unwrap_or_else(|| {
+                                            tr("↑↓ Select · ↵ Open · Esc Close")
+                                        }),
+                                    ),
                             )
                             .when(self.remote.is_some(), |footer| {
                                 footer.child(
