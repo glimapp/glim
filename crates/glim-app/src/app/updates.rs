@@ -46,7 +46,12 @@ impl UpdateState {
             if self.snapshot.phase != snapshot.phase
                 || (snapshot.phase == "error"
                     && (self.snapshot.error_kind != snapshot.error_kind
-                        || self.snapshot.error_code != snapshot.error_code))
+                        || self.snapshot.error_code != snapshot.error_code
+                        || self.snapshot.error_stage != snapshot.error_stage
+                        || self.snapshot.error_domain != snapshot.error_domain
+                        || self.snapshot.underlying_error_domain
+                            != snapshot.underlying_error_domain
+                        || self.snapshot.underlying_error_code != snapshot.underlying_error_code))
             {
                 let phase = match snapshot.phase.as_str() {
                     "checking" => "checking",
@@ -80,9 +85,14 @@ impl UpdateState {
                         "archive" => "archive",
                         "installation" => "installation",
                         "configuration" => "configuration",
+                        "download" => "download",
+                        "storage" => "storage",
                         _ => "other",
                     },
                     snapshot.error_code,
+                    updater_error_domain(&snapshot.error_domain),
+                    updater_error_domain(&snapshot.underlying_error_domain),
+                    snapshot.underlying_error_code,
                 );
             }
             let cancelled = snapshot.phase == "cancelled" && self.snapshot.phase != "cancelled";
@@ -332,6 +342,18 @@ impl UpdateState {
             });
         }));
         cx.notify();
+    }
+}
+
+#[cfg(feature = "macos-updater")]
+fn updater_error_domain(domain: &str) -> &'static str {
+    match domain {
+        "sparkle" => "sparkle",
+        "url" => "url",
+        "cocoa" => "cocoa",
+        "posix" => "posix",
+        "" => "none",
+        _ => "other",
     }
 }
 

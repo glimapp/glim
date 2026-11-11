@@ -61,16 +61,29 @@ impl Changes {
             return true;
         }
         fn canonicalize_file(path: &Path) -> std::io::Result<PathBuf> {
-            path.canonicalize().or_else(|_| {
-                let parent = path
-                    .parent()
-                    .ok_or_else(|| std::io::Error::other("Missing parent"))?;
-                Ok::<_, std::io::Error>(
-                    parent
-                        .canonicalize()?
-                        .join(path.file_name().unwrap_or_default()),
-                )
-            })
+            let mut ancestor = path;
+            let mut missing = Vec::new();
+            loop {
+                match ancestor.canonicalize() {
+                    Ok(mut canonical) => {
+                        for name in missing.into_iter().rev() {
+                            canonical.push(name);
+                        }
+                        return Ok(canonical);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        let Some(name) = ancestor.file_name() else {
+                            return Err(error);
+                        };
+                        missing.push(name);
+                        let Some(parent) = ancestor.parent() else {
+                            return Err(error);
+                        };
+                        ancestor = parent;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
         }
         let canonical = canonicalize_file(path);
         let Ok(canonical) = canonical else {
@@ -155,6 +168,31 @@ impl WorkspaceWatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deleted_parent_does_not_match_unrelated_changes_but_recreation_does() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let real = directory.path().join("real");
+        let alias = directory.path().join("alias");
+        let nested = real.join("removed/nested");
+        std::fs::create_dir_all(&nested)?;
+        std::os::unix::fs::symlink(&real, &alias)?;
+        let document = alias.join("removed/nested/note.txt");
+        std::fs::write(&document, "before")?;
+        std::fs::remove_dir_all(real.join("removed"))?;
+
+        let mut unrelated = Changes::default();
+        unrelated.insert(real.join("activity.log"));
+        assert!(!unrelated.affects_file(&document));
+
+        let mut recreated = Changes::default();
+        recreated.insert(real.join("removed"));
+        assert!(recreated.affects_file(&document));
+        std::fs::create_dir_all(nested)?;
+        std::fs::write(&document, "after")?;
+        assert!(recreated.affects_file(&document));
+        Ok(())
+    }
 
     #[test]
     fn watcher_aliases_preserve_targeted_refresh_after_removal() {

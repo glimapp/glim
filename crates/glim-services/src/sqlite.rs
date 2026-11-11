@@ -8,6 +8,59 @@ use std::{
     time::SystemTime,
 };
 
+#[derive(Debug)]
+pub(super) enum SnapshotFailure {
+    InvalidDatabase,
+    MissingMainDatabase(String),
+    SourceChanged,
+}
+impl std::fmt::Display for SnapshotFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::InvalidDatabase => {
+                "Not a standard SQLite database (encrypted databases require a compatible reader)"
+            }
+            Self::MissingMainDatabase(detail) => detail,
+            Self::SourceChanged => {
+                "The database is changing. Pause its writer or open a stable backup."
+            }
+        })
+    }
+}
+impl std::error::Error for SnapshotFailure {}
+
+pub fn failure_kind(error: &anyhow::Error) -> &'static str {
+    if let Some(cause) = error.downcast_ref::<std::io::Error>() {
+        return match cause.kind() {
+            std::io::ErrorKind::NotFound => "not_found",
+            std::io::ErrorKind::PermissionDenied => "permission_denied",
+            _ => "io",
+        };
+    }
+    if let Some(cause) = error.downcast_ref::<SnapshotFailure>() {
+        return match cause {
+            SnapshotFailure::InvalidDatabase => "invalid_data",
+            SnapshotFailure::MissingMainDatabase(_) => "missing_main_database",
+            SnapshotFailure::SourceChanged => "source_changed",
+        };
+    }
+    if let Some(rusqlite::Error::SqliteFailure(cause, _)) = error.downcast_ref::<rusqlite::Error>()
+    {
+        use rusqlite::ErrorCode;
+        return match cause.code {
+            ErrorCode::DatabaseCorrupt => "corrupt_database",
+            ErrorCode::NotADatabase => "invalid_data",
+            ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked => "database_busy",
+            ErrorCode::PermissionDenied | ErrorCode::ReadOnly => "permission_denied",
+            ErrorCode::CannotOpen => "cannot_open",
+            ErrorCode::SystemIoFailure => "io",
+            ErrorCode::OperationInterrupted => "interrupted",
+            _ => "sqlite_error",
+        };
+    }
+    "other"
+}
+
 pub fn supports(path: &Path) -> bool {
     glim_core::formats::FormatSet::Sqlite.matches(path)
 }
@@ -110,10 +163,15 @@ pub fn prepare_cancellable(path: &Path, cancel: &crate::work::Cancellation) -> R
             _directory: None,
         });
     }
-    ensure!(
-        has_header(&main),
-        "Not a standard SQLite database (encrypted databases require a compatible reader)"
-    );
+    let mut header = [0; 16];
+    match fs::File::open(&main)?.read_exact(&mut header) {
+        Ok(()) if &header == b"SQLite format 3\0" => {}
+        Ok(()) => return Err(SnapshotFailure::InvalidDatabase.into()),
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+            return Err(SnapshotFailure::InvalidDatabase.into());
+        }
+        Err(error) => return Err(error.into()),
+    }
     let files = [
         main.clone(),
         associated(&main, "-wal"),
@@ -136,16 +194,14 @@ pub fn prepare_cancellable(path: &Path, cancel: &crate::work::Cancellation) -> R
                         break;
                     }
                     copied += count as u64;
-                    ensure!(
-                        copied <= state.size,
-                        "Database changed while creating its preview; retry"
-                    );
+                    if copied > state.size {
+                        return Err(SnapshotFailure::SourceChanged.into());
+                    }
                     output.write_all(&buffer[..count])?;
                 }
-                ensure!(
-                    copied == state.size,
-                    "Database changed while creating its preview; retry"
-                );
+                if copied != state.size {
+                    return Err(SnapshotFailure::SourceChanged.into());
+                }
             }
         }
         let after = files.iter().map(|p| stamp(p)).collect::<Result<Vec<_>>>()?;
@@ -162,7 +218,7 @@ pub fn prepare_cancellable(path: &Path, cancel: &crate::work::Cancellation) -> R
             });
         }
     }
-    anyhow::bail!("The database is changing. Pause its writer or open a stable backup.")
+    Err(SnapshotFailure::SourceChanged.into())
 }
 
 #[cfg(test)]

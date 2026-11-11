@@ -12,6 +12,9 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
     var lastError: NSError?
     var errorStage = ""
     var errorKind = ""
+    var errorDomain = ""
+    var underlyingErrorDomain = ""
+    var underlyingErrorCode = 0
     var item: SUAppcastItem?
     var received: UInt64 = 0
     var expected: UInt64 = 0
@@ -123,6 +126,16 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
     }
     func clearError() {
         lastError = nil; errorStage = ""; errorKind = ""
+        errorDomain = ""; underlyingErrorDomain = ""; underlyingErrorCode = 0
+    }
+    private static func diagnosticDomain(_ domain: String) -> String {
+        switch domain {
+        case SUSparkleErrorDomain: return "sparkle"
+        case NSURLErrorDomain: return "url"
+        case NSCocoaErrorDomain: return "cocoa"
+        case NSPOSIXErrorDomain: return "posix"
+        default: return "other"
+        }
     }
     func recordError(_ error: Error) {
         // Sparkle may report the same failure through both delegate paths.
@@ -130,20 +143,46 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
         let value = error as NSError
         lastError = value
         errorKind = "other"
+        errorDomain = Self.diagnosticDomain(value.domain)
+        underlyingErrorDomain = ""; underlyingErrorCode = 0
+        var cancelled = value.domain == SUSparkleErrorDomain && value.code == SUError.installationCanceledError.rawValue
         var current: NSError? = value
         var visited = Set<ObjectIdentifier>()
         while let cause = current, visited.insert(ObjectIdentifier(cause)).inserted {
-            if cause.domain == NSURLErrorDomain { errorKind = "network"; break }
+            if cause !== value {
+                underlyingErrorDomain = Self.diagnosticDomain(cause.domain)
+                underlyingErrorCode = cause.code
+            }
+            if cause.domain == NSURLErrorDomain {
+                cancelled = cancelled || cause.code == NSURLErrorCancelled
+                errorKind = "network"; break
+            }
             if cause.domain == NSCocoaErrorDomain && [NSFileWriteNoPermissionError, NSFileReadNoPermissionError].contains(cause.code) {
-                errorKind = "permission"; break
+                errorKind = "permission"
             }
             current = cause.userInfo[NSUnderlyingErrorKey] as? NSError
         }
+        if cancelled {
+            clearError(); phase = "cancelled"; message = ""
+            approved = false; needsApproval = false
+            return
+        }
         if value.domain == SUSparkleErrorDomain {
+            if !["checking", "downloading", "extracting", "ready", "installing", "preparing"].contains(errorStage) {
+                switch value.code {
+                case 1000..<2000: errorStage = "checking"
+                case 2000..<3000: errorStage = "downloading"
+                case 3000..<4000: errorStage = "extracting"
+                case 4000..<5000: errorStage = "installing"
+                default: break
+                }
+            }
             switch value.code {
             case 3001, 3002: errorKind = "verification"
             case 4001, 4012: errorKind = "permission"
             case 3000: errorKind = "archive"
+            case 2000: if errorKind == "other" { errorKind = "storage" }
+            case 2001: if errorKind == "other" { errorKind = "download" }
             case 4000...4012: if errorKind == "other" { errorKind = "installation" }
             case 1...7: errorKind = "configuration"
             default: break
@@ -178,6 +217,9 @@ final class GlimUpdater: NSObject, SPUUserDriver, SPUUpdaterDelegate {
             "published": item?.dateString ?? "", "message": message,
             "error_stage": errorStage, "error_kind": errorKind,
             "error_code": lastError?.code ?? 0,
+            "error_domain": errorDomain,
+            "underlying_error_domain": underlyingErrorDomain,
+            "underlying_error_code": underlyingErrorCode,
             "can_check": !started || updater?.canCheckForUpdates == true,
             "received": received, "expected": expected, "progress_known": progressKnown,
             "can_cancel": cancel != nil || choice != nil || installOnQuit,

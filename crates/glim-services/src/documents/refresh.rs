@@ -5,6 +5,7 @@ use std::{path::PathBuf, time::SystemTime};
 
 pub enum RefreshRequest {
     Reload(PathBuf),
+    Missing(PathBuf),
     Page(PageRefresh),
     Sqlite {
         path: PathBuf,
@@ -27,7 +28,9 @@ impl RefreshRequest {
             // SQLite has a cheap family stamp covering main/WAL/journal files.
             Self::Sqlite { .. } => true,
             Self::Page(page) => changes.affects_file(&page.source.original),
-            Self::Reload(path) | Self::NativeImage { path, .. } => changes.affects_file(path),
+            Self::Reload(path) | Self::Missing(path) | Self::NativeImage { path, .. } => {
+                changes.affects_file(path)
+            }
         };
         if !affected {
             return Ok(None);
@@ -50,7 +53,48 @@ impl RefreshRequest {
                 path
             }
             Self::Reload(path) => path,
+            Self::Missing(path) => {
+                if std::fs::metadata(&path)
+                    .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+                {
+                    return Ok(None);
+                }
+                path
+            }
         };
         read_content_cancellable(&path, cancel).map(Some)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_source_waits_for_recreation_and_explicit_reload_reports_failure() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("note.txt");
+        let changes = crate::watch::Changes::all();
+        let cancel = Cancellation::default();
+        assert!(
+            RefreshRequest::Missing(path.clone())
+                .read(&changes, &cancel)?
+                .is_none()
+        );
+        let failure = RefreshRequest::Reload(path.clone())
+            .read(&changes, &cancel)
+            .err()
+            .unwrap();
+        assert_eq!(
+            super::super::ReadFailure::from(&failure).kind,
+            super::super::ReadFailureKind::NotFound
+        );
+        std::fs::write(&path, "restored")?;
+        assert!(
+            RefreshRequest::Missing(path)
+                .read(&changes, &cancel)?
+                .is_some()
+        );
+        Ok(())
     }
 }

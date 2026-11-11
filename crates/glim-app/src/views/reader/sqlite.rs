@@ -253,6 +253,7 @@ impl SqliteReader {
         let (cancel, guard) = Cancellation::task();
         let telemetry_started = std::time::Instant::now();
         let source = self.path.clone();
+        let telemetry_source = source.clone();
         let work = reader_jobs::run_with_scheduler(
             cx.background_executor().clone(),
             self.scheduler.clone(),
@@ -264,7 +265,12 @@ impl SqliteReader {
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
-            glim_services::telemetry::result("sqlite_open", None, telemetry_started, &result);
+            glim_services::telemetry::result(
+                "sqlite_open",
+                Some(&telemetry_source),
+                telemetry_started,
+                &result,
+            );
             let _ = view.update(cx, |view, cx| {
                 view.task = None;
                 match result {
@@ -276,7 +282,7 @@ impl SqliteReader {
                         view.select_table(cx);
                     }
                     Err(error) => {
-                        view.error = Some(error.to_string());
+                        view.error = Some(error.root_cause().to_string());
                         view.view
                             .update(cx, |table, cx| table.set_loading(false, cx));
                     }

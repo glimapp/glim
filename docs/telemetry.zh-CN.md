@@ -77,6 +77,8 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 
 失败率以操作结果为准。同一次故障可能同时触发 `operation_failed` 和 `error_logged`，不能把诊断事件相加当失败次数。同指纹错误一分钟内去重，后续刷新或正常退出以 `error_repeated.occurrences` 聚合；有限指纹表淘汰可能丢失重复细节。`telemetry_health.errors_suppressed` 是压缩信息，不能再与 occurrence 相加。
 
+类型化的阅读取消记录 `result=cancelled`，不发送 `operation_failed`，统计失败次数时排除取消。SQLite 打开失败附带格式、固定的 snapshot/recovery/schema 阶段、文件系统／快照／SQLite 错误分类，以及可用的 SQLite 数字扩展错误码；数据库名称、结构及错误原文保留本地。
+
 诊断发送到 Aptabase 专用 `/api/v0/error` 接口，写入 Errors 页面；普通统计使用 `/api/v0/events`。覆盖 `error_logged`、`operation_failed`、`app_panicked`、`native_reader_error`、`updater_error` 和 `error_repeated`。报告仅由既有脱敏字段构成：分类、组件／操作／阶段、源码位置、指纹、格式、有符号错误码和有限 panic 符号。摘要包含 `occurrences`（首次报告为 1）；一条聚合对应 Errors 的一行，不按重复次数逐行发送。聚合保留原始 `error_event`，包括 panic 的严重程度。panic 标记为 `fatal`／`unhandled`，其他诊断为 `error`／`handled`。顶层 `isDebug` 与普通统计采用相同构建来源规则；历史统计事件不会回填 Errors。
 
 错误通道使用独立的 128 条内存队列和指数退避。既有可取消后台任务每轮最多发送一条错误，遵守错误诊断开关和退出生命周期。网络失败、HTTP 408／429 和服务端失败保留报告待重试；其余 HTTP 4xx 丢弃该报告。退出时在应用既有刷新期限内尽力发送。队列满时淘汰最旧待发送报告；同时开启使用统计时，通过 `telemetry_health.error_reports_dropped` 和 `error_upload_failures` 披露丢失与请求失败。仅错误诊断模式不向统计接口发送这些计数。服务器确认丢失后重试可能产生重复记录，不保证恰好一次送达。
@@ -143,3 +145,5 @@ XMind 解析或工作预算失败但源码分页成功时上报 reader_fallback�
 `process_session_id` 在 Aptabase 满 24 小时轮换 `sessionId` 后仍保留本次启用遥测的会话标识，`session_uptime_s` 记录事件采集时的单调运行时长；遥测重启或关闭后重新开启都会重置。它们用于关联同一进程的持续使用，不能代表人数或证明主动回访。`foreground_segment` 和当前阅读器上下文增加 `untitled`，区分草稿与文件阅读。统计有效使用安装时需包含草稿创建、编辑与保存，仅依赖成功 `file_open` 会漏掉纯记事本使用。
 
 `tab_closed.reason=preview_replaced` 区分连续浏览替换与主动关闭。`update_phase_changed` 在使用统计获准时仅记录固定阶段；`updater_error` 在错误诊断获准时独立记录固定 `error_stage`、固定 `error_kind` 和有符号数字 `error_code`。不上传原生错误消息、网址或路径；错误码仅提供诊断线索，不能完整解释失败原因。
+
+更新诊断还包含白名单 `error_domain`／`underlying_error_domain`（sparkle/url/cocoa/posix/other/none）及有符号 `underlying_error_code`。原阶段停留在 idle/current 时，尽可能按 Sparkle 错误码范围确定阶段。缺少 URL 错误的下载失败归为 download；URL 取消和用户取消安装不进入错误通道。不上传任意 NSError 域名或 userInfo。

@@ -17,6 +17,7 @@ pub(crate) struct DocumentSession {
     pub path: PathBuf,
     pub edit: Option<super::edit_session::EditSession>,
     pub snapshot: ContentSnapshot,
+    pub source_missing: bool,
     pub draft_directory: Option<PathBuf>,
     pub recovery_key: Option<String>,
     version: DocumentVersion,
@@ -30,6 +31,7 @@ impl DocumentSession {
             path,
             edit: None,
             snapshot,
+            source_missing: false,
             draft_directory: None,
             recovery_key: None,
             version: DocumentVersion {
@@ -47,6 +49,7 @@ impl DocumentSession {
     }
     pub fn mark_saved(&mut self, snapshot: ContentSnapshot) {
         self.snapshot = snapshot;
+        self.source_missing = false;
         self.version.revision += 1;
     }
     pub fn inherit_identity(&mut self, previous: &Self) {

@@ -331,7 +331,11 @@ pub fn result_with<T>(
     let mut props = vec![
         (
             "result",
-            text(if outcome.is_ok() { "success" } else { "failed" }),
+            text(match outcome {
+                Ok(_) => "success",
+                Err(error) if error.is::<crate::work::Cancelled>() => "cancelled",
+                Err(_) => "failed",
+            }),
         ),
         (
             "duration_ms",
@@ -534,14 +538,26 @@ pub fn logged_error(
 }
 #[track_caller]
 pub fn operation_failed(operation: &'static str, path: Option<&Path>, error: &anyhow::Error) {
+    if error.is::<crate::work::Cancelled>() {
+        return;
+    }
     let location = std::panic::Location::caller();
     let site = format!(
         "{}:{}",
         location.file().rsplit('/').next().unwrap_or("unknown"),
         location.line()
     );
-    let kind = error_kind(&format!("{error:#}"));
-    let stage = crate::xmind::failure_stage(error);
+    let (kind, stage) = if operation == "sqlite_open" {
+        (
+            crate::sqlite::failure_kind(error),
+            crate::sqlite::browser::failure_stage(error),
+        )
+    } else {
+        (
+            error_kind(&format!("{error:#}")),
+            crate::xmind::failure_stage(error),
+        )
+    };
     let mut props = vec![
         ("operation", text(operation)),
         ("error_kind", text(kind)),
@@ -564,6 +580,10 @@ pub fn operation_failed(operation: &'static str, path: Option<&Path>, error: &an
     ];
     if let Some(path) = path {
         props.extend(file_properties(path));
+    }
+    if let Some(rusqlite::Error::SqliteFailure(cause, _)) = error.downcast_ref::<rusqlite::Error>()
+    {
+        props.push(("sqlite_error_code", integer(i64::from(cause.extended_code))));
     }
     for cause in error.chain() {
         if let Some(io) = cause.downcast_ref::<std::io::Error>() {
@@ -771,6 +791,8 @@ fn error_payload(
         "phase",
         "reader_stage",
         "error_stage",
+        "error_domain",
+        "underlying_error_domain",
         "reader_kind",
         "action",
         "file_extension",
@@ -787,7 +809,13 @@ fn error_payload(
             ));
         }
     }
-    for key in ["error_code", "os_error_code", "event_sequence"] {
+    for key in [
+        "error_code",
+        "underlying_error_code",
+        "sqlite_error_code",
+        "os_error_code",
+        "event_sequence",
+    ] {
         if let Some(value) = event.props.get(key).filter(|value| value.is_number()) {
             message.push_str(&format!("; {key}={value}"));
         }
@@ -828,7 +856,15 @@ fn error_payload(
     }))
 }
 
-pub fn updater_phase(phase: &'static str, stage: &'static str, kind: &'static str, code: i64) {
+pub fn updater_phase(
+    phase: &'static str,
+    stage: &'static str,
+    kind: &'static str,
+    code: i64,
+    domain: &'static str,
+    underlying_domain: &'static str,
+    underlying_code: i64,
+) {
     track("update_phase_changed", [("phase", text(phase))]);
     if phase == "error" {
         track(
@@ -837,9 +873,20 @@ pub fn updater_phase(phase: &'static str, stage: &'static str, kind: &'static st
                 ("error_stage", text(stage)),
                 ("error_kind", text(kind)),
                 ("error_code", integer(code)),
+                ("error_domain", text(domain)),
+                ("underlying_error_domain", text(underlying_domain)),
+                ("underlying_error_code", integer(underlying_code)),
                 (
                     "error_signature",
-                    signature(&["updater", stage, kind, &code.to_string()]),
+                    signature(&[
+                        "updater",
+                        stage,
+                        kind,
+                        &code.to_string(),
+                        domain,
+                        underlying_domain,
+                        &underlying_code.to_string(),
+                    ]),
                 ),
             ],
         );

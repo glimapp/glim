@@ -299,11 +299,14 @@ impl Reader {
         _: &mut Window,
         _: &mut App,
     ) -> Self {
+        let mut document = DocumentSession::new(path.clone(), ContentSnapshot::Untracked);
+        document.source_missing =
+            reason.kind == glim_services::documents::ReadFailureKind::NotFound;
         let renderer = Renderer::surface(UnavailableReader::new(&path, reason));
         Self {
             active: std::cell::Cell::new(None),
             title: path.display().to_string().into(),
-            document: DocumentSession::new(path, ContentSnapshot::Untracked),
+            document,
             structured_controls: None,
             projection: None,
             renderer,

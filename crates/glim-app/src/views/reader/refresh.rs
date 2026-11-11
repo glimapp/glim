@@ -32,6 +32,9 @@ impl Reader {
             return None;
         }
         let path = self.document.path.clone();
+        if !force && self.document.source_missing {
+            return Some(RefreshRequest::Missing(path));
+        }
         if self
             .projection
             .as_ref()

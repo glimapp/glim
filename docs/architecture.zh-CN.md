@@ -83,6 +83,8 @@ PDF 通过现有工作区文件监听参与刷新，经 `glim_preview_reload_pdf
 
 监听器按 `watch.pending_paths` 合并受影响路径，未知事件、错误和溢出触发重新核对；别名检查在服务层后台执行。各工作区串行核对刷新候选，当前文档优先，单份结果安装后才准备下一份。加载、保存和翻页期间保留变化；过期结果丢弃并重新排队，脏文档受保护，替换失败保留可读视图，快照不变时复用实体。SQLite 原位刷新由其视图接口提供，Workspace 不再判断具体类型。
 
+缺失文件的别名通过最近仍存在的祖先目录解析，父目录删除后不会把无关变化视为文件变化。`DocumentSession` 在自动刷新间保留源文件缺失状态及原有阅读器；services 确认文件重新出现后才重新读取，手动刷新绕过等待。刷新或保存成功后清除此状态；该状态仅属于当前文档，不持久化。
+
 `services/preview/request` 与 `native/PreviewRequest.swift` 定义 Rust／Swift 协议第 1 版。带标签载荷要求自身字段，Swift 拒绝未知版本、类型及缺少必填字段的请求。准备文件由 `PreparedPreview` 持有到原生控制器关闭，原生资源按需创建；Rust 编码与 Swift 解码共用 `native/tests/fixtures` 的协议样例。
 
 README／专题通过共享能力组合文档阅读、数据检查、媒体浏览和基础编辑，场景不另建格式分发。新模块遵循[阅读器模块契约](reader-modules.zh-CN.md)。`assets/format-catalog.json` 管理 13 个有序提供者、232 个后缀及分类、语言、系统关联和图标对应声明；生成 Rust／Swift 表和[双语格式目录](format-catalog.zh-CN.md)。内容探测仍由解析器负责，图标或系统关联不授予编辑权限。`scripts/check-architecture.py` 在 CI 校验依赖方向、目录生成结果、提供者顺序和工作区分发边界。内部模块随应用静态编译，保留清晰的数据与宿主接口；外部安装、动态加载、权限与跨进程插件协议留待后续。

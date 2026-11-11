@@ -1,7 +1,7 @@
 //! Read-only, bounded SQLite queries against a private WAL-aware snapshot.
 use super::Snapshot;
 use crate::{limits, work::Cancellation};
-use anyhow::{Result, anyhow, ensure};
+use anyhow::{Context, Result, anyhow, ensure};
 use rusqlite::{Connection, params_from_iter};
 use std::{
     path::Path,
@@ -12,6 +12,32 @@ use std::{
 pub struct Database {
     snapshot: Snapshot,
     pub tables: Vec<String>,
+}
+
+#[derive(Debug)]
+enum OpenStage {
+    Snapshot,
+    Recovery,
+    Schema,
+}
+impl std::fmt::Display for OpenStage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Snapshot => "Could not prepare the database snapshot",
+            Self::Recovery => "Could not open the database snapshot",
+            Self::Schema => "Could not read the database schema",
+        })
+    }
+}
+impl std::error::Error for OpenStage {}
+
+pub fn failure_stage(error: &anyhow::Error) -> &'static str {
+    match error.downcast_ref::<OpenStage>() {
+        Some(OpenStage::Snapshot) => "snapshot",
+        Some(OpenStage::Recovery) => "recovery",
+        Some(OpenStage::Schema) => "schema",
+        None => "unknown",
+    }
 }
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct Query {
@@ -43,16 +69,19 @@ fn preview_text(value: &[u8]) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(text)
 }
 pub fn open(path: &Path, cancel: &Cancellation) -> Result<Arc<Database>> {
-    let snapshot = super::prepare_cancellable(path, cancel)?;
+    let snapshot = super::prepare_cancellable(path, cancel).context(OpenStage::Snapshot)?;
     let path = snapshot
         .database
         .as_ref()
-        .ok_or_else(|| anyhow!(snapshot.information.clone()))?;
+        .ok_or_else(|| super::SnapshotFailure::MissingMainDatabase(snapshot.information.clone()))
+        .context(OpenStage::Snapshot)?;
     // Recovery is allowed only on the private copy, then all browser connections are read-only.
-    let connection = Connection::open(path)?;
-    connection.busy_timeout(Duration::from_millis(
-        limits::SQLITE_BUSY_MILLISECONDS as u64,
-    ))?;
+    let connection = Connection::open(path).context(OpenStage::Recovery)?;
+    connection
+        .busy_timeout(Duration::from_millis(
+            limits::SQLITE_BUSY_MILLISECONDS as u64,
+        ))
+        .context(OpenStage::Recovery)?;
     let token = cancel.clone();
     let started = Instant::now();
     connection.progress_handler(
@@ -62,11 +91,16 @@ pub fn open(path: &Path, cancel: &Cancellation) -> Result<Arc<Database>> {
                 || started.elapsed() > Duration::from_secs(limits::SQLITE_QUERY_SECONDS)
         }),
     );
-    connection.execute_batch("PRAGMA query_only=ON;")?;
-    let tables = connection
-        .prepare("SELECT name FROM sqlite_schema WHERE type IN ('table','view') ORDER BY name")?
-        .query_map([], |row| row.get(0))?
-        .collect::<rusqlite::Result<Vec<String>>>()?;
+    connection
+        .execute_batch("PRAGMA query_only=ON;")
+        .context(OpenStage::Recovery)?;
+    let tables = (|| -> rusqlite::Result<Vec<String>> {
+        connection
+            .prepare("SELECT name FROM sqlite_schema WHERE type IN ('table','view') ORDER BY name")?
+            .query_map([], |row| row.get(0))?
+            .collect()
+    })()
+    .context(OpenStage::Schema)?;
     Ok(Arc::new(Database { snapshot, tables }))
 }
 fn quote(name: &str) -> String {

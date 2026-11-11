@@ -15,11 +15,13 @@ impl Workspace {
             let _ = workspace.update(cx, |view, cx| {
                 let Some(reader) = view
                     .tabs
-                    .iter()
+                    .iter_mut()
                     .find(|reader| reader.refresh_version(cx) == version)
                 else {
                     return;
                 };
+                reader.document.source_missing =
+                    kind == glim_services::documents::ReadFailureKind::NotFound;
                 let failures = [(reader.document.path.clone(), kind, true)];
                 if let Some(notice) = refresh_failure_notice(&failures) {
                     view.refresh_notice = Some(notice);
@@ -194,6 +196,8 @@ impl Workspace {
                                 let path = view.tabs[index].document.path.clone();
                                 let unavailable = view.tabs[index].is_unavailable();
                                 let failure = glim_services::documents::ReadFailure::from(&error);
+                                view.tabs[index].document.source_missing = failure.kind
+                                    == glim_services::documents::ReadFailureKind::NotFound;
                                 log::warn!("Cannot refresh {}: {error:#}", path.display());
                                 if !unavailable {
                                     failures.push((path.clone(), failure.kind, !unavailable));
@@ -208,6 +212,7 @@ impl Workspace {
                                 return;
                             }
                         };
+                        view.tabs[index].document.source_missing = false;
                         let on_failure = view.refresh_failure_handler(version, cx);
                         if view.tabs[index].refresh_in_place(&content, on_failure, cx) {
                             return;
