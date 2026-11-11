@@ -191,8 +191,8 @@ impl Workspace {
                         } else {
                             cx.theme().foreground
                         })
-                        .hover(background.blend(cx.theme().foreground.opacity(0.08)))
-                        .active(background.blend(cx.theme().foreground.opacity(0.16))),
+                        .hover(background)
+                        .active(background),
                 )
                 .bg(background)
                 .w(px(32.))

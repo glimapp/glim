@@ -436,7 +436,14 @@ impl Render for Workspace {
                             .bg(cx.theme().sidebar)
                             .child(
                                 Button::new("collapsed-home")
-                                    .ghost()
+                                    .custom(
+                                        ButtonCustomVariant::new(cx)
+                                            .color(cx.theme().sidebar)
+                                            .foreground(cx.theme().foreground)
+                                            .hover(cx.theme().sidebar)
+                                            .active(cx.theme().sidebar),
+                                    )
+                                    .bg(cx.theme().sidebar)
                                     .w(px(32.))
                                     .h(px(super::WORKSPACE_ROW_HEIGHT))
                                     .flex_shrink_0()
