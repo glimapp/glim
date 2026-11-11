@@ -22,7 +22,7 @@ crates/
     app/              startup, actions, menus, locale, diagram engine and updater coordination
     views/
       workspace_window.rs  window-level ownership and workspace-tab switching
-      workspace/      readers, tabs, loading, navigation, editing and update-session restoration
+      workspace/      readers, tabs, loading, navigation, search dialog, editing and update-session restoration
       reader/         source, markup, data trees/tables, images, native previews, XMind
       explorer.rs     lazy directory tree, sticky ancestors and filename/path tooltips
       minimap.rs      document overview
@@ -174,6 +174,8 @@ Workspace loading uses the navigation icon, while individual file opens use a ca
 `workspace/remote/watch` retains a cancellable polling task for each remote workspace. Active windows check roots and visible expanded directories in rotating batches and publish only changed listings. Open files use SFTP size/mtime/mode stamps, prioritizing the active tab; referenced local images and SQLite sidecars participate, including transitions from missing to present. Changed content reloads in the background, preserves text/Markdown reading position and uses in-place refresh where supported. Failed reads keep the existing preview and tree; document identity/revision checks discard stale results. Polling pauses while the window is inactive, workspace is hidden, connection is busy or disconnected. Interval and batch budgets live in the shared reader policy. SFTP v3 timestamps have one-second precision, so same-size rewrites within the same timestamp can require manual refresh.
 
 ### Directory browsing
+
+`workspace/search` presents filename search in a retained-input Base dialog, opened beside the history navigation controls or with ⌘P. Empty queries show deduplicated navigation history and open files from the current workspace. The dialog owns keyboard selection, focus restoration, dismissal, paging and local loading/error feedback; `workspace/header` retains the cancellable background search against local or remote roots. Closing the dialog cancels pending work. Search results and recent-file rows use the existing file icons and theme tokens, with full paths available on hover.
 
 Explorer expands newly added roots one level, leaving descendant folders collapsed. Row activation resolves a stable root identity together with the path, so overlapping parent/child roots remain independently collapsible. Expansion snapshots preserve the root-to-paths mapping without flattening overlapping trees. It restores per-root expansion state from SQLite Explorer rows during ordinary workspace restore and update-session restore; writes are atomic, serialized and awaited on quit. Tab activation reveals the active file by loading its ancestors in retained background tasks, selecting it and scrolling it into view; the latest requested file wins. Explorer loads direct children on expansion; both directory listings and filename searches include dotfiles and files excluded by Git or ignore rules, hide `.git` and do not recursively follow symlinks. Cached background media checks control folder playback menus; rendering does not scan folders. Blank-space and row context menus are separate.
 

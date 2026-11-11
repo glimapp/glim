@@ -32,6 +32,10 @@ impl Workspace {
     }
 
     pub(crate) fn suspend_workspace(&mut self, window: &Window, cx: &mut Context<Self>) {
+        self.search_visible = false;
+        self.search_task = None;
+        self.search_loading = false;
+        self.search_previous_focus = None;
         self.set_file_fullscreen(false, window);
         self.flush_usage();
         for reader in &self.tabs {

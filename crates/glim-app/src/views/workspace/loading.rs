@@ -213,6 +213,7 @@ impl Workspace {
     }
 
     pub(super) fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_search(window, cx);
         if self.pending_open_path() == Some(&path) {
             return;
         }

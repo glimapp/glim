@@ -1,12 +1,9 @@
 use super::Workspace;
-use glim_services::limits as reader_limits;
 use gpui_kit::{
     component::{
-        ActiveTheme, Disableable, Sizable, TitleBar,
-        button::{Button, ButtonCustomVariant, ButtonVariants},
-        h_flex,
-        input::Input,
-        v_flex,
+        ActiveTheme, Sizable, TitleBar,
+        button::{Button, ButtonVariants},
+        h_flex, v_flex,
     },
     prelude::FluentBuilder,
     *,
@@ -67,22 +64,32 @@ impl Workspace {
     }
     pub(super) fn search_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search_offset = 0;
+        self.search_selected = 0;
+        self.search_scroll.set_offset(point(px(0.), px(0.)));
         self.load_search_page(window, cx);
     }
-    fn load_search_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn load_search_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let query = self.search.read(cx).value().to_string();
         self.results.clear();
         self.search_task = None;
         self.search_more = false;
-        if query.trim().is_empty() {
+        self.search_loading = false;
+        self.search_error = None;
+        self.search_selected = 0;
+        self.search_scroll.set_offset(point(px(0.), px(0.)));
+        if !self.search_visible || query.trim().is_empty() {
             self.search_offset = 0;
             cx.notify();
             return;
         }
         if glim_services::remote::is_remote_id(&self.recent_id) && self.remote.is_none() {
+            self.search_error = Some(
+                glim_services::locale::tr("Connect to this workspace to search files.").into(),
+            );
             cx.notify();
             return;
         }
+        self.search_loading = true;
         let roots = self.roots.clone();
         let remote = self.remote.clone();
         let offset = self.search_offset;
@@ -104,6 +111,7 @@ impl Workspace {
                 })
                 .await;
             let _ = view.update(cx, |view, cx| {
+                view.search_loading = false;
                 match result {
                     Ok(page) => {
                         glim_services::telemetry::track(
@@ -125,7 +133,7 @@ impl Workspace {
                             None,
                             &error,
                         );
-                        view.error = Some(format!("{error:#}").into());
+                        view.search_error = Some(format!("{error:#}").into());
                     }
                 }
                 cx.notify();
@@ -241,170 +249,10 @@ impl Workspace {
                 cx,
             );
         }
-        let search = h_flex()
-            .relative()
-            .w(relative(0.34))
-            .max_w(px(420.))
-            .child(
-                Input::new(&self.search)
-                    .small()
-                    .h(px(34.))
-                    .px_3()
-                    .text_size(px(14.))
-                    .rounded(px(10.))
-                    .bg(cx
-                        .theme()
-                        .background
-                        .blend(cx.theme().foreground.opacity(0.025)))
-                    .border_color(cx.theme().border.opacity(0.65))
-                    .focus_bordered(true)
-                    .w_full(),
-            )
-            .when(!self.results.is_empty() || self.search_offset > 0, |bar| {
-                bar.child(
-                    deferred(
-                        v_flex()
-                            .id("file-search-results")
-                            .absolute()
-                            .top(px(42.))
-                            .right_0()
-                            .w_full()
-                            .max_h(px(280.))
-                            .overflow_y_scroll()
-                            .p_1()
-                            .rounded(px(10.))
-                            .shadow_lg()
-                            .occlude()
-                            .bg(cx.theme().background)
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .on_mouse_down_out(cx.listener(|v, _, _, cx| {
-                                v.results.clear();
-                                v.search_offset = 0;
-                                v.search_more = false;
-                                v.search_task = None;
-                                cx.notify();
-                            }))
-                            .children(self.results.iter().enumerate().map(|(i, path)| {
-                                let target = path.clone();
-                                let label = path
-                                    .file_name()
-                                    .unwrap_or_default()
-                                    .to_string_lossy()
-                                    .into_owned();
-                                let parent = path.parent().unwrap_or(path);
-                                let root = self
-                                    .roots
-                                    .iter()
-                                    .filter(|root| path.starts_with(root))
-                                    .max_by_key(|root| root.components().count());
-                                let location = root
-                                    .and_then(|root| root.parent())
-                                    .and_then(|base| parent.strip_prefix(base).ok())
-                                    .unwrap_or(parent)
-                                    .to_string_lossy()
-                                    .into_owned();
-                                Button::new(("search-result", i))
-                                    .custom(
-                                        ButtonCustomVariant::new(cx).hover(cx.theme().secondary),
-                                    )
-                                    .small()
-                                    .w_full()
-                                    .rounded(px(6.))
-                                    .h(px(44.))
-                                    .tooltip(path.to_string_lossy().into_owned())
-                                    .accessibility_label(format!(
-                                        "{} {}",
-                                        glim_services::locale::tr("Open"),
-                                        path.display()
-                                    ))
-                                    .child(
-                                        h_flex()
-                                            .w_full()
-                                            .min_w_0()
-                                            .gap_2()
-                                            .child(crate::views::file_icons::file_icon(path, cx))
-                                            .child(
-                                                v_flex()
-                                                    .flex_1()
-                                                    .min_w_0()
-                                                    .gap_1()
-                                                    .child(div().truncate().text_sm().child(label))
-                                                    .child(
-                                                        div()
-                                                            .truncate()
-                                                            .text_xs()
-                                                            .text_color(cx.theme().muted_foreground)
-                                                            .child(location),
-                                                    ),
-                                            ),
-                                    )
-                                    .on_click(cx.listener(move |v, _, w, cx| {
-                                        v.search.update(cx, |s, cx| s.set_value("", w, cx));
-                                        v.results.clear();
-                                        v.search_offset = 0;
-                                        v.search_more = false;
-                                        v.search_task = None;
-                                        v.sidebar_visible = true;
-                                        v.open_path(target.clone(), w, cx);
-                                    }))
-                            }))
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .p_2()
-                                    .child(
-                                        crate::views::icon_button(
-                                            "search-previous",
-                                            gpui_kit::assets::IconName::ChevronLeft,
-                                            glim_services::locale::tr("Previous"),
-                                        )
-                                        .disabled(self.search_offset == 0)
-                                        .on_click(
-                                            cx.listener(|view, _, window, cx| {
-                                                view.search_offset =
-                                                    view.search_offset.saturating_sub(
-                                                        reader_limits::WORKSPACE_SEARCH_RESULTS,
-                                                    );
-                                                view.load_search_page(window, cx);
-                                            }),
-                                        ),
-                                    )
-                                    .child(
-                                        crate::views::icon_button(
-                                            "search-next",
-                                            gpui_kit::assets::IconName::ChevronRight,
-                                            glim_services::locale::tr("Next page"),
-                                        )
-                                        .disabled(!self.search_more)
-                                        .on_click(
-                                            cx.listener(|view, _, window, cx| {
-                                                view.search_offset =
-                                                    view.search_offset.saturating_add(
-                                                        reader_limits::WORKSPACE_SEARCH_RESULTS,
-                                                    );
-                                                view.load_search_page(window, cx);
-                                            }),
-                                        ),
-                                    ),
-                            ),
-                    )
-                    .with_priority(1),
-                )
-            });
         v_flex()
             .relative()
             .w_full()
             .flex_shrink_0()
-            .on_key_down(cx.listener(|v, event: &KeyDownEvent, _, cx| {
-                if event.keystroke.key == "escape" {
-                    v.results.clear();
-                    v.search_offset = 0;
-                    v.search_more = false;
-                    v.search_task = None;
-                    cx.notify();
-                }
-            }))
             .child(workspace_title_bar(
                 h_flex()
                     .relative()
@@ -433,7 +281,6 @@ impl Workspace {
                             .child(div().w(px(1.)).h(px(16.)).mx_1().bg(cx.theme().border))
                             .child(self.navigation_toolbar(cx)),
                     )
-                    .child(search)
                     .child(
                         h_flex()
                             .absolute()

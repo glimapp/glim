@@ -6,6 +6,7 @@ mod loading;
 mod reader_actions;
 mod remote;
 mod render;
+mod search;
 mod session;
 mod settings;
 mod tabs;
@@ -53,6 +54,13 @@ pub struct Workspace {
     navigating: bool,
     history_swipe: Option<gestures::HistorySwipe>,
     search: Entity<InputState>,
+    search_visible: bool,
+    search_focus: FocusHandle,
+    search_previous_focus: Option<FocusHandle>,
+    search_selected: usize,
+    search_scroll: ScrollHandle,
+    search_loading: bool,
+    search_error: Option<SharedString>,
     sidebar_visible: bool,
     sidebar_ratio: f32,
     sidebar_window_width: f32,
@@ -155,6 +163,7 @@ impl Workspace {
     }
 
     pub(crate) fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_search(window, cx);
         glim_services::telemetry::track("settings_opened", []);
         self.page = Page::Settings;
         self.integrations.update(cx, |view, cx| view.reload(cx));
@@ -260,6 +269,13 @@ impl Workspace {
             preference_task: None,
             watch_scan_task: None,
             search,
+            search_visible: false,
+            search_focus: cx.focus_handle(),
+            search_previous_focus: None,
+            search_selected: 0,
+            search_scroll: ScrollHandle::new(),
+            search_loading: false,
+            search_error: None,
             results: Vec::new(),
             search_offset: 0,
             search_more: false,

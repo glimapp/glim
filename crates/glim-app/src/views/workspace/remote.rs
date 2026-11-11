@@ -644,6 +644,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.close_search(window, cx);
         let owner = cx.entity().downgrade();
         let dialog = cx
             .new(|cx| RemoteDialog::new(owner, Mode::Connections, !manage, add_folder, window, cx));

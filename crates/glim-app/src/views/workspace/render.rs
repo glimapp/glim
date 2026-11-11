@@ -494,7 +494,9 @@ impl Render for Workspace {
             .text_color(cx.theme().foreground)
             .when(!self.file_fullscreen, |view| view.child(header))
             .capture_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
-                if view.file_fullscreen && event.keystroke.key == "escape" {
+                if view.search_visible {
+                    view.search_key_down(event, window, cx);
+                } else if view.file_fullscreen && event.keystroke.key == "escape" {
                     view.set_file_fullscreen(false, window);
                     view.sidebar_window_width = 0.;
                     cx.stop_propagation();
@@ -522,8 +524,7 @@ impl Render for Workspace {
                 cx.stop_propagation();
             }))
             .on_action(cx.listener(|v, _: &SearchWorkspace, w, cx| {
-                v.search.update(cx, |search, cx| search.focus(w, cx));
-                cx.notify();
+                v.show_search(w, cx);
             }))
             .on_action(
                 cx.listener(|v, _: &gpui_kit::component::input::Search, window, cx| {
@@ -596,6 +597,9 @@ impl Render for Workspace {
             }))
             .child(body)
             .children(self.remote_dialog.clone())
+            .when(self.search_visible, |view| {
+                view.child(self.search_dialog(window, cx))
+            })
             .when_some(notice, |view, (title, error, danger)| {
                 view.child(
                     deferred(

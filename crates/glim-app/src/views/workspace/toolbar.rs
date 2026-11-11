@@ -91,6 +91,24 @@ impl Workspace {
             .child(self.toolbar_button(ToolbarItem::new(ToolbarAction::Sidebar), cx))
             .child(self.toolbar_button(back, cx))
             .child(self.toolbar_button(forward, cx))
+            .child(
+                crate::views::icon_button(
+                    "workspace-search",
+                    gpui_kit::assets::IconName::Search,
+                    format!(
+                        "{} · ⌘P",
+                        glim_services::locale::tr("Search workspace files")
+                    ),
+                )
+                .custom(
+                    ButtonCustomVariant::new(cx)
+                        .hover(cx.theme().foreground.opacity(0.05))
+                        .active(cx.theme().foreground.opacity(0.09)),
+                )
+                .rounded(px(7.))
+                .selected(self.search_visible)
+                .on_click(cx.listener(|view, _, window, cx| view.show_search(window, cx))),
+            )
             .into_any_element()
     }
 
