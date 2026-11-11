@@ -71,6 +71,20 @@ func readerActionState() throws {
     inactive.update(parent: parent, rect: parent.bounds, data: Data("[]".utf8), visible: false, collapsed: false)
     precondition(window.contentView!.hitTest(rootPoint) === source)
     inactive.detach()
+    var hiddenTransitions = 0
+    let observation = source.superview!.observe(\.isHidden, options: [.new]) { _, change in
+        if change.newValue == true { hiddenTransitions += 1 }
+    }
+    let buttonFrame = source.convert(source.bounds, to: parent)
+    for index in 0..<8 {
+        try update(preview: index.isMultiple(of: 2))
+        capsule(toolbar)!.needsLayout = true
+        toolbar.layoutSubtreeIfNeeded()
+        precondition(source.convert(source.bounds, to: parent) == buttonFrame)
+    }
+    try update(preview: true)
+    precondition(hiddenTransitions == 0, "State refresh must not hide a control during mouse tracking")
+    observation.invalidate()
     let menuControls = ReaderControls([ReaderControl("reader-preview", preview), ReaderControl("reader-source", source)])
     for _ in 0..<4 {
         source.performClick(nil)

@@ -413,7 +413,7 @@ impl MarkupReader {
             .size_full()
             .overflow_hidden()
             .child(super::controls::ToolbarTrailingInset(px(
-                crate::views::minimap::MINIMAP_WIDTH + 12.,
+                crate::views::minimap::MINIMAP_WIDTH,
             )))
             .child(
                 div()

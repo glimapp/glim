@@ -25,7 +25,13 @@ final class FloatingReaderToolbar: NSView, NSPopoverDelegate {
     private var overflowPopover: NSPopover?
     private var lentControls: [NSView] = []
     private var wrappers: [ObjectIdentifier: NSView] = [:]
-    var workspaceHidden = false { didSet { material.isHidden = workspaceHidden } }
+    var workspaceHidden = false {
+        didSet {
+            guard oldValue != workspaceHidden else { return }
+            material.isHidden = workspaceHidden
+            if workspaceHidden { overflowPopover?.close() }
+        }
+    }
     convenience init(profile: String, items: NSStackView) { self.init(profile: profile, controls: ReaderControls(stack: items)) }
     init(profile: String = "native", controls: ReaderControls) {
         self.profile = profile
@@ -201,7 +207,11 @@ final class FloatingReaderToolbar: NSView, NSPopoverDelegate {
         viewport.frame = NSRect(x: padding, y: 6, width: visibleWidth, height: rowHeight)
         more.frame = NSRect(x: width - padding - Self.iconWidth, y: 6, width: Self.iconWidth, height: rowHeight)
         document.frame = viewport.bounds
-        for item in items { wrappers[ObjectIdentifier(item)]?.isHidden = true }
+        let visibleIDs = Set(visibleEntries.map { ObjectIdentifier($0.0) })
+        for (id, wrapper) in wrappers {
+            let hidden = !visibleIDs.contains(id)
+            if wrapper.isHidden != hidden { wrapper.isHidden = hidden }
+        }
         separators.forEach { $0.removeFromSuperview() }; separators.removeAll()
         var previousGroup: String?
         var x: CGFloat = 0
@@ -215,7 +225,6 @@ final class FloatingReaderToolbar: NSView, NSPopoverDelegate {
             }
             previousGroup = nextGroup
             let wrapper = wrappers[ObjectIdentifier(item)]
-            wrapper?.isHidden = false
             wrapper?.frame = NSRect(x: x, y: (document.bounds.height - size.height) / 2, width: size.width, height: size.height)
             guard !lentControls.contains(item) else { continue }
             item.autoresizingMask = []
@@ -332,7 +341,7 @@ final class WorkspaceReaderToolbar: NSView {
     }
     func update(parent: NSView, rect: NSRect, data: Data, visible: Bool, collapsed: Bool) {
         if superview !== parent { removeFromSuperview(); parent.addSubview(self) }
-        frame = rect
+        if frame != rect { frame = rect }
         self.visible = visible; self.collapsed = collapsed
         if payload != data {
             payload = data
@@ -356,7 +365,8 @@ final class WorkspaceReaderToolbar: NSView {
                 button.image = NSImage(systemSymbolName: item["symbol"] as? String ?? "ellipsis", accessibilityDescription: label)
                 button.imagePosition = .imageOnly
                 button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-                button.isEnabled = item["enabled"] as? Bool ?? true
+                let enabled = item["enabled"] as? Bool ?? true
+                if button.isEnabled != enabled { button.isEnabled = enabled }
                 button.selection = item["selection"] as? Bool
                 return ReaderControl(id, button)
             }
@@ -416,10 +426,11 @@ final class WorkspaceReaderToolbar: NSView {
         target.setWorkspaceControls(common)
         target.setMoreLabel(moreLabel)
         target.workspaceHidden = !visible || collapsed
-        fallback.isHidden = target !== fallback || !visible || collapsed
-        target.needsLayout = true
+        let hideFallback = target !== fallback || !visible || collapsed
+        if fallback.isHidden != hideFallback { fallback.isHidden = hideFallback }
         target.layoutSubtreeIfNeeded()
-        restore.isHidden = !collapsed || !fullscreen
+        let hideRestore = !collapsed || !fullscreen
+        if restore.isHidden != hideRestore { restore.isHidden = hideRestore }
         restore.frame = NSRect(x: 12, y: max(0, bounds.height - 40), width: 28, height: 28)
         if parent.subviews.last !== self { parent.addSubview(self, positioned: .above, relativeTo: nil) }
         updateAccessibility()

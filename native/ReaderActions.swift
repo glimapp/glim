@@ -4,7 +4,10 @@ final class ReaderActionButton: NSButton {
     // nil is a command; a value is selection owned by the reader/workspace.
     var selection: Bool? {
         didSet {
-            setButtonType(selection == nil ? .momentaryPushIn : .toggle)
+            guard oldValue != selection else { return }
+            if (oldValue == nil) != (selection == nil) {
+                setButtonType(selection == nil ? .momentaryPushIn : .toggle)
+            }
             synchronizeSelection()
         }
     }
