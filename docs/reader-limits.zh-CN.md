@@ -397,7 +397,9 @@
 | `remote.search_concurrency` | 2 | jobs | 处理／内存预算 | 远端路径索引扫描的并发预算；排队扫描不占工作线程，与文件打开独立。 |
 | `remote.search_batch_paths` | 256 | paths per transaction | 处理／内存预算 | 每个搜索索引事务提交的路径数；首个文件或达到发布间隔时提前发布部分结果，不限制总路径数。 |
 | `remote.search_poll_ms` | 250 | milliseconds | 处理／内存预算 | 搜索索引结果发布和界面版本轮询间隔；版本不变时不重新执行文件名查询。 |
-| `remote.search_refresh_ms` | 300,000 | milliseconds | 处理／内存预算 | 远端路径索引成功扫描后，搜索打开期间达到此缓存年龄则后台刷新；手动刷新跳过等待。失败保留缓存路径，重新打开搜索时重试。 |
+| `remote.search_directory_batch` | 64 | directories per cycle | 处理／内存预算 | 单个搜索索引增量任务的目录元数据检查预算；变化目录的列表通过磁盘暂存流式处理，不限制目录总数。 |
+| `remote.search_directory_poll_ms` | 2,000 | milliseconds | 处理／内存预算 | 每个驻留远端工作区的后台增量目录批次间隔，不依赖搜索弹窗。 |
+| `remote.search_refresh_ms` | 300,000 | milliseconds | 处理／内存预算 | 目录列表达到此核对年龄后，即使粗粒度修改时间未变也重新核对；同时用于失败扫描和目录检查的退避。缓存路径不因时间过期，手动刷新重建完整索引。 |
 | `remote.search_record_bytes` | 1 MiB | bytes | 降级处理 | SSH 文件名流中单个 NUL 分隔记录的活动预算；无效或超预算命令输出降级到流式 SFTP 枚举，不限制文件或工作区总大小。 |
 | `remote.refresh_interval_ms` | 2,000 | milliseconds | 处理／内存预算 | 当前可见远端工作区自动刷新周期的间隔；应用未激活或传输忙碌、断开时暂停。 |
 | `remote.refresh_batch` | 4 | paths per cycle | 处理／内存预算 | 每轮轮换检查的目录和后台文件数；当前文件优先检查。限制活动工作范围，不限制工作区总大小。 |

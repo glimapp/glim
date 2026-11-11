@@ -1,7 +1,7 @@
 //! SSH connection records and read-only SFTP access. Call on background workers.
 mod search_index;
 mod sftp;
-pub use search_index::{IndexedPage, SearchIndexProgress};
+pub use search_index::{IndexedPage, SearchIndexProgress, SearchIndexUpdate};
 
 use crate::{storage, work::Cancellation};
 use anyhow::{Context, Result, ensure};
@@ -170,6 +170,7 @@ pub struct Session {
     pub connection: Connection,
     pub home: PathBuf,
     transport: Arc<Mutex<sftp::Sftp>>,
+    search_transport: Arc<Mutex<Option<sftp::Sftp>>>,
     pub received: Arc<AtomicU64>,
     connected: Arc<std::sync::atomic::AtomicBool>,
     cache: Arc<tempfile::TempDir>,
@@ -193,6 +194,7 @@ impl Session {
             connection,
             home,
             transport: Arc::new(Mutex::new(transport)),
+            search_transport: Default::default(),
             received: Arc::new(AtomicU64::new(0)),
             cache: Arc::new(cache),
             versions: Default::default(),

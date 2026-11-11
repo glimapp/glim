@@ -20,20 +20,26 @@ impl Workspace {
         progress: Arc<glim_services::remote::SearchIndexProgress>,
         cx: &mut Context<Self>,
     ) {
-        self.search_indexed_files = None;
         self.remote_index_progress_task = Some(cx.spawn(async move |view, cx| {
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(limits::REMOTE_SEARCH_POLL_MS))
                     .await;
                 let files = progress.files();
+                let cached_ready = progress.cache_ready();
                 if !view
                     .update(cx, |view, cx| {
-                        if !view.search_indexing {
-                            return false;
+                        if cached_ready && !view.search_index_ready {
+                            view.search_index_ready = true;
+                            view.search_indexing = false;
+                            cx.notify();
                         }
-                        if view.search_indexed_files != files {
-                            view.search_indexed_files = files;
+                        if let Some(files) = files
+                            && (!view.search_indexing || view.search_indexed_files != Some(files))
+                        {
+                            view.search_indexing = true;
+                            view.search_index_ready = false;
+                            view.search_indexed_files = Some(files);
                             cx.notify();
                         }
                         true
@@ -162,6 +168,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.roots.is_empty() {
+            self.remote_index_task = None;
+            self.remote_index_progress_task = None;
+            self.remote_index_scope = None;
+            self.search_indexing = false;
+            self.search_index_ready = false;
+            self.search_indexed_files = None;
+            self.search_index_error = None;
+            return;
+        }
         let Some(remote) = self.remote.clone() else {
             return;
         };
@@ -208,55 +224,50 @@ impl Workspace {
                     },
                 )
                 .await;
-                let busy = matches!(result, Ok(false));
-                let keep = view
+                let busy = matches!(result, Ok(glim_services::remote::SearchIndexUpdate::Busy));
+                let failed = result.is_err();
+                if view
                     .update(cx, |view, cx| {
-                        view.search_indexing = busy;
+                        view.search_indexing = busy && !view.search_index_ready;
                         view.remote_index_progress_task = None;
-                        view.search_indexed_files = progress.files();
-                        view.search_index_ready = matches!(result, Ok(true));
-                        if let Err(error) = &result {
-                            let message: SharedString = format!("{error:#}").into();
-                            view.search_error = Some(message.clone());
-                            view.search_index_error = Some(message);
-                        }
-                        let keep = result.is_ok() && (busy || view.search_visible);
-                        if !keep {
-                            view.remote_index_task = None;
+                        if !busy {
+                            view.search_indexed_files = progress.files();
+                            view.search_index_ready = result.is_ok();
+                            let previous_error = view.search_index_error.take();
+                            if view.search_error == previous_error {
+                                view.search_error = None;
+                            }
+                            let warning = match &result {
+                                Ok(glim_services::remote::SearchIndexUpdate::Ready(warning)) => {
+                                    warning.clone()
+                                }
+                                Err(error) => Some(format!("{error:#}")),
+                                _ => None,
+                            };
+                            if let Some(warning) = warning {
+                                let message: SharedString = warning.into();
+                                view.search_error = Some(message.clone());
+                                view.search_index_error = Some(message);
+                            }
                         }
                         cx.notify();
-                        keep
                     })
-                    .unwrap_or(false);
-                if !keep {
+                    .is_err()
+                {
                     break;
                 }
                 if !busy {
                     force = false;
                 }
                 cx.background_executor()
-                    .timer(std::time::Duration::from_millis(if busy {
+                    .timer(Duration::from_millis(if failed {
+                        limits::REMOTE_SEARCH_REFRESH_MS
+                    } else if busy {
                         limits::REMOTE_SEARCH_POLL_MS
                     } else {
-                        limits::REMOTE_SEARCH_REFRESH_MS
+                        limits::REMOTE_SEARCH_DIRECTORY_POLL_MS
                     }))
                     .await;
-                if !view
-                    .update(cx, |view, cx| {
-                        if !view.search_visible {
-                            view.remote_index_task = None;
-                            return false;
-                        }
-                        view.search_indexing = true;
-                        view.search_index_ready = false;
-                        view.search_index_error = None;
-                        cx.notify();
-                        true
-                    })
-                    .unwrap_or(false)
-                {
-                    break;
-                }
             }
         }));
         cx.notify();

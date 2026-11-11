@@ -1,3 +1,5 @@
+mod incremental;
+
 use super::{Connection, Session, sftp::Sftp};
 use crate::{limits, work::Cancellation, workspace::SearchPage};
 use anyhow::{Context, Result, ensure};
@@ -27,12 +29,21 @@ pub struct IndexedPage {
     pub warning: Option<String>,
 }
 
+pub enum SearchIndexUpdate {
+    Busy,
+    Ready(Option<String>),
+}
+
 #[derive(Default)]
 pub struct SearchIndexProgress {
     started: AtomicBool,
+    cached_ready: AtomicBool,
     files: AtomicU64,
 }
 impl SearchIndexProgress {
+    pub fn cache_ready(&self) -> bool {
+        self.cached_ready.load(Ordering::Acquire)
+    }
     pub fn files(&self) -> Option<u64> {
         self.started
             .load(Ordering::Acquire)
@@ -123,7 +134,7 @@ impl Session {
         force: bool,
         cancel: &Cancellation,
         progress: &SearchIndexProgress,
-    ) -> Result<bool> {
+    ) -> Result<SearchIndexUpdate> {
         cancel.check()?;
         let roots = normalized_roots(roots);
         ensure!(
@@ -145,7 +156,7 @@ impl Session {
             .open(path.with_extension("lock"))?;
         match lock.try_lock() {
             Ok(()) => {}
-            Err(TryLockError::WouldBlock) => return Ok(false),
+            Err(TryLockError::WouldBlock) => return Ok(SearchIndexUpdate::Busy),
             Err(TryLockError::Error(error)) => return Err(error.into()),
         }
         OpenOptions::new()
@@ -154,7 +165,7 @@ impl Session {
             .write(true)
             .mode(0o600)
             .open(&path)?;
-        let db = Database::open(path)?;
+        let mut db = Database::open(path)?;
         configure(&db, cancel)?;
         db.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; BEGIN IMMEDIATE;
@@ -164,16 +175,11 @@ impl Session {
              CREATE TABLE IF NOT EXISTS state(id INTEGER PRIMARY KEY CHECK(id=1), generation INTEGER NOT NULL, revision INTEGER NOT NULL, completed_ms INTEGER NOT NULL, complete INTEGER NOT NULL, warning TEXT);
              INSERT OR IGNORE INTO state VALUES(1,0,0,0,0,NULL); COMMIT;",
         )?;
-        let (completed, complete): (u64, bool) = db.query_row(
-            "SELECT completed_ms,complete FROM state WHERE id=1",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?;
-        if !force
-            && complete
-            && now_ms().saturating_sub(completed) < limits::REMOTE_SEARCH_REFRESH_MS
-        {
-            return Ok(true);
+        let complete: bool =
+            db.query_row("SELECT complete FROM state WHERE id=1", [], |r| r.get(0))?;
+        if !force && complete {
+            progress.cached_ready.store(true, Ordering::Release);
+            return incremental::refresh(self, &mut db, &roots, cancel);
         }
         db.execute_batch("BEGIN IMMEDIATE; DELETE FROM pending; UPDATE state SET generation=generation+1,revision=revision+1,complete=0,warning=NULL; COMMIT;")?;
         let generation = db.query_row("SELECT generation FROM state", [], |r| r.get(0))?;
@@ -206,8 +212,9 @@ impl Session {
                     [now_ms()],
                 )?;
                 tx.execute("DELETE FROM pending", [])?;
+                tx.execute_batch("DROP TABLE IF EXISTS directories")?;
                 tx.commit()?;
-                Ok(true)
+                Ok(SearchIndexUpdate::Ready(None))
             }
             Err(error) => {
                 writer.db.execute(

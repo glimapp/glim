@@ -1655,13 +1655,29 @@
         "description": "Search-index publication and UI revision-poll interval; unchanged revisions do not rerun the filename query.",
         "description_zh": "搜索索引结果发布和界面版本轮询间隔；版本不变时不重新执行文件名查询。"
       },
+      "search_directory_batch": {
+        "value": 64,
+        "type": "usize",
+        "unit": "directories per cycle",
+        "effect": "budget",
+        "description": "Maximum directory metadata checks per incremental search-index job; changed listings stream through disk-backed staging. Total directory count is unlimited.",
+        "description_zh": "单个搜索索引增量任务的目录元数据检查预算；变化目录的列表通过磁盘暂存流式处理，不限制目录总数。"
+      },
+      "search_directory_poll_ms": {
+        "value": 2000,
+        "type": "u64",
+        "unit": "milliseconds",
+        "effect": "budget",
+        "description": "Delay between background incremental directory batches for each retained remote workspace, independent of the search dialog.",
+        "description_zh": "每个驻留远端工作区的后台增量目录批次间隔，不依赖搜索弹窗。"
+      },
       "search_refresh_ms": {
         "value": 300000,
         "type": "u64",
         "unit": "milliseconds",
         "effect": "budget",
-        "description": "Age after which a successful remote path index refreshes when search is open; explicit refresh bypasses this delay. Failed scans retain cached paths and retry on reopening.",
-        "description_zh": "远端路径索引成功扫描后，搜索打开期间达到此缓存年龄则后台刷新；手动刷新跳过等待。失败保留缓存路径，重新打开搜索时重试。"
+        "description": "Age after which a directory listing is reconciled even when its coarse modification timestamp is unchanged. Also backs off failed scans and directory checks; cached paths do not expire. Explicit refresh rebuilds the full index.",
+        "description_zh": "目录列表达到此核对年龄后，即使粗粒度修改时间未变也重新核对；同时用于失败扫描和目录检查的退避。缓存路径不因时间过期，手动刷新重建完整索引。"
       },
       "search_record_bytes": {
         "value": 1048576,

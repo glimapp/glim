@@ -270,17 +270,40 @@ impl Sftp {
         Ok(PathBuf::from(OsString::from_vec(packet.string()?.to_vec())))
     }
     pub fn stat(&mut self, path: &Path, cancel: &Cancellation) -> Result<super::FileStamp> {
+        self.read_stamp(path, 17, cancel)
+    }
+    fn read_stamp(
+        &mut self,
+        path: &Path,
+        kind: u8,
+        cancel: &Cancellation,
+    ) -> Result<super::FileStamp> {
         cancel.check()?;
         let _watch = self.watch(cancel);
-        let reply = self.request(17, &string(path.as_os_str().as_encoded_bytes())?)?;
+        let reply = self.request(kind, &string(path.as_os_str().as_encoded_bytes())?)?;
         Packet::body(&reply, 105)?.file_stamp()
+    }
+    pub(super) fn lstat_optional(
+        &mut self,
+        path: &Path,
+        cancel: &Cancellation,
+    ) -> Result<Option<super::FileStamp>> {
+        self.optional_stamp(path, 7, cancel)
     }
     pub fn stat_optional(
         &mut self,
         path: &Path,
         cancel: &Cancellation,
     ) -> Result<Option<super::FileStamp>> {
-        match self.stat(path, cancel) {
+        self.optional_stamp(path, 17, cancel)
+    }
+    fn optional_stamp(
+        &mut self,
+        path: &Path,
+        kind: u8,
+        cancel: &Cancellation,
+    ) -> Result<Option<super::FileStamp>> {
+        match self.read_stamp(path, kind, cancel) {
             Ok(stamp) => Ok(Some(stamp)),
             Err(error)
                 if error
