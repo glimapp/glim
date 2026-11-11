@@ -33,7 +33,7 @@ enum Page {
     Settings,
 }
 
-const DEFAULT_SIDEBAR_RATIO: f32 = 0.15;
+const DEFAULT_SIDEBAR_RATIO: f32 = 0.13;
 const DEFAULT_EXPLORER_RATIO: f32 = 0.18;
 const SIDEBAR_COLLAPSE_WIDTH: f32 = 120.;
 

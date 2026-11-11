@@ -183,20 +183,12 @@ impl Workspace {
     }
 
     pub(super) fn navigation_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut back = ToolbarItem::new(ToolbarAction::Back);
-        back.enabled = self.history_cursor.is_some_and(|i| i > 0);
-        let mut forward = ToolbarItem::new(ToolbarAction::Forward);
-        forward.enabled = self
-            .history_cursor
-            .is_some_and(|i| i + 1 < self.history.len());
         h_flex()
             .h(px(28.))
             .items_center()
             .gap_1()
             .flex_shrink_0()
             .child(self.toolbar_button(ToolbarItem::new(ToolbarAction::Sidebar), cx))
-            .child(self.toolbar_button(back, cx))
-            .child(self.toolbar_button(forward, cx))
             .child(self.search_button(cx))
             .when(
                 self.reader_toolbar_collapsed && self.page == Page::Document,

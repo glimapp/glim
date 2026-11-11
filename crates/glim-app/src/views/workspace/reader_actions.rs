@@ -38,8 +38,6 @@ pub(super) enum ToolbarAction {
     Extract,
     CancelExtract,
     Sidebar,
-    Back,
-    Forward,
     Preview,
     Source,
     WordWrap,
@@ -62,8 +60,6 @@ impl ToolbarAction {
             Self::Extract => "archive-extract",
             Self::CancelExtract => "archive-cancel",
             Self::Sidebar => "toggle-sidebar",
-            Self::Back => "back",
-            Self::Forward => "forward",
             Self::Preview => "reader-preview",
             Self::Source => "reader-source",
             Self::WordWrap => "word-wrap",
@@ -109,8 +105,6 @@ impl ToolbarItem {
             ToolbarAction::Extract => ("Extract…", Some(IconName::Folder)),
             ToolbarAction::CancelExtract => ("Extracting… · Cancel", Some(IconName::X)),
             ToolbarAction::Sidebar => ("Toggle Sidebar", Some(IconName::PanelLeft)),
-            ToolbarAction::Back => ("Back", Some(IconName::ArrowLeft)),
-            ToolbarAction::Forward => ("Forward", Some(IconName::ArrowRight)),
             ToolbarAction::Preview => ("Preview", Some(IconName::Eye)),
             ToolbarAction::Source => ("Source", Some(IconName::Code)),
             ToolbarAction::WordWrap => ("Word wrap", None),
@@ -408,8 +402,6 @@ impl super::Workspace {
                 self.sidebar_window_width = 0.;
                 cx.notify();
             }
-            ToolbarAction::Back => self.navigate(false, window, cx),
-            ToolbarAction::Forward => self.navigate(true, window, cx),
             ToolbarAction::Preview | ToolbarAction::Source => {
                 if self.active_reader().is_some_and(|r| r.can_preview()) {
                     self.set_reader_preview(matches!(action, ToolbarAction::Preview), window, cx);

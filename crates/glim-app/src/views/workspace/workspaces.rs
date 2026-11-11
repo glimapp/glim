@@ -426,6 +426,13 @@ impl Workspace {
                     )
                     .child(
                         h_flex()
+                            .absolute()
+                            .right(px(4.))
+                            .top_0()
+                            .h_full()
+                            .rounded(px(6.))
+                            .bg(background)
+                            .occlude()
                             .invisible()
                             .group_hover(hover_group, |view| view.visible())
                             .when(selected, |row| row.child(self.file_tree_toggle(cx)))

@@ -71,7 +71,14 @@ impl Render for Workspace {
                     .clone()
                     .map(|(title, message)| (title, message, false))
             });
-        let tab_bar = self.tab_bar(window, cx);
+        let window_width = f32::from(window.viewport_size().width);
+        let sidebar_width = self.workspace_column_width(window_width);
+        let explorer_width = self.explorer_column_width(window_width);
+        let navigation_width = sidebar_width + explorer_width;
+        let header_width = navigation_width.max(self.header_controls_width(cx));
+        let has_tabs = self.page == Page::Document
+            && (!self.tabs.is_empty() || self.pending_open_path().is_some());
+        let tab_bar = self.tab_bar((header_width - navigation_width).max(0.), window, cx);
         let header = self.header(None, cx);
         let view = cx.entity().downgrade();
         let open: crate::views::reader::OpenLink =
@@ -88,9 +95,6 @@ impl Render for Workspace {
                     cx.notify();
                 });
             });
-        let window_width = f32::from(window.viewport_size().width);
-        let sidebar_width = self.workspace_column_width(window_width);
-        let explorer_width = self.explorer_column_width(window_width);
         if (self.sidebar_window_width - window_width).abs() > 0.5 {
             self.sidebar_window_width = window_width;
             let layout = self.sidebar_layout.clone();
@@ -193,12 +197,12 @@ impl Render for Workspace {
                     .border_color(cx.theme().border)
             })
             .bg(cx.theme().background)
-            .when(
-                self.page == Page::Document
-                    && (!self.tabs.is_empty() || self.pending_open_path().is_some())
-                    && !self.file_fullscreen,
-                |view| view.child(tab_bar),
-            )
+            .when(!has_tabs && !self.file_fullscreen, |view| {
+                view.pt(px(super::TITLE_BAR_HEIGHT))
+            })
+            .when(has_tabs && !self.file_fullscreen, |view| {
+                view.child(tab_bar)
+            })
             .child(
                 div()
                     .relative()
@@ -282,6 +286,7 @@ impl Render for Workspace {
             .active(cx.theme().foreground.opacity(0.08));
         let sidebar = v_flex()
             .size_full()
+            .pt(px(super::TITLE_BAR_HEIGHT))
             .pl_3()
             .pb_1()
             .gap_1()
@@ -405,7 +410,7 @@ impl Render for Workspace {
                 .w_full()
                 .pr(px(super::CONTENT_INSET))
                 .pb(px(super::CONTENT_INSET))
-                .pt(px(super::CONTENT_INSET + super::TITLE_BAR_HEIGHT))
+                .pt(px(super::CONTENT_INSET))
                 .when(!self.sidebar_visible, |view| {
                     view.child(
                         v_flex()
@@ -414,6 +419,7 @@ impl Render for Workspace {
                             .h_full()
                             .flex_shrink_0()
                             .items_center()
+                            .pt(px(super::TITLE_BAR_HEIGHT))
                             .gap_1()
                             .bg(cx.theme().sidebar)
                             .child(
@@ -649,7 +655,14 @@ impl Render for Workspace {
             .child(body)
             .child(outline.render(cx))
             .when(!self.file_fullscreen, |view| {
-                view.child(div().absolute().top_0().left_0().w_full().child(header))
+                view.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .w(px(header_width))
+                        .child(header),
+                )
             })
             .when(
                 self.file_fullscreen && self.reader_toolbar_collapsed,

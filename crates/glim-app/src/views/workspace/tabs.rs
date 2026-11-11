@@ -483,7 +483,12 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn tab_bar(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn tab_bar(
+        &self,
+        leading_inset: f32,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let tabs = self
             .tabs
             .iter()
@@ -685,14 +690,10 @@ impl Workspace {
             .w_full()
             .flex_shrink_0()
             .px_1()
-            .bg(if self.sidebar_visible || self.explorer_visible {
-                cx.theme().background
-            } else {
-                cx.theme().sidebar
-            })
-            .when(self.sidebar_visible || self.explorer_visible, |bar| {
-                bar.border_b_1().border_color(cx.theme().border)
-            })
+            .pl(px(4. + leading_inset))
+            .bg(cx.theme().background)
+            .border_b_1()
+            .border_color(cx.theme().border)
             .child(
                 h_flex()
                     .id("document-tabs")

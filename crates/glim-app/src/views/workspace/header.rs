@@ -18,6 +18,13 @@ impl Target {
     }
 }
 impl Workspace {
+    pub(super) fn header_controls_width(&self, cx: &App) -> f32 {
+        let restore = self.reader_toolbar_collapsed && self.page == super::Page::Document;
+        let update = crate::app::updates::state(cx)
+            .is_some_and(|state| state.read(cx).snapshot.has_update());
+        224. + if restore { 32. } else { 0. } + if update { 28. } else { 0. }
+    }
+
     pub(super) fn record_history(&mut self, cx: &mut Context<Self>) {
         self.remember_session(cx);
         if self.navigating {
