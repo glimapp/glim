@@ -2,7 +2,7 @@ use super::{DEFAULT_EXPLORER_RATIO, Page, SIDEBAR_COLLAPSE_WIDTH, Workspace};
 use gpui_kit::{
     base::{ElementExt as _, InteractiveElementExt as _},
     component::{
-        ActiveTheme,
+        ActiveTheme, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         resizable::{h_resizable, resizable_panel},
@@ -180,28 +180,56 @@ impl Workspace {
     }
 
     pub(super) fn toggle_file_tree(&mut self, cx: &mut Context<Self>) {
+        self.path_hint.hide();
         self.explorer_visible = !self.explorer_visible;
         self.sidebar_window_width = 0.;
         cx.notify();
     }
 
     pub(super) fn file_tree_toggle(&self, cx: &mut Context<Self>) -> Button {
-        crate::views::icon_button(
-            "toggle-file-tree",
-            gpui_kit::assets::IconName::PanelLeft,
-            glim_services::locale::tr(if self.explorer_visible {
-                "Collapse File Tree"
-            } else {
-                "Expand File Tree"
-            }),
-        )
-        .custom(
-            ButtonCustomVariant::new(cx)
-                .foreground(cx.theme().muted_foreground)
-                .hover(cx.theme().foreground.opacity(0.04))
-                .active(cx.theme().foreground.opacity(0.08)),
-        )
-        .on_click(cx.listener(|view, _, _, cx| view.toggle_file_tree(cx)))
+        let hint_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::default()));
+        let painted_bounds = hint_bounds.clone();
+        let label = glim_services::locale::tr(if self.explorer_visible {
+            "Collapse File Tree"
+        } else {
+            "Expand File Tree"
+        });
+        Button::new("toggle-file-tree")
+            .small()
+            .w(px(28.))
+            .h(px(28.))
+            .p_0()
+            .flex_shrink_0()
+            .child(Icon::new(gpui_kit::assets::IconName::PanelLeft).size(px(16.)))
+            .child(
+                canvas(
+                    move |bounds, _, _| painted_bounds.set(bounds),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            )
+            .accessibility_label(label.clone())
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .color(cx.theme().transparent)
+                    .foreground(cx.theme().muted_foreground)
+                    .hover(cx.theme().foreground.opacity(0.06))
+                    .active(cx.theme().foreground.opacity(0.10)),
+            )
+            .bg(cx.theme().transparent)
+            .on_hover(cx.listener(move |view, hovered: &bool, window, _| {
+                if *hovered {
+                    view.path_hint
+                        .show(&label, "", false, hint_bounds.get(), window);
+                } else {
+                    view.path_hint.hide_for("", hint_bounds.get());
+                }
+            }))
+            .on_click(cx.listener(|view, _, _, cx| {
+                cx.stop_propagation();
+                view.toggle_file_tree(cx);
+            }))
     }
 
     pub(super) fn file_tree_columns(

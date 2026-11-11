@@ -367,7 +367,9 @@ impl Workspace {
                 let rename = workspace.clone();
                 let weak = cx.entity().downgrade();
                 let hover_group = SharedString::from(format!("workspace-row-{}", workspace.id));
+                let hover_background = background.blend(cx.theme().foreground.opacity(0.06));
                 h_flex()
+                    .id(hover_group.clone())
                     .relative()
                     .when(selected, |view| view.child(outline.row_marker()))
                     .group(hover_group.clone())
@@ -376,13 +378,14 @@ impl Workspace {
                     .items_center()
                     .rounded(px(6.))
                     .bg(background)
+                    .hover(|view| view.bg(hover_background))
                     .child(
                         Button::new(SharedString::from(format!("workspace-{}", workspace.id)))
                             .custom(
                                 ButtonCustomVariant::new(cx)
-                                    .color(background)
+                                    .color(cx.theme().transparent)
                                     .foreground(cx.theme().foreground)
-                                    .hover(background.blend(cx.theme().foreground.opacity(0.06)))
+                                    .hover(cx.theme().transparent)
                                     .active(background.blend(cx.theme().foreground.opacity(0.10))),
                             )
                             .flex_1()
@@ -390,7 +393,7 @@ impl Workspace {
                             .h(px(super::WORKSPACE_ROW_HEIGHT))
                             .px_3()
                             .justify_start()
-                            .bg(background)
+                            .bg(cx.theme().transparent)
                             .font_weight(if selected {
                                 FontWeight::MEDIUM
                             } else {
@@ -442,13 +445,12 @@ impl Workspace {
                         h_flex()
                             .absolute()
                             .right(px(4.))
-                            .top_0()
-                            .h_full()
-                            .rounded(px(6.))
-                            .bg(background)
-                            .occlude()
+                            .top(px((super::WORKSPACE_ROW_HEIGHT - 28.) / 2.))
+                            .h(px(28.))
+                            .bg(hover_background)
                             .invisible()
                             .group_hover(hover_group, |view| view.visible())
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .when(selected, |row| row.child(self.file_tree_toggle(cx)))
                             .child(
                                 Button::new(SharedString::from(format!(
@@ -457,20 +459,25 @@ impl Workspace {
                                 )))
                                 .custom(
                                     ButtonCustomVariant::new(cx)
-                                        .foreground(cx.theme().muted_foreground.opacity(0.70))
+                                        .color(cx.theme().transparent)
+                                        .foreground(cx.theme().muted_foreground)
                                         .hover(
-                                            background.blend(cx.theme().foreground.opacity(0.06)),
+                                            background.blend(cx.theme().foreground.opacity(0.12)),
                                         )
                                         .active(
                                             background.blend(cx.theme().foreground.opacity(0.10)),
                                         ),
                                 )
                                 .small()
-                                .mr_1()
-                                .icon(Icon::new(gpui_kit::assets::IconName::X).size(px(13.)))
+                                .w(px(28.))
+                                .h(px(28.))
+                                .bg(cx.theme().transparent)
+                                .icon(Icon::new(gpui_kit::assets::IconName::X).size(px(16.)))
                                 .accessibility_label(glim_services::locale::tr("Close Workspace"))
                                 .on_click(cx.listener(
                                     move |view, _, window, cx| {
+                                        cx.stop_propagation();
+                                        view.path_hint.hide();
                                         if let Some(host) = view.workspace_window.clone() {
                                             let id = close_id.clone();
                                             window.defer(cx, move |window, cx| {
