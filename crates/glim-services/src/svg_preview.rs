@@ -191,7 +191,8 @@ pub(crate) fn prepare_thumbnail(
 }
 /// Only for SVG loaded as a browser `<img>`, whose image-document sandbox
 /// disables scripts, navigation and external resource loads. Preserve XHTML
-/// labels and complete CSS here; thumbnail providers use the stricter path.
+/// labels, declarative animation and complete CSS here; thumbnail providers
+/// use the stricter static path.
 pub(crate) fn prepare_browser_image(
     path: &Path,
     cancel: &Cancellation,
@@ -234,18 +235,18 @@ fn prepare_image(
                     root = true;
                 }
                 if skipped > 0
-                    || (!browser_image && local == "foreignobject")
+                    || (!browser_image
+                        && matches!(
+                            local.as_str(),
+                            "foreignobject"
+                                | "animate"
+                                | "animatemotion"
+                                | "animatetransform"
+                                | "set"
+                        ))
                     || matches!(
                         local.as_str(),
-                        "script"
-                            | "iframe"
-                            | "object"
-                            | "embed"
-                            | "animate"
-                            | "animatemotion"
-                            | "animatetransform"
-                            | "set"
-                            | "discard"
+                        "script" | "iframe" | "object" | "embed" | "discard"
                     )
                 {
                     if !empty {
