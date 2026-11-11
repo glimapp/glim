@@ -155,8 +155,21 @@ impl WorkspaceOutline {
 }
 
 impl Workspace {
+    pub(super) fn workspace_sidebar_visible(&self) -> bool {
+        self.page == Page::Start || self.sidebar_visible
+    }
+
+    pub(super) fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        if self.page == Page::Start {
+            return;
+        }
+        self.sidebar_visible = !self.sidebar_visible;
+        self.sidebar_window_width = 0.;
+        cx.notify();
+    }
+
     pub(super) fn workspace_column_width(&self, window_width: f32) -> f32 {
-        if self.sidebar_visible {
+        if self.workspace_sidebar_visible() {
             (window_width * self.sidebar_ratio).clamp(160., window_width * 0.35)
         } else {
             48.

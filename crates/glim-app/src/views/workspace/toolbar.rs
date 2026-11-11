@@ -183,12 +183,14 @@ impl Workspace {
     }
 
     pub(super) fn navigation_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
+        let mut sidebar = ToolbarItem::new(ToolbarAction::Sidebar);
+        sidebar.enabled = self.page != Page::Start;
         h_flex()
             .h(px(28.))
             .items_center()
             .gap_1()
             .flex_shrink_0()
-            .child(self.toolbar_button(ToolbarItem::new(ToolbarAction::Sidebar), cx))
+            .child(self.toolbar_button(sidebar, cx))
             .child(self.search_button(cx))
             .when(
                 self.reader_toolbar_collapsed && self.page == Page::Document,

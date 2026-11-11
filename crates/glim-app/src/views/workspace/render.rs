@@ -72,6 +72,7 @@ impl Render for Workspace {
                     .map(|(title, message)| (title, message, false))
             });
         let window_width = f32::from(window.viewport_size().width);
+        let sidebar_visible = self.workspace_sidebar_visible();
         let sidebar_width = self.workspace_column_width(window_width);
         let explorer_width = self.explorer_column_width(window_width);
         let navigation_width = sidebar_width + explorer_width;
@@ -422,7 +423,7 @@ impl Render for Workspace {
                 .pr(px(super::CONTENT_INSET))
                 .pb(px(super::CONTENT_INSET))
                 .pt(px(super::CONTENT_INSET))
-                .when(!self.sidebar_visible, |view| {
+                .when(!sidebar_visible, |view| {
                     view.child(
                         v_flex()
                             .id("collapsed-sidebar")
@@ -462,7 +463,9 @@ impl Render for Workspace {
                                  window,
                                  cx| {
                                     if let Some(width) = state.read(cx).sizes().first().copied() {
-                                        if f32::from(width) <= SIDEBAR_COLLAPSE_WIDTH {
+                                        if view.page != Page::Start
+                                            && f32::from(width) <= SIDEBAR_COLLAPSE_WIDTH
+                                        {
                                             view.sidebar_visible = false;
                                             view.sidebar_window_width = 0.;
                                         } else {
@@ -479,8 +482,10 @@ impl Render for Workspace {
                                     gpui_kit::component::resizable::resize_handle_appearance();
                                 let layout = self.sidebar_layout.clone();
                                 let workspace = cx.entity().downgrade();
+                                let can_collapse = self.page != Page::Start;
                                 std::rc::Rc::new(move |handle, window, cx| {
-                                    if handle.is_active()
+                                    if can_collapse
+                                        && handle.is_active()
                                         && layout.read(cx).sizes().first().is_some_and(|size| {
                                             f32::from(*size) <= SIDEBAR_COLLAPSE_WIDTH
                                         })
@@ -531,10 +536,13 @@ impl Render for Workspace {
                             })
                             .child(
                                 resizable_panel()
-                                    .visible(self.sidebar_visible)
+                                    .visible(sidebar_visible)
                                     .size(px(sidebar_width))
                                     .flex_none()
-                                    .size_range(px(80.)..px(window_width * 0.35))
+                                    .size_range(
+                                        px(if self.page == Page::Start { 160. } else { 80. })
+                                            ..px(window_width * 0.35),
+                                    )
                                     .child(sidebar),
                             )
                             .child(
@@ -600,11 +608,7 @@ impl Render for Workspace {
                     }
                 }),
             )
-            .on_action(cx.listener(|v, _: &ToggleSidebar, _, cx| {
-                v.sidebar_visible = !v.sidebar_visible;
-                v.sidebar_window_width = 0.;
-                cx.notify();
-            }))
+            .on_action(cx.listener(|v, _: &ToggleSidebar, _, cx| v.toggle_sidebar(cx)))
             .on_action(cx.listener(|v, _: &ToggleFileTree, _, cx| v.toggle_file_tree(cx)))
             .on_action(cx.listener(|v, _: &TogglePreview, w, cx| {
                 if let Some(reader) = v.active_reader().filter(|reader| reader.can_preview()) {

@@ -397,11 +397,7 @@ impl super::Workspace {
                 self.picking = false;
                 cx.notify();
             }
-            ToolbarAction::Sidebar => {
-                self.sidebar_visible = !self.sidebar_visible;
-                self.sidebar_window_width = 0.;
-                cx.notify();
-            }
+            ToolbarAction::Sidebar => self.toggle_sidebar(cx),
             ToolbarAction::Preview | ToolbarAction::Source => {
                 if self.active_reader().is_some_and(|r| r.can_preview()) {
                     self.set_reader_preview(matches!(action, ToolbarAction::Preview), window, cx);
