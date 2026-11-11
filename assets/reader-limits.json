@@ -1631,6 +1631,46 @@
       }
     },
     "remote": {
+      "search_concurrency": {
+        "value": 2,
+        "type": "usize",
+        "unit": "jobs",
+        "effect": "budget",
+        "description": "Concurrent remote path-index scans; queued scans wait without occupying workers, independently of file opening.",
+        "description_zh": "远端路径索引扫描的并发预算；排队扫描不占工作线程，与文件打开独立。"
+      },
+      "search_batch_paths": {
+        "value": 256,
+        "type": "usize",
+        "unit": "paths per transaction",
+        "effect": "budget",
+        "description": "Paths committed per search-index transaction; partial results publish sooner on the first file or elapsed publish interval. Total indexed paths are unlimited.",
+        "description_zh": "每个搜索索引事务提交的路径数；首个文件或达到发布间隔时提前发布部分结果，不限制总路径数。"
+      },
+      "search_poll_ms": {
+        "value": 250,
+        "type": "u64",
+        "unit": "milliseconds",
+        "effect": "budget",
+        "description": "Search-index publication and UI revision-poll interval; unchanged revisions do not rerun the filename query.",
+        "description_zh": "搜索索引结果发布和界面版本轮询间隔；版本不变时不重新执行文件名查询。"
+      },
+      "search_refresh_ms": {
+        "value": 300000,
+        "type": "u64",
+        "unit": "milliseconds",
+        "effect": "budget",
+        "description": "Age after which a successful remote path index refreshes when search is open; explicit refresh bypasses this delay. Failed scans retain cached paths and retry on reopening.",
+        "description_zh": "远端路径索引成功扫描后，搜索打开期间达到此缓存年龄则后台刷新；手动刷新跳过等待。失败保留缓存路径，重新打开搜索时重试。"
+      },
+      "search_record_bytes": {
+        "value": 1048576,
+        "type": "usize",
+        "unit": "bytes",
+        "effect": "fallback",
+        "description": "Active NUL-framed SSH filename record budget. Invalid or oversized command output falls back to streaming SFTP enumeration; no total file or workspace-size limit.",
+        "description_zh": "SSH 文件名流中单个 NUL 分隔记录的活动预算；无效或超预算命令输出降级到流式 SFTP 枚举，不限制文件或工作区总大小。"
+      },
       "refresh_interval_ms": {
         "value": 2000,
         "type": "u64",

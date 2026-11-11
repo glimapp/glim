@@ -1,5 +1,7 @@
 //! SSH connection records and read-only SFTP access. Call on background workers.
+mod search_index;
 mod sftp;
+pub use search_index::IndexedPage;
 
 use crate::{storage, work::Cancellation};
 use anyhow::{Context, Result, ensure};
@@ -26,6 +28,52 @@ pub struct Connection {
     pub last_directory: Option<PathBuf>,
 }
 impl Connection {
+    fn ssh_command(&self) -> Result<std::process::Command> {
+        use std::{
+            os::unix::process::CommandExt,
+            process::{Command, Stdio},
+        };
+        let mut command = Command::new("/usr/bin/ssh");
+        command
+            .args([
+                "-T",
+                "-o",
+                "ConnectTimeout=15",
+                "-o",
+                "NumberOfPasswordPrompts=1",
+                "-o",
+                "ServerAliveInterval=5",
+                "-o",
+                "ServerAliveCountMax=2",
+                "-o",
+                "StrictHostKeyChecking=ask",
+                "-o",
+                "ControlMaster=no",
+                "-o",
+                "ControlPath=none",
+            ])
+            .env("SSH_ASKPASS", std::env::current_exe()?)
+            .env("SSH_ASKPASS_REQUIRE", "force")
+            .env("GLIM_SSH_ASKPASS", "1")
+            .env("DISPLAY", "glim:0")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(port) = self.port {
+            command.arg("-p").arg(port.to_string());
+        }
+        if !self.user.is_empty() {
+            command.arg("-l").arg(&self.user);
+        }
+        if let Some(identity) = &self.identity {
+            command
+                .arg("-i")
+                .arg(identity)
+                .args(["-o", "IdentitiesOnly=yes"]);
+        }
+        command.process_group(0);
+        Ok(command)
+    }
     pub fn label(&self) -> String {
         if self.name.trim().is_empty() {
             self.address()
@@ -216,48 +264,6 @@ impl Session {
     }
     pub fn list_entries(&self, path: &Path, cancel: &Cancellation) -> Result<Vec<DirectoryEntry>> {
         self.with_transport(cancel, |transport| transport.list(path, cancel))
-    }
-    pub fn search(
-        &self,
-        roots: &[PathBuf],
-        query: &str,
-        offset: usize,
-        cancel: &Cancellation,
-    ) -> Result<crate::workspace::SearchPage> {
-        let query = query.trim().to_lowercase();
-        let mut paths = Vec::new();
-        let mut skipped = 0;
-        let mut pending = roots.iter().rev().cloned().collect::<Vec<_>>();
-        let mut seen = std::collections::HashSet::new();
-        while let Some(directory) = pending.pop() {
-            cancel.check()?;
-            if !seen.insert(directory.clone()) {
-                continue;
-            }
-            for entry in self.list_entries(&directory, cancel)?.into_iter().rev() {
-                if entry.path.file_name().is_some_and(|name| name == ".git") {
-                    continue;
-                }
-                if entry.is_dir {
-                    if !entry.is_symlink {
-                        pending.push(entry.path);
-                    }
-                    continue;
-                }
-                if !entry.path.to_string_lossy().to_lowercase().contains(&query) {
-                    continue;
-                }
-                if skipped < offset {
-                    skipped += 1;
-                    continue;
-                }
-                if paths.len() == crate::limits::WORKSPACE_SEARCH_RESULTS {
-                    return Ok(crate::workspace::SearchPage { paths, more: true });
-                }
-                paths.push(entry.path);
-            }
-        }
-        Ok(crate::workspace::SearchPage { paths, more: false })
     }
     pub fn cache_path(&self, path: &Path) -> Result<PathBuf> {
         ensure!(path.is_absolute(), "Remote path must be absolute");

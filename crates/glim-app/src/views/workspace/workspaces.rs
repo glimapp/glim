@@ -36,6 +36,8 @@ impl Workspace {
         self.search_task = None;
         self.search_loading = false;
         self.search_previous_focus = None;
+        self.remote_index_task = None;
+        self.search_indexing = false;
         self.set_file_fullscreen(false, window);
         self.flush_usage();
         for reader in &self.tabs {

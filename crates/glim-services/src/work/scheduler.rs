@@ -15,6 +15,7 @@ pub enum JobClass {
     Decode,
     Native,
     Diagram,
+    RemoteSearch,
 }
 impl JobClass {
     fn index(self) -> usize {
@@ -27,6 +28,7 @@ impl JobClass {
             Self::Decode => "decode",
             Self::Native => "native",
             Self::Diagram => "diagram",
+            Self::RemoteSearch => "remote_search",
         }
     }
 }
@@ -83,14 +85,14 @@ impl Lane {
 }
 
 struct State {
-    lanes: [Lane; 5],
+    lanes: [Lane; 6],
     next_id: u64,
 }
 pub struct Scheduler {
     state: Mutex<State>,
 }
 impl Scheduler {
-    fn new(limits: [usize; 5]) -> Arc<Self> {
+    fn new(limits: [usize; 6]) -> Arc<Self> {
         assert!(limits.iter().all(|limit| *limit > 0));
         Arc::new(Self {
             state: Mutex::new(State {
@@ -116,6 +118,7 @@ impl Scheduler {
             crate::limits::JOBS_DECODE_CONCURRENCY,
             crate::limits::JOBS_NATIVE_CONCURRENCY,
             crate::limits::JOBS_DIAGRAM_CONCURRENCY,
+            crate::limits::REMOTE_SEARCH_CONCURRENCY,
         ])
     }
     pub fn acquire(
@@ -263,7 +266,7 @@ mod tests {
                 self.0.fetch_add(1, Ordering::Relaxed);
             }
         }
-        let pool = Scheduler::new([1; 5]);
+        let pool = Scheduler::new([1; 6]);
         let first = ready(&mut request(
             &pool,
             JobClass::Document,
@@ -285,7 +288,7 @@ mod tests {
 
     #[test]
     fn running_work_holds_capacity_after_its_caller_is_canceled() {
-        let pool = Scheduler::new([1; 5]);
+        let pool = Scheduler::new([1; 6]);
         let (cancel, owner) = Cancellation::task();
         let first = ready(&mut pool.acquire(JobClass::Decode, Priority::Interactive, cancel));
         let mut next = request(&pool, JobClass::Decode, Priority::Interactive);
@@ -303,7 +306,7 @@ mod tests {
     }
     #[test]
     fn dropped_and_canceled_waiters_do_not_block_the_queue() {
-        let pool = Scheduler::new([1; 5]);
+        let pool = Scheduler::new([1; 6]);
         let first = ready(&mut request(
             &pool,
             JobClass::Projection,
@@ -328,7 +331,7 @@ mod tests {
     }
     #[test]
     fn both_priorities_make_progress_without_reordering_their_own_queue() {
-        let pool = Scheduler::new([1; 5]);
+        let pool = Scheduler::new([1; 6]);
         let first = ready(&mut request(
             &pool,
             JobClass::Document,
@@ -350,7 +353,7 @@ mod tests {
     }
     #[test]
     fn viewport_has_two_turns_without_starving_clicks_or_background() {
-        let pool = Scheduler::new([1; 5]);
+        let pool = Scheduler::new([1; 6]);
         let first = ready(&mut request(&pool, JobClass::Decode, Priority::Background));
         let mut visible1 = request(&pool, JobClass::Decode, Priority::Viewport);
         let mut visible2 = request(&pool, JobClass::Decode, Priority::Viewport);
@@ -379,7 +382,7 @@ mod tests {
 
     #[test]
     fn unwinding_a_worker_returns_its_permit() {
-        let pool = Scheduler::new([1; 5]);
+        let pool = Scheduler::new([1; 6]);
         let permit = ready(&mut request(&pool, JobClass::Native, Priority::Interactive));
         let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             let _permit = permit;

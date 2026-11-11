@@ -15,6 +15,94 @@ use gpui_kit::{
 use std::{collections::HashSet, path::PathBuf};
 
 impl Workspace {
+    pub(super) fn start_remote_search_index(
+        &mut self,
+        force: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(remote) = self.remote.clone() else {
+            return;
+        };
+        let roots = self.roots.clone();
+        let scope = remote.search_scope(&roots);
+        if !force
+            && self.remote_index_task.is_some()
+            && self.remote_index_scope.as_ref() == Some(&scope)
+        {
+            return;
+        }
+        self.remote_index_task = None;
+        self.remote_index_scope = Some(scope);
+        self.search_indexing = true;
+        self.search_error = None;
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        self.remote_index_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let _guard = guard;
+            let mut force = force;
+            loop {
+                let worker = remote.clone();
+                let roots = roots.clone();
+                let result = crate::app::reader_jobs::run(
+                    cx.background_executor().clone(),
+                    crate::app::reader_jobs::JobClass::RemoteSearch,
+                    crate::app::reader_jobs::Priority::Background,
+                    cancel.clone(),
+                    move |cancel| worker.refresh_search_index(&roots, force, cancel),
+                )
+                .await;
+                let busy = matches!(result, Ok(false));
+                let keep = view
+                    .update(cx, |view, cx| {
+                        view.search_indexing = busy;
+                        if let Err(error) = &result {
+                            view.search_error = Some(format!("{error:#}").into());
+                        }
+                        let keep = result.is_ok() && (busy || view.search_visible);
+                        if !keep {
+                            view.remote_index_task = None;
+                        }
+                        cx.notify();
+                        keep
+                    })
+                    .unwrap_or(false);
+                if !keep {
+                    break;
+                }
+                if !busy {
+                    force = false;
+                }
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(if busy {
+                        limits::REMOTE_SEARCH_POLL_MS
+                    } else {
+                        limits::REMOTE_SEARCH_REFRESH_MS
+                    }))
+                    .await;
+                if !view
+                    .update(cx, |view, cx| {
+                        if !view.search_visible {
+                            view.remote_index_task = None;
+                            return false;
+                        }
+                        view.search_indexing = true;
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false)
+                {
+                    break;
+                }
+            }
+        }));
+        cx.notify();
+    }
+
+    fn retry_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_remote_search_index(true, window, cx);
+        self.search_files(window, cx);
+    }
+
     pub(super) fn show_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.remote_dialog.is_some() {
             return;
@@ -22,6 +110,7 @@ impl Workspace {
         if !self.search_visible {
             self.search_previous_focus = window.focused(cx);
             self.search_visible = true;
+            self.start_remote_search_index(false, window, cx);
             self.search_files(window, cx);
         }
         self.search.update(cx, |input, cx| input.focus(window, cx));
@@ -135,7 +224,11 @@ impl Workspace {
             .px_2()
             .pb_2();
 
-        if let Some(error) = &self.search_error {
+        if let Some(error) = self
+            .search_error
+            .as_ref()
+            .filter(|_| paths.is_empty() && !empty_query)
+        {
             let detail = error.clone();
             list = list.child(
                 v_flex()
@@ -151,7 +244,7 @@ impl Workspace {
                                     .small()
                                     .label(tr("Retry"))
                                     .on_click(cx.listener(|view, _, window, cx| {
-                                        view.search_files(window, cx)
+                                        view.retry_search(window, cx)
                                     })),
                             )
                             .child(
@@ -167,8 +260,8 @@ impl Workspace {
                             ),
                     ),
             );
-        } else if self.search_loading || paths.is_empty() {
-            let message = if self.search_loading {
+        } else if paths.is_empty() {
+            let message = if self.search_loading || self.search_indexing {
                 "Searching files…"
             } else if empty_query {
                 "No recently opened files"
@@ -333,8 +426,32 @@ impl Workspace {
                                     .flex_1()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(tr("↑↓ Select · ↵ Open · Esc Close")),
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(tr(if self.search_error.is_some() {
+                                        "Remote search is incomplete"
+                                    } else if self.search_indexing || self.search_partial {
+                                        "Scanning remote files…"
+                                    } else {
+                                        "↑↓ Select · ↵ Open · Esc Close"
+                                    })),
                             )
+                            .when(self.remote.is_some(), |footer| {
+                                footer.child(
+                                    crate::views::icon_button(
+                                        "refresh-remote-search",
+                                        IconName::RefreshCw,
+                                        self.search_error
+                                            .as_ref()
+                                            .map(|error| format!("{}: {error}", tr("Retry")))
+                                            .unwrap_or_else(|| tr("Refresh file search")),
+                                    )
+                                    .ghost()
+                                    .on_click(cx.listener(
+                                        |view, _, window, cx| view.retry_search(window, cx),
+                                    )),
+                                )
+                            })
                             .when(self.search_offset > 0 || self.search_more, |footer| {
                                 footer
                                     .child(

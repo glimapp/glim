@@ -6,7 +6,7 @@ use glim_core::DirectoryEntry;
 use std::{
     ffi::OsString,
     io::{Read, Write},
-    os::unix::{ffi::OsStringExt, fs::PermissionsExt, process::CommandExt},
+    os::unix::{ffi::OsStringExt, fs::PermissionsExt},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::{
@@ -73,46 +73,7 @@ impl Drop for Watch {
 impl Sftp {
     pub fn connect(connection: &Connection, cancel: &Cancellation) -> Result<Self> {
         cancel.check()?;
-        let executable = std::env::current_exe()?;
-        let mut command = Command::new("/usr/bin/ssh");
-        command
-            .args([
-                "-T",
-                "-o",
-                "ConnectTimeout=15",
-                "-o",
-                "NumberOfPasswordPrompts=1",
-                "-o",
-                "ServerAliveInterval=5",
-                "-o",
-                "ServerAliveCountMax=2",
-                "-o",
-                "StrictHostKeyChecking=ask",
-                "-o",
-                "ControlMaster=no",
-                "-o",
-                "ControlPath=none",
-            ])
-            .env("SSH_ASKPASS", executable)
-            .env("SSH_ASKPASS_REQUIRE", "force")
-            .env("GLIM_SSH_ASKPASS", "1")
-            .env("DISPLAY", "glim:0")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if let Some(port) = connection.port {
-            command.arg("-p").arg(port.to_string());
-        }
-        if !connection.user.is_empty() {
-            command.arg("-l").arg(&connection.user);
-        }
-        if let Some(identity) = &connection.identity {
-            command
-                .arg("-i")
-                .arg(identity)
-                .args(["-o", "IdentitiesOnly=yes"]);
-        }
-        command.process_group(0);
+        let mut command = connection.ssh_command()?;
         command.arg("-s").arg(&connection.host).arg("sftp");
         let mut child = command
             .spawn()
@@ -332,14 +293,11 @@ impl Sftp {
         }
     }
     pub fn list(&mut self, path: &Path, cancel: &Cancellation) -> Result<Vec<DirectoryEntry>> {
-        cancel.check()?;
-        let _watch = self.watch(cancel);
-        let reply = self.request(11, &string(path.as_os_str().as_encoded_bytes())?)?;
-        let handle = Packet::body(&reply, 102)?.string()?.to_vec();
-        let result = self.read_directory(path, &handle, cancel);
-        let close = self.request(4, &string(&handle)?);
-        let mut entries = result?;
-        close?;
+        let mut entries = Vec::new();
+        self.visit_directory(path, cancel, |entry| {
+            entries.push(entry);
+            Ok(())
+        })?;
         entries.sort_by(|a, b| {
             b.is_dir
                 .cmp(&a.is_dir)
@@ -347,13 +305,29 @@ impl Sftp {
         });
         Ok(entries)
     }
+    pub(super) fn visit_directory(
+        &mut self,
+        path: &Path,
+        cancel: &Cancellation,
+        mut visit: impl FnMut(DirectoryEntry) -> Result<()>,
+    ) -> Result<()> {
+        cancel.check()?;
+        let _watch = self.watch(cancel);
+        let reply = self.request(11, &string(path.as_os_str().as_encoded_bytes())?)?;
+        let handle = Packet::body(&reply, 102)?.string()?.to_vec();
+        let result = self.read_directory(path, &handle, cancel, &mut visit);
+        let close = self.request(4, &string(&handle)?);
+        result?;
+        close?;
+        Ok(())
+    }
     fn read_directory(
         &mut self,
         path: &Path,
         handle: &[u8],
         cancel: &Cancellation,
-    ) -> Result<Vec<DirectoryEntry>> {
-        let mut entries = Vec::new();
+        visit: &mut impl FnMut(DirectoryEntry) -> Result<()>,
+    ) -> Result<()> {
         loop {
             cancel.check()?;
             let reply = self.request(12, &string(handle)?)?;
@@ -384,14 +358,14 @@ impl Sftp {
                 } else {
                     mode
                 };
-                entries.push(DirectoryEntry {
+                visit(DirectoryEntry {
                     path: target,
                     is_dir: mode & 0o170000 == 0o040000,
                     is_symlink: symlink,
-                });
+                })?;
             }
         }
-        Ok(entries)
+        Ok(())
     }
     pub fn download(
         &mut self,

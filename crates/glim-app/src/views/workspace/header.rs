@@ -75,8 +75,16 @@ impl Workspace {
         self.search_more = false;
         self.search_loading = false;
         self.search_error = None;
+        self.search_partial = false;
         self.search_selected = 0;
         self.search_scroll.set_offset(point(px(0.), px(0.)));
+        if self.search_visible
+            && self.remote.as_ref().is_some_and(|remote| {
+                self.remote_index_scope.as_ref() != Some(&remote.search_scope(&self.roots))
+            })
+        {
+            self.start_remote_search_index(false, window, cx);
+        }
         if !self.search_visible || query.trim().is_empty() {
             self.search_offset = 0;
             cx.notify();
@@ -99,45 +107,94 @@ impl Workspace {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(150))
                 .await;
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    match remote {
-                        Some(remote) => remote.search(&roots, &query, offset, &cancel),
-                        None => {
-                            glim_services::workspace::search_page(&roots, &query, offset, &cancel)
+            let mut revision = None;
+            let mut reported = false;
+            let mut failure_reported = false;
+            loop {
+                let (worker, roots, query, token) =
+                    (remote.clone(), roots.clone(), query.clone(), cancel.clone());
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        match worker {
+                            Some(remote) => remote
+                                .search(&roots, &query, offset, revision, &token)
+                                .map(|snapshot| {
+                                    snapshot.map(|s| (s.page, s.revision, !s.complete, s.warning))
+                                }),
+                            None => glim_services::workspace::search_page(
+                                &roots, &query, offset, &token,
+                            )
+                            .map(|page| Some((page, 0, false, None))),
                         }
-                    }
-                })
-                .await;
-            let _ = view.update(cx, |view, cx| {
-                view.search_loading = false;
-                match result {
-                    Ok(page) => {
-                        glim_services::telemetry::track(
-                            "workspace_search_completed",
-                            [
-                                (
-                                    "result_count",
-                                    glim_services::telemetry::number(page.paths.len() as u64),
-                                ),
-                                ("has_more", glim_services::telemetry::flag(page.more)),
-                            ],
-                        );
-                        view.results = page.paths;
-                        view.search_more = page.more;
-                    }
-                    Err(error) => {
-                        glim_services::telemetry::operation_failed(
-                            "workspace_search",
-                            None,
-                            &error,
-                        );
-                        view.search_error = Some(format!("{error:#}").into());
-                    }
+                    })
+                    .await;
+                let keep = view
+                    .update(cx, |view, cx| {
+                        view.search_loading = false;
+                        match result {
+                            Ok(Some((page, current, partial, warning))) => {
+                                revision = Some(current);
+                                if !partial && !reported {
+                                    reported = true;
+                                    glim_services::telemetry::track(
+                                        "workspace_search_completed",
+                                        [
+                                            (
+                                                "result_count",
+                                                glim_services::telemetry::number(
+                                                    page.paths.len() as u64
+                                                ),
+                                            ),
+                                            ("has_more", glim_services::telemetry::flag(page.more)),
+                                        ],
+                                    );
+                                }
+                                let selected = view.results.get(view.search_selected).cloned();
+                                let previous_selection = view.search_selected;
+                                view.results = page.paths;
+                                view.search_selected = selected
+                                    .as_ref()
+                                    .and_then(|path| view.results.iter().position(|p| p == path))
+                                    .unwrap_or(
+                                        view.search_selected
+                                            .min(view.results.len().saturating_sub(1)),
+                                    );
+                                if previous_selection != view.search_selected {
+                                    view.search_scroll.scroll_to_item(view.search_selected);
+                                }
+                                view.search_more = page.more;
+                                view.search_partial = partial;
+                                view.search_error = warning.map(Into::into);
+                                cx.notify();
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                revision = None;
+                                if !failure_reported {
+                                    failure_reported = true;
+                                    glim_services::telemetry::operation_failed(
+                                        "workspace_search",
+                                        None,
+                                        &error,
+                                    );
+                                }
+                                view.search_error = Some(format!("{error:#}").into());
+                                cx.notify();
+                            }
+                        }
+                        remote.is_some() && view.search_visible
+                    })
+                    .unwrap_or(false);
+                if !keep {
+                    break;
                 }
-                cx.notify();
-            });
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(
+                        glim_services::limits::REMOTE_SEARCH_POLL_MS,
+                    ))
+                    .await;
+            }
         }));
         cx.notify();
     }
