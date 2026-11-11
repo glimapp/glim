@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-if [[ "${1:-}" != "" && "${1:-}" != --build-only ]]; then
-    echo 'Usage: scripts/test-native-preview.sh [--build-only]' >&2
+if [[ "${1:-}" != "" && "${1:-}" != --build-only && "${1:-}" != --toolbar-only ]]; then
+    echo 'Usage: scripts/test-native-preview.sh [--build-only|--toolbar-only]' >&2
     exit 1
 fi
 preview_test_dir=$(mktemp -d)
@@ -11,7 +11,7 @@ python3 scripts/generate-reader-limits.py --out-dir "$preview_test_dir"
 python3 scripts/embed-openapi.py "$preview_test_dir"
 xcrun swiftc -swift-version 5 \
     "$preview_test_dir/ReaderLimits.swift" "$preview_test_dir/OpenAPIAssets.swift" native/Preview.swift native/FormatCatalog.swift native/PreviewRequest.swift native/ImagePreview.swift native/ReaderResources.swift native/ImageTextExtraction.swift native/PreviewCopy.swift native/FloatingReaderToolbar.swift native/ReaderActions.swift native/ReaderFind.swift native/HTMLPreview.swift native/OpenAPIResources.swift native/WorkbookPreview.swift native/WordPreview.swift native/EmbeddedPreview.swift \
-    native/tests/ReaderResourcesTests.swift native/tests/EmbeddedPreviewTests.swift -o "$preview_test_dir/preview-tests"
+    native/tests/ReaderActionTests.swift native/tests/ReaderResourcesTests.swift native/tests/EmbeddedPreviewTests.swift -o "$preview_test_dir/preview-tests"
 if [[ "${1:-}" != --build-only ]]; then
-    "$preview_test_dir/preview-tests"
+    "$preview_test_dir/preview-tests" "${1:-}"
 fi

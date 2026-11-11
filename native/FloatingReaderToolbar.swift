@@ -1,58 +1,5 @@
 import Cocoa
 
-final class ReaderActionButton: NSButton {
-    private var hovered = false
-    private var activated = false
-    private var completed = false
-    private var feedbackTask: DispatchWorkItem?
-    private var hoverArea: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let area = hoverArea { removeTrackingArea(area) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area); hoverArea = area
-    }
-    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
-    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
-    override func draw(_ dirtyRect: NSRect) {
-        let selected = state == .on
-        let pressed = cell?.isHighlighted == true || activated
-        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 7, yRadius: 7)
-        let fill: NSColor = selected ? .controlAccentColor.withAlphaComponent(pressed ? 0.30 : 0.20)
-            : .labelColor.withAlphaComponent(pressed ? 0.18 : (hovered && isEnabled ? 0.09 : 0))
-        fill.setFill(); shape.fill()
-        let tint: NSColor = !isEnabled ? .disabledControlTextColor : (selected ? .controlAccentColor : .labelColor)
-        if contentTintColor != tint { contentTintColor = tint }
-        if completed {
-            NSColor.controlAccentColor.setStroke()
-            let check = NSBezierPath()
-            let direction: CGFloat = isFlipped ? -1 : 1
-            check.move(to: NSPoint(x: bounds.midX - 5, y: bounds.midY))
-            check.line(to: NSPoint(x: bounds.midX - 1, y: bounds.midY - 4 * direction))
-            check.line(to: NSPoint(x: bounds.midX + 6, y: bounds.midY + 5 * direction))
-            check.lineWidth = 2; check.lineCapStyle = .round; check.lineJoinStyle = .round; check.stroke()
-        } else { super.draw(dirtyRect) }
-    }
-    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
-        let sent = super.sendAction(action, to: target)
-        if sent && !completed { feedback(success: false) }
-        return sent
-    }
-    func showCompletion() { feedback(success: true) }
-    private func feedback(success: Bool) {
-        feedbackTask?.cancel()
-        activated = true; completed = success; needsDisplay = true
-        let task = DispatchWorkItem { [weak self] in
-            self?.activated = false; self?.completed = false; self?.needsDisplay = true
-            self?.feedbackTask = nil
-        }
-        feedbackTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + (success ? 1.0 : 0.28), execute: task)
-    }
-    deinit { feedbackTask?.cancel() }
-}
-
 // Reader controls stay alive when the workspace lends this capsule its actions.
 final class FloatingReaderToolbar: NSView {
     private let controls: ReaderControls
@@ -372,37 +319,37 @@ final class WorkspaceReaderToolbar: NSView {
         self.visible = visible; self.collapsed = collapsed
         if payload != data {
             payload = data
-            active?.setWorkspaceControls(nil)
             let entries = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
-            fullscreen = entries.contains { $0["id"] as? String == "file-fullscreen" && $0["selected"] as? Bool == true }
+            fullscreen = entries.contains { $0["id"] as? String == "file-fullscreen" && $0["selection"] as? Bool == true }
             if let labels = entries.first(where: { $0["id"] as? String == "hide-reader-toolbar" }) {
                 roundTop = labels["roundTop"] as? Bool ?? false
                 moreLabel = labels["moreLabel"] as? String ?? L("More file actions")
                 let label = labels["restoreLabel"] as? String ?? L("Show file toolbar")
                 restore.toolTip = label; restore.setAccessibilityLabel(label)
             }
-            common = ReaderControls(entries.compactMap { item in
+            let existing = Dictionary(uniqueKeysWithValues: common.entries.map { ($0.id, $0.view) })
+            let updated = entries.compactMap { item -> ReaderControl? in
                 guard let id = item["id"] as? String, let label = item["label"] as? String else { return nil }
-                let button = ReaderActionButton(title: "", target: self, action: #selector(invoke(_:)))
+                let button = existing[id] as? ReaderActionButton
+                    ?? ReaderActionButton(title: "", target: self, action: #selector(invoke(_:)))
                 button.identifier = NSUserInterfaceItemIdentifier(id)
                 button.toolTip = label; button.setAccessibilityLabel(label)
                 button.bezelStyle = .rounded; button.isBordered = false
-                button.setButtonType(["reader-preview", "reader-source", "word-wrap", "file-fullscreen"].contains(id) ? .toggle : .momentaryPushIn)
                 button.image = NSImage(systemSymbolName: item["symbol"] as? String ?? "ellipsis", accessibilityDescription: label)
                 button.imagePosition = .imageOnly
                 button.isEnabled = item["enabled"] as? Bool ?? true
-                button.state = item["selected"] as? Bool == true ? .on : .off
+                button.selection = item["selection"] as? Bool
                 return ReaderControl(id, button)
-            })
+            }
+            if common.entries.map({ $0.id }) != updated.map({ $0.id }) {
+                active?.setWorkspaceControls(nil)
+                common = ReaderControls(updated)
+            }
         }
         refresh()
     }
     @objc private func invoke(_ sender: NSButton) {
         guard let id = sender.identifier?.rawValue else { return }
-        if let entries = (try? JSONSerialization.jsonObject(with: payload)) as? [[String: Any]],
-           let item = entries.first(where: { $0["id"] as? String == id }) {
-            sender.state = item["selected"] as? Bool == true ? .on : .off
-        }
         id.withCString { callback(context, $0) }
     }
     static func refresh(in window: NSWindow) {

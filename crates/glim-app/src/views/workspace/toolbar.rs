@@ -1,4 +1,4 @@
-use super::reader_actions::{ToolbarAction, ToolbarItem, document_items};
+use super::reader_actions::{ToolbarAction, ToolbarItem};
 use super::{Page, Workspace};
 use gpui_kit::{
     component::{
@@ -53,31 +53,9 @@ impl Workspace {
             .into_any_element()
     }
 
-    pub(super) fn set_file_fullscreen(&mut self, enabled: bool, window: &Window) {
-        if enabled == self.file_fullscreen {
-            return;
-        }
-        let mut props = self.usage_context();
-        props.push(("enabled", glim_services::telemetry::flag(enabled)));
-        glim_services::telemetry::track("reader_fullscreen_changed", props);
-        if enabled {
-            self.file_fullscreen_seen_window = window.is_fullscreen();
-            self.file_fullscreen_entered_window = !window.is_fullscreen();
-            if self.file_fullscreen_entered_window {
-                window.toggle_fullscreen();
-            }
-        } else {
-            if self.file_fullscreen_entered_window && window.is_fullscreen() {
-                window.toggle_fullscreen();
-            }
-            self.file_fullscreen_entered_window = false;
-            self.file_fullscreen_seen_window = false;
-        }
-        self.file_fullscreen = enabled;
-    }
-
     fn toolbar_button(&self, item: ToolbarItem, cx: &mut Context<Self>) -> Button {
         let action = item.action;
+        let selected = item.selection() == Some(true);
         let label = glim_services::locale::tr(item.label);
         let icon = match item.icon {
             Some(icon) => Icon::new(icon),
@@ -93,13 +71,18 @@ impl Workspace {
         let button = Button::new(action.id())
             .custom(
                 ButtonCustomVariant::new(cx)
-                    .foreground(if item.selected {
+                    .color(if self.toolbar_feedback == Some(action.id()) {
+                        cx.theme().foreground.opacity(0.12)
+                    } else {
+                        cx.theme().transparent
+                    })
+                    .foreground(if selected {
                         crate::views::accent(cx)
                     } else {
                         cx.theme().foreground
                     })
                     .hover(cx.theme().foreground.opacity(0.10))
-                    .active(if item.selected {
+                    .active(if selected {
                         crate::views::accent(cx).opacity(0.20)
                     } else {
                         cx.theme().foreground.opacity(0.18)
@@ -113,7 +96,7 @@ impl Workspace {
             .icon(icon.size(px(16.)))
             .tooltip(label.clone())
             .accessibility_label(label.clone())
-            .selected(item.selected || self.toolbar_feedback == Some(action.id()))
+            .selected(selected)
             .disabled(!item.enabled)
             .on_click(cx.listener(move |view, _, window, cx| {
                 view.run_toolbar_action(action, window, cx);
@@ -182,7 +165,7 @@ impl Workspace {
         use gpui_kit::component::WindowExt;
         let mut items: Vec<_> = self.reader_actions(cx).into_iter().map(|item| {
             serde_json::json!({"id": item.action.id(), "label": glim_services::locale::tr(item.label),
-                "symbol": item.native_symbol(), "enabled": item.enabled, "selected": item.selected})
+                "symbol": item.native_symbol(), "enabled": item.enabled, "selection": item.selection()})
         }).collect();
         let visible = !items.is_empty()
             && !self.search_visible
@@ -194,12 +177,12 @@ impl Workspace {
                 .any(|context| context.contains("PopupMenu") || context.contains("Dialog"));
         if self.saving.is_some() && self.save_cancel.is_some() {
             items.push(serde_json::json!({"id": "cancel-file-save", "label": glim_services::locale::tr("Cancel save"),
-                "symbol": "xmark.circle", "enabled": true, "selected": false}));
+                "symbol": "xmark.circle", "enabled": true, "selection": null}));
         }
         items.push(serde_json::json!({"id": "hide-reader-toolbar", "label": glim_services::locale::tr("Hide file toolbar"),
             "moreLabel": glim_services::locale::tr("More file actions"), "restoreLabel": glim_services::locale::tr("Show file toolbar"),
             "roundTop": !self.sidebar_visible,
-            "symbol": "chevron.down", "enabled": true, "selected": false}));
+            "symbol": "chevron.down", "enabled": true, "selection": null}));
         let bytes = serde_json::to_vec(&items).expect("Reader toolbar actions");
         let toolbar = self.reader_toolbar.clone();
         let collapsed = self.reader_toolbar_collapsed;
@@ -220,32 +203,6 @@ impl Workspace {
         .into_any_element()
     }
 
-    pub(super) fn reader_actions(&self, cx: &App) -> Vec<ToolbarItem> {
-        let mut document = if self.page == Page::Document {
-            self.active_reader()
-                .map(|r| document_items(r, self.word_wrap, cx))
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        if self.picking && self.active_reader().is_some_and(|r| r.is_archive()) {
-            for item in &mut document {
-                if matches!(item.action, ToolbarAction::Extract) {
-                    *item = ToolbarItem::new(ToolbarAction::CancelExtract);
-                }
-            }
-        }
-        if self.page == Page::Document && self.active_reader().is_some() {
-            let mut fullscreen = ToolbarItem::new(ToolbarAction::FileFullscreen);
-            fullscreen.selected = self.file_fullscreen;
-            if self.file_fullscreen {
-                fullscreen.label = "Exit File Fullscreen";
-            }
-            document.push(fullscreen);
-        }
-        document
-    }
-
     pub(super) fn workspace_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
         let has_update = crate::app::updates::state(cx)
             .is_some_and(|state| state.read(cx).snapshot.has_update());
@@ -255,70 +212,5 @@ impl Workspace {
                 toolbar.child(self.toolbar_button(ToolbarItem::new(ToolbarAction::Update), cx));
         }
         toolbar.into_any_element()
-    }
-
-    pub(super) fn run_toolbar_action(
-        &mut self,
-        action: ToolbarAction,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.toolbar_feedback = Some(action.id());
-        self.toolbar_feedback_task = Some(cx.spawn(async move |view, cx| {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(280))
-                .await;
-            let _ = view.update(cx, |view, cx| {
-                view.toolbar_feedback = None;
-                view.toolbar_feedback_task = None;
-                cx.notify();
-            });
-        }));
-        let mut props = self.usage_context();
-        props.push(("action", glim_services::telemetry::text(action.id())));
-        glim_services::telemetry::track("reader_action", props);
-        match action {
-            ToolbarAction::Extract => self.extract_archive(window, cx),
-            ToolbarAction::Find => {
-                if let Some(reader) = self.active_reader() {
-                    reader.find(window, cx);
-                }
-            }
-            ToolbarAction::CancelExtract => {
-                self.picker_task = None;
-                self.picking = false;
-                cx.notify();
-            }
-            ToolbarAction::Sidebar => {
-                self.sidebar_visible = !self.sidebar_visible;
-                self.sidebar_window_width = 0.;
-                cx.notify();
-            }
-            ToolbarAction::Back => self.navigate(false, window, cx),
-            ToolbarAction::Forward => self.navigate(true, window, cx),
-            ToolbarAction::Preview | ToolbarAction::Source => {
-                if self.active_reader().is_some_and(|r| r.can_preview()) {
-                    self.set_reader_preview(matches!(action, ToolbarAction::Preview), window, cx);
-                }
-            }
-            ToolbarAction::WordWrap => {
-                if self.active_reader().is_some_and(|r| r.can_word_wrap()) {
-                    self.toggle_word_wrap(window, cx);
-                }
-            }
-            ToolbarAction::FileFullscreen => {
-                if self.page == Page::Document && self.active_reader().is_some() {
-                    self.set_file_fullscreen(!self.file_fullscreen, window);
-                    self.results.clear();
-                    self.search_task = None;
-                    self.history_swipe = None;
-                    // Keep the existing reader and its editing/preview state alive.
-                    window.focus(&self.focus, cx);
-                    cx.notify();
-                }
-            }
-            ToolbarAction::Update => crate::app::updates::show(window, cx),
-        }
-        cx.notify();
     }
 }

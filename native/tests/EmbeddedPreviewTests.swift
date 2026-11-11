@@ -42,6 +42,8 @@ struct EmbeddedPreviewTests {
         }
     }
     static func main() throws {
+        try readerActionState()
+        if CommandLine.arguments.contains("--toolbar-only") { return }
         readerResourceOwnership()
         try requestContract()
         _ = NSApplication.shared

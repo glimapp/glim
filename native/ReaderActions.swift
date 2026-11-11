@@ -1,5 +1,72 @@
 import Cocoa
 
+final class ReaderActionButton: NSButton {
+    // nil is a command; a value is selection owned by the reader/workspace.
+    var selection: Bool? {
+        didSet {
+            setButtonType(selection == nil ? .momentaryPushIn : .toggle)
+            synchronizeSelection()
+        }
+    }
+    private func synchronizeSelection() {
+        state = selection == true ? .on : .off
+        needsDisplay = true
+    }
+    private var hovered = false
+    private var activated = false
+    private var completed = false
+    private var feedbackTask: DispatchWorkItem?
+    private var hoverArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let area = hoverArea { removeTrackingArea(area) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area); hoverArea = area
+    }
+    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
+    override func draw(_ dirtyRect: NSRect) {
+        let selected = selection == true
+        let pressed = cell?.isHighlighted == true || activated
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 7, yRadius: 7)
+        let fill: NSColor = selected ? .controlAccentColor.withAlphaComponent(pressed ? 0.30 : 0.20)
+            : .labelColor.withAlphaComponent(pressed ? 0.18 : (hovered && isEnabled ? 0.09 : 0))
+        fill.setFill(); shape.fill()
+        let tint: NSColor = !isEnabled ? .disabledControlTextColor : (selected ? .controlAccentColor : .labelColor)
+        if contentTintColor != tint { contentTintColor = tint }
+        if completed {
+            NSColor.controlAccentColor.setStroke()
+            let check = NSBezierPath()
+            let direction: CGFloat = isFlipped ? -1 : 1
+            check.move(to: NSPoint(x: bounds.midX - 5, y: bounds.midY))
+            check.line(to: NSPoint(x: bounds.midX - 1, y: bounds.midY - 4 * direction))
+            check.line(to: NSPoint(x: bounds.midX + 6, y: bounds.midY + 5 * direction))
+            check.lineWidth = 2; check.lineCapStyle = .round; check.lineJoinStyle = .round; check.stroke()
+        } else { super.draw(dirtyRect) }
+    }
+    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        // AppKit advances NSButton.state even for unbordered momentary buttons.
+        synchronizeSelection()
+        let sent = super.sendAction(action, to: target)
+        synchronizeSelection()
+        if sent && !completed { feedback(success: false) }
+        return sent
+    }
+    func showCompletion() { feedback(success: true) }
+    private func feedback(success: Bool) {
+        feedbackTask?.cancel()
+        activated = true; completed = success; needsDisplay = true
+        let task = DispatchWorkItem { [weak self] in
+            self?.activated = false; self?.completed = false; self?.needsDisplay = true
+            self?.feedbackTask = nil
+        }
+        feedbackTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + (success ? 1.0 : 0.28), execute: task)
+    }
+    deinit { feedbackTask?.cancel() }
+}
+
 // Reader-owned controls are the live state: no second copy of enabled/selected
 // flags exists in the menu. IDs and array order stay stable when state changes.
 struct ReaderControl {

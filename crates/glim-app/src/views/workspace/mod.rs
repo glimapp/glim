@@ -395,26 +395,15 @@ impl Workspace {
         workspace.reader_toolbar_task = Some(cx.spawn_in(window, async move |workspace, cx| {
             loop {
                 let id = super::native_toolbar_bridge::ToolbarEvents::next(&toolbar_events).await;
-                if workspace
-                    .update_in(cx, |view, window, cx| {
-                        if id == "hide-reader-toolbar" {
-                            view.reader_toolbar_collapsed = true;
-                            cx.refresh_windows();
-                            cx.notify();
-                        } else if id == "show-reader-toolbar" {
-                            view.reader_toolbar_collapsed = false;
-                            cx.refresh_windows();
-                            cx.notify();
-                        } else if id == "cancel-file-save" {
-                            view.cancel_save(cx);
-                        } else if let Some(item) = view
-                            .reader_actions(cx)
-                            .into_iter()
-                            .find(|item| item.action.id() == id && item.enabled)
-                        {
-                            view.run_toolbar_action(item.action, window, cx);
-                        }
+                // Native actions belong to this window even while the workspace
+                // temporarily leaves its render tree (for example, tab switching).
+                if cx
+                    .update(|window, cx| {
+                        workspace.update(cx, |view, cx| {
+                            view.run_native_toolbar_action(&id, window, cx);
+                        })
                     })
+                    .and_then(|result| result)
                     .is_err()
                 {
                     break;
