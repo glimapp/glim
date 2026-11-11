@@ -10,13 +10,16 @@ use gpui_kit::{
     *,
 };
 
-pub(super) fn reader_frame(cx: &App) -> AnyElement {
+pub(super) fn reader_frame(workspace_outline: &WorkspaceOutline, cx: &App) -> AnyElement {
     let outside = cx.theme().sidebar;
+    let surface = crate::views::workspace_background(cx);
     let border = cx.theme().border;
+    let reader = workspace_outline.reader.clone();
+    let tree = workspace_outline.tree.clone();
     // GPUI overflow clips to a rectangle. Cover child paint outside the frame's
     // rounded corners, then restore the outline above the child backgrounds.
     canvas(
-        |_, _, _| (),
+        move |bounds, _, _| reader.set(Some(bounds)),
         move |bounds, _, window, _| {
             let radius = px(12.)
                 .min(bounds.size.width / 2.)
@@ -39,7 +42,13 @@ pub(super) fn reader_frame(cx: &App) -> AnyElement {
                 );
                 path.close();
                 if let Ok(path) = path.build() {
-                    window.paint_path(path, outside);
+                    let connected_corner = x > 0.
+                        && y < 0.
+                        && tree.get().is_some_and(|tree| {
+                            (tree.right() - bounds.left()).abs() <= px(1.)
+                                && (tree.bottom() - bounds.bottom()).abs() <= px(1.)
+                        });
+                    window.paint_path(path, if connected_corner { surface } else { outside });
                 }
             }
             window.paint_quad(outline(bounds, border, BorderStyle::default()).corner_radii(radius));
@@ -54,6 +63,7 @@ pub(super) fn reader_frame(cx: &App) -> AnyElement {
 pub(super) struct WorkspaceOutline {
     pub row: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
     pub tree: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
+    pub reader: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
 }
 
 impl WorkspaceOutline {
@@ -90,8 +100,21 @@ impl WorkspaceOutline {
                 let right = tree.right() - inset;
                 let top = tree.top() + inset;
                 let bottom = tree.bottom() - inset;
+                let bottom_right = self
+                    .reader
+                    .get()
+                    .filter(|reader| {
+                        (tree.right() - reader.left()).abs() <= px(1.)
+                            && (tree.bottom() - reader.bottom()).abs() <= px(1.)
+                    })
+                    .map_or(right, |reader| {
+                        reader.left()
+                            + px(12.)
+                                .min(reader.size.width / 2.)
+                                .min(reader.size.height / 2.)
+                    });
                 let mut corners = vec![
-                    (point(right, bottom), px(0.)),
+                    (point(bottom_right, bottom), px(0.)),
                     (point(left, bottom), px(12.)),
                 ];
                 if let Some(row) = self.row.get().filter(|row| row.size.height > px(12.)) {

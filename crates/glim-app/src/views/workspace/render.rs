@@ -246,7 +246,7 @@ impl Render for Workspace {
             .bg(cx.theme().sidebar)
             .child(viewer)
             .when(!self.file_fullscreen, |view| {
-                view.child(super::layout::reader_frame(cx))
+                view.child(super::layout::reader_frame(&outline, cx))
             });
         let panel_content = self
             .explorer
@@ -400,7 +400,7 @@ impl Render for Workspace {
         };
         let file_tree = div()
             .size_full()
-            .pt(px(super::TITLE_BAR_HEIGHT + 1.))
+            .pt(px(super::TITLE_BAR_HEIGHT))
             .child(file_tree)
             .into_any_element();
         let viewer = if self.file_fullscreen {
