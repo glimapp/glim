@@ -132,7 +132,7 @@ impl SourceReader {
                     .child(self.minimap.clone()),
             )
             .into_any_element();
-        super::find::wrap(content, &self.find)
+        super::find::wrap(content, &self.find, crate::views::minimap::MINIMAP_WIDTH)
     }
 }
 

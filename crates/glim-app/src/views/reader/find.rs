@@ -392,7 +392,7 @@ impl Render for FindBar {
             );
         let panel = v_flex()
             .id("reader-find")
-            .w(px(480.))
+            .w(px(400.))
             .max_w(relative(1.))
             .p(px(6.))
             .gap(px(4.))
@@ -417,6 +417,7 @@ impl Render for FindBar {
             .child(
                 h_flex()
                     .w_full()
+                    .flex_wrap()
                     .gap(px(4.))
                     .when(self.replaceable(cx), |row| {
                         row.child(
@@ -436,14 +437,14 @@ impl Render for FindBar {
                         )
                     })
                     .child(
-                        div().flex_1().min_w_0().child(
+                        div().flex_1().min_w(px(100.)).child(
                             Input::new(&self.input)
                                 .small()
                                 .appearance(false)
-                                .bordered(false)
-                                .suffix(options),
+                                .bordered(false),
                         ),
                     )
+                    .child(options)
                     .child(
                         div()
                             .w(px(54.))
@@ -535,7 +536,11 @@ impl Render for FindBar {
     }
 }
 
-pub(super) fn wrap(content: impl IntoElement, find: &Entity<FindBar>) -> AnyElement {
+pub(super) fn wrap(
+    content: impl IntoElement,
+    find: &Entity<FindBar>,
+    trailing_inset: f32,
+) -> AnyElement {
     let search = find.clone();
     let replace = find.clone();
     let next = find.clone();
@@ -578,6 +583,14 @@ pub(super) fn wrap(content: impl IntoElement, find: &Entity<FindBar>) -> AnyElem
             })
         })
         .child(content)
-        .child(find.clone())
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left_0()
+                .right(px(trailing_inset))
+                .child(find.clone()),
+        )
         .into_any_element()
 }

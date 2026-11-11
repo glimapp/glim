@@ -513,7 +513,11 @@ impl MarkupReader {
                 .into_any_element(),
         }
         .into_any_element();
-        super::find::wrap(content, &self.find)
+        super::find::wrap(
+            content,
+            &self.find,
+            crate::views::minimap::MINIMAP_WIDTH + 12.,
+        )
     }
 }
 pub(super) fn follow_link(

@@ -436,6 +436,7 @@ impl Workspace {
 
     pub(crate) fn show_home(&mut self, cx: &mut Context<Self>) {
         self.page = Page::Start;
+        self.sidebar_window_width = 0.;
         if let Some(explorer) = &self.explorer {
             explorer.update(cx, |view, cx| view.clear_clicked_selection(cx));
         }

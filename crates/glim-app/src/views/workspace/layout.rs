@@ -1,8 +1,9 @@
-use super::{DEFAULT_EXPLORER_RATIO, SIDEBAR_COLLAPSE_WIDTH, Workspace};
+use super::{DEFAULT_EXPLORER_RATIO, Page, SIDEBAR_COLLAPSE_WIDTH, Workspace};
 use gpui_kit::{
     base::{ElementExt as _, InteractiveElementExt as _},
     component::{
-        button::Button,
+        ActiveTheme,
+        button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         resizable::{h_resizable, resizable_panel},
         v_flex,
@@ -21,6 +22,9 @@ impl Workspace {
     }
 
     pub(super) fn explorer_column_width(&self, window_width: f32) -> f32 {
+        if self.page == Page::Start {
+            return 0.;
+        }
         if self.explorer_visible {
             (window_width * self.explorer_ratio).clamp(200., window_width * 0.35)
         } else {
@@ -42,16 +46,18 @@ impl Workspace {
     pub(super) fn file_tree_toggle(&self, cx: &mut Context<Self>) -> Button {
         crate::views::icon_button(
             "toggle-file-tree",
-            if self.explorer_visible {
-                gpui_kit::assets::IconName::ChevronLeft
-            } else {
-                gpui_kit::assets::IconName::ChevronRight
-            },
+            gpui_kit::assets::IconName::PanelLeft,
             glim_services::locale::tr(if self.explorer_visible {
                 "Collapse File Tree"
             } else {
                 "Expand File Tree"
             }),
+        )
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .foreground(cx.theme().muted_foreground)
+                .hover(cx.theme().foreground.opacity(0.04))
+                .active(cx.theme().foreground.opacity(0.08)),
         )
         .on_click(cx.listener(|view, _, _, cx| view.toggle_file_tree(cx)))
     }
@@ -64,6 +70,9 @@ impl Workspace {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if self.page == Page::Start {
+            return viewer;
+        }
         let window_width = f32::from(window.viewport_size().width);
         let workspace = cx.entity().downgrade();
         h_flex()

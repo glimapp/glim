@@ -315,9 +315,8 @@ impl Render for Workspace {
             .min_w_0()
             .overflow_hidden()
             .bg(crate::views::workspace_background(cx))
-            .when(!header_above_content, |view| {
-                view.pt(px(super::TITLE_BAR_HEIGHT - super::CONTENT_INSET))
-            })
+            .rounded_tl(px(12.))
+            .rounded_bl(px(12.))
             .px_2()
             .pb_1()
             .child(
@@ -335,7 +334,7 @@ impl Render for Workspace {
                             .truncate()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(glim_services::locale::tr("File Tree")),
+                            .child(glim_services::locale::tr("Files")),
                     )
                     .child(
                         Button::new("workspace-new-file")
@@ -395,6 +394,11 @@ impl Render for Workspace {
         } else {
             file_tree.into_any_element()
         };
+        let file_tree = div()
+            .size_full()
+            .pt(px(super::TITLE_BAR_HEIGHT + 1.))
+            .child(file_tree)
+            .into_any_element();
         let viewer = if self.file_fullscreen {
             viewer.into_any_element()
         } else {
@@ -545,8 +549,13 @@ impl Render for Workspace {
                             .child(
                                 resizable_panel()
                                     .size_range(
-                                        px(if self.explorer_visible { 480. } else { 320. })
-                                            ..px(10000.),
+                                        px(if self.page == Page::Start {
+                                            280.
+                                        } else if self.explorer_visible {
+                                            480.
+                                        } else {
+                                            320.
+                                        })..px(10000.),
                                     )
                                     .child(viewer),
                             ),
