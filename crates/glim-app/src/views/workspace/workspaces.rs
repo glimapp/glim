@@ -3,7 +3,7 @@ use glim_services::preferences::RecentWorkspace;
 use gpui_kit::{
     base::ElementExt as _,
     component::{
-        ActiveTheme, Icon, Selectable, Sizable,
+        ActiveTheme, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         input::{Input, InputEvent, InputState},
@@ -151,18 +151,14 @@ impl Workspace {
             .min_h_0()
             .flex_1()
             .w_full()
-            .items_end()
+            .items_center()
             .gap_2()
             .overflow_y_scroll()
             .children(slots.into_iter().map(|workspace| {
                 let selected = self.page != Page::Start && workspace.id == self.recent_id;
                 let id = workspace.id.clone();
                 let title = workspace.title();
-                let background = if selected {
-                    crate::views::workspace_background(cx)
-                } else {
-                    cx.theme().sidebar
-                };
+                let background = cx.theme().sidebar;
                 Button::new(SharedString::from(format!(
                     "collapsed-workspace-{}",
                     workspace.id
@@ -170,17 +166,20 @@ impl Workspace {
                 .custom(
                     ButtonCustomVariant::new(cx)
                         .color(background)
+                        .foreground(if selected {
+                            crate::views::accent(cx)
+                        } else {
+                            cx.theme().foreground
+                        })
                         .hover(background.blend(cx.theme().foreground.opacity(0.08)))
                         .active(background.blend(cx.theme().foreground.opacity(0.16))),
                 )
                 .bg(background)
-                .w(px(if selected { 40. } else { 32. }))
-                .when(!selected, |button| button.mr_2())
+                .w(px(32.))
                 .h(px(32.))
                 .flex_shrink_0()
                 .rounded(px(7.))
-                .when(selected, |button| button.rounded_r_none())
-                .selected(selected)
+                .toggled(selected)
                 .when(selected, |button| {
                     let row = outline.row.clone();
                     button.on_prepaint(move |bounds, window, _| {
