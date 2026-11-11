@@ -90,6 +90,7 @@ impl Workspace {
         let icon = div()
             .relative()
             .size(px(16.))
+            .flex_shrink_0()
             .child(
                 Icon::new(IconName::Search)
                     .size(px(16.))
@@ -145,6 +146,7 @@ impl Workspace {
             .small()
             .w(px(28.))
             .h(px(28.))
+            .p_0()
             .flex_shrink_0()
             .rounded(px(7.))
             .child(icon)
