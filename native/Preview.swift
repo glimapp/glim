@@ -220,10 +220,10 @@ final class FontPreview: NSObject, NSTextFieldDelegate {
         rows.translatesAutoresizingMaskIntoConstraints = false; rows.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor).isActive = true
         stack.addArrangedSubview(scroll); scroll.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         let note = NSTextField(wrappingLabelWithString: L("Preview only — this font is not installed. Missing characters may use a system fallback.")); note.font = .systemFont(ofSize: 11); note.textColor = .secondaryLabelColor; stack.addArrangedSubview(note)
-        let fontControls = NSStackView(); fontControls.addArrangedSubview(selector); fontControls.addArrangedSubview(input)
+        let fontControls = NSStackView(); fontControls.addArrangedSubview(selector.readerAction("font-face")); fontControls.addArrangedSubview(input.readerAction("sample-text"))
         extraControls.forEach { fontControls.addArrangedSubview($0) }
         scroll.contentInsets.bottom = 72
-        FloatingReaderToolbar(items: fontControls).install(in: view)
+        FloatingReaderToolbar(profile: "font", items: fontControls).install(in: view)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var fonts = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor] ?? []
             var failure = "This font could not be decoded. It may be damaged or unsupported."
@@ -643,13 +643,13 @@ final class PDFSlideshow: NSObject {
             pages.topAnchor.constraint(equalTo: surface.topAnchor), pages.bottomAnchor.constraint(equalTo: surface.bottomAnchor)
         ])
         let toolbar = NSStackView()
-        for (title, action) in [(L("Previous"), #selector(previous)), (L("Next"), #selector(next))] {
-            toolbar.addArrangedSubview(ReaderActionButton(title: title, target: self, action: action))
+        for (id, title, action) in [("previous", L("Previous"), #selector(previous)), ("next", L("Next"), #selector(next))] {
+            toolbar.addArrangedSubview(ReaderActionButton(title: title, target: self, action: action).readerAction(id))
         }
         position.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
-        toolbar.addArrangedSubview(position)
-        toolbar.addArrangedSubview(ReaderActionButton(title: L("Exit Slideshow"), target: self, action: #selector(exit)))
-        FloatingReaderToolbar(items: toolbar).install(in: surface, managesContextMenu: false)
+        toolbar.addArrangedSubview(position.readerAction("page-status"))
+        toolbar.addArrangedSubview(ReaderActionButton(title: L("Exit Slideshow"), target: self, action: #selector(exit)).readerAction("exit-slideshow"))
+        FloatingReaderToolbar(profile: "slideshow", items: toolbar).install(in: surface, managesContextMenu: false)
         NotificationCenter.default.addObserver(self, selector: #selector(updatePosition), name: .PDFViewPageChanged, object: pages)
         updatePosition()
     }
@@ -887,24 +887,24 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         detailLabel.textColor = .secondaryLabelColor
         let toolbar = NSStackView()
         toolbar.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
-        toolbar.addArrangedSubview(button(L("Previous"), #selector(previous)))
-        toolbar.addArrangedSubview(button(L("Next"), #selector(next)))
+        toolbar.addArrangedSubview(button(L("Previous"), #selector(previous)).readerAction("previous"))
+        toolbar.addArrangedSubview(button(L("Next"), #selector(next)).readerAction("next"))
         if pdf {
-            toolbar.addArrangedSubview(button("−", #selector(zoomOut)))
-            toolbar.addArrangedSubview(button("+", #selector(zoomIn)))
-            toolbar.addArrangedSubview(button(L("Fit width"), #selector(fit)))
+            toolbar.addArrangedSubview(button("−", #selector(zoomOut)).readerAction("zoom-out"))
+            toolbar.addArrangedSubview(button("+", #selector(zoomIn)).readerAction("zoom-in"))
+            toolbar.addArrangedSubview(button(L("Fit width"), #selector(fit)).readerAction("fit"))
             let slideshow = button(L("Play Slideshow"), #selector(presentPDF))
             slideshow.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: L("Play Slideshow"))
             slideshow.imagePosition = .imageLeading
             slideshow.toolTip = L("Present full screen; press Escape to return")
-            toolbar.addArrangedSubview(slideshow)
+            toolbar.addArrangedSubview(slideshow.readerAction("slideshow"))
             contentCopyControls().forEach { toolbar.addArrangedSubview($0) }
         } else {
-            toolbar.addArrangedSubview(button(L("Play / Pause"), #selector(togglePlay)))
+            toolbar.addArrangedSubview(button(L("Play / Pause"), #selector(togglePlay)).readerAction("play-pause"))
             artworkButton.target = self; artworkButton.action = #selector(openArtwork)
-            artworkButton.isHidden = true; toolbar.addArrangedSubview(artworkButton)
+            artworkButton.isHidden = true; toolbar.addArrangedSubview(artworkButton.readerAction("artwork"))
         }
-        toolbar.addArrangedSubview(detailLabel)
+        toolbar.addArrangedSubview(detailLabel.readerAction(pdf ? "page-status" : "status"))
         if pdf {
             guard let document = PDFDocument(url: urls[0]) else { throw NSError(domain: "Glim", code: 2, userInfo: [NSLocalizedDescriptionKey: "This PDF could not be opened."]) }
             if document.isLocked {
@@ -988,7 +988,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
             play(0, autoplay: autoplay)
         }
         // Leave AVKit's timeline clear when its own playback controls appear.
-        FloatingReaderToolbar(items: toolbar).install(in: host, bottomInset: pdf ? 16 : 80, managesContextMenu: !pdf)
+        FloatingReaderToolbar(profile: pdf ? "pdf" : "media", items: toolbar).install(in: host, bottomInset: pdf ? 16 : 80, managesContextMenu: !pdf)
     }
     func showOffice(_ url: URL, wordReading: String? = nil, wordImagePages: Bool = false) {
         if ["doc", "docx", "rtf"].contains(url.pathExtension.lowercased()) {
@@ -1011,8 +1011,8 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
             play.toolTip = L("Present full screen; press Escape to return")
             let previous = button(L("Previous"), #selector(presentationPrevious))
             let next = button(L("Next"), #selector(presentationNext))
-            toolbar.addArrangedSubview(previous); toolbar.addArrangedSubview(next)
-            toolbar.addArrangedSubview(play)
+            toolbar.addArrangedSubview(previous.readerAction("previous")); toolbar.addArrangedSubview(next.readerAction("next"))
+            toolbar.addArrangedSubview(play.readerAction("slideshow"))
             // One stateful action avoids NSStackView visibility priorities
             // accidentally exposing both Play and Exit during layout updates.
             host.presentationChanged = { active in
@@ -1060,7 +1060,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
             preview.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             preview.bottomAnchor.constraint(equalTo: host.bottomAnchor)
         ])
-        FloatingReaderToolbar(items: toolbar).install(in: host)
+        FloatingReaderToolbar(profile: "office", items: toolbar).install(in: host)
         // Quick Look creates its remote content when previewItem is assigned.
         // Resolve the toolbar and preview bounds first, rather than loading
         // against the initial full-window frame and resizing it afterwards.
@@ -1173,7 +1173,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         Bundle(url: application)?.bundleIdentifier == "io.github.jony4.glimpse"
     }
     private func externalOpenButton() -> NSButton {
-        return button(L("Open with Another App"), #selector(openOfficeExternally(_:)))
+        return button(L("Open with Another App"), #selector(openOfficeExternally(_:))).readerAction("external-open")
     }
     private func openDocument(_ document: URL, with application: URL) {
         guard !isGlim(application) else {

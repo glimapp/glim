@@ -2,6 +2,17 @@ use std::{env, path::PathBuf, process::Command};
 fn main() {
     embed_build_identity();
     embed_diagram_assets();
+    println!("cargo:rerun-if-changed=../../assets/reader-actions.json");
+    println!("cargo:rerun-if-changed=../../scripts/generate-reader-actions.py");
+    assert!(
+        Command::new("python3")
+            .arg("../../scripts/generate-reader-actions.py")
+            .arg("--out-dir")
+            .arg(env::var_os("OUT_DIR").unwrap())
+            .status()
+            .expect("Generate reader action presets")
+            .success()
+    );
     println!("cargo:rerun-if-changed=../../assets/reader-limits.json");
     println!("cargo:rerun-if-changed=../../scripts/generate-reader-limits.py");
     let limits_out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -168,6 +179,7 @@ fn build_native_preview() {
             "../../native/FinderIntegration.swift",
         ])
         .arg(output.join("ReaderLimits.swift"))
+        .arg(output.join("ReaderActionPresets.swift"))
         .arg(output.join("OpenAPIAssets.swift"))
         .args(["-o"])
         .arg(output.join("libGlimNativePreview.a"))

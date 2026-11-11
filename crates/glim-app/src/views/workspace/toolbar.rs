@@ -13,43 +13,121 @@ use gpui_kit::{
 impl Workspace {
     pub(crate) fn content_toolbar(
         &self,
-        controls: AnyElement,
+        mut controls: crate::views::reader::controls::ActionElements,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut row = h_flex().gap_2().items_center().flex_shrink_0();
-        let mut fullscreen = None;
-        for item in self.reader_actions(cx) {
-            if matches!(item.action, ToolbarAction::FileFullscreen) {
-                fullscreen = Some(item);
+        use crate::views::reader::controls::{action_layout, preset};
+        controls.extend(self.reader_actions(cx).into_iter().map(|item| {
+            (
+                item.action.id(),
+                self.toolbar_button(item, cx).into_any_element(),
+            )
+        }));
+        if self.saving.is_some() && self.save_cancel.is_some() {
+            controls.push((
+                "cancel-file-save",
+                crate::views::icon_button(
+                    "cancel-file-save",
+                    gpui_kit::assets::IconName::X,
+                    glim_services::locale::tr("Cancel save"),
+                )
+                .on_click(cx.listener(|view, _, _, cx| view.cancel_save(cx)))
+                .into_any_element(),
+            ));
+        }
+        controls.push((
+            "hide-reader-toolbar",
+            crate::views::icon_button(
+                "hide-reader-toolbar",
+                gpui_kit::assets::IconName::ChevronDown,
+                glim_services::locale::tr("Hide file toolbar"),
+            )
+            .ghost()
+            .on_click(cx.listener(|view, _, _, cx| {
+                view.reader_toolbar_collapsed = true;
+                view.reader_toolbar_expanded = false;
+                cx.refresh_windows();
+                cx.notify();
+            }))
+            .into_any_element(),
+        ));
+        let profile = self
+            .active_reader()
+            .map_or("unavailable", |reader| reader.toolbar_profile());
+        let mut candidates: std::collections::HashMap<_, _> = controls.into_iter().collect();
+        let sidebar = if self.sidebar_visible && !self.file_fullscreen {
+            self.sidebar_window_width * self.sidebar_ratio
+        } else {
+            0.
+        };
+        let available = (f32::from(window.viewport_size().width)
+            - sidebar
+            - f32::from(crate::views::reader::toolbar_trailing_inset(window, cx))
+            - 64.)
+            .clamp(100., 620.);
+        let mut used = 0.;
+        let mut previous_group = "";
+        let mut row = h_flex().gap_1().items_center().flex_shrink_0();
+        let mut extra = h_flex()
+            .gap_1()
+            .items_center()
+            .flex_wrap()
+            .max_w(px(available));
+        let mut overflow = false;
+        for id in preset(profile) {
+            let Some(control) = candidates.remove(id) else {
+                continue;
+            };
+            let (group, width) = action_layout(id);
+            let group_gap = if previous_group.is_empty() || previous_group == group {
+                0.
             } else {
-                row = row.child(self.toolbar_button(item, cx));
+                9.
+            };
+            let pinned = matches!(*id, "file-fullscreen" | "hide-reader-toolbar");
+            let item = div()
+                .w(px(width))
+                .h(px(28.))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .overflow_hidden()
+                .child(control);
+            if !pinned && used + width + group_gap + 4. > available - 96. {
+                overflow = true;
+                extra = extra.child(item);
+            } else {
+                if group_gap > 0. {
+                    row = row.child(div().w(px(1.)).h(px(16.)).mx(px(4.)).bg(cx.theme().border));
+                }
+                used += width + group_gap + 4.;
+                previous_group = group;
+                row = row.child(item);
             }
         }
-        row.child(controls)
-            .when(self.saving.is_some() && self.save_cancel.is_some(), |row| {
-                row.child(
-                    Button::new("cancel-file-save")
-                        .small()
-                        .label(glim_services::locale::tr("Cancel save"))
-                        .on_click(cx.listener(|view, _, _, cx| view.cancel_save(cx))),
-                )
-            })
-            .when_some(fullscreen, |row, item| {
-                row.child(self.toolbar_button(item, cx))
-            })
-            .child(
+        if overflow {
+            row = row.child(
                 crate::views::icon_button(
-                    "hide-reader-toolbar",
-                    gpui_kit::assets::IconName::ChevronDown,
-                    glim_services::locale::tr("Hide file toolbar"),
+                    "more-reader-actions",
+                    gpui_kit::assets::IconName::ChevronsRight,
+                    glim_services::locale::tr("More file actions"),
                 )
-                .ghost()
+                .selected(self.reader_toolbar_expanded)
                 .on_click(cx.listener(|view, _, _, cx| {
-                    view.reader_toolbar_collapsed = true;
-                    cx.refresh_windows();
+                    view.reader_toolbar_expanded = !view.reader_toolbar_expanded;
                     cx.notify();
                 })),
-            )
+            );
+        }
+        gpui_kit::component::v_flex()
+            .gap_1()
+            .items_center()
+            .when(overflow && self.reader_toolbar_expanded, |view| {
+                view.child(extra)
+            })
+            .child(row)
             .into_any_element()
     }
 
@@ -101,14 +179,7 @@ impl Workspace {
             .on_click(cx.listener(move |view, _, window, cx| {
                 view.run_toolbar_action(action, window, cx);
             }));
-        if matches!(
-            action,
-            ToolbarAction::Extract | ToolbarAction::CancelExtract
-        ) {
-            button.w_auto().label(label)
-        } else {
-            button
-        }
+        button
     }
 
     pub(super) fn navigation_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -165,7 +236,8 @@ impl Workspace {
         use gpui_kit::component::WindowExt;
         let mut items: Vec<_> = self.reader_actions(cx).into_iter().map(|item| {
             serde_json::json!({"id": item.action.id(), "label": glim_services::locale::tr(item.label),
-                "symbol": item.native_symbol(), "enabled": item.enabled, "selection": item.selection()})
+                "symbol": item.native_symbol(), "enabled": item.enabled, "selection": item.selection(),
+                "profile": self.active_reader().map_or("unavailable", |reader| reader.toolbar_profile())})
         }).collect();
         let visible = !items.is_empty()
             && !self.search_visible

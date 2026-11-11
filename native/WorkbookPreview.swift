@@ -126,9 +126,9 @@ final class WorkbookPreview: NSObject {
             ReaderControl("sheet", picker), ReaderControl("previous-rows", previous),
             ReaderControl("next-rows", next), ReaderControl("previous-columns", previousColumns),
             ReaderControl("next-columns", nextColumns), ReaderControl("more-sheets", moreSheets),
-            ReaderControl("range-status", status)
-        ] + extraControls().enumerated().map { ReaderControl("document-action-\($0.offset)", $0.element) })
-        previewToolbar = FloatingReaderToolbar(controls: actions); previewToolbar.install(in: view)
+            ReaderControl("status", status)
+        ] + extraControls().map { ReaderControl($0) })
+        previewToolbar = FloatingReaderToolbar(profile: "workbook", controls: actions); previewToolbar.install(in: view)
         controls()
         loadCatalog(offset: 0)
     }

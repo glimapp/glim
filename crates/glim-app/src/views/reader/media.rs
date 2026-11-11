@@ -71,9 +71,9 @@ impl ImageReader {
             .child(if count > 1 {
                 super::controls::floating(
                     "image-page-controls",
-                    h_flex()
-                        .gap_3()
-                        .child(
+                    super::controls::ActionBindings::new()
+                        .action(
+                            "previous",
                             crate::views::icon_button(
                                 "image-previous-page",
                                 gpui_kit::assets::IconName::ChevronLeft,
@@ -87,8 +87,9 @@ impl ImageReader {
                                 })
                             }),
                         )
-                        .child(format!("{} / {}", page + 1, count))
-                        .child(
+                        .action("page-status", format!("{} / {}", page + 1, count))
+                        .action(
+                            "next",
                             crate::views::icon_button(
                                 "image-next-page",
                                 gpui_kit::assets::IconName::ChevronRight,

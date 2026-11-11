@@ -18,6 +18,8 @@ final class ReaderActionButton: NSButton {
     private var feedbackTask: DispatchWorkItem?
     private var hoverArea: NSTrackingArea?
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let area = hoverArea { removeTrackingArea(area) }
@@ -27,7 +29,7 @@ final class ReaderActionButton: NSButton {
     override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
-        let selected = selection == true
+        let selected = selection == true && isEnabled
         let pressed = cell?.isHighlighted == true || activated
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 7, yRadius: 7)
         let fill: NSColor = selected ? .controlAccentColor.withAlphaComponent(pressed ? 0.30 : 0.20)
@@ -72,8 +74,15 @@ final class ReaderActionButton: NSButton {
 struct ReaderControl {
     let id: String
     let view: NSView
-    init(_ id: String, _ view: NSView) { self.id = id; self.view = view }
-    static func find(_ bar: ReaderFindBar) -> ReaderControl { ReaderControl("find", bar.button) }
+    init(_ id: String, _ view: NSView) {
+        precondition(ReaderActionPresets.layout[id] != nil, "Unregistered reader action: \(id)")
+        self.id = id; self.view = view; view.identifier = NSUserInterfaceItemIdentifier(id)
+    }
+    init(_ view: NSView) {
+        guard let id = view.identifier?.rawValue else { preconditionFailure("Reader control requires an action ID") }
+        self.init(id, view)
+    }
+    static func find(_ bar: ReaderFindBar) -> ReaderControl { ReaderControl("find-in-file", bar.button) }
 }
 
 final class ReaderControls {
@@ -83,7 +92,7 @@ final class ReaderControls {
         self.entries = entries
     }
     convenience init(stack: NSStackView) {
-        self.init(stack.arrangedSubviews.enumerated().map { ReaderControl("control-\($0.offset)", $0.element) })
+        self.init(stack.arrangedSubviews.map { ReaderControl($0) })
     }
     func stack() -> NSStackView {
         let stack = NSStackView()
@@ -125,6 +134,14 @@ final class ReaderControls {
             }
         }
         return menu
+    }
+}
+
+extension NSView {
+    @discardableResult func readerAction(_ id: String) -> Self {
+        precondition(ReaderActionPresets.layout[id] != nil, "Unregistered reader action: \(id)")
+        identifier = NSUserInterfaceItemIdentifier(id)
+        return self
     }
 }
 

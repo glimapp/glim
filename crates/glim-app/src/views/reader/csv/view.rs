@@ -4,7 +4,9 @@ use glim_core::table::TablePage;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     base::InteractiveElementExt as _,
-    component::{ActiveTheme, Disableable, button::Button, h_flex, scroll::Scrollbar, v_flex},
+    component::{
+        ActiveTheme, Disableable, Sizable, button::Button, h_flex, scroll::Scrollbar, v_flex,
+    },
     *,
 };
 
@@ -201,25 +203,24 @@ impl Render for TableView {
             ))
             .child(div().h(Scrollbar::width()).flex_shrink_0().child(
                 Scrollbar::horizontal(&self.horizontal_scroll).viewport_from_layout(),
-            )).child(super::super::controls::floating("csv-controls", h_flex().p_0().gap_2().text_xs()
-                .child(div().min_w_0().truncate().child(if busy { (self.host.translate)("Loading table…") } else {
+            )).child(super::super::controls::floating("csv-controls", super::super::controls::ActionBindings::new().action("status",div().min_w_0().truncate().child(if busy { (self.host.translate)("Loading table…") } else {
                     self.error.clone().unwrap_or_else(|| format!("{} · rows {}–{} · columns {}–{}", self.format,
                         self.row_start + 1, self.row_start + self.page.rows.len(), self.column_start + 1, self.column_start + columns))
                 }))
-                .when(self.error.is_some(), |bar| bar.child(
-                    Button::new("csv-retry").label((self.host.translate)("Retry"))
+                .when(self.error.is_some(), |bar| bar.action("retry",
+                    Button::new("csv-retry").small().label((self.host.translate)("Retry"))
                         .on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::Retry, cx)))
                 ))
                 .when(self.has_previous || self.page.more, |bar| bar
-                .child(crate::views::icon_button("csv-prev", gpui_kit::assets::IconName::ChevronLeft, (self.host.translate)("Previous"))
+                .action("previous-rows",crate::views::icon_button("csv-prev", gpui_kit::assets::IconName::ChevronLeft, (self.host.translate)("Previous"))
                     .disabled(busy || !self.has_previous).on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::PreviousRows, cx))))
-                .child(crate::views::icon_button("csv-next", gpui_kit::assets::IconName::ChevronRight, (self.host.translate)("Next page"))
+                .action("next-rows",crate::views::icon_button("csv-next", gpui_kit::assets::IconName::ChevronRight, (self.host.translate)("Next page"))
                     .disabled(busy || !self.page.more).on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::NextRows, cx))))
                 )
                 .when(self.column_start > 0 || self.column_start + columns < self.page.columns, |bar| bar
-                .child(crate::views::icon_button("csv-prev-cols", gpui_kit::assets::IconName::ChevronsLeft, (self.host.translate)("Previous columns"))
+                .action("previous-columns",crate::views::icon_button("csv-prev-cols", gpui_kit::assets::IconName::ChevronsLeft, (self.host.translate)("Previous columns"))
                     .disabled(busy || self.column_start == 0).on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::PreviousColumns, cx))))
-                .child(crate::views::icon_button("csv-next-cols", gpui_kit::assets::IconName::ChevronsRight, (self.host.translate)("Next columns"))
+                .action("next-columns",crate::views::icon_button("csv-next-cols", gpui_kit::assets::IconName::ChevronsRight, (self.host.translate)("Next columns"))
                     .disabled(busy || self.column_start + columns >= self.page.columns).on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::NextColumns, cx))))), cx)).into_any_element()
     }
 }

@@ -1,7 +1,9 @@
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::locale::tr;
 use gpui_kit::{
-    component::{ActiveTheme, Disableable, Sizable, button::Button, h_flex, input::EditorState},
+    component::{
+        ActiveTheme, Disableable, Selectable, Sizable, button::Button, input::EditorState,
+    },
     *,
 };
 
@@ -154,11 +156,14 @@ impl Render for JsonFormat {
                 .editor
                 .as_ref()
                 .is_some_and(|e| e.read(cx).context_menu_capabilities().is_editable());
-        let mut buttons = h_flex().gap_2().items_center().child(
+        let mut buttons = super::controls::ActionBindings::new().action(
+            "graph-mode",
             Button::new("graph-mode")
                 .small()
                 .disabled(self.blocked && !self.visible)
-                .label(tr(if self.visible {
+                .icon(gpui_kit::assets::IconName::ListTree)
+                .selected(self.visible)
+                .tooltip(tr(if self.visible {
                     "Back to document"
                 } else {
                     "Interactive graph"
@@ -166,10 +171,12 @@ impl Render for JsonFormat {
                 .on_click(cx.listener(|view, _, window, cx| view.toggle_graph(window, cx))),
         );
         if !self.visible && can_format {
-            buttons = buttons.child(
+            buttons = buttons.action(
+                "format-json",
                 Button::new("format-json")
                     .small()
-                    .label(tr("Format"))
+                    .icon(gpui_kit::assets::IconName::Code)
+                    .tooltip(tr("Format"))
                     .disabled(self.task.is_some())
                     .on_click(cx.listener(|view, _, window, cx| view.format(window, cx))),
             );
@@ -185,8 +192,9 @@ impl Render for JsonFormat {
                 ("graph-copy", "Copy", IconName::Copy, 5),
             ] {
                 let graph = graph.clone();
-                buttons = buttons.child(crate::views::icon_button(id, icon, tr(label)).on_click(
-                    move |_, _, cx| {
+                buttons = buttons.action(
+                    id,
+                    crate::views::icon_button(id, icon, tr(label)).on_click(move |_, _, cx| {
                         graph.update(cx, |graph, cx| match action {
                             0 => graph.change_zoom(-0.1, cx),
                             1 => graph.change_zoom(0.1, cx),
@@ -195,19 +203,21 @@ impl Render for JsonFormat {
                             4 => graph.fold_all(false, cx),
                             _ => graph.copy_selected(cx),
                         });
-                    },
-                ));
+                    }),
+                );
             }
         }
         if self.blocked && !self.visible {
-            buttons = buttons.child(
+            buttons = buttons.action(
+                "status",
                 div()
                     .text_sm()
                     .child(tr("Save changes before visualizing paged content.")),
             );
         }
         if let Some(error) = self.error.clone() {
-            buttons = buttons.child(
+            buttons = buttons.action(
+                "error-status",
                 div()
                     .max_w(px(480.))
                     .text_sm()

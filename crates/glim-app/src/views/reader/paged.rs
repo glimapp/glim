@@ -1,7 +1,7 @@
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::paged::{PageSource, TextPage};
 use gpui_kit::{
-    component::{ActiveTheme, Disableable, button::Button, h_flex, v_flex},
+    component::{ActiveTheme, Disableable, Sizable, button::Button, v_flex},
     prelude::FluentBuilder,
     *,
 };
@@ -426,27 +426,27 @@ impl Render for PagedReader {
             })
             .child(super::controls::floating(
                 "paged-controls",
-                h_flex()
-                    .px_0()
-                    .py_0()
-                    .gap_2()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(div().min_w_0().truncate().child(format!(
-                        "{} · bytes {}–{} / {}{}",
-                        glim_services::locale::tr(if self.source_editor.is_some() {
-                            "Editable page"
-                        } else {
-                            "Read-only preview"
-                        }),
-                        self.page.start,
-                        self.page.end,
-                        self.page.total,
-                        if self.page.total_known { "" } else { "+" }
-                    )))
+                super::controls::ActionBindings::new()
+                    .action(
+                        "status",
+                        div().min_w_0().truncate().child(format!(
+                            "{} · bytes {}–{} / {}{}",
+                            glim_services::locale::tr(if self.source_editor.is_some() {
+                                "Editable page"
+                            } else {
+                                "Read-only preview"
+                            }),
+                            self.page.start,
+                            self.page.end,
+                            self.page.total,
+                            if self.page.total_known { "" } else { "+" }
+                        )),
+                    )
                     .when(self.error.is_some(), |bar| {
-                        bar.child(
+                        bar.action(
+                            "retry",
                             Button::new("retry-reader-page")
+                                .small()
                                 .label(glim_services::locale::tr("Retry"))
                                 .disabled(busy)
                                 .on_click(cx.listener(|view, _, window, cx| {
@@ -455,14 +455,17 @@ impl Render for PagedReader {
                         )
                     })
                     .when_some(self.return_to_preview.clone(), |bar, action| {
-                        bar.child(
+                        bar.action(
+                            "page-return-preview",
                             Button::new("page-return-preview")
+                                .small()
                                 .label(glim_services::locale::tr("Preview"))
                                 .on_click(move |_, _, cx| action(cx)),
                         )
                     })
                     .when(self.source_editor.is_none(), |bar| {
-                        bar.child(
+                        bar.action(
+                            "copy-text",
                             crate::views::icon_button(
                                 "copy-reader-page",
                                 gpui_kit::assets::IconName::Copy,
@@ -478,8 +481,10 @@ impl Render for PagedReader {
                         )
                     })
                     .when(self.report_source.is_some(), |bar| {
-                        bar.child(
+                        bar.action(
+                            "page-raw",
                             Button::new("page-raw")
+                                .small()
                                 .label(glim_services::locale::tr(
                                     if self.page.source.is_generated() {
                                         "File bytes"
@@ -491,7 +496,8 @@ impl Render for PagedReader {
                                 .on_click(cx.listener(|view, _, _, cx| view.toggle_raw(cx))),
                         )
                     })
-                    .child(
+                    .action(
+                        "previous",
                         crate::views::icon_button(
                             "page-back",
                             gpui_kit::assets::IconName::ChevronLeft,
@@ -504,7 +510,8 @@ impl Render for PagedReader {
                             }
                         })),
                     )
-                    .child(
+                    .action(
+                        "next",
                         crate::views::icon_button(
                             "page-next",
                             gpui_kit::assets::IconName::ChevronRight,
@@ -515,8 +522,10 @@ impl Render for PagedReader {
                             cx.listener(move |v, _, w, cx| v.load(next, false, false, w, cx)),
                         ),
                     )
-                    .child(
+                    .action(
+                        "page-all",
                         Button::new("page-all")
+                            .small()
                             .label(glim_services::locale::tr("Expand this page"))
                             .disabled(
                                 busy || self.page.source.binary

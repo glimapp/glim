@@ -409,45 +409,43 @@ impl Render for SqliteView {
                     .child(DataTable::new(&self.grid).stripe(true).small()),
             )
             .child(super::super::controls::floating("sqlite-controls",
-                h_flex()
-                    .gap_2()
-                    .child(div().w(px(180.)).child(Input::new(&self.search).small()))
-                    .child(
+                super::super::controls::ActionBindings::new().action("table-search",div().w(px(180.)).child(Input::new(&self.search).small()))
+                    .action("first",
                         crate::views::icon_button("first", gpui_kit::assets::IconName::ChevronsLeft, tr("First page"))
                             .disabled(busy || self.status.page == 0)
                             .on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(Request::Navigate(Navigation::First));
                             })),
                     )
-                    .child(
+                    .action("previous",
                         crate::views::icon_button("previous", gpui_kit::assets::IconName::ChevronLeft, tr("Previous page"))
                             .disabled(busy || self.status.page == 0)
                             .on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(Request::Navigate(Navigation::Previous));
                             })),
                     )
-                    .child(div().w(px(80.)).child(Input::new(&self.page_input).small()))
-                    .child(div().child(format!(
+                    .action("page-input",div().w(px(80.)).child(Input::new(&self.page_input).small()))
+                    .action("page-status",div().child(format!(
                             "{} / {}",
                             self.status.page + 1,
                             last.map(|n| (n + 1).to_string())
                                 .unwrap_or_else(|| "…".into())
                         )))
-                    .child(
+                    .action("next",
                         crate::views::icon_button("next", gpui_kit::assets::IconName::ChevronRight, tr("Next page"))
                             .disabled(busy || !self.status.more)
                             .on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(Request::Navigate(Navigation::Next));
                             })),
                     )
-                    .child(
+                    .action("last",
                         crate::views::icon_button("last", gpui_kit::assets::IconName::ChevronsRight, tr("Last page"))
                             .disabled(busy || last.is_none() || last == Some(self.status.page))
                             .on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(Request::Navigate(Navigation::Last));
                             })),
                     )
-                    .child(div().flex_1().text_sm().child(format!(
+                    .action("status",div().flex_1().text_sm().child(format!(
                             "{}: {} · {}–{}",
                             tr("Rows"),
                             self.status.total

@@ -24,6 +24,7 @@ final class PreviewCopy: NSObject {
         copyButton.target = self; copyButton.action = #selector(copyText)
     }
     func controls(includeRecognition: Bool = true) -> [NSView] {
+        copyButton.readerAction("copy-text"); recognize.readerAction("recognize-text")
         return includeRecognition ? [copyButton, recognize] : [copyButton]
     }
     static func text(in root: NSView) -> String {

@@ -1,0 +1,469 @@
+{
+  "actions": {
+    "reader-preview": {
+      "group": "mode",
+      "width": 28
+    },
+    "reader-source": {
+      "group": "mode",
+      "width": 28
+    },
+    "word-wrap": {
+      "group": "mode",
+      "width": 28
+    },
+    "find-in-file": {
+      "group": "find",
+      "width": 28
+    },
+    "cancel-file-save": {
+      "group": "window",
+      "width": 28
+    },
+    "file-fullscreen": {
+      "group": "window",
+      "width": 28
+    },
+    "hide-reader-toolbar": {
+      "group": "window",
+      "width": 28
+    },
+    "zoom-out": {
+      "group": "zoom",
+      "width": 28
+    },
+    "zoom-status": {
+      "group": "zoom",
+      "width": 52
+    },
+    "zoom-in": {
+      "group": "zoom",
+      "width": 28
+    },
+    "fit": {
+      "group": "zoom",
+      "width": 28
+    },
+    "actual-size": {
+      "group": "zoom",
+      "width": 28
+    },
+    "reset-zoom": {
+      "group": "zoom",
+      "width": 28
+    },
+    "previous": {
+      "group": "pages",
+      "width": 28
+    },
+    "page-status": {
+      "group": "pages",
+      "width": 80
+    },
+    "next": {
+      "group": "pages",
+      "width": 28
+    },
+    "copy-text": {
+      "group": "export",
+      "width": 28
+    },
+    "recognize-text": {
+      "group": "export",
+      "width": 28
+    },
+    "external-open": {
+      "group": "export",
+      "width": 28
+    },
+    "graph-mode": {
+      "group": "graph",
+      "width": 28
+    },
+    "format-json": {
+      "group": "graph",
+      "width": 28
+    },
+    "graph-out": {
+      "group": "graph",
+      "width": 28
+    },
+    "graph-in": {
+      "group": "graph",
+      "width": 28
+    },
+    "graph-reset": {
+      "group": "graph",
+      "width": 28
+    },
+    "graph-fold": {
+      "group": "graph",
+      "width": 28
+    },
+    "graph-expand": {
+      "group": "graph",
+      "width": 28
+    },
+    "graph-copy": {
+      "group": "graph",
+      "width": 28
+    },
+    "status": {
+      "group": "status",
+      "width": 140
+    },
+    "error-status": {
+      "group": "status",
+      "width": 200
+    },
+    "archive-extract": {
+      "group": "archive",
+      "width": 28
+    },
+    "archive-cancel": {
+      "group": "archive",
+      "width": 28
+    },
+    "word-mode": {
+      "group": "layout",
+      "width": 100
+    },
+    "sheet": {
+      "group": "layout",
+      "width": 130
+    },
+    "more-sheets": {
+      "group": "layout",
+      "width": 100
+    },
+    "font-face": {
+      "group": "layout",
+      "width": 140
+    },
+    "sample-text": {
+      "group": "layout",
+      "width": 220
+    },
+    "previous-rows": {
+      "group": "pages",
+      "width": 28
+    },
+    "next-rows": {
+      "group": "pages",
+      "width": 28
+    },
+    "previous-columns": {
+      "group": "pages",
+      "width": 28
+    },
+    "next-columns": {
+      "group": "pages",
+      "width": 28
+    },
+    "first": {
+      "group": "pages",
+      "width": 28
+    },
+    "last": {
+      "group": "pages",
+      "width": 28
+    },
+    "page-input": {
+      "group": "pages",
+      "width": 64
+    },
+    "table-search": {
+      "group": "pages",
+      "width": 140
+    },
+    "slideshow": {
+      "group": "presentation",
+      "width": 28
+    },
+    "exit-slideshow": {
+      "group": "presentation",
+      "width": 28
+    },
+    "play-pause": {
+      "group": "presentation",
+      "width": 28
+    },
+    "artwork": {
+      "group": "presentation",
+      "width": 28
+    },
+    "retry": {
+      "group": "page",
+      "width": 28
+    },
+    "page-return-preview": {
+      "group": "page",
+      "width": 28
+    },
+    "page-raw": {
+      "group": "page",
+      "width": 80
+    },
+    "page-all": {
+      "group": "page",
+      "width": 100
+    },
+    "book-contents": {
+      "group": "reading",
+      "width": 28
+    },
+    "font-smaller": {
+      "group": "reading",
+      "width": 28
+    },
+    "font-status": {
+      "group": "reading",
+      "width": 28
+    },
+    "font-larger": {
+      "group": "reading",
+      "width": 28
+    },
+    "font-family": {
+      "group": "reading",
+      "width": 80
+    },
+    "line-spacing": {
+      "group": "reading",
+      "width": 86
+    },
+    "page-width": {
+      "group": "reading",
+      "width": 72
+    },
+    "paper": {
+      "group": "reading",
+      "width": 52
+    },
+    "bookmark": {
+      "group": "reading",
+      "width": 28
+    }
+  },
+  "groups": {
+    "mode": [
+      "reader-preview",
+      "reader-source",
+      "word-wrap"
+    ],
+    "find": [
+      "find-in-file"
+    ],
+    "window": [
+      "cancel-file-save",
+      "file-fullscreen",
+      "hide-reader-toolbar"
+    ],
+    "zoom": [
+      "zoom-out",
+      "zoom-status",
+      "zoom-in",
+      "fit",
+      "actual-size",
+      "reset-zoom"
+    ],
+    "pages": [
+      "previous",
+      "page-status",
+      "next"
+    ],
+    "copy": [
+      "copy-text",
+      "recognize-text",
+      "external-open"
+    ],
+    "graph": [
+      "graph-mode",
+      "format-json",
+      "graph-out",
+      "graph-in",
+      "graph-reset",
+      "graph-fold",
+      "graph-expand",
+      "graph-copy"
+    ]
+  },
+  "profiles": {
+    "source": [
+      "@mode",
+      "@find",
+      "@window"
+    ],
+    "markdown": [
+      "@mode",
+      "@find",
+      "@window"
+    ],
+    "html": [
+      "@mode",
+      "@find",
+      "@window"
+    ],
+    "openapi": [
+      "@mode",
+      "@find",
+      "@window"
+    ],
+    "json": [
+      "@mode",
+      "@find",
+      "@graph",
+      "status",
+      "error-status",
+      "@window"
+    ],
+    "csv": [
+      "@mode",
+      "@find",
+      "previous-rows",
+      "next-rows",
+      "previous-columns",
+      "next-columns",
+      "status",
+      "retry",
+      "@window"
+    ],
+    "sqlite": [
+      "table-search",
+      "first",
+      "previous",
+      "page-input",
+      "page-status",
+      "next",
+      "last",
+      "status",
+      "@window"
+    ],
+    "paged": [
+      "@mode",
+      "@find",
+      "previous",
+      "next",
+      "page-return-preview",
+      "copy-text",
+      "page-raw",
+      "page-all",
+      "status",
+      "retry",
+      "@window"
+    ],
+    "zip": [
+      "archive-extract",
+      "archive-cancel",
+      "@find",
+      "@window"
+    ],
+    "opml": [
+      "@find",
+      "@window"
+    ],
+    "xmind": [
+      "graph-fold",
+      "graph-expand",
+      "zoom-out",
+      "zoom-status",
+      "zoom-in",
+      "reset-zoom",
+      "status",
+      "@window"
+    ],
+    "ebook": [
+      "book-contents",
+      "previous",
+      "page-status",
+      "next",
+      "font-smaller",
+      "font-status",
+      "font-larger",
+      "font-family",
+      "line-spacing",
+      "page-width",
+      "paper",
+      "bookmark",
+      "@window"
+    ],
+    "image": [
+      "@pages",
+      "@zoom",
+      "recognize-text",
+      "status",
+      "@window"
+    ],
+    "animated_image": [
+      "@pages",
+      "@zoom",
+      "@window"
+    ],
+    "native": [
+      "@mode",
+      "@find",
+      "@window"
+    ],
+    "unavailable": [
+      "@window"
+    ],
+    "pdf": [
+      "@pages",
+      "zoom-out",
+      "zoom-in",
+      "fit",
+      "@find",
+      "slideshow",
+      "@copy",
+      "@window"
+    ],
+    "word": [
+      "word-mode",
+      "zoom-out",
+      "zoom-status",
+      "zoom-in",
+      "reset-zoom",
+      "@find",
+      "@copy",
+      "@window"
+    ],
+    "workbook": [
+      "sheet",
+      "previous-rows",
+      "next-rows",
+      "previous-columns",
+      "next-columns",
+      "more-sheets",
+      "status",
+      "@copy",
+      "@window"
+    ],
+    "font": [
+      "font-face",
+      "sample-text",
+      "@copy",
+      "@window"
+    ],
+    "media": [
+      "previous",
+      "next",
+      "play-pause",
+      "artwork",
+      "status",
+      "@window"
+    ],
+    "office": [
+      "previous",
+      "next",
+      "slideshow",
+      "@copy",
+      "@window"
+    ],
+    "slideshow": [
+      "previous",
+      "page-status",
+      "next",
+      "exit-slideshow"
+    ]
+  }
+}

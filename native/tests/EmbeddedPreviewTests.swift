@@ -50,22 +50,18 @@ struct EmbeddedPreviewTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        // The shared capsule measures visible controls, even after a narrow layout.
-        let short = NSButton(title: "SQL", target: nil, action: nil)
-        let long = NSButton(title: "A deliberately long reader action label", target: nil, action: nil)
-        let stack = NSStackView(views: [short, long])
-        let capsule = FloatingReaderToolbar(items: stack)
-        let fullWidth = capsule.intrinsicContentSize.width
+        let short = NSButton(title: "SQL", target: nil, action: nil).readerAction("sheet")
+        let long = NSButton(title: "A deliberately long reader action label", target: nil, action: nil).readerAction("more-sheets")
+        let capsule = FloatingReaderToolbar(profile: "workbook", items: NSStackView(views: [short, long]))
         capsule.frame = NSRect(x: 0, y: 0, width: 180, height: 72)
         capsule.layoutSubtreeIfNeeded()
         precondition(long.superview?.isHidden == true, "Overflow controls move into the More menu")
-        long.isHidden = true
-        let shortWidth = capsule.intrinsicContentSize.width
-        precondition(shortWidth < fullWidth)
-        short.title = "A much longer SQL action"
-        precondition(capsule.intrinsicContentSize.width > shortWidth)
-        long.isHidden = false
-        precondition(capsule.intrinsicContentSize.width > fullWidth)
+        capsule.frame.size.width = 600
+        capsule.needsLayout = true; capsule.layoutSubtreeIfNeeded()
+        precondition(short.frame.width == 130 && long.frame.width == 100)
+        long.title = "A longer localized label must not resize the toolbar"
+        capsule.needsLayout = true; capsule.layoutSubtreeIfNeeded()
+        precondition(long.frame.width == 100)
 
         let pdfURL = directory.appendingPathComponent("two pages.pdf")
         let document = PDFDocument()

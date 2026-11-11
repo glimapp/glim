@@ -1,22 +1,34 @@
 //! Readers contribute controls; the workspace paints one shared capsule.
-use gpui_kit::{
-    component::{ActiveTheme, v_flex},
-    prelude::FluentBuilder,
-    *,
-};
+use gpui_kit::{component::ActiveTheme, prelude::FluentBuilder, *};
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     rc::Rc,
 };
 
-type ComposeToolbar = Rc<dyn Fn(AnyElement, &mut App) -> AnyElement>;
+pub(crate) type ActionElements = Vec<(&'static str, AnyElement)>;
+type ComposeToolbar = Rc<dyn Fn(ActionElements, &mut Window, &mut App) -> AnyElement>;
+include!(concat!(env!("OUT_DIR"), "/reader_actions.rs"));
+
+#[derive(Default)]
+pub(super) struct ActionBindings(ActionElements);
+impl ActionBindings {
+    pub(super) fn new() -> Self {
+        Self::default()
+    }
+    pub(super) fn action(mut self, id: &'static str, control: impl IntoElement) -> Self {
+        action_layout(id);
+        self.0.push((id, control.into_any_element()));
+        self
+    }
+}
+impl FluentBuilder for ActionBindings {}
 
 pub(crate) struct ReaderToolbarHost {
     collapsed: bool,
     compose: ComposeToolbar,
     hide_native: Rc<dyn Fn(&Window)>,
-    controls: RefCell<Vec<(&'static str, AnyElement)>>,
+    controls: RefCell<ActionElements>,
     trailing_inset: Cell<Pixels>,
 }
 impl ReaderToolbarHost {
@@ -75,16 +87,23 @@ impl RenderOnce for ToolbarTrailingInset {
 
 #[derive(IntoElement)]
 struct ReaderControls {
-    id: &'static str,
-    controls: AnyElement,
+    controls: ActionBindings,
 }
 impl RenderOnce for ReaderControls {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         if let Some(host) = host(window, cx) {
-            host.controls.borrow_mut().push((self.id, self.controls));
+            host.controls.borrow_mut().extend(self.controls.0);
             div().into_any_element()
         } else {
-            capsule(self.controls, false, px(0.), cx)
+            capsule(
+                gpui_kit::component::h_flex()
+                    .gap_1()
+                    .children(self.controls.0.into_iter().map(|(_, view)| view))
+                    .into_any_element(),
+                false,
+                px(0.),
+                cx,
+            )
         }
     }
 }
@@ -100,12 +119,7 @@ impl RenderOnce for ReaderToolbarDock {
         if controls.is_empty() {
             return div().into_any_element();
         }
-        let groups = v_flex().flex_shrink_0().gap_1().children(
-            controls
-                .into_iter()
-                .map(|(id, control)| div().id(id).child(control)),
-        );
-        let controls = (host.compose)(groups.into_any_element(), cx);
+        let controls = (host.compose)(controls, window, cx);
         let collapsed = host.collapsed;
         let trailing_inset = host.trailing_inset.get();
         div()
@@ -137,8 +151,8 @@ fn capsule(controls: AnyElement, collapsed: bool, trailing_inset: Pixels, cx: &A
                     .id("reader-capsule")
                     .max_w(relative(1.))
                     .min_w_0()
-                    .px_3()
-                    .py_2()
+                    .px(px(10.))
+                    .py(px(6.))
                     .rounded(px(24.))
                     .border_1()
                     .border_color(cx.theme().border.opacity(0.5))
@@ -152,15 +166,8 @@ fn capsule(controls: AnyElement, collapsed: bool, trailing_inset: Pixels, cx: &A
         })
         .into_any_element()
 }
-pub(super) fn floating(
-    id: &'static str,
-    controls: impl IntoElement,
-    _cx: &App,
-) -> impl IntoElement {
-    ReaderControls {
-        id,
-        controls: controls.into_any_element(),
-    }
+pub(super) fn floating(_id: &'static str, controls: ActionBindings, _cx: &App) -> impl IntoElement {
+    ReaderControls { controls }
 }
 pub(super) fn loading(label: String, cx: &App) -> AnyElement {
     div()

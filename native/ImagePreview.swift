@@ -290,7 +290,7 @@ final class ImagePreview: NSObject {
             ReaderMenu.own(image); image.target = self; image.isEnabled = self.svgPreview != nil || self.imageView.image != nil; menu.addItem(image)
             return menu
         }
-        let toolbar = NSStackView()
+
         zoomLabel.alignment = .center
         zoomLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         zoomLabel.lineBreakMode = .byClipping
@@ -308,8 +308,14 @@ final class ImagePreview: NSObject {
         extractTextButton.imagePosition = .imageLeading
         extractTextButton.isHidden = svgPreview != nil
         extractTextButton.isEnabled = false
-        [previous, next, zoomOutButton, zoomLabel, zoomInButton, fitButton, resolution, extractTextButton, status].forEach { toolbar.addArrangedSubview($0) }
-        FloatingReaderToolbar(items: toolbar).install(in: view, managesContextMenu: false)
+        let controls = ReaderControls([
+            ReaderControl("previous", previous), ReaderControl("next", next),
+            ReaderControl("zoom-out", zoomOutButton), ReaderControl("zoom-status", zoomLabel),
+            ReaderControl("zoom-in", zoomInButton), ReaderControl("fit", fitButton),
+            ReaderControl("actual-size", resolution), ReaderControl("recognize-text", extractTextButton),
+            ReaderControl("status", status)
+        ])
+        FloatingReaderToolbar(profile: "image", controls: controls).install(in: view, managesContextMenu: false)
     }
     private var hasSelectedImageText: Bool {
         if #available(macOS 13.0, *) { return MainActor.assumeIsolated { (liveText as? LiveImageText)?.hasSelection ?? false } }

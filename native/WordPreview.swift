@@ -60,8 +60,8 @@ final class WordPreview: NSObject, WKNavigationDelegate {
             ReaderControl("word-mode", mode),
             ReaderControl("zoom-out", zoomOut), ReaderControl("zoom-status", zoomLabel),
             ReaderControl("zoom-in", zoomIn), ReaderControl("reset-zoom", reset)
-        ] + extraControls.enumerated().map { ReaderControl("document-action-\($0.offset)", $0.element) })
-        FloatingReaderToolbar(controls: controls).install(in: view)
+        ] + extraControls.map { ReaderControl($0) })
+        FloatingReaderToolbar(profile: "word", controls: controls).install(in: view)
         if let reading = reading { web.loadFileURL(reading, allowingReadAccessTo: reading.deletingLastPathComponent()) }
         showMode()
         copyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

@@ -29,11 +29,11 @@ impl Render for Workspace {
         crate::views::reader::set_toolbar_host(
             crate::views::reader::ReaderToolbarHost::new(
                 self.reader_toolbar_collapsed,
-                std::rc::Rc::new(move |controls, cx| {
+                std::rc::Rc::new(move |controls, window, cx| {
                     if let Some(owner) = owner.upgrade() {
-                        owner.update(cx, |view, cx| view.content_toolbar(controls, cx))
+                        owner.update(cx, |view, cx| view.content_toolbar(controls, window, cx))
                     } else {
-                        controls
+                        div().into_any_element()
                     }
                 }),
                 std::rc::Rc::new(move |window| {

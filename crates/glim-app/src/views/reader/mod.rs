@@ -6,7 +6,7 @@ pub(crate) use books::{
 mod boundary;
 mod construction;
 mod contract;
-mod controls;
+pub(crate) mod controls;
 pub(crate) use controls::{
     ReaderToolbarDock, ReaderToolbarHost, set_toolbar_host, toolbar_trailing_inset,
 };
@@ -137,6 +137,19 @@ impl Reader {
                 ("trigger", text(trigger)),
             ],
         );
+    }
+    pub(crate) fn toolbar_profile(&self) -> &'static str {
+        if matches!(self.renderer, Renderer::Paged { .. }) {
+            "paged"
+        } else if self.is_openapi() {
+            "openapi"
+        } else if self.is_json() {
+            "json"
+        } else if self.is_csv() {
+            "csv"
+        } else {
+            self.telemetry_kind()
+        }
     }
     pub fn telemetry_kind(&self) -> &'static str {
         if self.projection.as_ref().is_some_and(Projection::is_openapi) {

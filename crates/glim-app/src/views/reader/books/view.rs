@@ -401,160 +401,160 @@ impl Render for BookView {
                         )),
                 ),
         );
-        let controls = v_flex()
-            .gap_1()
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        crate::views::icon_button(
-                            "book-contents",
-                            gpui_kit::assets::IconName::List,
-                            tr("Contents"),
-                        )
-                        .selected(self.contents)
-                        .on_click(cx.listener(|v, _, _, cx| {
-                            (v.host.action)("ebook", "toggle_contents", &[]);
-                            v.contents = !v.contents;
-                            v.bookmarks = false;
-                            cx.notify();
-                        })),
-                    )
-                    .child(
-                        Button::new("book-font-smaller")
-                            .small()
-                            .label("A−")
-                            .disabled(font <= 14.)
-                            .on_click(cx.listener(|v, _, _, cx| {
-                                (v.host.action)("ebook", "font_smaller", &[]);
-                                v.state.font_size = (v.state.font_size - 2.).max(14.);
-                                v.save(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(div().text_xs().child(format!("{font:.0}")))
-                    .child(
-                        Button::new("book-font-larger")
-                            .small()
-                            .label("A+")
-                            .disabled(font >= 32.)
-                            .on_click(cx.listener(|v, _, _, cx| {
-                                (v.host.action)("ebook", "font_larger", &[]);
-                                v.state.font_size = (v.state.font_size + 2.).min(32.);
-                                v.save(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("book-font")
-                            .small()
-                            .label(tr(if self.state.serif {
-                                "Serif"
-                            } else {
-                                "Sans serif"
-                            }))
-                            .on_click(cx.listener(|v, _, _, cx| {
-                                (v.host.action)("ebook", "font_family", &[]);
-                                v.state.serif = !v.state.serif;
-                                v.save(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("book-spacing")
-                            .small()
-                            .label(format!("{} {:.1}", tr("Spacing"), self.state.line_height))
-                            .on_click(cx.listener(|v, _, _, cx| {
-                                (v.host.action)("ebook", "line_spacing", &[]);
-                                v.state.line_height = if v.state.line_height < 1.6 {
-                                    1.7
-                                } else if v.state.line_height < 1.9 {
-                                    2.0
-                                } else {
-                                    1.5
-                                };
-                                v.save(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("book-width")
-                            .small()
-                            .label(tr("Page width"))
-                            .on_click(cx.listener(|v, _, _, cx| {
-                                (v.host.action)("ebook", "page_width", &[]);
-                                v.state.page_width = if v.state.page_width < 650. {
-                                    720.
-                                } else if v.state.page_width < 800. {
-                                    880.
-                                } else {
-                                    560.
-                                };
-                                v.save(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("book-paper")
-                            .small()
-                            .selected(self.state.paper)
-                            .label(tr("Paper"))
-                            .on_click(cx.listener(|v, _, _, cx| {
-                                (v.host.action)("ebook", "paper_style", &[]);
-                                v.state.paper = !v.state.paper;
-                                v.save(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        crate::views::icon_button(
-                            "book-bookmark",
-                            gpui_kit::assets::IconName::Bookmark,
-                            tr(if marked {
-                                "Remove bookmark"
-                            } else {
-                                "Add bookmark"
-                            }),
-                        )
-                        .selected(marked)
-                        .on_click(cx.listener(|v, _, _, cx| v.bookmark(cx))),
-                    ),
+        let controls = super::super::controls::ActionBindings::new()
+            .action(
+                "book-contents",
+                crate::views::icon_button(
+                    "book-contents",
+                    gpui_kit::assets::IconName::List,
+                    tr("Contents"),
+                )
+                .selected(self.contents)
+                .on_click(cx.listener(|v, _, _, cx| {
+                    (v.host.action)("ebook", "toggle_contents", &[]);
+                    v.contents = !v.contents;
+                    v.bookmarks = false;
+                    cx.notify();
+                })),
             )
-            .child(
-                h_flex()
-                    .gap_3()
-                    .items_center()
-                    .child(
-                        crate::views::icon_button(
-                            "book-previous",
-                            gpui_kit::assets::IconName::ChevronLeft,
-                            tr("Previous page"),
-                        )
-                        .on_click(cx.listener(|v, _, _, cx| v.page(false, cx))),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!(
-                                "{} / {} · {} · {:.0}%",
-                                self.state.chapter + 1,
-                                self.book.chapters().len(),
-                                self.book.chapters()[self.state.chapter].title,
-                                progress * 100.
-                            )),
-                    )
-                    .child(
-                        crate::views::icon_button(
-                            "book-next",
-                            gpui_kit::assets::IconName::ChevronRight,
-                            tr("Next page"),
-                        )
-                        .on_click(cx.listener(|v, _, _, cx| v.page(true, cx))),
-                    ),
+            .action(
+                "font-smaller",
+                Button::new("book-font-smaller")
+                    .small()
+                    .label("A−")
+                    .disabled(font <= 14.)
+                    .on_click(cx.listener(|v, _, _, cx| {
+                        (v.host.action)("ebook", "font_smaller", &[]);
+                        v.state.font_size = (v.state.font_size - 2.).max(14.);
+                        v.save(cx);
+                        cx.notify();
+                    })),
+            )
+            .action("font-status", div().text_xs().child(format!("{font:.0}")))
+            .action(
+                "font-larger",
+                Button::new("book-font-larger")
+                    .small()
+                    .label("A+")
+                    .disabled(font >= 32.)
+                    .on_click(cx.listener(|v, _, _, cx| {
+                        (v.host.action)("ebook", "font_larger", &[]);
+                        v.state.font_size = (v.state.font_size + 2.).min(32.);
+                        v.save(cx);
+                        cx.notify();
+                    })),
+            )
+            .action(
+                "font-family",
+                Button::new("book-font")
+                    .small()
+                    .label(tr(if self.state.serif {
+                        "Serif"
+                    } else {
+                        "Sans serif"
+                    }))
+                    .on_click(cx.listener(|v, _, _, cx| {
+                        (v.host.action)("ebook", "font_family", &[]);
+                        v.state.serif = !v.state.serif;
+                        v.save(cx);
+                        cx.notify();
+                    })),
+            )
+            .action(
+                "line-spacing",
+                Button::new("book-spacing")
+                    .small()
+                    .label(format!("{} {:.1}", tr("Spacing"), self.state.line_height))
+                    .on_click(cx.listener(|v, _, _, cx| {
+                        (v.host.action)("ebook", "line_spacing", &[]);
+                        v.state.line_height = if v.state.line_height < 1.6 {
+                            1.7
+                        } else if v.state.line_height < 1.9 {
+                            2.0
+                        } else {
+                            1.5
+                        };
+                        v.save(cx);
+                        cx.notify();
+                    })),
+            )
+            .action(
+                "page-width",
+                Button::new("book-width")
+                    .small()
+                    .label(tr("Page width"))
+                    .on_click(cx.listener(|v, _, _, cx| {
+                        (v.host.action)("ebook", "page_width", &[]);
+                        v.state.page_width = if v.state.page_width < 650. {
+                            720.
+                        } else if v.state.page_width < 800. {
+                            880.
+                        } else {
+                            560.
+                        };
+                        v.save(cx);
+                        cx.notify();
+                    })),
+            )
+            .action(
+                "paper",
+                Button::new("book-paper")
+                    .small()
+                    .selected(self.state.paper)
+                    .label(tr("Paper"))
+                    .on_click(cx.listener(|v, _, _, cx| {
+                        (v.host.action)("ebook", "paper_style", &[]);
+                        v.state.paper = !v.state.paper;
+                        v.save(cx);
+                        cx.notify();
+                    })),
+            )
+            .action(
+                "bookmark",
+                crate::views::icon_button(
+                    "book-bookmark",
+                    gpui_kit::assets::IconName::Bookmark,
+                    tr(if marked {
+                        "Remove bookmark"
+                    } else {
+                        "Add bookmark"
+                    }),
+                )
+                .selected(marked)
+                .on_click(cx.listener(|v, _, _, cx| v.bookmark(cx))),
+            )
+            .action(
+                "previous",
+                crate::views::icon_button(
+                    "book-previous",
+                    gpui_kit::assets::IconName::ChevronLeft,
+                    tr("Previous page"),
+                )
+                .on_click(cx.listener(|v, _, _, cx| v.page(false, cx))),
+            )
+            .action(
+                "page-status",
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!(
+                        "{} / {} · {} · {:.0}%",
+                        self.state.chapter + 1,
+                        self.book.chapters().len(),
+                        self.book.chapters()[self.state.chapter].title,
+                        progress * 100.
+                    )),
+            )
+            .action(
+                "next",
+                crate::views::icon_button(
+                    "book-next",
+                    gpui_kit::assets::IconName::ChevronRight,
+                    tr("Next page"),
+                )
+                .on_click(cx.listener(|v, _, _, cx| v.page(true, cx))),
             );
         v_flex()
             .relative()

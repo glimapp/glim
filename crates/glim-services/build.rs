@@ -12,6 +12,17 @@ fn main() {
         distribution::environment(|key| env::var(key).ok())
     );
     diagram_cache_fingerprint();
+    println!("cargo:rerun-if-changed=../../assets/reader-actions.json");
+    println!("cargo:rerun-if-changed=../../scripts/generate-reader-actions.py");
+    assert!(
+        Command::new("python3")
+            .arg("../../scripts/generate-reader-actions.py")
+            .arg("--out-dir")
+            .arg(env::var_os("OUT_DIR").unwrap())
+            .status()
+            .expect("Generate reader action presets")
+            .success()
+    );
     println!("cargo:rerun-if-changed=../../assets/reader-limits.json");
     println!("cargo:rerun-if-changed=../../scripts/generate-reader-limits.py");
     let limits_out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -135,6 +146,7 @@ fn main() {
             "../../native/OpenAPIResources.swift",
         ])
         .arg(output.with_file_name("ReaderLimits.swift"))
+        .arg(output.with_file_name("ReaderActionPresets.swift"))
         .arg(output.with_file_name("OpenAPIAssets.swift"))
         .arg(main)
         .arg("-o")

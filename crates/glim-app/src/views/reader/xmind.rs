@@ -586,11 +586,9 @@ impl Render for GraphReader {
             .when(!self.embedded, |view| {
                 view.child(super::controls::floating(
                     "xmind-controls",
-                    h_flex()
-                        .gap_2()
-                        .items_center()
-                        .p_0()
-                        .child(
+                    super::controls::ActionBindings::new()
+                        .action(
+                            "status",
                             div()
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
@@ -600,7 +598,8 @@ impl Render for GraphReader {
                                     "Mind map · Read only"
                                 })),
                         )
-                        .child(
+                        .action(
+                            "graph-fold",
                             crate::views::icon_button(
                                 "xmind-collapse-all",
                                 gpui_kit::assets::IconName::FoldVertical,
@@ -615,7 +614,8 @@ impl Render for GraphReader {
                                 cx.notify();
                             })),
                         )
-                        .child(
+                        .action(
+                            "graph-expand",
                             crate::views::icon_button(
                                 "xmind-expand-all",
                                 gpui_kit::assets::IconName::UnfoldVertical,
@@ -629,7 +629,8 @@ impl Render for GraphReader {
                                 cx.notify();
                             })),
                         )
-                        .child(
+                        .action(
+                            "zoom-out",
                             crate::views::icon_button(
                                 "xmind-zoom-out",
                                 gpui_kit::assets::IconName::ZoomOut,
@@ -638,8 +639,12 @@ impl Render for GraphReader {
                             .disabled(zoom <= 0.1)
                             .on_click(cx.listener(|v, _, _, cx| v.change_zoom(-0.1, cx))),
                         )
-                        .child(div().text_sm().child(format!("{:.0}%", zoom * 100.)))
-                        .child(
+                        .action(
+                            "zoom-status",
+                            div().text_sm().child(format!("{:.0}%", zoom * 100.)),
+                        )
+                        .action(
+                            "zoom-in",
                             crate::views::icon_button(
                                 "xmind-zoom-in",
                                 gpui_kit::assets::IconName::ZoomIn,
@@ -648,7 +653,8 @@ impl Render for GraphReader {
                             .disabled(zoom >= 4.)
                             .on_click(cx.listener(|v, _, _, cx| v.change_zoom(0.1, cx))),
                         )
-                        .child(
+                        .action(
+                            "reset-zoom",
                             crate::views::icon_button(
                                 "xmind-reset",
                                 gpui_kit::assets::IconName::RotateCcw,
