@@ -1,5 +1,13 @@
 # Glim development
 
+## 快速迭代与验收
+
+- 新任务先检查分支、已有改动和上游，fetch 后从最新上游快速创建独立 worktree，使用 `codex/` 分支；连续迭代复用该 worktree。保留原工作区，不为隔离任务复制整份编译缓存。
+- 按可安装的小步迭代交付。必要验证保留：Rust 修改使用原生 `cargo check --workspace --all-targets --locked`，检查格式，构建包含 Swift 的完整应用，核对安装包并确认安装后的进程正常启动。开发构建可在原生 check 通过后使用 Blaze；不以 Blaze 替代 rustc 验证。
+- 默认不运行完整测试、Clippy 或 UI smoke tests；用户明确要求、项目特定规则或实际故障需要时再执行对应检查。编译和启动成功不等同于交互验收通过。
+- 必要验证通过后及时提交并推送任务分支，核对远端提交，然后立即打包／安装到 `/Applications/Glim.app` 并启动；不要等额外确认。无需发布正式 Release。失败时明确指出失败环节。
+- 交付时直接说明已安装位置、分支／提交、已验证内容，以及用户在哪个界面、用哪些操作验收；列出尚未实际验证的关键交互。避免用开发过程日志代替验收说明。
+
 - 修改代码前，必须先检查当前分支、工作区改动和上游关系，执行 `git fetch`，并将当前分支同步到最新上游代码后再开始修改；不能只检查本地缓存的远端分支。保留所有已有本地改动，不得通过 reset、覆盖或丢弃改动完成同步。存在分叉或冲突时先核对并处理，无法安全同步时明确说明阻塞，不得默默在旧代码上继续修改。连续任务中开始新的代码修改前也须重新核对上游状态。
 - Product scope: a macOS file viewer (Apple Silicon and Intel) for documents, data, images and source code in one workspace. Ordinary UTF-8 files support basic notepad-style editing, automatic saving and explicit saving; images, document previews and unsupported files remain read-only.
 - Platform strategy: maintain and release only macOS Apple Silicon and Intel. The repository is macOS-only: do not add non-macOS backends, platform branches, dependencies or release jobs without explicit user direction. Keep existing public release assets intact.
@@ -18,7 +26,7 @@
 - After requested code changes, build/package and install the updated local Glim.app by default, verify the installed bundle and launch it. Keep at most the two most recent installation backups. Do not automatically run tests or UI smoke tests; the user handles testing unless explicitly requested.
 - Release requests follow the user's local acceptance of the installed build. Build production packages and verify their architecture, signatures, checksums and update metadata; do not repeat Cargo tests, Clippy or native updater tests locally or in release CI unless explicitly requested. A release request alone is not a validation request.
 - 每次完成修改并完成适当验证后，自动提交并推送到当前分支对应的远端，不再另行询问；仅当用户明确要求保留在本地时跳过。只提交当前任务相关改动，保留无关工作，不强制推送。推送后核对远端提交与本地一致；若提交或推送失败，明确说明未完成的步骤与原因，不将本地提交视为已推送。
-- When validation is requested, use cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings, cargo test --workspace --locked, and cargo build --locked.
+- When comprehensive validation is explicitly requested, use cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings, cargo test --workspace --locked, and cargo build --locked. Routine iteration follows the necessary checks above.
 - When UI smoke testing is requested, use macOS when available and report unverified interactions.
 - Document changes to module boundaries in docs/architecture.md.
 - When packaging Glim, replace `/Applications/Glim.app` directly, unless the user asks for packaging only. Never leave suffixed copies such as `Glim-backup.app` or `Glim-replaced.app` in `/Applications`. Keep recoverable backups only in `~/Library/Application Support/Glim/LocalInstallBackups`, retaining at most two. Verify the installed bundle and launch it.

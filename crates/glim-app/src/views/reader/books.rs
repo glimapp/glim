@@ -284,13 +284,10 @@ impl BookReader {
                     .sum::<u64>(),
             ResourceClass::Working,
         );
-        self.paged = content.page.take().map(|page| {
-            cx.new(|_| {
-                let mut reader = super::paged::PagedReader::readonly(page);
-                reader.controls_bottom = px(128.);
-                reader
-            })
-        });
+        self.paged = content
+            .page
+            .take()
+            .map(|page| cx.new(|_| super::paged::PagedReader::readonly(page)));
         self.images = Arc::new(
             content
                 .images

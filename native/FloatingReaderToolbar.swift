@@ -1,25 +1,22 @@
 import Cocoa
 
-// One content-level capsule shared by the native readers. It overlays content
-// rather than consuming document height; wide controls remain horizontally scrollable.
+// Reader controls stay alive when the workspace lends this capsule its actions.
 final class FloatingReaderToolbar: NSView {
     private let controls: ReaderControls
     private var contextMenu: ReaderContextMenu?
     private var keyboardShortcuts: ReaderKeyboardShortcuts?
-    private let items: [NSView]
+    private var items: [NSView]
+    private var workspaceControls: ReaderControls?
     private let document = NSView()
     private let material: NSView
     private let interior: NSView
     private var measuredSize = NSSize.zero
     private var measuredViews: [ObjectIdentifier] = []
     private let viewport = NSScrollView()
-    private let scrollLeft = NSButton(title: "‹", target: nil, action: nil)
-    private let scrollRight = NSButton(title: "›", target: nil, action: nil)
-    private var expanded = false
-    private var hoverArea: NSTrackingArea?
-    private var collapseTask: DispatchWorkItem?
-    private var expandTask: DispatchWorkItem?
-    private var releaseMonitor: Any?
+    private let more = NSButton(title: "", target: nil, action: nil)
+    private var overflowItems: [NSView] = []
+    private var wrappers: [ObjectIdentifier: NSView] = [:]
+    var workspaceHidden = false { didSet { material.isHidden = workspaceHidden } }
     convenience init(items: NSStackView) { self.init(controls: ReaderControls(stack: items)) }
     init(controls: ReaderControls) {
         self.controls = controls
@@ -47,7 +44,9 @@ final class FloatingReaderToolbar: NSView {
             // removes stack gravity/distribution from the sizing feedback loop.
             item.removeFromSuperview()
             item.translatesAutoresizingMaskIntoConstraints = true
-            document.addSubview(item)
+            let wrapper = NSView()
+            wrappers[ObjectIdentifier(item)] = wrapper
+            document.addSubview(wrapper); wrapper.addSubview(item)
             if let picker = item as? NSPopUpButton {
                 picker.cell?.lineBreakMode = .byTruncatingMiddle
             }
@@ -68,28 +67,58 @@ final class FloatingReaderToolbar: NSView {
             }
         }
         viewport.drawsBackground = false
-        viewport.hasHorizontalScroller = true; viewport.hasVerticalScroller = false
+        viewport.hasHorizontalScroller = false; viewport.hasVerticalScroller = false
         viewport.scrollerStyle = .overlay; viewport.autohidesScrollers = true
         viewport.documentView = document
         interior.addSubview(viewport)
-        for (button, action, label) in [(scrollLeft, #selector(scrollBackward), L("Scroll toolbar left")), (scrollRight, #selector(scrollForward), L("Scroll toolbar right"))] {
-            button.target = self; button.action = action
-            button.bezelStyle = .rounded; button.isBordered = true
-            button.toolTip = label; button.setAccessibilityLabel(label)
-            button.image = NSImage(systemSymbolName: button === scrollLeft ? "chevron.left" : "chevron.right", accessibilityDescription: label)
-            button.imagePosition = .imageOnly; button.title = ""
-            interior.addSubview(button)
-        }
+        more.target = self; more.action = #selector(showMore)
+        more.bezelStyle = .rounded; more.isBordered = true
+        more.toolTip = L("More file actions"); more.setAccessibilityLabel(L("More file actions"))
+        more.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: L("More file actions"))
+        more.imagePosition = .imageOnly
+        interior.addSubview(more)
         addSubview(material)
-        material.isHidden = true
+        material.isHidden = false
         wantsLayer = true
         layer?.shadowColor = NSColor.shadowColor.cgColor
-        layer?.shadowOpacity = 0; layer?.shadowRadius = 14
+        layer?.shadowOpacity = 0.12; layer?.shadowRadius = 10
         layer?.shadowOffset = NSSize(width: 0, height: -3)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setAccessibilityRole(.toolbar)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    func setMoreLabel(_ label: String) {
+        more.toolTip = label; more.setAccessibilityLabel(label)
+    }
+    func setWorkspaceControls(_ value: ReaderControls?) {
+        guard workspaceControls !== value else { return }
+        workspaceControls?.entries.forEach {
+            wrappers.removeValue(forKey: ObjectIdentifier($0.view))?.removeFromSuperview()
+            $0.view.removeFromSuperview()
+        }
+        workspaceControls = value
+        let common = value?.entries.map { $0.view } ?? []
+        // Fullscreen and collapse remain at the trailing edge for every reader.
+        let trailing = common.filter { ["file-fullscreen", "hide-reader-toolbar"].contains($0.identifier?.rawValue ?? "") }
+        let leading = common.filter { view in
+            if trailing.contains(view) { return false }
+            if view.identifier?.rawValue == "find-in-file" {
+                return !controls.entries.contains { entry in
+                    guard let button = entry.view as? NSButton else { return false }
+                    return button.title == L("Find in file · ⌘F") || button.toolTip == L("Find in file · ⌘F")
+                }
+            }
+            return true
+        }
+        items = leading + controls.entries.map { $0.view } + trailing
+        for item in items where wrappers[ObjectIdentifier(item)] == nil {
+            let wrapper = NSView()
+            wrappers[ObjectIdentifier(item)] = wrapper
+            item.removeFromSuperview(); item.translatesAutoresizingMaskIntoConstraints = true
+            document.addSubview(wrapper); wrapper.addSubview(item)
+        }
+        invalidateIntrinsicContentSize(); needsLayout = true
+    }
     private func measurements() -> [(NSView, NSSize)] {
         // Measure the visible controls directly: stack fittingSize can inherit a
         // previous narrow document frame and compress button cells to ellipses.
@@ -152,7 +181,7 @@ final class FloatingReaderToolbar: NSView {
     }
     override var intrinsicContentSize: NSSize {
         let size = contentSize
-        return NSSize(width: size.width + 24, height: max(72, size.height + 32))
+        return NSSize(width: size.width + 24, height: max(44, size.height + 16))
     }
     override func viewWillDraw() {
         let size = contentSize
@@ -170,23 +199,26 @@ final class FloatingReaderToolbar: NSView {
         material.frame = NSRect(x: (bounds.width - width) / 2, y: 0, width: width, height: max(28, content.height) + 16)
         interior.frame = material.bounds
         let overflow = content.width > max(0, width - 24)
-        scrollLeft.isHidden = !overflow; scrollRight.isHidden = !overflow
-        let inset: CGFloat = overflow ? 44 : 12
-        viewport.frame = NSRect(x: inset, y: 8, width: max(0, width - 2 * inset), height: max(28, content.height))
-        scrollLeft.frame = NSRect(x: 10, y: 8, width: 28, height: max(28, content.height))
-        scrollRight.frame = NSRect(x: max(10, width - 38), y: 8, width: 28, height: max(28, content.height))
+        more.isHidden = !overflow
+        viewport.frame = NSRect(x: 12, y: 8, width: max(0, width - 24 - (overflow ? 34 : 0)), height: max(28, content.height))
+        more.frame = NSRect(x: max(0, width - 40), y: 8, width: 28, height: max(28, content.height))
         let entries = measurements()
-        document.frame = NSRect(origin: .zero, size: NSSize(width: content.width, height: max(content.height, viewport.contentSize.height)))
+        document.frame = NSRect(origin: .zero, size: viewport.contentSize)
+        let pinned = entries.filter { ["file-fullscreen", "hide-reader-toolbar"].contains($0.0.identifier?.rawValue ?? "") }
+        var remaining = viewport.contentSize.width - pinned.reduce(CGFloat(0)) { $0 + $1.1.width + 6 }
+        overflowItems = []
         var x: CGFloat = 0
         for (item, size) in entries {
-            item.frame = NSRect(x: x, y: (document.bounds.height - size.height) / 2, width: size.width, height: size.height)
+            let keep = !overflow || pinned.contains { $0.0 === item } || size.width <= remaining
+            let wrapper = wrappers[ObjectIdentifier(item)]
+            wrapper?.isHidden = item.isHidden || !keep
+            guard keep else { overflowItems.append(item); continue }
+            if !pinned.contains(where: { $0.0 === item }) { remaining -= size.width + 6 }
+            wrapper?.frame = NSRect(x: x, y: (document.bounds.height - size.height) / 2, width: size.width, height: size.height)
+            item.frame = NSRect(origin: .zero, size: size)
             x += size.width + 6
         }
-        // A disappearing paging group or shorter label must not leave the
-        // viewport scrolled beyond the new document's trailing edge.
-        let origin = viewport.contentView.bounds.origin
-        viewport.contentView.scroll(to: NSPoint(x: min(max(0, origin.x), max(0, content.width - viewport.contentSize.width)), y: 0))
-        viewport.reflectScrolledClipView(viewport.contentView)
+        for item in items where item.isHidden { wrappers[ObjectIdentifier(item)]?.isHidden = true }
         material.wantsLayer = true
         material.layer?.cornerRadius = material.bounds.height / 2
         material.layer?.masksToBounds = true
@@ -194,80 +226,18 @@ final class FloatingReaderToolbar: NSView {
         if #available(macOS 26.0, *), let glass = material as? NSGlassEffectView { glass.cornerRadius = material.bounds.height / 2 }
         #endif
     }
-    @objc private func scrollBackward() { scrollControls(by: -1) }
-    @objc private func scrollForward() { scrollControls(by: 1) }
-    private func scrollControls(by direction: CGFloat) {
-        let clip = viewport.contentView
-        let maximum = max(0, document.bounds.width - clip.bounds.width)
-        clip.scroll(to: NSPoint(x: min(maximum, max(0, clip.bounds.origin.x + direction * clip.bounds.width * 0.8)), y: 0))
-        viewport.reflectScrolledClipView(clip)
+    @objc private func showMore() {
+        let controls = ReaderControls(overflowItems.enumerated().map { ReaderControl("overflow-\($0.offset)", $0.element) })
+        controls.menu().popUp(positioning: nil, at: NSPoint(x: 0, y: more.bounds.height + 6), in: more)
     }
-    // The invisible activation strip never intercepts clicks or image drags.
+    // Transparent margins never intercept document clicks or image drags.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard expanded, material.frame.contains(convert(point, from: superview)) else { return nil }
+        guard !workspaceHidden, material.frame.contains(convert(point, from: superview)) else { return nil }
         return super.hitTest(point)
     }
-    private var pointerInside: Bool {
-        guard let window = window else { return false }
-        return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
-    }
-    private func scheduleShow() {
-        collapseTask?.cancel(); collapseTask = nil
-        guard !expanded, expandTask == nil, NSEvent.pressedMouseButtons == 0 else { return }
-        let task = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
-            self.expandTask = nil
-            guard self.pointerInside, NSEvent.pressedMouseButtons == 0 else { return }
-            self.needsLayout = true; self.layoutSubtreeIfNeeded()
-            self.expanded = true; self.material.isHidden = false
-            self.layer?.shadowOpacity = 0.16
-        }
-        expandTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: task)
-    }
-    private func scheduleHide() {
-        expandTask?.cancel(); expandTask = nil
-        collapseTask?.cancel()
-        let task = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
-            self.collapseTask = nil
-            guard !self.pointerInside, NSEvent.pressedMouseButtons == 0 else { return }
-            self.expanded = false; self.material.isHidden = true
-            self.layer?.shadowOpacity = 0
-        }
-        collapseTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: task)
-    }
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if expanded && !pointerInside { scheduleHide() }
-        if let area = hoverArea { removeTrackingArea(area) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area); hoverArea = area
-    }
-    override func mouseEntered(with event: NSEvent) { scheduleShow() }
-    override func mouseMoved(with event: NSEvent) { scheduleShow() }
-    override func mouseExited(with event: NSEvent) { scheduleHide() }
-    override func viewWillMove(toWindow newWindow: NSWindow?) {
-        collapseTask?.cancel(); collapseTask = nil
-        expandTask?.cancel(); expandTask = nil
-        if let monitor = releaseMonitor { NSEvent.removeMonitor(monitor); releaseMonitor = nil }
-        if newWindow == nil {
-            expanded = false; material.isHidden = true; layer?.shadowOpacity = 0
-        }
-        super.viewWillMove(toWindow: newWindow)
-        if newWindow != nil {
-            releaseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]) { [weak self] event in
-                // A release only permits hiding, never reveals controls at the
-                // end of an image drag. A later ordinary move can reveal them.
-                if let self = self, self.expanded, !self.pointerInside { self.scheduleHide() }
-                return event
-            }
-        }
-    }
-    deinit {
-        collapseTask?.cancel(); expandTask?.cancel()
-        if let monitor = releaseMonitor { NSEvent.removeMonitor(monitor) }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window = window { WorkspaceReaderToolbar.refresh(in: window) }
     }
     func install(in host: NSView, bottomInset: CGFloat = 16, managesContextMenu: Bool = true) {
         translatesAutoresizingMaskIntoConstraints = false
@@ -283,4 +253,160 @@ final class FloatingReaderToolbar: NSView {
             maximumWidth
         ])
     }
+}
+
+// One workspace supplies common actions to the visible native reader, or uses
+// the same capsule over GPUI content. Native controls are never cloned.
+final class WorkspaceReaderToolbar: NSView {
+    private let fallback = FloatingReaderToolbar(controls: ReaderControls([]))
+    private let restore = NSButton(title: "", target: nil, action: nil)
+    private weak var active: FloatingReaderToolbar?
+    private var common = ReaderControls([])
+    private var payload = Data()
+    private var visible = false
+    private var collapsed = false
+    private var fullscreen = false
+    private var moreLabel = L("More file actions")
+    private var refreshPending = false
+    private let context: UnsafeMutableRawPointer
+    private let callback: @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void
+
+    init(context: UnsafeMutableRawPointer,
+         callback: @escaping @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void) {
+        self.context = context; self.callback = callback
+        super.init(frame: .zero)
+        fallback.install(in: self, managesContextMenu: false)
+        restore.target = self; restore.action = #selector(invoke(_:))
+        restore.identifier = NSUserInterfaceItemIdentifier("show-reader-toolbar")
+        restore.bezelStyle = .rounded; restore.isBordered = true
+        restore.toolTip = L("Show file toolbar"); restore.setAccessibilityLabel(L("Show file toolbar"))
+        restore.image = NSImage(systemSymbolName: "chevron.up", accessibilityDescription: L("Show file toolbar"))
+        restore.isHidden = true
+        addSubview(restore)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard visible else { return nil }
+        if !restore.isHidden, let hit = restore.hitTest(convert(point, from: superview)) { return hit }
+        guard !collapsed, active === fallback else { return nil }
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
+    func update(parent: NSView, rect: NSRect, data: Data, visible: Bool, collapsed: Bool) {
+        if superview !== parent { removeFromSuperview(); parent.addSubview(self) }
+        frame = rect
+        self.visible = visible; self.collapsed = collapsed
+        if payload != data {
+            payload = data
+            active?.setWorkspaceControls(nil)
+            let entries = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
+            fullscreen = entries.contains { $0["id"] as? String == "file-fullscreen" && $0["selected"] as? Bool == true }
+            if let labels = entries.first(where: { $0["id"] as? String == "hide-reader-toolbar" }) {
+                moreLabel = labels["moreLabel"] as? String ?? L("More file actions")
+                let label = labels["restoreLabel"] as? String ?? L("Show file toolbar")
+                restore.toolTip = label; restore.setAccessibilityLabel(label)
+            }
+            common = ReaderControls(entries.compactMap { item in
+                guard let id = item["id"] as? String, let label = item["label"] as? String else { return nil }
+                let button = NSButton(title: "", target: self, action: #selector(invoke(_:)))
+                button.identifier = NSUserInterfaceItemIdentifier(id)
+                button.toolTip = label; button.setAccessibilityLabel(label)
+                button.bezelStyle = .rounded; button.isBordered = true
+                button.setButtonType(["reader-preview", "reader-source", "word-wrap", "file-fullscreen"].contains(id) ? .toggle : .momentaryPushIn)
+                button.image = NSImage(systemSymbolName: item["symbol"] as? String ?? "ellipsis", accessibilityDescription: label)
+                button.imagePosition = .imageOnly
+                button.isEnabled = item["enabled"] as? Bool ?? true
+                button.state = item["selected"] as? Bool == true ? .on : .off
+                return ReaderControl(id, button)
+            })
+        }
+        refresh()
+    }
+    @objc private func invoke(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue else { return }
+        if let entries = (try? JSONSerialization.jsonObject(with: payload)) as? [[String: Any]],
+           let item = entries.first(where: { $0["id"] as? String == id }) {
+            sender.state = item["selected"] as? Bool == true ? .on : .off
+        }
+        id.withCString { callback(context, $0) }
+    }
+    static func refresh(in window: NSWindow) {
+        guard let content = window.contentView else { return }
+        func visit(_ view: NSView) {
+            if let toolbar = view as? WorkspaceReaderToolbar { toolbar.scheduleRefresh(); return }
+            view.subviews.forEach(visit)
+        }
+        visit(content.superview ?? content)
+    }
+    private func scheduleRefresh() {
+        guard !refreshPending else { return }
+        refreshPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.refreshPending = false; self.refresh()
+        }
+    }
+    private func refresh() {
+        guard let parent = superview else { return }
+        guard visible else {
+            active?.setWorkspaceControls(nil)
+            active?.workspaceHidden = true
+            active = nil
+            fallback.isHidden = true
+            restore.isHidden = true
+            return
+        }
+        func find(_ view: NSView) -> FloatingReaderToolbar? {
+            guard !(view is WorkspaceReaderToolbar), !view.isHidden else { return nil }
+            if let toolbar = view as? FloatingReaderToolbar { return toolbar }
+            for child in view.subviews { if let toolbar = find(child) { return toolbar } }
+            return nil
+        }
+        let target = parent.subviews.compactMap { find($0) }.first ?? fallback
+        if active !== target {
+            active?.setWorkspaceControls(nil)
+            active?.workspaceHidden = true
+            active = target
+        }
+        target.setWorkspaceControls(common)
+        target.setMoreLabel(moreLabel)
+        target.workspaceHidden = !visible || collapsed
+        fallback.isHidden = target !== fallback || !visible || collapsed
+        restore.isHidden = !collapsed || !fullscreen
+        restore.frame = NSRect(x: 12, y: max(0, bounds.height - 40), width: 28, height: 28)
+        if parent.subviews.last !== self { parent.addSubview(self, positioned: .above, relativeTo: nil) }
+    }
+    func detach() {
+        active?.setWorkspaceControls(nil)
+        active?.workspaceHidden = true
+        removeFromSuperview()
+    }
+}
+
+@_cdecl("glim_reader_toolbar_create")
+func glimReaderToolbarCreate(_ context: UnsafeMutableRawPointer,
+    _ callback: @escaping @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void) -> UnsafeMutableRawPointer {
+    precondition(Thread.isMainThread)
+    return Unmanaged.passRetained(WorkspaceReaderToolbar(context: context, callback: callback)).toOpaque()
+}
+
+@_cdecl("glim_reader_toolbar_update")
+func glimReaderToolbarUpdate(_ handle: UnsafeMutableRawPointer, _ parentPointer: UnsafeMutableRawPointer,
+    _ x: Double, _ y: Double, _ width: Double, _ height: Double,
+    _ bytes: UnsafePointer<UInt8>, _ length: Int, _ visible: Bool, _ collapsed: Bool) {
+    precondition(Thread.isMainThread)
+    let toolbar = Unmanaged<WorkspaceReaderToolbar>.fromOpaque(handle).takeUnretainedValue()
+    let gpui = Unmanaged<NSView>.fromOpaque(parentPointer).takeUnretainedValue()
+    let parent = gpui.superview ?? gpui
+    let rect = NSRect(x: gpui.bounds.minX + x,
+        y: gpui.isFlipped ? gpui.bounds.minY + y : gpui.bounds.maxY - y - height,
+        width: max(0, width), height: max(0, height))
+    toolbar.update(parent: parent, rect: parent.convert(rect, from: gpui),
+        data: Data(bytes: bytes, count: length), visible: visible, collapsed: collapsed)
+}
+
+@_cdecl("glim_reader_toolbar_release")
+func glimReaderToolbarRelease(_ handle: UnsafeMutableRawPointer) {
+    precondition(Thread.isMainThread)
+    Unmanaged<WorkspaceReaderToolbar>.fromOpaque(handle).takeRetainedValue().detach()
 }

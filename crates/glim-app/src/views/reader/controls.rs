@@ -1,131 +1,144 @@
-//! Shared content-level floating controls with a transparent bottom hover zone.
-use gpui_kit::{component::ActiveTheme, prelude::FluentBuilder, *};
-use std::time::Duration;
+//! Readers contribute controls; the workspace paints one shared capsule.
+use gpui_kit::{
+    component::{ActiveTheme, v_flex},
+    prelude::FluentBuilder,
+    *,
+};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-#[derive(Default)]
-struct HoverState {
-    hovered: bool,
-    dragging: bool,
-    expanded: bool,
-    task: Option<Task<()>>,
+type ComposeToolbar = Rc<dyn Fn(AnyElement, &mut App) -> AnyElement>;
+
+pub(crate) struct ReaderToolbarHost {
+    collapsed: bool,
+    compose: ComposeToolbar,
+    hide_native: Rc<dyn Fn(&Window)>,
+    controls: RefCell<Vec<(&'static str, AnyElement)>>,
 }
-impl HoverState {
-    fn schedule(&mut self, show: bool, window: &mut Window, cx: &mut Context<Self>) {
-        self.task = None;
-        if self.dragging || self.expanded == show {
-            return;
+impl ReaderToolbarHost {
+    pub(crate) fn new(
+        collapsed: bool,
+        compose: ComposeToolbar,
+        hide_native: Rc<dyn Fn(&Window)>,
+    ) -> Self {
+        Self {
+            collapsed,
+            compose,
+            hide_native,
+            controls: RefCell::new(Vec::new()),
         }
-        self.task = Some(cx.spawn_in(window, async move |state, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(if show { 250 } else { 700 }))
-                .await;
-            let _ = state.update_in(cx, |state, _, cx| {
-                state.task = None;
-                if !state.dragging && state.hovered == show {
-                    state.expanded = show;
-                    cx.notify();
-                }
-            });
-        }));
     }
 }
+#[derive(Default)]
+struct ToolbarHosts(HashMap<WindowId, Rc<ReaderToolbarHost>>);
+impl Global for ToolbarHosts {}
+
+pub(crate) fn set_toolbar_host(host: ReaderToolbarHost, window: &Window, cx: &mut App) {
+    let windows: Vec<_> = cx
+        .windows()
+        .iter()
+        .map(|window| window.window_id())
+        .collect();
+    if !cx.has_global::<ToolbarHosts>() {
+        cx.set_global(ToolbarHosts::default());
+    }
+    let hosts = &mut cx.global_mut::<ToolbarHosts>().0;
+    hosts.retain(|id, _| windows.contains(id));
+    hosts.insert(window.window_handle().window_id(), Rc::new(host));
+}
+fn host(window: &Window, cx: &App) -> Option<Rc<ReaderToolbarHost>> {
+    cx.try_global::<ToolbarHosts>()?
+        .0
+        .get(&window.window_handle().window_id())
+        .cloned()
+}
+
 #[derive(IntoElement)]
-struct FloatingControls {
+struct ReaderControls {
     id: &'static str,
     controls: AnyElement,
-    bottom: Pixels,
-    persistent: bool,
 }
-impl RenderOnce for FloatingControls {
+impl RenderOnce for ReaderControls {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let state = window.use_keyed_state(self.id, cx, |_, _| HoverState::default());
-        let expanded = self.persistent || state.read(cx).expanded;
+        if let Some(host) = host(window, cx) {
+            host.controls.borrow_mut().push((self.id, self.controls));
+            div().into_any_element()
+        } else {
+            capsule(self.controls, false, cx)
+        }
+    }
+}
+
+#[derive(IntoElement)]
+pub(crate) struct ReaderToolbarDock;
+impl RenderOnce for ReaderToolbarDock {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let Some(host) = host(window, cx) else {
+            return div().into_any_element();
+        };
+        let controls = std::mem::take(&mut *host.controls.borrow_mut());
+        if controls.is_empty() {
+            return div().into_any_element();
+        }
+        let groups = v_flex().gap_1().children(
+            controls
+                .into_iter()
+                .map(|(id, control)| div().id(id).child(control)),
+        );
+        let controls = (host.compose)(groups.into_any_element(), cx);
+        let collapsed = host.collapsed;
         div()
-            .id((ElementId::from(self.id), "hover-zone"))
             .absolute()
-            .left(px(16.))
-            .right(px(16.))
-            .bottom(self.bottom)
-            .min_h(px(72.))
-            .flex()
-            .items_end()
-            .justify_center()
-            .on_hover(window.listener_for(&state, |state, hovered, window, cx| {
-                state.hovered = *hovered;
-                state.schedule(*hovered, window, cx);
-            }))
-            .on_mouse_move(window.listener_for(
-                &state,
-                |state, event: &MouseMoveEvent, window, cx| {
-                    state.dragging = event.pressed_button.is_some();
-                    if state.dragging {
-                        state.task = None;
-                    } else if state.hovered && !state.expanded && state.task.is_none() {
-                        state.schedule(true, window, cx);
-                    }
-                },
-            ))
-            .on_mouse_up_out(
-                MouseButton::Left,
-                window.listener_for(&state, |state, _, window, cx| {
-                    state.dragging = false;
-                    if !state.hovered {
-                        state.schedule(false, window, cx);
-                    }
-                }),
-            )
-            .on_mouse_up(
-                MouseButton::Left,
-                window.listener_for(&state, |state, _, _, _| {
-                    state.dragging = false;
-                }),
-            )
+            .size_full()
             .child(
+                canvas(
+                    |_, _, _| (),
+                    move |_, _, window, _| (host.hide_native)(window),
+                )
+                .absolute()
+                .size_full(),
+            )
+            .child(capsule(controls, collapsed, cx))
+            .into_any_element()
+    }
+}
+fn capsule(controls: AnyElement, collapsed: bool, cx: &App) -> AnyElement {
+    div()
+        .absolute()
+        .left(px(16.))
+        .right(px(16.))
+        .bottom(px(16.))
+        .flex()
+        .justify_center()
+        .when(!collapsed, |view| {
+            view.child(
                 div()
-                    .id(self.id)
-                    .when(!expanded, |view| view.invisible())
+                    .id("reader-capsule")
                     .max_w(relative(1.))
                     .min_w_0()
                     .px_3()
                     .py_2()
                     .rounded(px(24.))
                     .border_1()
-                    .border_color(cx.theme().border.opacity(0.7))
-                    .bg(cx.theme().background.opacity(0.94))
-                    .shadow_md()
+                    .border_color(cx.theme().border.opacity(0.5))
+                    .bg(cx.theme().background.opacity(0.96))
+                    .shadow_sm()
                     .overflow_x_scroll()
                     .occlude()
-                    .child(self.controls),
+                    .child(controls),
             )
-    }
+        })
+        .into_any_element()
 }
-pub(super) fn floating(id: &'static str, controls: impl IntoElement, cx: &App) -> impl IntoElement {
-    floating_at(id, controls, px(16.), cx)
-}
-pub(super) fn floating_at(
+pub(super) fn floating(
     id: &'static str,
     controls: impl IntoElement,
-    bottom: Pixels,
     _cx: &App,
 ) -> impl IntoElement {
-    FloatingControls {
+    ReaderControls {
         id,
         controls: controls.into_any_element(),
-        bottom,
-        persistent: false,
     }
 }
-
-/// Frequent canvas operations stay discoverable without a hidden hover target.
-pub(super) fn persistent(id: &'static str, controls: impl IntoElement) -> impl IntoElement {
-    FloatingControls {
-        id,
-        controls: controls.into_any_element(),
-        bottom: px(16.),
-        persistent: true,
-    }
-}
-
 pub(super) fn loading(label: String, cx: &App) -> AnyElement {
     div()
         .size_full()

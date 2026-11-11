@@ -47,6 +47,9 @@ pub struct Workspace {
     focus: FocusHandle,
     page: Page,
     file_fullscreen: bool,
+    reader_toolbar_collapsed: bool,
+    reader_toolbar: std::rc::Rc<super::native_toolbar_bridge::NativeToolbar>,
+    reader_toolbar_task: Option<Task<()>>,
     file_fullscreen_entered_window: bool,
     file_fullscreen_seen_window: bool,
     history: Vec<header::Target>,
@@ -189,6 +192,12 @@ impl Workspace {
     }
 
     pub fn new(path: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let toolbar_events = std::rc::Rc::new(std::cell::RefCell::new(
+            super::native_toolbar_bridge::ToolbarEvents::default(),
+        ));
+        let reader_toolbar = std::rc::Rc::new(super::native_toolbar_bridge::NativeToolbar::new(
+            toolbar_events.clone(),
+        ));
         cx.on_release(|view, _| {
             view.flush_usage();
             glim_services::telemetry::track(
@@ -265,6 +274,9 @@ impl Workspace {
             sidebar_layout: cx.new(|_| gpui_kit::component::resizable::ResizableState::default()),
             page: Page::Start,
             file_fullscreen: false,
+            reader_toolbar_collapsed: false,
+            reader_toolbar,
+            reader_toolbar_task: None,
             file_fullscreen_entered_window: false,
             file_fullscreen_seen_window: false,
             word_wrap: cx
@@ -359,6 +371,35 @@ impl Workspace {
                 cx.notify();
             }));
         workspace.start_usage_timer(window, cx);
+        workspace.reader_toolbar_task = Some(cx.spawn_in(window, async move |workspace, cx| {
+            loop {
+                let id = super::native_toolbar_bridge::ToolbarEvents::next(&toolbar_events).await;
+                if workspace
+                    .update_in(cx, |view, window, cx| {
+                        if id == "hide-reader-toolbar" {
+                            view.reader_toolbar_collapsed = true;
+                            cx.refresh_windows();
+                            cx.notify();
+                        } else if id == "show-reader-toolbar" {
+                            view.reader_toolbar_collapsed = false;
+                            cx.refresh_windows();
+                            cx.notify();
+                        } else if id == "cancel-file-save" {
+                            view.cancel_save(cx);
+                        } else if let Some(item) = view
+                            .reader_actions(cx)
+                            .into_iter()
+                            .find(|item| item.action.id() == id && item.enabled)
+                        {
+                            view.run_toolbar_action(item.action, window, cx);
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
         if let Some(path) = path {
             workspace.open_path(path, window, cx);
         }

@@ -32,6 +32,8 @@ impl Workspace {
     }
 
     pub(crate) fn suspend_workspace(&mut self, window: &Window, cx: &mut Context<Self>) {
+        self.reader_toolbar
+            .update(Bounds::default(), b"[]", false, true, window);
         self.search_visible = false;
         self.search_task = None;
         self.search_loading = false;

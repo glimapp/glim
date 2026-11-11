@@ -56,7 +56,7 @@ struct EmbeddedPreviewTests {
         let fullWidth = capsule.intrinsicContentSize.width
         capsule.frame = NSRect(x: 0, y: 0, width: 180, height: 72)
         capsule.layoutSubtreeIfNeeded()
-        precondition(long.frame.width > 180)
+        precondition(long.superview?.isHidden == true, "Overflow controls move into the More menu")
         long.isHidden = true
         let shortWidth = capsule.intrinsicContentSize.width
         precondition(shortWidth < fullWidth)
