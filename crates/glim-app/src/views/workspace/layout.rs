@@ -10,6 +10,46 @@ use gpui_kit::{
     *,
 };
 
+pub(super) fn reader_frame(cx: &App) -> AnyElement {
+    let outside = cx.theme().sidebar;
+    let border = cx.theme().border;
+    // GPUI overflow clips to a rectangle. Cover child paint outside the frame's
+    // rounded corners, then restore the outline above the child backgrounds.
+    canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let radius = px(12.)
+                .min(bounds.size.width / 2.)
+                .min(bounds.size.height / 2.);
+            for (corner, x, y) in [
+                (bounds.origin, 1., 1.),
+                (point(bounds.right(), bounds.top()), -1., 1.),
+                (point(bounds.right(), bounds.bottom()), -1., -1.),
+                (point(bounds.left(), bounds.bottom()), 1., -1.),
+            ] {
+                let offset = |a: Pixels, b: Pixels| corner + point(a * x, b * y);
+                let tangent = radius * (1. - 0.552_284_8);
+                let mut path = PathBuilder::fill();
+                path.move_to(corner);
+                path.line_to(offset(radius, px(0.)));
+                path.cubic_bezier_to(
+                    offset(px(0.), radius),
+                    offset(tangent, px(0.)),
+                    offset(px(0.), tangent),
+                );
+                path.close();
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, outside);
+                }
+            }
+            window.paint_quad(outline(bounds, border, BorderStyle::default()).corner_radii(radius));
+        },
+    )
+    .absolute()
+    .inset_0()
+    .into_any_element()
+}
+
 #[derive(Clone, Default)]
 pub(super) struct WorkspaceOutline {
     pub row: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,

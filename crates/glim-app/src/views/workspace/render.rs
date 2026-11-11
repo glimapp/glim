@@ -188,18 +188,20 @@ impl Render for Workspace {
         let document_page = self.page == Page::Document;
         let gesture_view = cx.entity().downgrade();
         let viewer = v_flex()
+            .relative()
             .size_full()
             .min_w_0()
             .overflow_hidden()
             .when(!self.file_fullscreen, |view| {
                 view.rounded(px(12.))
                     .border_1()
-                    .border_color(cx.theme().border)
+                    .border_color(cx.theme().transparent)
             })
             .bg(cx.theme().background)
-            .when(!has_tabs && !self.file_fullscreen, |view| {
-                view.pt(px(super::TITLE_BAR_HEIGHT))
-            })
+            .when(
+                !has_tabs && self.page != Page::Start && !self.file_fullscreen,
+                |view| view.pt(px(super::TITLE_BAR_HEIGHT)),
+            )
             .when(has_tabs && !self.file_fullscreen, |view| {
                 view.child(tab_bar)
             })
@@ -235,7 +237,10 @@ impl Render for Workspace {
                         .absolute()
                         .size_full(),
                     ),
-            );
+            )
+            .when(!self.file_fullscreen, |view| {
+                view.child(super::layout::reader_frame(cx))
+            });
         let panel_content = self
             .explorer
             .as_ref()

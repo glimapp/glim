@@ -47,7 +47,17 @@ impl Workspace {
     }
 
     pub(crate) fn resume_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.page = Page::Document;
+        if self.roots.is_empty()
+            && self.workspace_name.is_none()
+            && self.tabs.is_empty()
+            && !self.loading
+            && self.remote.is_none()
+            && self.remote_restore.is_none()
+        {
+            self.show_home(cx);
+        } else {
+            self.page = Page::Document;
+        }
         window.focus(&self.focus, cx);
         self.reveal_active_file(cx);
         cx.notify();

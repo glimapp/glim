@@ -240,7 +240,7 @@ impl Workspace {
         }
         items.push(serde_json::json!({"id": "hide-reader-toolbar", "label": glim_services::locale::tr("Hide file toolbar"),
             "moreLabel": glim_services::locale::tr("More file actions"), "restoreLabel": glim_services::locale::tr("Show file toolbar"),
-            "roundTop": !self.sidebar_visible && !self.explorer_visible,
+            "roundTop": false,
             "symbol": "chevron.down", "enabled": true, "selection": null}));
         let bytes = serde_json::to_vec(&items).expect("Reader toolbar actions");
         let toolbar = self.reader_toolbar.clone();

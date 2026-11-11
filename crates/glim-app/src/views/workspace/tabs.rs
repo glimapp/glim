@@ -692,6 +692,8 @@ impl Workspace {
             .px_1()
             .pl(px(4. + leading_inset))
             .bg(cx.theme().background)
+            .rounded_tl(px(11.))
+            .rounded_tr(px(11.))
             .border_b_1()
             .border_color(cx.theme().border)
             .child(
