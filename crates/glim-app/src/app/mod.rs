@@ -173,6 +173,7 @@ pub(crate) fn sync_system_appearance(window: &mut Window, cx: &mut App) {
         .is_none_or(|preference| preference.0 == glim_services::preferences::Appearance::System)
     {
         gpui_kit::component::Theme::sync_system_appearance(Some(window), cx);
+        apply_workspace_surfaces(cx);
     }
 }
 
@@ -259,6 +260,14 @@ fn apply_appearance(appearance: glim_services::preferences::Appearance, cx: &mut
             Theme::change(ThemeMode::Dark, None, cx);
         }
     }
+    apply_workspace_surfaces(cx);
+}
+
+fn apply_workspace_surfaces(cx: &mut App) {
+    gpui_kit::component::Theme::update(cx, |theme| {
+        let strength = if theme.is_dark() { 0.08 } else { 0.06 };
+        theme.colors.sidebar = theme.background.blend(theme.foreground.opacity(strength));
+    });
 }
 
 fn open_default_applications(cx: &mut App) {
