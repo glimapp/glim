@@ -134,15 +134,23 @@ final class FloatingReaderToolbar: NSView, NSPopoverDelegate {
         }
         needsLayout = true
     }
+    private func width(for item: NSView) -> CGFloat {
+        let width = ReaderActionPresets.layout[item.identifier!.rawValue]!.width
+        guard item.identifier?.rawValue == "zoom-status", let label = item as? NSTextField else { return width }
+        let textWidth = (label.stringValue as NSString).size(withAttributes: [
+            .font: label.font ?? NSFont.systemFont(ofSize: 13)
+        ]).width
+        return max(width, ceil(textWidth) + 4)
+    }
     private func measurements() -> [(NSView, NSSize)] {
         items.filter { !$0.isHidden }.map { item in
-            let width = ReaderActionPresets.layout[item.identifier!.rawValue]!.width
+            let width = width(for: item)
             for constraint in item.constraints where constraint.isActive && constraint.firstAttribute == .width && constraint.secondItem == nil {
                 constraint.isActive = false
             }
             if let label = item as? NSTextField, !label.isEditable {
                 label.textColor = .secondaryLabelColor
-                label.lineBreakMode = .byTruncatingTail
+                label.lineBreakMode = item.identifier?.rawValue == "zoom-status" ? .byClipping : .byTruncatingTail
                 label.maximumNumberOfLines = 1
                 label.toolTip = label.stringValue
                 return (item, NSSize(width: width, height: 18))
@@ -247,7 +255,7 @@ final class FloatingReaderToolbar: NSView, NSPopoverDelegate {
         lentControls = overflowItems
         for item in lentControls {
             item.removeFromSuperview()
-            let width = ReaderActionPresets.layout[item.identifier!.rawValue]!.width
+            let width = width(for: item)
             let row = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 28))
             row.widthAnchor.constraint(equalToConstant: 260).isActive = true
             row.heightAnchor.constraint(equalToConstant: 28).isActive = true

@@ -215,7 +215,7 @@ enum ReaderMenu {
             ("Fit page", "arrow.up.left.and.arrow.down.right"),
             ("Single Page", "doc"), ("Single Page Continuous", "doc.text"),
             ("Two Pages", "book"), ("Two Pages Continuous", "book.pages"),
-            ("Fit image", "arrow.up.left.and.arrow.down.right"), ("Actual size", "1.magnifyingglass"),
+            ("Fit image", "rectangle.arrowtriangle.2.inward"), ("Actual size", "1.magnifyingglass"),
             ("Zoom in", "plus.magnifyingglass"), ("Zoom out", "minus.magnifyingglass"),
             ("Original layout", "doc.richtext"), ("Reading mode", "text.alignleft"),
             ("Reset zoom", "arrow.counterclockwise"), ("Previous", "chevron.left"), ("Next", "chevron.right"),
