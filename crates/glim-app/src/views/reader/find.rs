@@ -283,25 +283,35 @@ impl FindBar {
 
     fn option(id: &'static str, label: &str, icon: IconName, enabled: bool, cx: &App) -> Button {
         let accent = crate::views::accent(cx);
-        Self::control(id, label, icon).toggled(enabled).custom(
-            ButtonCustomVariant::new(cx)
-                .color(if enabled {
-                    accent.opacity(0.12)
-                } else {
-                    cx.theme().transparent
-                })
-                .foreground(if enabled {
-                    accent
-                } else {
-                    cx.theme().muted_foreground
-                })
-                .hover(if enabled {
-                    accent.opacity(0.18)
-                } else {
-                    cx.theme().muted
-                })
-                .active(accent.opacity(0.22)),
-        )
+        let background = if enabled {
+            cx.theme().popover.blend(accent.opacity(0.20))
+        } else {
+            cx.theme().transparent
+        };
+        Self::control(id, label, icon)
+            .toggled(enabled)
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .color(background)
+                    .foreground(if enabled {
+                        accent
+                    } else {
+                        cx.theme().muted_foreground
+                    })
+                    .hover(if enabled {
+                        background.blend(accent.opacity(0.08))
+                    } else {
+                        cx.theme().muted
+                    })
+                    .active(accent.opacity(0.28)),
+            )
+            .bg(background)
+            .border_1()
+            .border_color(if enabled {
+                accent.opacity(0.65)
+            } else {
+                cx.theme().transparent
+            })
     }
 }
 
@@ -350,6 +360,7 @@ impl Render for FindBar {
                 .into_any_element()
         };
         let options = h_flex()
+            .flex_shrink_0()
             .gap(px(1.))
             .child(
                 Self::option(
@@ -390,6 +401,24 @@ impl Render for FindBar {
                     view.refresh(true, cx);
                 })),
             );
+        let controls = h_flex()
+            .flex_shrink_0()
+            .gap(px(1.))
+            .child(
+                Self::control(
+                    "find-prev",
+                    "Previous match · Shift+Enter",
+                    IconName::ArrowUp,
+                )
+                .disabled(empty)
+                .on_click(cx.listener(|view, _, _, cx| view.step(true, cx))),
+            )
+            .child(
+                Self::control("find-next", "Next match · Enter", IconName::ArrowDown)
+                    .disabled(empty)
+                    .on_click(cx.listener(|view, _, _, cx| view.step(false, cx))),
+            )
+            .child(options);
         let panel = v_flex()
             .id("reader-find")
             .w(px(400.))
@@ -440,43 +469,29 @@ impl Render for FindBar {
                         div().flex_1().min_w(px(100.)).child(
                             Input::new(&self.input)
                                 .small()
-                                .appearance(false)
-                                .bordered(false),
+                                .appearance(true)
+                                .bordered(true)
+                                .suffix(
+                                    div()
+                                        .w(px(42.))
+                                        .flex_shrink_0()
+                                        .text_center()
+                                        .text_color(
+                                            if self.error
+                                                || (matcher.is_empty()
+                                                    && !query_empty
+                                                    && self.pending.is_none())
+                                            {
+                                                cx.theme().danger
+                                            } else {
+                                                cx.theme().muted_foreground
+                                            },
+                                        )
+                                        .child(status),
+                                ),
                         ),
                     )
-                    .child(options)
-                    .child(
-                        div()
-                            .w(px(54.))
-                            .flex_shrink_0()
-                            .text_center()
-                            .text_color(
-                                if self.error
-                                    || (matcher.is_empty()
-                                        && !query_empty
-                                        && self.pending.is_none())
-                                {
-                                    cx.theme().danger
-                                } else {
-                                    cx.theme().muted_foreground
-                                },
-                            )
-                            .child(status),
-                    )
-                    .child(
-                        Self::control(
-                            "find-prev",
-                            "Previous match · Shift+Enter",
-                            IconName::ArrowUp,
-                        )
-                        .disabled(empty)
-                        .on_click(cx.listener(|view, _, _, cx| view.step(true, cx))),
-                    )
-                    .child(
-                        Self::control("find-next", "Next match · Enter", IconName::ArrowDown)
-                            .disabled(empty)
-                            .on_click(cx.listener(|view, _, _, cx| view.step(false, cx))),
-                    )
+                    .child(controls)
                     .child(
                         Self::control("find-close", "Close find · Esc", IconName::X)
                             .on_click(cx.listener(|view, _, window, cx| view.close(window, cx))),
@@ -491,13 +506,13 @@ impl Render for FindBar {
                             div().flex_1().min_w_0().child(
                                 Input::new(&self.replacement)
                                     .small()
-                                    .appearance(false)
-                                    .bordered(false),
+                                    .appearance(true)
+                                    .bordered(true),
                             ),
                         )
                         .child(
                             h_flex()
-                                .w(px(150.))
+                                .w(px(176.))
                                 .flex_shrink_0()
                                 .gap(px(4.))
                                 .child(
