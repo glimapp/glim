@@ -316,7 +316,7 @@ impl FindBar {
 }
 
 impl Render for FindBar {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.open {
             return Empty.into_any_element();
         }
@@ -327,12 +327,6 @@ impl Render for FindBar {
         let label = matcher.label();
         let empty = matcher.is_empty() || self.pending.is_some() || self.error;
         let query_empty = self.input.read(cx).value().is_empty();
-        let focused = self.input.read(cx).focus_handle(cx).is_focused(window)
-            || self
-                .replacement
-                .read(cx)
-                .focus_handle(cx)
-                .is_focused(window);
         let status = if self.error {
             div()
                 .id("find-error")
@@ -431,11 +425,7 @@ impl Render for FindBar {
             .font_family(cx.theme().font_family.clone())
             .text_size(px(13.))
             .border_1()
-            .border_color(if focused {
-                crate::views::accent(cx).opacity(0.5)
-            } else {
-                cx.theme().border
-            })
+            .border_color(cx.theme().border)
             .rounded(px(6.))
             .shadow_sm()
             .on_action(cx.listener(|view, _: &Escape, window, cx| view.close(window, cx)))
@@ -471,6 +461,8 @@ impl Render for FindBar {
                                 .small()
                                 .appearance(true)
                                 .bordered(true)
+                                .focus_bordered(false)
+                                .bg(cx.theme().popover)
                                 .suffix(
                                     div()
                                         .w(px(42.))
@@ -507,7 +499,9 @@ impl Render for FindBar {
                                 Input::new(&self.replacement)
                                     .small()
                                     .appearance(true)
-                                    .bordered(true),
+                                    .bordered(true)
+                                    .focus_bordered(false)
+                                    .bg(cx.theme().popover),
                             ),
                         )
                         .child(
