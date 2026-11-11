@@ -275,6 +275,7 @@ final class WorkspaceReaderToolbar: NSView {
          callback: @escaping @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void) {
         self.context = context; self.callback = callback
         super.init(frame: .zero)
+        setAccessibilityRole(.toolbar)
         fallback.install(in: self, managesContextMenu: false)
         restore.target = self; restore.action = #selector(invoke(_:))
         restore.identifier = NSUserInterfaceItemIdentifier("show-reader-toolbar")
@@ -354,6 +355,7 @@ final class WorkspaceReaderToolbar: NSView {
             active = nil
             fallback.isHidden = true
             restore.isHidden = true
+            updateAccessibility()
             return
         }
         func find(_ view: NSView) -> FloatingReaderToolbar? {
@@ -375,8 +377,22 @@ final class WorkspaceReaderToolbar: NSView {
         restore.isHidden = !collapsed || !fullscreen
         restore.frame = NSRect(x: 12, y: max(0, bounds.height - 40), width: 28, height: 28)
         if parent.subviews.last !== self { parent.addSubview(self, positioned: .above, relativeTo: nil) }
+        updateAccessibility()
+    }
+    private func updateAccessibility() {
+        guard let window = window else { return }
+        let exposed = visible && (!restore.isHidden || !fallback.isHidden)
+        setAccessibilityChildren(!restore.isHidden ? [restore] : (!fallback.isHidden ? [fallback] : []))
+        let children = window.accessibilityChildren() ?? []
+        let present = children.contains { ($0 as? WorkspaceReaderToolbar) === self }
+        guard present != exposed else { return }
+        let others = children.filter { ($0 as? WorkspaceReaderToolbar) !== self }
+        window.setAccessibilityChildren(exposed ? others + [self] : others)
+        NSAccessibility.post(element: window, notification: .layoutChanged)
     }
     func detach() {
+        visible = false
+        updateAccessibility()
         active?.setWorkspaceControls(nil)
         active?.workspaceHidden = true
         removeFromSuperview()
