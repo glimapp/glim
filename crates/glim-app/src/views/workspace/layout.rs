@@ -51,7 +51,13 @@ pub(super) fn reader_frame(workspace_outline: &WorkspaceOutline, cx: &App) -> An
                     window.paint_path(path, if connected_corner { surface } else { outside });
                 }
             }
-            window.paint_quad(outline(bounds, border, BorderStyle::default()).corner_radii(radius));
+            // Match GPUI's border painting: transparent pixels retain the border
+            // RGB so corner antialiasing cannot interpolate toward black.
+            window.paint_quad(
+                outline(bounds, border, BorderStyle::default())
+                    .background(border.opacity(0.))
+                    .corner_radii(radius),
+            );
         },
     )
     .absolute()
