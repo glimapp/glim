@@ -2,6 +2,7 @@ pub(crate) mod about;
 pub mod explorer;
 mod minimap;
 mod native_menu_bridge;
+mod native_toolbar_bridge;
 mod path_hint;
 mod reader;
 #[cfg(feature = "reader-measurements")]

@@ -1,4 +1,7 @@
 {
+  "More file actions": "更多文件操作",
+  "Show file toolbar": "显示文件操作栏",
+  "Hide file toolbar": "收起文件操作栏",
   "API reference": "API 接口文档",
   "Cannot load API reference.": "无法加载 API 接口文档。",
   "Cannot load API reference. Switch to Source to view or edit the document.": "无法加载 API 接口文档。可切换到源码查看或编辑。",
@@ -574,8 +577,6 @@
   "Copy Image": "复制图片",
   "Copy Text": "复制文字",
   "Cannot copy image.": "无法复制图片。",
-  "Scroll toolbar left": "向左滚动工具条",
-  "Scroll toolbar right": "向右滚动工具条",
   "Copy selected text / image / table cell": "复制选中文字／图片／表格单元格",
   "Copy preview text (native preview)": "复制预览文字（原生预览）",
   "Zoom in / out (native preview)": "放大／缩小（原生预览）",

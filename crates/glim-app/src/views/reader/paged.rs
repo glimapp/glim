@@ -17,7 +17,6 @@ pub(super) struct PagedReader {
     expanded: bool,
     resume_scroll: Point<Pixels>,
     pub source_editor: Option<super::source::SourceReader>,
-    pub controls_bottom: Pixels,
     pub return_to_preview: Option<PreviewAction>,
     pub saving: std::rc::Rc<std::cell::Cell<bool>>,
     page: TextPage,
@@ -69,7 +68,6 @@ impl PagedReader {
             resume_scroll: point(px(0.), px(0.)),
             _source_owner: page.owner.take(),
             source_editor,
-            controls_bottom: px(16.),
             return_to_preview: None,
             saving: std::rc::Rc::new(std::cell::Cell::new(false)),
             report_source: page.source.is_generated().then(|| page.source.clone()),
@@ -378,8 +376,7 @@ impl Render for PagedReader {
             } else {
                 uniform_list(
                     "large-text",
-                    self.page.rows.len()
-                        + ((f32::from(self.controls_bottom) + 64.) / 22.).ceil() as usize,
+                    self.page.rows.len() + 4,
                     cx.processor(|v, range: Range<usize>, _, cx| {
                         range
                             .map(|i| {
@@ -406,7 +403,7 @@ impl Render for PagedReader {
                 .w_full()
                 .into_any_element()
             })
-            .child(super::controls::floating_at(
+            .child(super::controls::floating(
                 "paged-controls",
                 h_flex()
                     .px_0()
@@ -508,7 +505,6 @@ impl Render for PagedReader {
                                 cx.listener(|v, _, w, cx| v.load(v.page.start, true, false, w, cx)),
                             ),
                     ),
-                self.controls_bottom,
                 cx,
             ))
     }

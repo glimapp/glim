@@ -584,7 +584,7 @@ impl Render for GraphReader {
                     ),
             )
             .when(!self.embedded, |view| {
-                view.child(super::controls::persistent(
+                view.child(super::controls::floating(
                     "xmind-controls",
                     h_flex()
                         .gap_2()
@@ -654,6 +654,7 @@ impl Render for GraphReader {
                                 cx.notify();
                             })),
                         ),
+                    cx,
                 ))
             })
     }

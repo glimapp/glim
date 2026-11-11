@@ -377,14 +377,6 @@ impl Render for SqliteView {
             .min_w_0()
             .min_h_0()
             .h_full()
-            .child(
-                h_flex().gap_2().p_2().child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(Input::new(&self.search).small()),
-                ),
-            )
             .when(self.status.error.is_some() || self.status.count_error, |el| {
                 let details = self.status.error.clone().unwrap_or_else(||
                     tr("Row count timed out. Retry with more time; available pages can still be browsed."));
@@ -416,12 +408,10 @@ impl Render for SqliteView {
                     .min_h_0()
                     .child(DataTable::new(&self.grid).stripe(true).small()),
             )
-            .child(
+            .child(super::super::controls::floating("sqlite-controls",
                 h_flex()
                     .gap_2()
-                    .p_2()
-                    .border_t_1()
-                    .border_color(cx.theme().border)
+                    .child(div().w(px(180.)).child(Input::new(&self.search).small()))
                     .child(
                         crate::views::icon_button("first", gpui_kit::assets::IconName::ChevronsLeft, tr("First page"))
                             .disabled(busy || self.status.page == 0)
@@ -470,7 +460,8 @@ impl Render for SqliteView {
                             },
                             self.status.page.saturating_mul(self.policy.page_rows) + rows
                         ))),
-            );
+                cx,
+            ));
         if let Some(detail) = self.detail.as_mut() {
             let (row, column, offset, more) =
                 (detail.row, detail.column, detail.offset, detail.more);

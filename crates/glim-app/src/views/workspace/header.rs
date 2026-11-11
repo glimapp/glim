@@ -1,10 +1,6 @@
 use super::Workspace;
 use gpui_kit::{
-    component::{
-        ActiveTheme, Sizable, TitleBar,
-        button::{Button, ButtonVariants},
-        h_flex, v_flex,
-    },
+    component::{ActiveTheme, TitleBar, h_flex, v_flex},
     prelude::FluentBuilder,
     *,
 };
@@ -281,33 +277,6 @@ impl Workspace {
     }
 
     pub(super) fn header(&self, cx: &mut Context<Self>) -> AnyElement {
-        if self.file_fullscreen {
-            let name = self
-                .active_reader()
-                .map(|reader| {
-                    if reader.document.draft_directory.is_some() {
-                        return reader.title.to_string();
-                    }
-                    reader
-                        .document
-                        .path
-                        .file_name()
-                        .unwrap_or(reader.document.path.as_os_str())
-                        .to_string_lossy()
-                        .into_owned()
-                })
-                .unwrap_or_default();
-            return workspace_title_bar(
-                h_flex()
-                    .size_full()
-                    .pl(px(94.))
-                    .pr_3()
-                    .gap_3()
-                    .child(div().flex_1().min_w_0().truncate().text_sm().child(name))
-                    .child(self.workspace_toolbar(cx)),
-                cx,
-            );
-        }
         v_flex()
             .relative()
             .w_full()
@@ -326,39 +295,24 @@ impl Workspace {
                             .h_full()
                             .items_center()
                             .gap_2()
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .h(px(28.))
-                                    .flex()
-                                    .items_center()
-                                    .text_size(px(16.))
-                                    .line_height(px(16.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Glim"),
+                            .when(
+                                self.sidebar_window_width * self.sidebar_ratio >= 340.
+                                    || !self.sidebar_visible,
+                                |row| {
+                                    row.child(
+                                        div()
+                                            .flex_shrink_0()
+                                            .h(px(28.))
+                                            .flex()
+                                            .items_center()
+                                            .text_size(px(16.))
+                                            .line_height(px(16.))
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child("Glim"),
+                                    )
+                                },
                             )
-                            .child(div().w(px(1.)).h(px(16.)).mx_1().bg(cx.theme().border))
                             .child(self.navigation_toolbar(cx)),
-                    )
-                    .child(
-                        h_flex()
-                            .absolute()
-                            .right(px(12.))
-                            .top_0()
-                            .h_full()
-                            .gap_1()
-                            .child(self.workspace_toolbar(cx))
-                            .when(self.saving.is_some() && self.save_cancel.is_some(), |row| {
-                                row.child(
-                                    Button::new("cancel-file-save")
-                                        .ghost()
-                                        .small()
-                                        .label(glim_services::locale::tr("Cancel save"))
-                                        .on_click(
-                                            cx.listener(|view, _, _, cx| view.cancel_save(cx)),
-                                        ),
-                                )
-                            }),
                     ),
                 cx,
             ))

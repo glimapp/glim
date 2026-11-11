@@ -48,7 +48,8 @@ impl Workspace {
 
     fn search_is_scanning(&self) -> bool {
         self.search_indexing
-            || (self.search_partial
+            || (self.search_visible
+                && self.search_partial
                 && !self.search_index_ready
                 && self.search_index_error.is_none()
                 && self.search_error.is_none())

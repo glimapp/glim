@@ -7,6 +7,7 @@ mod boundary;
 mod construction;
 mod contract;
 mod controls;
+pub(crate) use controls::{ReaderToolbarDock, ReaderToolbarHost, set_toolbar_host};
 mod csv;
 mod diagrams;
 mod editing;

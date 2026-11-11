@@ -1,4 +1,7 @@
 {
+  "More file actions": "More file actions",
+  "Show file toolbar": "Show file toolbar",
+  "Hide file toolbar": "Hide file toolbar",
   "API reference": "API reference",
   "Cannot load API reference.": "Cannot load API reference.",
   "Cannot load API reference. Switch to Source to view or edit the document.": "Cannot load API reference. Switch to Source to view or edit the document.",
@@ -574,8 +577,6 @@
   "Copy Image": "Copy Image",
   "Copy Text": "Copy Text",
   "Cannot copy image.": "Cannot copy image.",
-  "Scroll toolbar left": "Scroll toolbar left",
-  "Scroll toolbar right": "Scroll toolbar right",
   "Copy selected text / image / table cell": "Copy selected text / image / table cell",
   "Copy preview text (native preview)": "Copy preview text (native preview)",
   "Zoom in / out (native preview)": "Zoom in / out (native preview)",

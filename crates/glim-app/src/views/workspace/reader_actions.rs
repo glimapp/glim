@@ -74,6 +74,24 @@ impl ToolbarAction {
 }
 
 impl ToolbarItem {
+    pub(super) fn native_symbol(&self) -> &'static str {
+        match self.action {
+            ToolbarAction::Preview if matches!(self.icon, Some(IconName::ListTree)) => {
+                "list.bullet.indent"
+            }
+            ToolbarAction::Preview if matches!(self.icon, Some(IconName::Rows2)) => "tablecells",
+            ToolbarAction::Preview => "eye",
+            ToolbarAction::Source => "chevron.left.forwardslash.chevron.right",
+            ToolbarAction::WordWrap => "arrow.turn.down.left",
+            ToolbarAction::Find => "magnifyingglass",
+            ToolbarAction::FileFullscreen if self.selected => "arrow.down.right.and.arrow.up.left",
+            ToolbarAction::FileFullscreen => "arrow.up.left.and.arrow.down.right",
+            ToolbarAction::Extract => "archivebox",
+            ToolbarAction::CancelExtract => "xmark",
+            _ => "ellipsis",
+        }
+    }
+
     pub(super) fn new(action: ToolbarAction) -> Self {
         let (label, icon) = match action {
             ToolbarAction::Extract => ("Extract…", Some(IconName::Folder)),

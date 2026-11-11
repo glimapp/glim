@@ -43,6 +43,18 @@ final class ReaderControls {
                     // Preserve the original sender, including external-open popovers.
                     button.performClick(nil)
                 }
+            } else if let segments = entry.view as? NSSegmentedControl {
+                for index in 0..<segments.segmentCount {
+                    ReaderMenu.add(to: menu, title: segments.label(forSegment: index) ?? "",
+                        enabled: segments.isEnabled && segments.isEnabled(forSegment: index),
+                        checked: segments.isSelected(forSegment: index)) { [weak segments] in
+                        guard let segments = segments else { return }
+                        segments.selectedSegment = index
+                        segments.sendAction(segments.action, to: segments.target)
+                    }
+                }
+            } else if let label = entry.view as? NSTextField, !label.stringValue.isEmpty {
+                ReaderMenu.add(to: menu, title: label.stringValue, enabled: false) {}
             }
         }
         return menu

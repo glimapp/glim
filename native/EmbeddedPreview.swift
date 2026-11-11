@@ -115,6 +115,7 @@ func glimPreviewLayout(_ handle: UnsafeMutableRawPointer, _ parentPointer: Unsaf
     }
     preview.imagePreview?.resume()
     preview.resumePendingPlayback()
+    if let window = gpuiView.window { WorkspaceReaderToolbar.refresh(in: window) }
 }
 
 @_cdecl("glim_preview_hide")
@@ -130,6 +131,7 @@ func glimPreviewHide(_ handle: UnsafeMutableRawPointer) {
         preview.host.window?.makeFirstResponder(preview.host.gpuiView)
     }
     preview.host.isHidden = true
+    if let window = preview.host.window { WorkspaceReaderToolbar.refresh(in: window) }
     preview.host.updateAccessibility()
     preview.pendingPlayback = false
     if preview.mediaLoaded { preview.player.pause() }

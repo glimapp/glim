@@ -39,6 +39,7 @@ gpui_kit::assets::icon_assets!(
         Plus,
         Minus,
         ChevronDown,
+        ChevronUp,
         ChevronRight,
         FoldVertical,
         UnfoldVertical,

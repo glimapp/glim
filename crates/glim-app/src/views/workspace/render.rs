@@ -24,6 +24,27 @@ use gpui_kit::{
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_usage(window, cx);
+        let owner = cx.entity().downgrade();
+        let native_toolbar = std::rc::Rc::downgrade(&self.reader_toolbar);
+        crate::views::reader::set_toolbar_host(
+            crate::views::reader::ReaderToolbarHost::new(
+                self.reader_toolbar_collapsed,
+                std::rc::Rc::new(move |controls, cx| {
+                    if let Some(owner) = owner.upgrade() {
+                        owner.update(cx, |view, cx| view.content_toolbar(controls, cx))
+                    } else {
+                        controls
+                    }
+                }),
+                std::rc::Rc::new(move |window| {
+                    if let Some(toolbar) = native_toolbar.upgrade() {
+                        toolbar.update(Bounds::default(), b"[]", false, true, window);
+                    }
+                }),
+            ),
+            window,
+            cx,
+        );
         if self.page != Page::Document || self.active_reader().is_none() {
             self.set_file_fullscreen(false, window);
         }
@@ -68,6 +89,7 @@ impl Render for Workspace {
             });
         let window_width = f32::from(window.viewport_size().width);
         let sidebar_width = window_width * self.sidebar_ratio;
+        let header_above_content = !self.sidebar_visible || sidebar_width < 200.;
         if (self.sidebar_window_width - window_width).abs() > 0.5 {
             self.sidebar_window_width = window_width;
             let layout = self.sidebar_layout.clone();
@@ -178,7 +200,9 @@ impl Render for Workspace {
                     .flex_1()
                     .min_h_0()
                     .w_full()
+                    .child(self.floating_reader_toolbar(window, cx))
                     .child(content)
+                    .child(crate::views::reader::ReaderToolbarDock)
                     .child(
                         canvas(
                             |_, _, _| (),
@@ -254,6 +278,7 @@ impl Render for Workspace {
             .active(cx.theme().foreground.opacity(0.08));
         let sidebar = v_flex()
             .size_full()
+            .when(!header_above_content, |view| view.pt(px(46.)))
             .px_4()
             .pb_1()
             .gap_1()
@@ -351,6 +376,7 @@ impl Render for Workspace {
                 .w_full()
                 .pr(px(2.))
                 .pb(px(2.))
+                .pt(px(if header_above_content { 48. } else { 2. }))
                 .when(!self.sidebar_visible, |view| {
                     view.child(
                         v_flex()
@@ -492,7 +518,6 @@ impl Render for Workspace {
             .track_focus(&self.focus)
             .bg(cx.theme().sidebar)
             .text_color(cx.theme().foreground)
-            .when(!self.file_fullscreen, |view| view.child(header))
             .capture_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
                 if view.search_visible {
                     view.search_key_down(event, window, cx);
@@ -596,6 +621,33 @@ impl Render for Workspace {
                 cx.stop_propagation();
             }))
             .child(body)
+            .when(!self.file_fullscreen, |view| {
+                view.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .w(px(if header_above_content {
+                            window_width
+                        } else {
+                            sidebar_width
+                        }))
+                        .overflow_hidden()
+                        .child(header),
+                )
+            })
+            .when(
+                self.file_fullscreen && self.reader_toolbar_collapsed,
+                |view| {
+                    view.child(
+                        div()
+                            .absolute()
+                            .top(px(12.))
+                            .left(px(12.))
+                            .child(self.restore_reader_toolbar(cx)),
+                    )
+                },
+            )
             .children(self.remote_dialog.clone())
             .when(self.search_visible, |view| {
                 view.child(self.search_dialog(window, cx))
