@@ -380,6 +380,7 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
+| `jobs.content_search_concurrency` | 1 | jobs | budget | On-demand content search concurrency, independent of filename indexing and document opening. |
 | `jobs.document_concurrency` | 2 | jobs | budget | Process-wide concurrent document loading and refresh jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited. |
 | `jobs.projection_concurrency` | 2 | jobs | budget | Process-wide concurrent data projection and page preparation jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited. |
 | `jobs.decode_concurrency` | 2 | jobs | budget | Process-wide concurrent image and animation decoding jobs. Additional jobs wait asynchronously and can be canceled; file access is unlimited. |
@@ -397,12 +398,13 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `remote.search_concurrency` | 2 | jobs | budget | Concurrent remote path-index jobs and local/remote content searches; queued work waits without occupying workers, independently of file opening. |
+| `remote.search_retry_initial_ms` | 10,000 | milliseconds | budget | Initial quiet retry delay for failed index connections or directories; doubles up to search_refresh_ms. |
+| `remote.search_concurrency` | 2 | jobs | budget | Concurrent remote path-index jobs, independent of content searches and file opening; queued work waits without occupying workers. |
 | `remote.search_batch_paths` | 256 | paths per transaction | budget | Paths committed per search-index transaction; partial results publish sooner on the first file or elapsed publish interval. Total indexed paths are unlimited. |
 | `remote.search_poll_ms` | 250 | milliseconds | budget | Search-index publication and UI revision-poll interval; unchanged revisions do not rerun the filename query. |
 | `remote.search_directory_batch` | 64 | directories per cycle | budget | Maximum directory metadata checks per incremental search-index job; changed listings stream through disk-backed staging. Total directory count is unlimited. |
 | `remote.search_directory_poll_ms` | 2,000 | milliseconds | budget | Delay between background incremental directory batches for each retained remote workspace, independent of the search dialog. |
-| `remote.search_refresh_ms` | 300,000 | milliseconds | budget | Age after which a directory listing is reconciled even when its coarse modification timestamp is unchanged. Also backs off failed scans and directory checks; cached paths do not expire. Explicit refresh rebuilds the full index. |
+| `remote.search_refresh_ms` | 300,000 | milliseconds | budget | Age after which a directory listing is reconciled even when its coarse modification timestamp is unchanged. Also caps exponential retries; cached paths do not expire. Explicit retry wakes failed directories without rebuilding the full index. |
 | `remote.search_record_bytes` | 1 MiB | bytes | fallback | Active NUL-framed SSH filename record budget. Invalid or oversized command output falls back to streaming SFTP enumeration; no total file or workspace-size limit. |
 | `remote.refresh_interval_ms` | 2,000 | milliseconds | budget | Delay between automatic refresh cycles for the visible remote workspace; suspended while the app is inactive or the transport is busy/disconnected. |
 | `remote.refresh_batch` | 4 | paths per cycle | budget | Round-robin directory and background-file checks per refresh cycle; the active file is checked first. Limits concurrent working scope, not total workspace size. |

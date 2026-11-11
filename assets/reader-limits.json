@@ -1586,6 +1586,11 @@
       }
     },
     "jobs": {
+      "content_search_concurrency": {
+        "value": 1, "type": "usize", "unit": "jobs", "effect": "budget",
+        "description": "On-demand content search concurrency, independent of filename indexing and document opening.",
+        "description_zh": "按需内容搜索并发预算，独立于文件名索引与文件打开。"
+      },
       "document_concurrency": {
         "value": 2,
         "type": "usize",
@@ -1646,13 +1651,18 @@
       }
     },
     "remote": {
+      "search_retry_initial_ms": {
+        "value": 10000, "type": "u64", "unit": "milliseconds", "effect": "budget",
+        "description": "Initial quiet retry delay for failed index connections or directories; doubles up to search_refresh_ms.",
+        "description_zh": "索引连接或目录失败后的首次静默重试间隔；逐次翻倍，上限为 search_refresh_ms。"
+      },
       "search_concurrency": {
         "value": 2,
         "type": "usize",
         "unit": "jobs",
         "effect": "budget",
-        "description": "Concurrent remote path-index jobs and local/remote content searches; queued work waits without occupying workers, independently of file opening.",
-        "description_zh": "远端路径索引任务及本地／远端内容搜索的共享并发预算；排队任务不占工作线程，与文件打开独立。"
+        "description": "Concurrent remote path-index jobs, independent of content searches and file opening; queued work waits without occupying workers.",
+        "description_zh": "远端路径索引任务并发预算，独立于内容搜索和文件打开；排队任务不占工作线程。"
       },
       "search_batch_paths": {
         "value": 256,
@@ -1691,8 +1701,8 @@
         "type": "u64",
         "unit": "milliseconds",
         "effect": "budget",
-        "description": "Age after which a directory listing is reconciled even when its coarse modification timestamp is unchanged. Also backs off failed scans and directory checks; cached paths do not expire. Explicit refresh rebuilds the full index.",
-        "description_zh": "目录列表达到此核对年龄后，即使粗粒度修改时间未变也重新核对；同时用于失败扫描和目录检查的退避。缓存路径不因时间过期，手动刷新重建完整索引。"
+        "description": "Age after which a directory listing is reconciled even when its coarse modification timestamp is unchanged. Also caps exponential retries; cached paths do not expire. Explicit retry wakes failed directories without rebuilding the full index.",
+        "description_zh": "目录列表达到此核对年龄后，即使粗粒度修改时间未变也重新核对；同时作为指数重试间隔上限。缓存路径不因时间过期，手动重试唤醒失败目录，不重建完整索引。"
       },
       "search_record_bytes": {
         "value": 1048576,

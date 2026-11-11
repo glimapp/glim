@@ -729,6 +729,8 @@
   "Add SSH Connection": "添加 SSH 连接",
   "SSH connection timed out; reconnect to continue": "SSH 连接响应超时，请重新连接",
   "File names": "文件名",
+  "File index will retry automatically": "文件索引将在后台自动重试",
+  "No matches in cached files. Indexing will retry automatically.": "已缓存文件中暂无匹配，索引将在后台自动重试。",
   "File contents": "文件内容",
   "Case-sensitive · Text files": "区分大小写 · 文本文件",
   "Searching file contents…": "正在搜索文件内容…",

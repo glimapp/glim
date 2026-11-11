@@ -729,6 +729,8 @@
   "Add SSH Connection": "Add SSH Connection",
   "SSH connection timed out; reconnect to continue": "SSH connection timed out; reconnect to continue",
   "File names": "File names",
+  "File index will retry automatically": "File index will retry automatically",
+  "No matches in cached files. Indexing will retry automatically.": "No matches in cached files. Indexing will retry automatically.",
   "File contents": "File contents",
   "Case-sensitive · Text files": "Case-sensitive · Text files",
   "Searching file contents…": "Searching file contents…",

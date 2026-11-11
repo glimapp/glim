@@ -83,11 +83,7 @@ impl Workspace {
         self.search_task = None;
         self.search_more = false;
         self.search_loading = false;
-        self.search_error = if self.search_content {
-            None
-        } else {
-            self.search_index_error.clone()
-        };
+        self.search_error = None;
         self.search_partial = false;
         self.search_selected = 0;
         self.search_scroll.set_offset(point(px(0.), px(0.)));
@@ -186,9 +182,10 @@ impl Workspace {
                                 }
                                 view.search_more = page.more;
                                 view.search_partial = partial;
-                                view.search_error = warning
-                                    .map(Into::into)
-                                    .or_else(|| view.search_index_error.clone());
+                                view.search_error = None;
+                                if let Some(warning) = warning {
+                                    view.search_index_error = Some(warning.into());
+                                }
                                 cx.notify();
                             }
                             Ok(None) => {}
