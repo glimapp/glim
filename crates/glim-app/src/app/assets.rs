@@ -39,7 +39,6 @@ gpui_kit::assets::icon_assets!(
         Plus,
         Minus,
         ChevronDown,
-        ChevronUp,
         ChevronRight,
         FoldVertical,
         UnfoldVertical,
@@ -87,6 +86,11 @@ impl AssetSource for Assets {
             return Ok(Some(Cow::Borrowed(bytes)));
         }
         match path {
+            "navigation/reader-toolbar.svg" => {
+                return Ok(Some(Cow::Borrowed(include_bytes!(
+                    "../../../../assets/navigation/reader-toolbar.svg"
+                ))));
+            }
             "navigation/github.svg" => {
                 return Ok(Some(Cow::Borrowed(include_bytes!(
                     "../../../../assets/navigation/github.svg"

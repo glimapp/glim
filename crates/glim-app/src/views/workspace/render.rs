@@ -70,8 +70,15 @@ impl Render for Workspace {
                     .clone()
                     .map(|(title, message)| (title, message, false))
             });
-        let header = self.header(cx);
         let tab_bar = self.tab_bar(window, cx);
+        let tabs_in_header =
+            !self.sidebar_visible && !self.file_fullscreen && self.page == Page::Document;
+        let (header_tabs, content_tabs) = if tabs_in_header {
+            (Some(tab_bar), None)
+        } else {
+            (None, Some(tab_bar))
+        };
+        let header = self.header(header_tabs, cx);
         let view = cx.entity().downgrade();
         let open: crate::views::reader::OpenLink =
             std::sync::Arc::new(move |path, anchor, window, cx| {
@@ -183,7 +190,7 @@ impl Render for Workspace {
             .min_w_0()
             .overflow_hidden()
             .when(!self.file_fullscreen, |view| {
-                view.rounded(px(10.))
+                view.rounded(px(12.))
                     .border_1()
                     .border_color(cx.theme().border)
             })
@@ -192,7 +199,7 @@ impl Render for Workspace {
                 self.page == Page::Document
                     && (!self.tabs.is_empty() || self.pending_open_path().is_some())
                     && !self.file_fullscreen,
-                |view| view.child(tab_bar),
+                |view| view.children(content_tabs),
             )
             .child(
                 div()
@@ -278,7 +285,7 @@ impl Render for Workspace {
             .active(cx.theme().foreground.opacity(0.08));
         let sidebar = v_flex()
             .size_full()
-            .when(!header_above_content, |view| view.pt(px(46.)))
+            .when(!header_above_content, |view| view.pt(px(40.)))
             .px_4()
             .pb_1()
             .gap_1()
@@ -374,14 +381,14 @@ impl Render for Workspace {
                 .flex_1()
                 .min_h_0()
                 .w_full()
-                .pr(px(2.))
-                .pb(px(2.))
-                .pt(px(if header_above_content { 48. } else { 2. }))
+                .pr(px(8.))
+                .pb(px(8.))
+                .pt(px(if header_above_content { 56. } else { 8. }))
                 .when(!self.sidebar_visible, |view| {
                     view.child(
                         v_flex()
                             .id("collapsed-sidebar")
-                            .w(px(44.))
+                            .w(px(48.))
                             .h_full()
                             .flex_shrink_0()
                             .items_center()
@@ -401,22 +408,7 @@ impl Render for Workspace {
                                         cx.notify();
                                     })),
                             )
-                            .child(
-                                Button::new("expand-file-list")
-                                    .ghost()
-                                    .w(px(32.))
-                                    .h(px(32.))
-                                    .icon(gpui_kit::assets::IconName::FolderOpen)
-                                    .tooltip(glim_services::locale::tr("Show File List"))
-                                    .accessibility_label(glim_services::locale::tr(
-                                        "Show File List",
-                                    ))
-                                    .on_click(cx.listener(|view, _, _, cx| {
-                                        view.sidebar_visible = true;
-                                        view.sidebar_window_width = 0.;
-                                        cx.notify();
-                                    })),
-                            ),
+                            .child(self.collapsed_workspace_navigation(cx)),
                     )
                 })
                 .child(

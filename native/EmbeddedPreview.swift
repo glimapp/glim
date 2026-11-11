@@ -103,10 +103,11 @@ func glimPreviewLayout(_ handle: UnsafeMutableRawPointer, _ parentPointer: Unsaf
     // Native readers are siblings of GPUI's Metal view, so they need matching
     // clipping rather than relying on the GPUI container's rounded overflow.
     preview.host.wantsLayer = true
-    preview.host.layer?.cornerRadius = preview.host.frame == parent.bounds ? 0 : 10
-    // Tabs belong to the outer rounded workspace frame. The reader begins
-    // below them: only its bottom corners meet that frame's rounded boundary.
-    preview.host.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+    preview.host.layer?.cornerRadius = preview.host.frame == parent.bounds ? 0 : 12
+    // With tabs in the title row, the reader also meets the top frame corners.
+    preview.host.layer?.maskedCorners = preview.host.roundTopCorners
+        ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
     preview.host.layer?.masksToBounds = true
     let hidden = width <= 0 || height <= 0
     if preview.host.isHidden != hidden {

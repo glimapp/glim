@@ -13,6 +13,7 @@ final class PreviewCopy: NSObject {
     private var generation = 0
     private let nextImage = NSButton(title: L("Next image"), target: nil, action: nil)
     private let recognize = NSButton(title: L("Recognize Image Text"), target: nil, action: nil)
+    private let copyButton = ReaderActionButton(title: L("Copy Preview Text"), target: nil, action: nil)
     var textProvider: ((@escaping (String) -> Void) -> Void)?
     var rasterProvider: ((@escaping (NativeRaster?) -> Void) -> Void)?
     init(root: NSView, source: URL) {
@@ -20,10 +21,10 @@ final class PreviewCopy: NSObject {
         super.init()
         nextImage.target = self; nextImage.action = #selector(loadNextImage)
         recognize.target = self; recognize.action = #selector(recognizeImages)
+        copyButton.target = self; copyButton.action = #selector(copyText)
     }
     func controls(includeRecognition: Bool = true) -> [NSView] {
-        let copy = NSButton(title: L("Copy Preview Text"), target: self, action: #selector(copyText))
-        return includeRecognition ? [copy, recognize] : [copy]
+        return includeRecognition ? [copyButton, recognize] : [copyButton]
     }
     static func text(in root: NSView) -> String {
         var pending: [Any] = [root]
@@ -51,7 +52,10 @@ final class PreviewCopy: NSObject {
             guard let self = self, self.root?.window != nil else { return }
             ReaderTelemetry.record(ReaderTelemetry.fileKind(self.source), 25, value.isEmpty ? 2 : 0)
             if value.isEmpty { self.notice(L("No copyable text was found. Try image text recognition.")); return }
-            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string)
+            NSPasteboard.general.clearContents()
+            if NSPasteboard.general.setString(value, forType: .string) {
+                self.copyButton.showCompletion()
+            } else { self.notice(L("Cannot copy preview text.")) }
         }
         if let textProvider = textProvider { textProvider(copy) }
         else if let root = root { copy(Self.text(in: root)) }

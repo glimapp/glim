@@ -681,13 +681,18 @@ impl Workspace {
             })
             .collect::<Vec<_>>();
         h_flex()
-            .h(px(40.))
+            .h(px(if self.sidebar_visible { 40. } else { 48. }))
             .w_full()
             .flex_shrink_0()
             .px_1()
-            .bg(cx.theme().background)
-            .border_b_1()
-            .border_color(cx.theme().border)
+            .bg(if self.sidebar_visible {
+                cx.theme().background
+            } else {
+                cx.theme().sidebar
+            })
+            .when(self.sidebar_visible, |bar| {
+                bar.border_b_1().border_color(cx.theme().border)
+            })
             .child(
                 h_flex()
                     .id("document-tabs")

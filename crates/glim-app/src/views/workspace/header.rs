@@ -276,7 +276,7 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn header(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn header(&self, tabs: Option<AnyElement>, cx: &mut Context<Self>) -> AnyElement {
         v_flex()
             .relative()
             .w_full()
@@ -286,12 +286,12 @@ impl Workspace {
                     .relative()
                     .w_full()
                     .h_full()
-                    .justify_center()
+                    .pl(px(94.))
+                    .pr(px(8.))
+                    .gap_3()
                     .child(
                         h_flex()
-                            .absolute()
-                            .left(px(94.))
-                            .top_0()
+                            .flex_shrink_0()
                             .h_full()
                             .items_center()
                             .gap_2()
@@ -313,7 +313,8 @@ impl Workspace {
                                 },
                             )
                             .child(self.navigation_toolbar(cx)),
-                    ),
+                    )
+                    .children(tabs.map(|tabs| div().flex_1().min_w_0().h_full().child(tabs))),
                 cx,
             ))
             .into_any_element()

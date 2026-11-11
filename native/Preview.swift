@@ -429,6 +429,13 @@ private final class SlideshowInput {
 }
 
 final class NativePreviewHost: NSView {
+    var roundTopCorners = false {
+        didSet {
+            layer?.maskedCorners = roundTopCorners
+                ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+                : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        }
+    }
     private var historyNavigation: ReaderHistoryNavigation?
     var historySwipeAvailable: (() -> Bool)?
     private var presentationInput: SlideshowInput?

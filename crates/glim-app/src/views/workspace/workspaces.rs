@@ -2,7 +2,7 @@ use super::{Page, Workspace};
 use glim_services::preferences::RecentWorkspace;
 use gpui_kit::{
     component::{
-        ActiveTheme, Icon, Sizable,
+        ActiveTheme, Icon, Selectable, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         input::{Input, InputEvent, InputState},
@@ -101,11 +101,86 @@ impl Workspace {
     }
 
     pub(super) fn select_workspace(&self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let collapsed = !self.sidebar_visible;
         if let Some(host) = self.workspace_window.clone() {
             window.defer(cx, move |window, cx| {
-                let _ = host.update(cx, |host, cx| host.select(&id, window, cx));
+                let _ = host.update(cx, |host, cx| {
+                    if collapsed
+                        && let Some(slot) = host.slots.iter().find(|slot| slot.workspace.id == id)
+                    {
+                        slot.view.update(cx, |view, cx| {
+                            view.sidebar_visible = false;
+                            view.sidebar_window_width = 0.;
+                            cx.notify();
+                        });
+                    }
+                    host.select(&id, window, cx);
+                });
             });
         }
+    }
+
+    pub(super) fn collapsed_workspace_navigation(&self, cx: &mut Context<Self>) -> AnyElement {
+        let slots = self
+            .workspace_window
+            .as_ref()
+            .and_then(|host| host.upgrade())
+            .map(|host| {
+                host.read(cx)
+                    .slots
+                    .iter()
+                    .filter(|slot| {
+                        !slot.workspace.folders.is_empty() || slot.workspace.name.is_some()
+                    })
+                    .map(|slot| slot.workspace.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        v_flex()
+            .id("collapsed-workspaces")
+            .min_h_0()
+            .flex_1()
+            .w_full()
+            .items_center()
+            .gap_2()
+            .overflow_y_scroll()
+            .children(slots.into_iter().map(|workspace| {
+                let selected = self.page != Page::Start && workspace.id == self.recent_id;
+                let id = workspace.id.clone();
+                let title = workspace.title();
+                let background = if selected {
+                    crate::views::selection_background(cx)
+                } else {
+                    cx.theme().sidebar
+                };
+                Button::new(SharedString::from(format!(
+                    "collapsed-workspace-{}",
+                    workspace.id
+                )))
+                .custom(
+                    ButtonCustomVariant::new(cx)
+                        .color(background)
+                        .hover(background.blend(cx.theme().foreground.opacity(0.08)))
+                        .active(background.blend(cx.theme().foreground.opacity(0.16))),
+                )
+                .bg(background)
+                .w(px(32.))
+                .h(px(32.))
+                .flex_shrink_0()
+                .rounded(px(7.))
+                .selected(selected)
+                .icon(if glim_services::remote::is_remote_id(&workspace.id) {
+                    gpui_kit::assets::IconName::Globe
+                } else {
+                    gpui_kit::assets::IconName::PanelsTopLeft
+                })
+                .tooltip(title.clone())
+                .accessibility_label(title)
+                .on_click(cx.listener(move |view, _, window, cx| {
+                    view.select_workspace(id.clone(), window, cx)
+                }))
+            }))
+            .into_any_element()
     }
 
     pub(super) fn begin_workspace_rename(

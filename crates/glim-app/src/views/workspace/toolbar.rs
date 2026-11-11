@@ -93,8 +93,17 @@ impl Workspace {
         let button = Button::new(action.id())
             .custom(
                 ButtonCustomVariant::new(cx)
-                    .hover(cx.theme().foreground.opacity(0.05))
-                    .active(cx.theme().foreground.opacity(0.09)),
+                    .foreground(if item.selected {
+                        crate::views::accent(cx)
+                    } else {
+                        cx.theme().foreground
+                    })
+                    .hover(cx.theme().foreground.opacity(0.10))
+                    .active(if item.selected {
+                        crate::views::accent(cx).opacity(0.20)
+                    } else {
+                        cx.theme().foreground.opacity(0.18)
+                    }),
             )
             .small()
             .w(px(28.))
@@ -104,7 +113,7 @@ impl Workspace {
             .icon(icon.size(px(16.)))
             .tooltip(label.clone())
             .accessibility_label(label.clone())
-            .selected(item.selected)
+            .selected(item.selected || self.toolbar_feedback == Some(action.id()))
             .disabled(!item.enabled)
             .on_click(cx.listener(move |view, _, window, cx| {
                 view.run_toolbar_action(action, window, cx);
@@ -149,18 +158,24 @@ impl Workspace {
     }
 
     pub(super) fn restore_reader_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
-        crate::views::icon_button(
-            "show-reader-toolbar",
-            gpui_kit::assets::IconName::ChevronUp,
-            glim_services::locale::tr("Show file toolbar"),
-        )
-        .ghost()
-        .on_click(cx.listener(|view, _, _, cx| {
-            view.reader_toolbar_collapsed = false;
-            cx.refresh_windows();
-            cx.notify();
-        }))
-        .into_any_element()
+        Button::new("show-reader-toolbar")
+            .small()
+            .w(px(28.))
+            .h(px(28.))
+            .icon(
+                Icon::empty()
+                    .path("navigation/reader-toolbar.svg")
+                    .size(px(18.)),
+            )
+            .tooltip(glim_services::locale::tr("Show file toolbar"))
+            .accessibility_label(glim_services::locale::tr("Show file toolbar"))
+            .ghost()
+            .on_click(cx.listener(|view, _, _, cx| {
+                view.reader_toolbar_collapsed = false;
+                cx.refresh_windows();
+                cx.notify();
+            }))
+            .into_any_element()
     }
 
     pub(super) fn floating_reader_toolbar(&self, window: &mut Window, cx: &mut App) -> AnyElement {
@@ -183,6 +198,7 @@ impl Workspace {
         }
         items.push(serde_json::json!({"id": "hide-reader-toolbar", "label": glim_services::locale::tr("Hide file toolbar"),
             "moreLabel": glim_services::locale::tr("More file actions"), "restoreLabel": glim_services::locale::tr("Show file toolbar"),
+            "roundTop": !self.sidebar_visible,
             "symbol": "chevron.down", "enabled": true, "selected": false}));
         let bytes = serde_json::to_vec(&items).expect("Reader toolbar actions");
         let toolbar = self.reader_toolbar.clone();
@@ -241,6 +257,17 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.toolbar_feedback = Some(action.id());
+        self.toolbar_feedback_task = Some(cx.spawn(async move |view, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(280))
+                .await;
+            let _ = view.update(cx, |view, cx| {
+                view.toolbar_feedback = None;
+                view.toolbar_feedback_task = None;
+                cx.notify();
+            });
+        }));
         let mut props = self.usage_context();
         props.push(("action", glim_services::telemetry::text(action.id())));
         glim_services::telemetry::track("reader_action", props);
@@ -286,5 +313,6 @@ impl Workspace {
             }
             ToolbarAction::Update => crate::app::updates::show(window, cx),
         }
+        cx.notify();
     }
 }

@@ -1,5 +1,58 @@
 import Cocoa
 
+final class ReaderActionButton: NSButton {
+    private var hovered = false
+    private var activated = false
+    private var completed = false
+    private var feedbackTask: DispatchWorkItem?
+    private var hoverArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let area = hoverArea { removeTrackingArea(area) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area); hoverArea = area
+    }
+    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
+    override func draw(_ dirtyRect: NSRect) {
+        let selected = state == .on
+        let pressed = cell?.isHighlighted == true || activated
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 7, yRadius: 7)
+        let fill: NSColor = selected ? .controlAccentColor.withAlphaComponent(pressed ? 0.30 : 0.20)
+            : .labelColor.withAlphaComponent(pressed ? 0.18 : (hovered && isEnabled ? 0.09 : 0))
+        fill.setFill(); shape.fill()
+        let tint: NSColor = !isEnabled ? .disabledControlTextColor : (selected ? .controlAccentColor : .labelColor)
+        if contentTintColor != tint { contentTintColor = tint }
+        if completed {
+            NSColor.controlAccentColor.setStroke()
+            let check = NSBezierPath()
+            let direction: CGFloat = isFlipped ? -1 : 1
+            check.move(to: NSPoint(x: bounds.midX - 5, y: bounds.midY))
+            check.line(to: NSPoint(x: bounds.midX - 1, y: bounds.midY - 4 * direction))
+            check.line(to: NSPoint(x: bounds.midX + 6, y: bounds.midY + 5 * direction))
+            check.lineWidth = 2; check.lineCapStyle = .round; check.lineJoinStyle = .round; check.stroke()
+        } else { super.draw(dirtyRect) }
+    }
+    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        let sent = super.sendAction(action, to: target)
+        if sent && !completed { feedback(success: false) }
+        return sent
+    }
+    func showCompletion() { feedback(success: true) }
+    private func feedback(success: Bool) {
+        feedbackTask?.cancel()
+        activated = true; completed = success; needsDisplay = true
+        let task = DispatchWorkItem { [weak self] in
+            self?.activated = false; self?.completed = false; self?.needsDisplay = true
+            self?.feedbackTask = nil
+        }
+        feedbackTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + (success ? 1.0 : 0.28), execute: task)
+    }
+    deinit { feedbackTask?.cancel() }
+}
+
 // Reader controls stay alive when the workspace lends this capsule its actions.
 final class FloatingReaderToolbar: NSView {
     private let controls: ReaderControls
@@ -13,7 +66,7 @@ final class FloatingReaderToolbar: NSView {
     private var measuredSize = NSSize.zero
     private var measuredViews: [ObjectIdentifier] = []
     private let viewport = NSScrollView()
-    private let more = NSButton(title: "", target: nil, action: nil)
+    private let more = ReaderActionButton(title: "", target: nil, action: nil)
     private var overflowItems: [NSView] = []
     private var wrappers: [ObjectIdentifier: NSView] = [:]
     var workspaceHidden = false { didSet { material.isHidden = workspaceHidden } }
@@ -52,7 +105,7 @@ final class FloatingReaderToolbar: NSView {
             }
         }
         for case let button as NSButton in items where !(button is NSPopUpButton) {
-            button.isBordered = true; button.bezelStyle = .rounded
+            button.isBordered = !(button is ReaderActionButton); button.bezelStyle = .rounded
             button.controlSize = .regular
             button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
             button.font = .systemFont(ofSize: 13, weight: .medium)
@@ -72,7 +125,7 @@ final class FloatingReaderToolbar: NSView {
         viewport.documentView = document
         interior.addSubview(viewport)
         more.target = self; more.action = #selector(showMore)
-        more.bezelStyle = .rounded; more.isBordered = true
+        more.bezelStyle = .rounded; more.isBordered = false
         more.toolTip = L("More file actions"); more.setAccessibilityLabel(L("More file actions"))
         more.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: L("More file actions"))
         more.imagePosition = .imageOnly
@@ -184,6 +237,12 @@ final class FloatingReaderToolbar: NSView {
         return NSSize(width: size.width + 24, height: max(44, size.height + 16))
     }
     override func viewWillDraw() {
+        for case let button as NSButton in items where !(button is NSPopUpButton) && !(button is ReaderActionButton) {
+            let tint: NSColor = !button.isEnabled ? .disabledControlTextColor : (button.state == .on ? .controlAccentColor : .labelColor)
+            let fill: NSColor? = button.state == .on ? .controlAccentColor.withAlphaComponent(0.20) : nil
+            if button.contentTintColor != tint { button.contentTintColor = tint }
+            if button.bezelColor != fill { button.bezelColor = fill }
+        }
         let size = contentSize
         let visible = items.filter { !$0.isHidden }.map { ObjectIdentifier($0) }
         if size != measuredSize || visible != measuredViews {
@@ -259,13 +318,14 @@ final class FloatingReaderToolbar: NSView {
 // the same capsule over GPUI content. Native controls are never cloned.
 final class WorkspaceReaderToolbar: NSView {
     private let fallback = FloatingReaderToolbar(controls: ReaderControls([]))
-    private let restore = NSButton(title: "", target: nil, action: nil)
+    private let restore = ReaderActionButton(title: "", target: nil, action: nil)
     private weak var active: FloatingReaderToolbar?
     private var common = ReaderControls([])
     private var payload = Data()
     private var visible = false
     private var collapsed = false
     private var fullscreen = false
+    private var roundTop = false
     private var moreLabel = L("More file actions")
     private var refreshPending = false
     private let context: UnsafeMutableRawPointer
@@ -279,9 +339,9 @@ final class WorkspaceReaderToolbar: NSView {
         fallback.install(in: self, managesContextMenu: false)
         restore.target = self; restore.action = #selector(invoke(_:))
         restore.identifier = NSUserInterfaceItemIdentifier("show-reader-toolbar")
-        restore.bezelStyle = .rounded; restore.isBordered = true
+        restore.bezelStyle = .rounded; restore.isBordered = false
         restore.toolTip = L("Show file toolbar"); restore.setAccessibilityLabel(L("Show file toolbar"))
-        restore.image = NSImage(systemSymbolName: "chevron.up", accessibilityDescription: L("Show file toolbar"))
+        restore.image = NSImage(systemSymbolName: "rectangle.bottomthird.inset.filled", accessibilityDescription: L("Show file toolbar"))
         restore.isHidden = true
         addSubview(restore)
     }
@@ -303,16 +363,17 @@ final class WorkspaceReaderToolbar: NSView {
             let entries = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
             fullscreen = entries.contains { $0["id"] as? String == "file-fullscreen" && $0["selected"] as? Bool == true }
             if let labels = entries.first(where: { $0["id"] as? String == "hide-reader-toolbar" }) {
+                roundTop = labels["roundTop"] as? Bool ?? false
                 moreLabel = labels["moreLabel"] as? String ?? L("More file actions")
                 let label = labels["restoreLabel"] as? String ?? L("Show file toolbar")
                 restore.toolTip = label; restore.setAccessibilityLabel(label)
             }
             common = ReaderControls(entries.compactMap { item in
                 guard let id = item["id"] as? String, let label = item["label"] as? String else { return nil }
-                let button = NSButton(title: "", target: self, action: #selector(invoke(_:)))
+                let button = ReaderActionButton(title: "", target: self, action: #selector(invoke(_:)))
                 button.identifier = NSUserInterfaceItemIdentifier(id)
                 button.toolTip = label; button.setAccessibilityLabel(label)
-                button.bezelStyle = .rounded; button.isBordered = true
+                button.bezelStyle = .rounded; button.isBordered = false
                 button.setButtonType(["reader-preview", "reader-source", "word-wrap", "file-fullscreen"].contains(id) ? .toggle : .momentaryPushIn)
                 button.image = NSImage(systemSymbolName: item["symbol"] as? String ?? "ellipsis", accessibilityDescription: label)
                 button.imagePosition = .imageOnly
@@ -357,6 +418,9 @@ final class WorkspaceReaderToolbar: NSView {
             restore.isHidden = true
             updateAccessibility()
             return
+        }
+        for case let preview as NativePreviewHost in parent.subviews where !preview.isHidden {
+            if preview.roundTopCorners != roundTop { preview.roundTopCorners = roundTop }
         }
         func find(_ view: NSView) -> FloatingReaderToolbar? {
             guard !(view is WorkspaceReaderToolbar), !view.isHidden else { return nil }
