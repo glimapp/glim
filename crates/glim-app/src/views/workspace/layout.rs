@@ -91,7 +91,6 @@ impl WorkspaceOutline {
                 let top = tree.top() + inset;
                 let bottom = tree.bottom() - inset;
                 let mut corners = vec![
-                    (point(right, top), px(0.)),
                     (point(right, bottom), px(0.)),
                     (point(left, bottom), px(12.)),
                 ];
@@ -104,6 +103,7 @@ impl WorkspaceOutline {
                     ]);
                 }
                 corners.push((point(left, top), px(12.)));
+                corners.push((point(right, top), px(0.)));
                 corners.dedup_by(|a, b| a.0 == b.0);
                 let mut path = PathBuilder::stroke(px(1.));
                 let mut fill = PathBuilder::fill();
@@ -143,7 +143,6 @@ impl WorkspaceOutline {
                         });
                     }
                 }
-                path.close();
                 if let Ok(path) = path.build() {
                     window.paint_path(path, color);
                 }

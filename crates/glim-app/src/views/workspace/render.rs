@@ -237,7 +237,13 @@ impl Render for Workspace {
                         .absolute()
                         .size_full(),
                     ),
-            )
+            );
+        let viewer = div()
+            .relative()
+            .size_full()
+            .min_w_0()
+            .bg(cx.theme().sidebar)
+            .child(viewer)
             .when(!self.file_fullscreen, |view| {
                 view.child(super::layout::reader_frame(cx))
             });
