@@ -6,9 +6,7 @@ use gpui_kit::{
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         resizable::{h_resizable, resizable_panel},
-        v_flex,
     },
-    prelude::FluentBuilder,
     *,
 };
 
@@ -28,7 +26,7 @@ impl Workspace {
         if self.explorer_visible {
             (window_width * self.explorer_ratio).clamp(200., window_width * 0.35)
         } else {
-            40.
+            0.
         }
     }
 
@@ -66,11 +64,10 @@ impl Workspace {
         &self,
         file_tree: AnyElement,
         viewer: AnyElement,
-        header_above_content: bool,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        if self.page == Page::Start {
+        if self.page == Page::Start || !self.explorer_visible {
             return viewer;
         }
         let window_width = f32::from(window.viewport_size().width);
@@ -78,22 +75,6 @@ impl Workspace {
         h_flex()
             .size_full()
             .min_w_0()
-            .when(!self.explorer_visible, |row| {
-                row.child(
-                    v_flex()
-                        .w(px(40.))
-                        .h_full()
-                        .flex_shrink_0()
-                        .items_center()
-                        .bg(crate::views::workspace_background(cx))
-                        .pt(px(if header_above_content {
-                            4.
-                        } else {
-                            super::TITLE_BAR_HEIGHT - super::CONTENT_INSET + 4.
-                        }))
-                        .child(self.file_tree_toggle(cx)),
-                )
-            })
             .child(
                 div()
                     .flex_1()

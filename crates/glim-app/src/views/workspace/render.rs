@@ -375,8 +375,7 @@ impl Render for Workspace {
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.choose_add_folder(window, cx)
                             })),
-                    )
-                    .child(self.file_tree_toggle(cx)),
+                    ),
             )
             .child(div().flex_1().min_h_0().w_full().child(panel_content))
             .id("workspace-file-tree");
@@ -402,13 +401,7 @@ impl Render for Workspace {
         let viewer = if self.file_fullscreen {
             viewer.into_any_element()
         } else {
-            self.file_tree_columns(
-                file_tree,
-                viewer.into_any_element(),
-                header_above_content,
-                window,
-                cx,
-            )
+            self.file_tree_columns(file_tree, viewer.into_any_element(), window, cx)
         };
         let body = if self.file_fullscreen {
             div()
@@ -554,7 +547,7 @@ impl Render for Workspace {
                                         } else if self.explorer_visible {
                                             480.
                                         } else {
-                                            320.
+                                            280.
                                         })..px(10000.),
                                     )
                                     .child(viewer),

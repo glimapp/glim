@@ -336,7 +336,6 @@ impl Workspace {
                     .min_w_0()
                     .items_center()
                     .rounded(px(6.))
-                    .when(selected, |row| row.rounded_r_none())
                     .bg(background)
                     .child(
                         Button::new(SharedString::from(format!("workspace-{}", workspace.id)))
@@ -358,7 +357,7 @@ impl Workspace {
                             } else {
                                 FontWeight::NORMAL
                             })
-                            .when(selected, |button| button.rounded_r_none())
+                            .rounded(px(6.))
                             .accessibility_label(title.clone())
                             .child(
                                 h_flex()
@@ -401,9 +400,10 @@ impl Workspace {
                             })),
                     )
                     .child(
-                        div()
+                        h_flex()
                             .invisible()
                             .group_hover(hover_group, |view| view.visible())
+                            .when(selected, |row| row.child(self.file_tree_toggle(cx)))
                             .child(
                                 Button::new(SharedString::from(format!(
                                     "close-workspace-{}",
