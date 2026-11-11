@@ -317,21 +317,16 @@ impl Workspace {
                             .h_full()
                             .items_center()
                             .gap_2()
-                            .when(
-                                self.navigation_width() >= 340. || !self.sidebar_visible,
-                                |row| {
-                                    row.child(
-                                        div()
-                                            .flex_shrink_0()
-                                            .h(px(28.))
-                                            .flex()
-                                            .items_center()
-                                            .text_size(px(16.))
-                                            .line_height(px(16.))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child("Glim"),
-                                    )
-                                },
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .h(px(28.))
+                                    .flex()
+                                    .items_center()
+                                    .text_size(px(16.))
+                                    .line_height(px(16.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Glim"),
                             )
                             .child(title_bar_separator(cx))
                             .child(self.navigation_toolbar(cx)),

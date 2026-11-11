@@ -195,13 +195,8 @@ impl Workspace {
             .gap_1()
             .flex_shrink_0()
             .child(self.toolbar_button(ToolbarItem::new(ToolbarAction::Sidebar), cx))
-            .when(
-                self.navigation_width() >= 280. || !self.sidebar_visible,
-                |row| {
-                    row.child(self.toolbar_button(back, cx))
-                        .child(self.toolbar_button(forward, cx))
-                },
-            )
+            .child(self.toolbar_button(back, cx))
+            .child(self.toolbar_button(forward, cx))
             .child(self.search_button(cx))
             .when(
                 self.reader_toolbar_collapsed && self.page == Page::Document,

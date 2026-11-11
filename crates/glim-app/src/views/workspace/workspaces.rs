@@ -343,11 +343,7 @@ impl Workspace {
                             .custom(
                                 ButtonCustomVariant::new(cx)
                                     .color(background)
-                                    .foreground(if selected {
-                                        cx.theme().foreground
-                                    } else {
-                                        cx.theme().muted_foreground
-                                    })
+                                    .foreground(cx.theme().foreground)
                                     .hover(background.blend(cx.theme().foreground.opacity(0.06)))
                                     .active(background.blend(cx.theme().foreground.opacity(0.10))),
                             )

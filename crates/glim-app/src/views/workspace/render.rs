@@ -100,7 +100,7 @@ impl Render for Workspace {
         let sidebar_width = self.workspace_column_width(window_width);
         let explorer_width = self.explorer_column_width(window_width);
         let navigation_width = sidebar_width + explorer_width;
-        let header_above_content = navigation_width < 300.;
+        let header_above_content = navigation_width < 340.;
         if (self.sidebar_window_width - window_width).abs() > 0.5 {
             self.sidebar_window_width = window_width;
             let layout = self.sidebar_layout.clone();
