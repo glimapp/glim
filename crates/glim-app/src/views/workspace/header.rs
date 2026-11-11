@@ -318,8 +318,7 @@ impl Workspace {
                             .items_center()
                             .gap_2()
                             .when(
-                                self.sidebar_window_width * self.sidebar_ratio >= 340.
-                                    || !self.sidebar_visible,
+                                self.navigation_width() >= 340. || !self.sidebar_visible,
                                 |row| {
                                     row.child(
                                         div()

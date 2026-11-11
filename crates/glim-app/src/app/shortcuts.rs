@@ -23,6 +23,7 @@ impl Render for Shortcuts {
             ("Quit Glim", "⌘Q"),
             ("Search workspace files", "⌘P"),
             ("Toggle sidebar", "⌘B"),
+            ("Toggle File Tree", "⇧⌘B"),
             ("Toggle preview / source", "⌘⇧V"),
             ("Toggle word wrap", "⌥Z"),
             ("Next tab", "Ctrl+Tab / ⌘⇧]"),

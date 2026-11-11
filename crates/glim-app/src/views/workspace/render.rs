@@ -3,7 +3,7 @@ use crate::{
     app::actions::{
         AddFolder, CloseWindow, CloseWorkspace, ManageConnections, NavigateBack, NavigateForward,
         NewFile, NextTab, OpenFile, OpenFolder, OpenRemote, OpenSettings, PreviousTab, Refresh,
-        SaveFile, SearchWorkspace, TogglePreview, ToggleSidebar, ToggleWordWrap,
+        SaveFile, SearchWorkspace, ToggleFileTree, TogglePreview, ToggleSidebar, ToggleWordWrap,
     },
     views::welcome::welcome,
 };
@@ -71,8 +71,10 @@ impl Render for Workspace {
                     .map(|(title, message)| (title, message, false))
             });
         let tab_bar = self.tab_bar(window, cx);
-        let tabs_in_header =
-            !self.sidebar_visible && !self.file_fullscreen && self.page == Page::Document;
+        let tabs_in_header = !self.sidebar_visible
+            && !self.explorer_visible
+            && !self.file_fullscreen
+            && self.page == Page::Document;
         let (header_tabs, content_tabs) = if tabs_in_header {
             (Some(tab_bar), None)
         } else {
@@ -95,14 +97,20 @@ impl Render for Workspace {
                 });
             });
         let window_width = f32::from(window.viewport_size().width);
-        let sidebar_width = window_width * self.sidebar_ratio;
-        let header_above_content = !self.sidebar_visible || sidebar_width < 200.;
+        let sidebar_width = self.workspace_column_width(window_width);
+        let explorer_width = self.explorer_column_width(window_width);
+        let navigation_width = sidebar_width + explorer_width;
+        let header_above_content = navigation_width < 300.;
         if (self.sidebar_window_width - window_width).abs() > 0.5 {
             self.sidebar_window_width = window_width;
             let layout = self.sidebar_layout.clone();
+            let explorer_layout = self.explorer_layout.clone();
             window.defer(cx, move |window, cx| {
                 layout.update(cx, |state, cx| {
                     state.resize_panel(0, px(sidebar_width), window, cx)
+                });
+                explorer_layout.update(cx, |state, cx| {
+                    state.resize_panel(0, px(explorer_width), window, cx)
                 });
             });
         }
@@ -288,22 +296,37 @@ impl Render for Workspace {
             .when(!header_above_content, |view| {
                 view.pt(px(super::TITLE_BAR_HEIGHT - super::CONTENT_INSET))
             })
-            .px_4()
+            .pl_3()
             .pb_1()
             .gap_1()
             .bg(cx.theme().sidebar)
-            .child(start.on_click(cx.listener(|view, _, _, cx| {
-                view.show_home(cx);
-                cx.notify();
-            })))
+            .child(
+                div()
+                    .pr_2()
+                    .child(start.on_click(cx.listener(|view, _, _, cx| {
+                        view.show_home(cx);
+                        cx.notify();
+                    }))),
+            )
             .child(self.workspace_navigation(cx))
+            .id("workspace-sidebar");
+        let file_tree = v_flex()
+            .size_full()
+            .min_w_0()
+            .overflow_hidden()
+            .bg(crate::views::workspace_background(cx))
+            .when(!header_above_content, |view| {
+                view.pt(px(super::TITLE_BAR_HEIGHT - super::CONTENT_INSET))
+            })
+            .px_2()
+            .pb_1()
             .child(
                 h_flex()
                     .w_full()
                     .min_w_0()
-                    .pt_3()
-                    .pb_2()
-                    .pl_3()
+                    .h(px(34.))
+                    .flex_shrink_0()
+                    .pl_1()
                     .gap_1()
                     .child(
                         div()
@@ -312,7 +335,7 @@ impl Render for Workspace {
                             .truncate()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(glim_services::locale::tr("Workspace")),
+                            .child(glim_services::locale::tr("File Tree")),
                     )
                     .child(
                         Button::new("workspace-new-file")
@@ -353,12 +376,13 @@ impl Render for Workspace {
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.choose_add_folder(window, cx)
                             })),
-                    ),
+                    )
+                    .child(self.file_tree_toggle(cx)),
             )
             .child(div().flex_1().min_h_0().w_full().child(panel_content))
-            .id("workspace-sidebar");
-        let sidebar = if self.explorer.is_none() {
-            sidebar
+            .id("workspace-file-tree");
+        let file_tree = if self.explorer.is_none() {
+            file_tree
                 .context_menu(|menu, _, _| {
                     menu.item(
                         PopupMenuItem::new(glim_services::locale::tr("Add Folder to Workspace…"))
@@ -369,7 +393,18 @@ impl Render for Workspace {
                 })
                 .into_any_element()
         } else {
-            sidebar.into_any_element()
+            file_tree.into_any_element()
+        };
+        let viewer = if self.file_fullscreen {
+            viewer.into_any_element()
+        } else {
+            self.file_tree_columns(
+                file_tree,
+                viewer.into_any_element(),
+                header_above_content,
+                window,
+                cx,
+            )
         };
         let body = if self.file_fullscreen {
             div()
@@ -399,7 +434,11 @@ impl Render for Workspace {
                             .h_full()
                             .flex_shrink_0()
                             .items_center()
-                            .pt_2()
+                            .pt(px(if header_above_content {
+                                8.
+                            } else {
+                                super::TITLE_BAR_HEIGHT - super::CONTENT_INSET + 8.
+                            }))
                             .gap_2()
                             .bg(cx.theme().sidebar)
                             .child(
@@ -434,7 +473,7 @@ impl Render for Workspace {
                                         } else {
                                             view.sidebar_ratio = (f32::from(width)
                                                 / f32::from(window.viewport_size().width))
-                                            .min(0.5);
+                                            .min(0.35);
                                         }
                                         cx.notify();
                                     }
@@ -473,10 +512,11 @@ impl Render for Workspace {
                                             .h_full()
                                             .pt(px(14.))
                                             .pb(px(14.))
-                                            .child(line)
+                                            .when(handle.is_active(), |view| view.child(line))
                                             .on_double_click(move |_, window, cx| {
                                                 let _ = workspace.update(cx, |view, cx| {
                                                     view.sidebar_ratio = DEFAULT_SIDEBAR_RATIO;
+                                                    view.sidebar_window_width = 0.;
                                                     cx.notify();
                                                 });
                                                 layout.update(cx, |state, cx| {
@@ -499,12 +539,15 @@ impl Render for Workspace {
                                     .visible(self.sidebar_visible)
                                     .size(px(sidebar_width))
                                     .flex_none()
-                                    .size_range(px(80.)..px(window_width * 0.5))
+                                    .size_range(px(80.)..px(window_width * 0.35))
                                     .child(sidebar),
                             )
                             .child(
                                 resizable_panel()
-                                    .size_range(px(280.)..px(10000.))
+                                    .size_range(
+                                        px(if self.explorer_visible { 480. } else { 320. })
+                                            ..px(10000.),
+                                    )
                                     .child(viewer),
                             ),
                     ),
@@ -562,6 +605,7 @@ impl Render for Workspace {
                 v.sidebar_window_width = 0.;
                 cx.notify();
             }))
+            .on_action(cx.listener(|v, _: &ToggleFileTree, _, cx| v.toggle_file_tree(cx)))
             .on_action(cx.listener(|v, _: &TogglePreview, w, cx| {
                 if let Some(reader) = v.active_reader().filter(|reader| reader.can_preview()) {
                     let preview = reader.mode() != glim_core::ReaderMode::Preview;
@@ -629,7 +673,7 @@ impl Render for Workspace {
                         .w(px(if header_above_content {
                             window_width
                         } else {
-                            sidebar_width
+                            navigation_width
                         }))
                         .child(header),
                 )

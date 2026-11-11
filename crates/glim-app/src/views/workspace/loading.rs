@@ -114,7 +114,8 @@ impl Workspace {
         if self.roots.iter().any(|root| root == path) {
             self.select_workspace(self.recent_id.clone(), window, cx);
             self.page = super::Page::Document;
-            self.sidebar_visible = true;
+            self.explorer_visible = true;
+            self.sidebar_window_width = 0.;
             cx.notify();
             window.activate_window();
             cx.activate(true);
@@ -324,7 +325,8 @@ impl Workspace {
         if crate::app::updates::busy(cx) {
             return;
         }
-        self.sidebar_visible = true;
+        self.explorer_visible = true;
+        self.sidebar_window_width = 0.;
         self.roots.push(snapshot.root.clone());
         glim_services::telemetry::track(
             "workspace_folder_added",

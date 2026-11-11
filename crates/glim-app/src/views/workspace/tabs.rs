@@ -685,12 +685,12 @@ impl Workspace {
             .w_full()
             .flex_shrink_0()
             .px_1()
-            .bg(if self.sidebar_visible {
+            .bg(if self.sidebar_visible || self.explorer_visible {
                 cx.theme().background
             } else {
                 cx.theme().sidebar
             })
-            .when(self.sidebar_visible, |bar| {
+            .when(self.sidebar_visible || self.explorer_visible, |bar| {
                 bar.border_b_1().border_color(cx.theme().border)
             })
             .child(

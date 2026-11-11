@@ -1,6 +1,7 @@
 use super::actions::{
     About, AddFolder, CheckForUpdates, CloseWorkspace, NewFile, NewWindow, OpenFile, OpenFolder,
-    OpenRemote, OpenSettings, Quit, SaveFile, TogglePreview, ToggleSidebar, ToggleWordWrap,
+    OpenRemote, OpenSettings, Quit, SaveFile, ToggleFileTree, TogglePreview, ToggleSidebar,
+    ToggleWordWrap,
 };
 use glim_services::locale::tr;
 use gpui_kit::{App, Menu, MenuItem};
@@ -48,6 +49,7 @@ pub(super) fn update(cx: &mut App) {
             disabled: false,
             items: vec![
                 MenuItem::action(tr("Toggle Sidebar"), ToggleSidebar),
+                MenuItem::action(tr("Toggle File Tree"), ToggleFileTree),
                 MenuItem::separator(),
                 MenuItem::action(tr("Toggle Preview"), TogglePreview),
                 MenuItem::action(tr("Word wrap"), ToggleWordWrap),

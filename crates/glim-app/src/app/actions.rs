@@ -12,6 +12,7 @@ gpui_kit::actions!(
         KeyboardShortcuts,
         SearchWorkspace,
         ToggleSidebar,
+        ToggleFileTree,
         TogglePreview,
         ToggleWordWrap,
         NextTab,

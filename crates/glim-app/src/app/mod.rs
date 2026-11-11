@@ -31,8 +31,8 @@ use actions::{
     About, AddFolder, CheckForUpdates, CloseWindow, CloseWorkspace, DefaultApplications,
     KeyboardShortcuts, LanguageChinese, LanguageEnglish, LanguageSystem, NavigateBack,
     NavigateForward, NewFile, NewWindow, NextTab, OpenFile, OpenFolder, OpenSettings, PreviousTab,
-    Quit, Refresh, SaveFile, SearchWorkspace, ToggleDarkMode, TogglePreview, ToggleSidebar,
-    ToggleWordWrap,
+    Quit, Refresh, SaveFile, SearchWorkspace, ToggleDarkMode, ToggleFileTree, TogglePreview,
+    ToggleSidebar, ToggleWordWrap,
 };
 
 pub struct ReaderPreferences {
@@ -549,6 +549,7 @@ pub fn run() -> Result<()> {
             KeyBinding::new("f3", crate::views::NextMatch, None),
             KeyBinding::new("shift-f3", crate::views::PreviousMatch, None),
             KeyBinding::new("secondary-b", ToggleSidebar, None),
+            KeyBinding::new("secondary-shift-b", ToggleFileTree, None),
             KeyBinding::new("secondary-shift-v", TogglePreview, None),
             KeyBinding::new("alt-z", ToggleWordWrap, None),
             KeyBinding::new("secondary-c", gpui_kit::component::input::Copy, None),

@@ -961,7 +961,7 @@ impl Explorer {
                 {
                     super::selection_background(cx)
                 } else {
-                    cx.theme().sidebar
+                    super::workspace_background(cx)
                 },
             )
             .when(sticky, |row| row.occlude())
@@ -1247,7 +1247,7 @@ impl Explorer {
             .pl(px(8. + depth as f32 * 14.))
             .pr_2()
             .rounded(px(6.))
-            .bg(cx.theme().sidebar)
+            .bg(super::workspace_background(cx))
             .when(sticky, |row| row.occlude())
             .children((0..depth).map(|level| {
                 div()

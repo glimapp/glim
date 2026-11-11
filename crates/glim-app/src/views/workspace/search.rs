@@ -437,7 +437,8 @@ impl Workspace {
         self.close_search(window, cx);
         self.search
             .update(cx, |input, cx| input.set_value("", window, cx));
-        self.sidebar_visible = true;
+        self.explorer_visible = true;
+        self.sidebar_window_width = 0.;
         self.pending_search_location = location.map(|offset| (path.clone(), offset));
         self.open_path(path, window, cx);
         self.reveal_search_location(window, cx);

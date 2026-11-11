@@ -56,8 +56,8 @@ impl Workspace {
             .active_reader()
             .map_or("unavailable", |reader| reader.toolbar_profile());
         let mut candidates: std::collections::HashMap<_, _> = controls.into_iter().collect();
-        let sidebar = if self.sidebar_visible && !self.file_fullscreen {
-            self.sidebar_window_width * self.sidebar_ratio
+        let sidebar = if !self.file_fullscreen {
+            self.navigation_width()
         } else {
             0.
         };
@@ -196,7 +196,7 @@ impl Workspace {
             .flex_shrink_0()
             .child(self.toolbar_button(ToolbarItem::new(ToolbarAction::Sidebar), cx))
             .when(
-                self.sidebar_window_width * self.sidebar_ratio >= 280. || !self.sidebar_visible,
+                self.navigation_width() >= 280. || !self.sidebar_visible,
                 |row| {
                     row.child(self.toolbar_button(back, cx))
                         .child(self.toolbar_button(forward, cx))
@@ -253,7 +253,7 @@ impl Workspace {
         }
         items.push(serde_json::json!({"id": "hide-reader-toolbar", "label": glim_services::locale::tr("Hide file toolbar"),
             "moreLabel": glim_services::locale::tr("More file actions"), "restoreLabel": glim_services::locale::tr("Show file toolbar"),
-            "roundTop": !self.sidebar_visible,
+            "roundTop": !self.sidebar_visible && !self.explorer_visible,
             "symbol": "chevron.down", "enabled": true, "selection": null}));
         let bytes = serde_json::to_vec(&items).expect("Reader toolbar actions");
         let toolbar = self.reader_toolbar.clone();

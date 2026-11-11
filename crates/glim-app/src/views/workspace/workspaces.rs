@@ -9,6 +9,7 @@ use gpui_kit::{
         menu::{ContextMenuExt, PopupMenuItem},
         v_flex,
     },
+    prelude::FluentBuilder,
     *,
 };
 
@@ -101,15 +102,19 @@ impl Workspace {
     }
 
     pub(super) fn select_workspace(&self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        let collapsed = !self.sidebar_visible;
+        let sidebar_visible = self.sidebar_visible;
+        let explorer_visible = self.explorer_visible;
+        let sidebar_ratio = self.sidebar_ratio;
+        let explorer_ratio = self.explorer_ratio;
         if let Some(host) = self.workspace_window.clone() {
             window.defer(cx, move |window, cx| {
                 let _ = host.update(cx, |host, cx| {
-                    if collapsed
-                        && let Some(slot) = host.slots.iter().find(|slot| slot.workspace.id == id)
-                    {
+                    if let Some(slot) = host.slots.iter().find(|slot| slot.workspace.id == id) {
                         slot.view.update(cx, |view, cx| {
-                            view.sidebar_visible = false;
+                            view.sidebar_visible = sidebar_visible;
+                            view.explorer_visible = explorer_visible;
+                            view.sidebar_ratio = sidebar_ratio;
+                            view.explorer_ratio = explorer_ratio;
                             view.sidebar_window_width = 0.;
                             cx.notify();
                         });
@@ -141,7 +146,7 @@ impl Workspace {
             .min_h_0()
             .flex_1()
             .w_full()
-            .items_center()
+            .items_end()
             .gap_2()
             .overflow_y_scroll()
             .children(slots.into_iter().map(|workspace| {
@@ -149,7 +154,7 @@ impl Workspace {
                 let id = workspace.id.clone();
                 let title = workspace.title();
                 let background = if selected {
-                    crate::views::selection_background(cx)
+                    crate::views::workspace_background(cx)
                 } else {
                     cx.theme().sidebar
                 };
@@ -164,10 +169,12 @@ impl Workspace {
                         .active(background.blend(cx.theme().foreground.opacity(0.16))),
                 )
                 .bg(background)
-                .w(px(32.))
+                .w(px(if selected { 40. } else { 32. }))
+                .when(!selected, |button| button.mr_2())
                 .h(px(32.))
                 .flex_shrink_0()
                 .rounded(px(7.))
+                .when(selected, |button| button.rounded_r_none())
                 .selected(selected)
                 .icon(if glim_services::remote::is_remote_id(&workspace.id) {
                     gpui_kit::assets::IconName::Globe
@@ -313,7 +320,7 @@ impl Workspace {
                 }
                 let selected = self.page != Page::Start && self.recent_id == workspace.id;
                 let background = if selected {
-                    crate::views::selection_background(cx)
+                    crate::views::workspace_background(cx)
                 } else {
                     cx.theme().sidebar
                 };
@@ -329,12 +336,18 @@ impl Workspace {
                     .min_w_0()
                     .items_center()
                     .rounded(px(6.))
+                    .when(selected, |row| row.rounded_r_none())
                     .bg(background)
                     .child(
                         Button::new(SharedString::from(format!("workspace-{}", workspace.id)))
                             .custom(
                                 ButtonCustomVariant::new(cx)
                                     .color(background)
+                                    .foreground(if selected {
+                                        cx.theme().foreground
+                                    } else {
+                                        cx.theme().muted_foreground
+                                    })
                                     .hover(background.blend(cx.theme().foreground.opacity(0.06)))
                                     .active(background.blend(cx.theme().foreground.opacity(0.10))),
                             )
@@ -344,6 +357,12 @@ impl Workspace {
                             .px_3()
                             .justify_start()
                             .bg(background)
+                            .font_weight(if selected {
+                                FontWeight::MEDIUM
+                            } else {
+                                FontWeight::NORMAL
+                            })
+                            .when(selected, |button| button.rounded_r_none())
                             .accessibility_label(title.clone())
                             .child(
                                 h_flex()
@@ -440,7 +459,7 @@ impl Workspace {
             .relative()
             .w_full()
             .min_h_0()
-            .max_h(relative(0.4))
+            .flex_1()
             .overflow_hidden()
             .child(list)
             .child(

@@ -2,6 +2,7 @@ mod editing;
 mod file_operations;
 mod gestures;
 mod header;
+mod layout;
 mod loading;
 mod reader_actions;
 mod remote;
@@ -31,7 +32,8 @@ enum Page {
     Settings,
 }
 
-const DEFAULT_SIDEBAR_RATIO: f32 = 0.20;
+const DEFAULT_SIDEBAR_RATIO: f32 = 0.15;
+const DEFAULT_EXPLORER_RATIO: f32 = 0.18;
 const SIDEBAR_COLLAPSE_WIDTH: f32 = 120.;
 
 pub struct Workspace {
@@ -85,6 +87,10 @@ pub struct Workspace {
     sidebar_ratio: f32,
     sidebar_window_width: f32,
     sidebar_layout: Entity<gpui_kit::component::resizable::ResizableState>,
+    explorer_visible: bool,
+    explorer_ratio: f32,
+    explorer_layout: Entity<gpui_kit::component::resizable::ResizableState>,
+    explorer_container_width: f32,
     word_wrap: bool,
     preference_task: Option<Task<()>>,
     watch_scan_task: Option<Task<()>>,
@@ -285,6 +291,10 @@ impl Workspace {
             sidebar_ratio: DEFAULT_SIDEBAR_RATIO,
             sidebar_window_width: 0.,
             sidebar_layout: cx.new(|_| gpui_kit::component::resizable::ResizableState::default()),
+            explorer_visible: true,
+            explorer_ratio: DEFAULT_EXPLORER_RATIO,
+            explorer_layout: cx.new(|_| gpui_kit::component::resizable::ResizableState::default()),
+            explorer_container_width: 0.,
             page: Page::Start,
             file_fullscreen: false,
             reader_toolbar_collapsed: false,

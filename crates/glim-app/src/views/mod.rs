@@ -57,6 +57,13 @@ fn selection_background(cx: &gpui_kit::App) -> gpui_kit::Hsla {
         .opacity(1.)
 }
 
+fn workspace_background(cx: &gpui_kit::App) -> gpui_kit::Hsla {
+    use gpui_kit::component::ActiveTheme;
+    cx.theme()
+        .sidebar
+        .blend(accent(cx).opacity(if cx.theme().is_dark() { 0.09 } else { 0.055 }))
+}
+
 fn connection_color(connected: bool, cx: &gpui_kit::App) -> gpui_kit::Hsla {
     use gpui_kit::component::ActiveTheme;
     if connected {
