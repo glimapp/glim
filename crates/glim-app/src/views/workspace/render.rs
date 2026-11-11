@@ -72,16 +72,7 @@ impl Render for Workspace {
                     .map(|(title, message)| (title, message, false))
             });
         let tab_bar = self.tab_bar(window, cx);
-        let tabs_in_header = !self.sidebar_visible
-            && !self.explorer_visible
-            && !self.file_fullscreen
-            && self.page == Page::Document;
-        let (header_tabs, content_tabs) = if tabs_in_header {
-            (Some(tab_bar), None)
-        } else {
-            (None, Some(tab_bar))
-        };
-        let header = self.header(header_tabs, cx);
+        let header = self.header(None, cx);
         let view = cx.entity().downgrade();
         let open: crate::views::reader::OpenLink =
             std::sync::Arc::new(move |path, anchor, window, cx| {
@@ -100,8 +91,6 @@ impl Render for Workspace {
         let window_width = f32::from(window.viewport_size().width);
         let sidebar_width = self.workspace_column_width(window_width);
         let explorer_width = self.explorer_column_width(window_width);
-        let navigation_width = sidebar_width + explorer_width;
-        let header_above_content = navigation_width < 340.;
         if (self.sidebar_window_width - window_width).abs() > 0.5 {
             self.sidebar_window_width = window_width;
             let layout = self.sidebar_layout.clone();
@@ -208,7 +197,7 @@ impl Render for Workspace {
                 self.page == Page::Document
                     && (!self.tabs.is_empty() || self.pending_open_path().is_some())
                     && !self.file_fullscreen,
-                |view| view.children(content_tabs),
+                |view| view.child(tab_bar),
             )
             .child(
                 div()
@@ -248,7 +237,6 @@ impl Render for Workspace {
             .as_ref()
             .map(|v| v.clone().into_any_element())
             .unwrap_or_else(|| div().into_any_element());
-        let nav_height = 34.;
         let navigation = |id: &'static str, icon, label: &'static str, selected: bool| {
             let background = if selected {
                 crate::views::selection_background(cx)
@@ -270,7 +258,7 @@ impl Render for Workspace {
                     FontWeight::NORMAL
                 })
                 .w_full()
-                .h(px(nav_height))
+                .h(px(super::WORKSPACE_ROW_HEIGHT))
                 .rounded(px(8.))
                 .justify_start()
                 .accessibility_label(glim_services::locale::tr(label))
@@ -294,9 +282,6 @@ impl Render for Workspace {
             .active(cx.theme().foreground.opacity(0.08));
         let sidebar = v_flex()
             .size_full()
-            .when(!header_above_content, |view| {
-                view.pt(px(super::TITLE_BAR_HEIGHT - super::CONTENT_INSET))
-            })
             .pl_3()
             .pb_1()
             .gap_1()
@@ -420,12 +405,7 @@ impl Render for Workspace {
                 .w_full()
                 .pr(px(super::CONTENT_INSET))
                 .pb(px(super::CONTENT_INSET))
-                .pt(px(super::CONTENT_INSET
-                    + if header_above_content {
-                        super::TITLE_BAR_HEIGHT
-                    } else {
-                        0.
-                    }))
+                .pt(px(super::CONTENT_INSET + super::TITLE_BAR_HEIGHT))
                 .when(!self.sidebar_visible, |view| {
                     view.child(
                         v_flex()
@@ -434,19 +414,17 @@ impl Render for Workspace {
                             .h_full()
                             .flex_shrink_0()
                             .items_center()
-                            .pt(px(if header_above_content {
-                                8.
-                            } else {
-                                super::TITLE_BAR_HEIGHT - super::CONTENT_INSET + 8.
-                            }))
-                            .gap_2()
+                            .gap_1()
                             .bg(cx.theme().sidebar)
                             .child(
                                 Button::new("collapsed-home")
                                     .ghost()
                                     .w(px(32.))
-                                    .h(px(32.))
-                                    .icon(gpui_kit::assets::IconName::House)
+                                    .h(px(super::WORKSPACE_ROW_HEIGHT))
+                                    .flex_shrink_0()
+                                    .icon(
+                                        Icon::new(gpui_kit::assets::IconName::House).size(px(17.)),
+                                    )
                                     .tooltip(glim_services::locale::tr("Start"))
                                     .accessibility_label(glim_services::locale::tr("Start"))
                                     .on_click(cx.listener(|view, _, _, cx| {
@@ -671,18 +649,7 @@ impl Render for Workspace {
             .child(body)
             .child(outline.render(cx))
             .when(!self.file_fullscreen, |view| {
-                view.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .w(px(if header_above_content {
-                            window_width
-                        } else {
-                            navigation_width
-                        }))
-                        .child(header),
-                )
+                view.child(div().absolute().top_0().left_0().w_full().child(header))
             })
             .when(
                 self.file_fullscreen && self.reader_toolbar_collapsed,

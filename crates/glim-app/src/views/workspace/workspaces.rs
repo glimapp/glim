@@ -145,14 +145,21 @@ impl Workspace {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let scroll = self
+            .workspace_window
+            .as_ref()
+            .and_then(|host| host.upgrade())
+            .map(|host| host.read(cx).navigation_scroll.clone())
+            .unwrap_or_default();
         v_flex()
             .id("collapsed-workspaces")
             .min_h_0()
             .flex_1()
             .w_full()
             .items_center()
-            .gap_2()
+            .gap_1()
             .overflow_y_scroll()
+            .track_scroll(&scroll)
             .children(slots.into_iter().map(|workspace| {
                 let selected = self.page != Page::Start && workspace.id == self.recent_id;
                 let id = workspace.id.clone();
@@ -175,7 +182,7 @@ impl Workspace {
                 )
                 .bg(background)
                 .w(px(32.))
-                .h(px(32.))
+                .h(px(super::WORKSPACE_ROW_HEIGHT))
                 .flex_shrink_0()
                 .rounded(px(7.))
                 .toggled(selected)
@@ -192,7 +199,8 @@ impl Workspace {
                 .map(|button| {
                     div()
                         .relative()
-                        .size(px(32.))
+                        .w(px(32.))
+                        .h(px(super::WORKSPACE_ROW_HEIGHT))
                         .flex_shrink_0()
                         .when(selected, |view| view.child(outline.row_marker()))
                         .child(button)
@@ -365,7 +373,7 @@ impl Workspace {
                             )
                             .flex_1()
                             .min_w_0()
-                            .h(px(34.))
+                            .h(px(super::WORKSPACE_ROW_HEIGHT))
                             .px_3()
                             .justify_start()
                             .bg(background)
