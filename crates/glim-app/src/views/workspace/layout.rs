@@ -17,6 +17,27 @@ pub(super) struct WorkspaceOutline {
 }
 
 impl WorkspaceOutline {
+    pub fn tree_marker(&self) -> AnyElement {
+        let tree = self.tree.clone();
+        canvas(move |bounds, _, _| tree.set(Some(bounds)), |_, _, _, _| {})
+            .absolute()
+            .inset_0()
+            .into_any_element()
+    }
+
+    pub fn row_marker(&self) -> AnyElement {
+        let row = self.row.clone();
+        canvas(
+            move |bounds, window, _| {
+                row.set(Some(bounds.intersect(&window.content_mask().bounds)));
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0()
+        .into_any_element()
+    }
+
     pub fn render(self, cx: &App) -> AnyElement {
         let color = cx.theme().border.opacity(0.65);
         canvas(

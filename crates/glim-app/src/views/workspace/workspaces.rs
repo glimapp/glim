@@ -1,7 +1,6 @@
 use super::{Page, Workspace};
 use glim_services::preferences::RecentWorkspace;
 use gpui_kit::{
-    base::ElementExt as _,
     component::{
         ActiveTheme, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
@@ -180,12 +179,6 @@ impl Workspace {
                 .flex_shrink_0()
                 .rounded(px(7.))
                 .toggled(selected)
-                .when(selected, |button| {
-                    let row = outline.row.clone();
-                    button.on_prepaint(move |bounds, window, _| {
-                        row.set(Some(bounds.intersect(&window.content_mask().bounds)));
-                    })
-                })
                 .icon(if glim_services::remote::is_remote_id(&workspace.id) {
                     gpui_kit::assets::IconName::Globe
                 } else {
@@ -196,6 +189,14 @@ impl Workspace {
                 .on_click(cx.listener(move |view, _, window, cx| {
                     view.select_workspace(id.clone(), window, cx)
                 }))
+                .map(|button| {
+                    div()
+                        .relative()
+                        .size(px(32.))
+                        .flex_shrink_0()
+                        .when(selected, |view| view.child(outline.row_marker()))
+                        .child(button)
+                })
             }))
             .into_any_element()
     }
@@ -346,12 +347,7 @@ impl Workspace {
                 let hover_group = SharedString::from(format!("workspace-row-{}", workspace.id));
                 h_flex()
                     .relative()
-                    .when(selected, |view| {
-                        let row = outline.row.clone();
-                        view.on_prepaint(move |bounds, window, _| {
-                            row.set(Some(bounds.intersect(&window.content_mask().bounds)));
-                        })
-                    })
+                    .when(selected, |view| view.child(outline.row_marker()))
                     .group(hover_group.clone())
                     .w_full()
                     .min_w_0()

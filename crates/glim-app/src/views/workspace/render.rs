@@ -8,7 +8,7 @@ use crate::{
     views::welcome::welcome,
 };
 use gpui_kit::{
-    base::{ElementExt as _, InteractiveElementExt as _},
+    base::InteractiveElementExt as _,
     component::{
         ActiveTheme, Disableable, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
@@ -313,10 +313,7 @@ impl Render for Workspace {
             .id("workspace-sidebar");
         let file_tree = v_flex()
             .relative()
-            .on_prepaint({
-                let tree = outline.tree.clone();
-                move |bounds, _, _| tree.set(Some(bounds))
-            })
+            .child(outline.tree_marker())
             .size_full()
             .min_w_0()
             .overflow_hidden()
