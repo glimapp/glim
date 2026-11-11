@@ -334,13 +334,23 @@ impl Workspace {
                                     )
                                 },
                             )
+                            .child(title_bar_separator(cx))
                             .child(self.navigation_toolbar(cx)),
                     )
+                    .when(tabs.is_some(), |row| row.child(title_bar_separator(cx)))
                     .children(tabs.map(|tabs| div().flex_1().min_w_0().h_full().child(tabs))),
                 cx,
             ))
             .into_any_element()
     }
+}
+
+fn title_bar_separator(cx: &App) -> Div {
+    div()
+        .w(px(1.))
+        .h(px(20.))
+        .flex_shrink_0()
+        .bg(cx.theme().border)
 }
 
 fn workspace_title_bar(content: impl IntoElement, cx: &App) -> AnyElement {
