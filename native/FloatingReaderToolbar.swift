@@ -63,9 +63,14 @@ final class FloatingReaderToolbar: NSView {
     private let document = NSView()
     private let material: NSView
     private let interior: NSView
-    private var measuredSize = NSSize.zero
+    private var measuredSizes: [NSSize] = []
     private var measuredViews: [ObjectIdentifier] = []
-    private let viewport = NSScrollView()
+    private let viewport = NSView()
+    private var bottomInset: CGFloat = 16
+    private static let iconWidth: CGFloat = 28
+    private static let spacing: CGFloat = 6
+    private static let horizontalPadding: CGFloat = 12
+    private static let maximumWidth: CGFloat = 640
     private let more = ReaderActionButton(title: "", target: nil, action: nil)
     private var overflowItems: [NSView] = []
     private var wrappers: [ObjectIdentifier: NSView] = [:]
@@ -118,15 +123,13 @@ final class FloatingReaderToolbar: NSView {
                 button.imagePosition = .imageOnly; button.title = ""
             }
         }
-        viewport.drawsBackground = false
-        viewport.hasHorizontalScroller = false; viewport.hasVerticalScroller = false
-        viewport.scrollerStyle = .overlay; viewport.autohidesScrollers = true
-        viewport.documentView = document
+        viewport.wantsLayer = true; viewport.layer?.masksToBounds = true
+        viewport.addSubview(document)
         interior.addSubview(viewport)
         more.target = self; more.action = #selector(showMore)
         more.bezelStyle = .rounded; more.isBordered = false
         more.toolTip = L("More file actions"); more.setAccessibilityLabel(L("More file actions"))
-        more.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: L("More file actions"))
+        more.image = NSImage(systemSymbolName: "chevron.right.2", accessibilityDescription: L("More file actions"))
         more.imagePosition = .imageOnly
         interior.addSubview(more)
         addSubview(material)
@@ -169,7 +172,7 @@ final class FloatingReaderToolbar: NSView {
             item.removeFromSuperview(); item.translatesAutoresizingMaskIntoConstraints = true
             document.addSubview(wrapper); wrapper.addSubview(item)
         }
-        invalidateIntrinsicContentSize(); needsLayout = true
+        needsLayout = true
     }
     private func measurements() -> [(NSView, NSSize)] {
         // Measure the visible controls directly: stack fittingSize can inherit a
@@ -181,7 +184,7 @@ final class FloatingReaderToolbar: NSView {
                 label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
                 let font = label.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize(for: label.controlSize))
                 let text = (label.stringValue as NSString).size(withAttributes: [.font: font])
-                measured.width = max(ceil(text.width) + 4, label.cell?.cellSize.width ?? 0)
+                measured.width = ceil(text.width) + 8
                 measured.height = max(ceil(text.height), label.cell?.cellSize.height ?? 0)
             }
             if let button = item as? NSButton {
@@ -197,7 +200,7 @@ final class FloatingReaderToolbar: NSView {
                 } else {
                     let imageWidth = button.image?.size.width ?? 0
                     switch button.imagePosition {
-                    case .imageOnly: measured.width = max(28, imageWidth + 12)
+                    case .imageOnly: measured.width = Self.iconWidth
                     case .imageLeft, .imageRight, .imageLeading, .imageTrailing:
                         measured.width = max(28, textWidth + (imageWidth > 0 ? imageWidth + 6 : 0) + 32)
                     default: measured.width = max(28, max(textWidth, imageWidth) + 32)
@@ -230,15 +233,6 @@ final class FloatingReaderToolbar: NSView {
             return (item, measured)
         }
     }
-    private var contentSize: NSSize {
-        let entries = measurements()
-        return NSSize(width: entries.reduce(0) { $0 + $1.1.width } + CGFloat(max(0, entries.count - 1)) * 6,
-                      height: entries.reduce(CGFloat(28)) { max($0, $1.1.height) })
-    }
-    override var intrinsicContentSize: NSSize {
-        let size = contentSize
-        return NSSize(width: size.width + 24, height: max(44, size.height + 16))
-    }
     override func viewWillDraw() {
         for case let button as NSButton in items where !(button is NSPopUpButton) && !button.title.isEmpty {
             let label = button.title
@@ -248,41 +242,58 @@ final class FloatingReaderToolbar: NSView {
                 button.image = image; button.imagePosition = .imageOnly; button.title = ""
             }
         }
-        let size = contentSize
-        let visible = items.filter { !$0.isHidden }.map { ObjectIdentifier($0) }
-        if size != measuredSize || visible != measuredViews {
-            measuredSize = size; measuredViews = visible
-            invalidateIntrinsicContentSize(); needsLayout = true
+        let entries = measurements()
+        let sizes = entries.map { $0.1 }
+        let visible = entries.map { ObjectIdentifier($0.0) }
+        if sizes != measuredSizes || visible != measuredViews {
+            measuredSizes = sizes; measuredViews = visible
+            needsLayout = true
         }
         super.viewWillDraw()
     }
     override func layout() {
         super.layout()
-        let content = contentSize
-        let width = min(bounds.width, content.width + 24)
-        material.frame = NSRect(x: (bounds.width - width) / 2, y: 0, width: width, height: max(28, content.height) + 16)
-        interior.frame = material.bounds
-        let overflow = content.width > max(0, width - 24)
-        more.isHidden = !overflow
-        viewport.frame = NSRect(x: 12, y: 8, width: max(0, width - 24 - (overflow ? 34 : 0)), height: max(28, content.height))
-        more.frame = NSRect(x: max(0, width - 40), y: 8, width: 28, height: max(28, content.height))
         let entries = measurements()
-        document.frame = NSRect(origin: .zero, size: viewport.contentSize)
-        let pinned = entries.filter { ["file-fullscreen", "hide-reader-toolbar"].contains($0.0.identifier?.rawValue ?? "") }
-        var remaining = viewport.contentSize.width - pinned.reduce(CGFloat(0)) { $0 + $1.1.width + 6 }
+        let padding = Self.horizontalPadding
+        let gap = Self.spacing
+        let contentWidth = entries.reduce(CGFloat(0)) { $0 + $1.1.width } + CGFloat(max(0, entries.count - 1)) * gap
+        let rowHeight = entries.reduce(CGFloat(28)) { max($0, $1.1.height) }
+        let available = max(0, min(Self.maximumWidth, bounds.width - 32) - padding * 2)
+        let overflow = contentWidth > available
+        let isPinned: (NSView) -> Bool = { ["file-fullscreen", "hide-reader-toolbar"].contains($0.identifier?.rawValue ?? "") }
+        let pinned = entries.filter { isPinned($0.0) }
+        var remaining = available - (overflow ? Self.iconWidth + gap : 0)
+            - pinned.reduce(CGFloat(0)) { $0 + $1.1.width + gap }
+        var visibleEntries: [(NSView, NSSize)] = []
         overflowItems = []
-        var x: CGFloat = 0
-        for (item, size) in entries {
-            let keep = !overflow || pinned.contains { $0.0 === item } || size.width <= remaining
-            let wrapper = wrappers[ObjectIdentifier(item)]
-            wrapper?.isHidden = item.isHidden || !keep
-            guard keep else { overflowItems.append(item); continue }
-            if !pinned.contains(where: { $0.0 === item }) { remaining -= size.width + 6 }
-            wrapper?.frame = NSRect(x: x, y: (document.bounds.height - size.height) / 2, width: size.width, height: size.height)
-            item.frame = NSRect(origin: .zero, size: size)
-            x += size.width + 6
+        for entry in entries {
+            if !overflow || isPinned(entry.0) || entry.1.width <= remaining {
+                visibleEntries.append(entry)
+                if !isPinned(entry.0) { remaining -= entry.1.width + gap }
+            } else {
+                overflowItems.append(entry.0)
+            }
         }
-        for item in items where item.isHidden { wrappers[ObjectIdentifier(item)]?.isHidden = true }
+        let hasMore = !overflowItems.isEmpty
+        let visibleWidth = visibleEntries.reduce(CGFloat(0)) { $0 + $1.1.width }
+            + CGFloat(max(0, visibleEntries.count - 1)) * gap
+        let width = min(bounds.width, visibleWidth + padding * 2 + (hasMore ? Self.iconWidth + gap : 0))
+        material.frame = NSRect(x: (bounds.width - width) / 2, y: bottomInset, width: width, height: rowHeight + 16)
+        interior.frame = material.bounds
+        more.isHidden = !hasMore
+        viewport.frame = NSRect(x: padding, y: 8, width: visibleWidth, height: rowHeight)
+        more.frame = NSRect(x: width - padding - Self.iconWidth, y: 8, width: Self.iconWidth, height: rowHeight)
+        document.frame = viewport.bounds
+        for item in items { wrappers[ObjectIdentifier(item)]?.isHidden = true }
+        var x: CGFloat = 0
+        for (item, size) in visibleEntries {
+            let wrapper = wrappers[ObjectIdentifier(item)]
+            wrapper?.isHidden = false
+            wrapper?.frame = NSRect(x: x, y: (document.bounds.height - size.height) / 2, width: size.width, height: size.height)
+            item.autoresizingMask = []
+            item.frame = NSRect(origin: .zero, size: size)
+            x += size.width + gap
+        }
         material.wantsLayer = true
         material.layer?.cornerRadius = material.bounds.height / 2
         material.layer?.masksToBounds = true
@@ -304,18 +315,15 @@ final class FloatingReaderToolbar: NSView {
         if let window = window { WorkspaceReaderToolbar.refresh(in: window) }
     }
     func install(in host: NSView, bottomInset: CGFloat = 16, managesContextMenu: Bool = true) {
-        translatesAutoresizingMaskIntoConstraints = false
+        self.bottomInset = bottomInset
+        frame = host.bounds
+        autoresizingMask = [.width, .height]
         host.addSubview(self)
         keyboardShortcuts = ReaderKeyboardShortcuts(host: host, controls: controls)
         if managesContextMenu {
             contextMenu = ReaderContextMenu(host: host, kind: ReaderTelemetry.kind(controls)) { [weak self] _ in self?.controls.menu() }
         }
-        let maximumWidth = widthAnchor.constraint(equalTo: host.widthAnchor, constant: -32)
-        NSLayoutConstraint.activate([
-            centerXAnchor.constraint(equalTo: host.centerXAnchor),
-            bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: -bottomInset),
-            maximumWidth
-        ])
+        needsLayout = true
     }
 }
 
@@ -443,6 +451,8 @@ final class WorkspaceReaderToolbar: NSView {
         target.setMoreLabel(moreLabel)
         target.workspaceHidden = !visible || collapsed
         fallback.isHidden = target !== fallback || !visible || collapsed
+        target.needsLayout = true
+        target.layoutSubtreeIfNeeded()
         restore.isHidden = !collapsed || !fullscreen
         restore.frame = NSRect(x: 12, y: max(0, bounds.height - 40), width: 28, height: 28)
         if parent.subviews.last !== self { parent.addSubview(self, positioned: .above, relativeTo: nil) }

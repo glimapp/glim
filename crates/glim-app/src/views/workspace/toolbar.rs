@@ -206,6 +206,9 @@ impl Workspace {
         canvas(
             |_, _, _| (),
             move |mut bounds, _, window, cx| {
+                // Native siblings are outside GPUI's clip stack. Keep the dock
+                // in the visible viewport even when reader content is taller.
+                bounds = bounds.intersect(&window.content_mask().bounds);
                 bounds.size.width = (bounds.size.width
                     - crate::views::reader::toolbar_trailing_inset(window, cx))
                 .max(px(0.));
