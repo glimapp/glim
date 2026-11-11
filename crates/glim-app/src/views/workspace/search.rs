@@ -15,6 +15,62 @@ use gpui_kit::{
 use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
 
 impl Workspace {
+    pub(super) fn load_content_search(
+        &mut self,
+        query: String,
+        debounce: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.search_loading = true;
+        let roots = self.roots.clone();
+        let remote = self.remote.clone();
+        let offset = self.search_offset;
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        self.search_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let _guard = guard;
+            if debounce {
+                cx.background_executor()
+                    .timer(Duration::from_millis(limits::WORKSPACE_SEARCH_DEBOUNCE_MS))
+                    .await;
+            }
+            let result = crate::app::reader_jobs::run(
+                cx.background_executor().clone(),
+                crate::app::reader_jobs::JobClass::RemoteSearch,
+                crate::app::reader_jobs::Priority::Interactive,
+                cancel,
+                move |cancel| match remote {
+                    Some(remote) => remote.search_content(&roots, &query, offset, cancel),
+                    None => glim_services::content_search::search(&roots, &query, offset, cancel),
+                },
+            )
+            .await;
+            let _ = view.update(cx, |view, cx| {
+                view.search_loading = false;
+                match result {
+                    Ok(page) => {
+                        view.results = page.matches.iter().map(|hit| hit.path.clone()).collect();
+                        view.content_results = page.matches;
+                        view.search_more = page.more;
+                        view.search_error = page.warning.map(Into::into);
+                    }
+                    Err(error) => view.search_error = Some(format!("{error:#}").into()),
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn set_content_search(&mut self, content: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search_content == content {
+            return;
+        }
+        self.search_content = content;
+        self.search_files(window, cx);
+        self.search.update(cx, |input, cx| input.focus(window, cx));
+    }
+
     fn watch_search_index_progress(
         &mut self,
         progress: Arc<glim_services::remote::SearchIndexProgress>,
@@ -62,6 +118,15 @@ impl Workspace {
     }
 
     fn search_status(&self) -> Option<String> {
+        if self.search_content {
+            return Some(tr(if self.search_loading {
+                "Searching file contents…"
+            } else if self.search_error.is_some() {
+                "Content search is incomplete"
+            } else {
+                "Case-sensitive · Text files"
+            }));
+        }
         if self.search_indexing {
             Some(self.search_indexed_files.map_or_else(
                 || tr("Preparing file index…"),
@@ -234,7 +299,7 @@ impl Workspace {
                             view.search_indexed_files = progress.files();
                             view.search_index_ready = result.is_ok();
                             let previous_error = view.search_index_error.take();
-                            if view.search_error == previous_error {
+                            if !view.search_content && view.search_error == previous_error {
                                 view.search_error = None;
                             }
                             let warning = match &result {
@@ -246,7 +311,9 @@ impl Workspace {
                             };
                             if let Some(warning) = warning {
                                 let message: SharedString = warning.into();
-                                view.search_error = Some(message.clone());
+                                if !view.search_content {
+                                    view.search_error = Some(message.clone());
+                                }
                                 view.search_index_error = Some(message);
                             }
                         }
@@ -274,7 +341,9 @@ impl Workspace {
     }
 
     fn retry_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.start_remote_search_index(true, window, cx);
+        if !self.search_content {
+            self.start_remote_search_index(true, window, cx);
+        }
         self.search_files(window, cx);
     }
 
@@ -301,6 +370,7 @@ impl Workspace {
         self.search_loading = false;
         self.search_error = None;
         self.results.clear();
+        self.content_results.clear();
         self.search_offset = 0;
         self.search_more = false;
         if let Some(focus) = self.search_previous_focus.take() {
@@ -314,6 +384,9 @@ impl Workspace {
     fn search_paths(&self, cx: &App) -> Vec<PathBuf> {
         if !self.search.read(cx).value().trim().is_empty() {
             return self.results.clone();
+        }
+        if self.search_content {
+            return Vec::new();
         }
         let mut seen = HashSet::new();
         self.history
@@ -333,12 +406,47 @@ impl Workspace {
             .collect()
     }
 
-    fn open_search_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_search_result(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.search_paths(cx).get(index).cloned() else {
+            return;
+        };
+        let location = self
+            .content_results
+            .get(index)
+            .filter(|_| self.search_content)
+            .map(|hit| hit.offset);
         self.close_search(window, cx);
         self.search
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.sidebar_visible = true;
+        self.pending_search_location = location.map(|offset| (path.clone(), offset));
         self.open_path(path, window, cx);
+        self.reveal_search_location(window, cx);
+    }
+
+    pub(crate) fn reveal_content_at(
+        &mut self,
+        path: &std::path::Path,
+        offset: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_search_location = Some((path.to_path_buf(), offset));
+        self.reveal_search_location(window, cx);
+    }
+
+    pub(super) fn reveal_search_location(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((path, offset)) = &self.pending_search_location else {
+            return;
+        };
+        let Some(index) = self
+            .active
+            .filter(|index| self.tabs[*index].document.path == *path)
+        else {
+            return;
+        };
+        self.tabs[index].reveal_content_offset(*offset, window, cx);
+        self.pending_search_location = None;
     }
 
     pub(super) fn search_key_down(
@@ -377,9 +485,7 @@ impl Workspace {
                 cx.notify();
             }
             "enter" => {
-                if let Some(path) = paths.get(self.search_selected) {
-                    self.open_search_path(path.clone(), window, cx);
-                }
+                self.open_search_result(self.search_selected, window, cx);
                 cx.stop_propagation();
             }
             _ => {}
@@ -436,7 +542,15 @@ impl Workspace {
                     ),
             );
         } else if paths.is_empty() {
-            let message = if self.search_loading || self.search_indexing {
+            let message = if self.search_loading {
+                if self.search_content {
+                    "Searching file contents…"
+                } else {
+                    "Searching files…"
+                }
+            } else if empty_query && self.search_content {
+                "Enter text to search file contents"
+            } else if self.search_indexing && !self.search_content {
                 "Searching files…"
             } else if empty_query {
                 "No recently opened files"
@@ -469,8 +583,11 @@ impl Workspace {
             );
         } else {
             list = list.children(paths.iter().enumerate().map(|(index, path)| {
-                let target = path.clone();
-                let name = path
+                let hit = self
+                    .content_results
+                    .get(index)
+                    .filter(|_| self.search_content);
+                let mut name = path
                     .file_name()
                     .unwrap_or(path.as_os_str())
                     .to_string_lossy()
@@ -487,6 +604,9 @@ impl Workspace {
                     .unwrap_or(parent)
                     .to_string_lossy()
                     .into_owned();
+                if let Some(hit) = hit {
+                    name = format!("{name}:{}", hit.line);
+                }
                 Button::new(("workspace-search-result", index))
                     .custom(
                         ButtonCustomVariant::new(cx)
@@ -495,7 +615,7 @@ impl Workspace {
                     )
                     .small()
                     .w_full()
-                    .h(px(48.))
+                    .h(px(if hit.is_some() { 66. } else { 48. }))
                     .flex_shrink_0()
                     .px_3()
                     .rounded(px(8.))
@@ -521,11 +641,16 @@ impl Workspace {
                                             .text_xs()
                                             .text_color(cx.theme().muted_foreground)
                                             .child(location),
-                                    ),
+                                    )
+                                    .when_some(hit, |column, hit| {
+                                        column.child(
+                                            div().truncate().text_xs().child(hit.snippet.clone()),
+                                        )
+                                    }),
                             ),
                     )
                     .on_click(cx.listener(move |view, _, window, cx| {
-                        view.open_search_path(target.clone(), window, cx)
+                        view.open_search_result(index, window, cx)
                     }))
             }));
         }
@@ -575,17 +700,32 @@ impl Workspace {
                             ),
                     )
                     .child(
-                        div()
+                        h_flex()
                             .flex_shrink_0()
-                            .px_5()
+                            .px_3()
                             .py_2()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(tr(if empty_query {
-                                "Recently opened files"
-                            } else {
-                                "Files"
-                            })),
+                            .gap_1()
+                            .child(
+                                Button::new("search-mode-filenames")
+                                    .small()
+                                    .ghost()
+                                    .label(tr("File names"))
+                                    .selected(!self.search_content)
+                                    .on_click(cx.listener(|view, _, window, cx| {
+                                        view.set_content_search(false, window, cx)
+                                    })),
+                            )
+                            .child(
+                                Button::new("search-mode-content")
+                                    .small()
+                                    .ghost()
+                                    .label(tr("File contents"))
+                                    .selected(self.search_content)
+                                    .tooltip(tr("Case-sensitive · Text files"))
+                                    .on_click(cx.listener(|view, _, window, cx| {
+                                        view.set_content_search(true, window, cx)
+                                    })),
+                            ),
                     )
                     .child(list)
                     .child(
@@ -609,7 +749,7 @@ impl Workspace {
                                         }),
                                     ),
                             )
-                            .when(self.remote.is_some(), |footer| {
+                            .when(self.remote.is_some() || self.search_content, |footer| {
                                 footer.child(
                                     crate::views::icon_button(
                                         "refresh-remote-search",

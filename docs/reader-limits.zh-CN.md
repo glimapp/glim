@@ -309,6 +309,9 @@
 
 | Key | 当前值 | 单位 | 超限效果 | 实际行为 |
 | --- | ---: | --- | --- | --- |
+| `workspace.content_buffer_bytes` | 64 KiB | bytes | 处理／内存预算 | 内容搜索流式读取缓冲，不限制文件或单行总大小。 |
+| `workspace.content_snippet_bytes` | 320 | bytes per match | 处理／内存预算 | 每条命中保留的预览字节预算；搜索仍检查完整行与完整文件。 |
+| `workspace.search_debounce_ms` | 150 | milliseconds | 处理／内存预算 | 仅搜索输入变化使用的防抖间隔；打开搜索、切换模式与翻页立即执行。 |
 | `workspace.search_results` | 60 | items | 分页，可继续访问 | 可见页／批次大小，后续搜索结果或已保存工作区可通过继续浏览入口访问。 |
 | `workspace.search_entries` | 取消 | items | 无应用层总量门槛 | 搜索遍历全部符合条件的条目并提供可取消的结果分页，不设置扫描条目总数截断。 |
 | `workspace.recent_workspaces` | 30 | items | 分页，可继续访问 | 可见页／批次大小，后续搜索结果或已保存工作区可通过继续浏览入口访问。 |
@@ -394,7 +397,7 @@
 
 | Key | 当前值 | 单位 | 超限效果 | 实际行为 |
 | --- | ---: | --- | --- | --- |
-| `remote.search_concurrency` | 2 | jobs | 处理／内存预算 | 远端路径索引扫描的并发预算；排队扫描不占工作线程，与文件打开独立。 |
+| `remote.search_concurrency` | 2 | jobs | 处理／内存预算 | 远端路径索引任务及本地／远端内容搜索的共享并发预算；排队任务不占工作线程，与文件打开独立。 |
 | `remote.search_batch_paths` | 256 | paths per transaction | 处理／内存预算 | 每个搜索索引事务提交的路径数；首个文件或达到发布间隔时提前发布部分结果，不限制总路径数。 |
 | `remote.search_poll_ms` | 250 | milliseconds | 处理／内存预算 | 搜索索引结果发布和界面版本轮询间隔；版本不变时不重新执行文件名查询。 |
 | `remote.search_directory_batch` | 64 | directories per cycle | 处理／内存预算 | 单个搜索索引增量任务的目录元数据检查预算；变化目录的列表通过磁盘暂存流式处理，不限制目录总数。 |

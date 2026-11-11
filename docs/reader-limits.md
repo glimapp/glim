@@ -309,6 +309,9 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
+| `workspace.content_buffer_bytes` | 64 KiB | bytes | budget | Streaming content-search read buffer; files and lines have no total size cap. |
+| `workspace.content_snippet_bytes` | 320 | bytes per match | budget | Retained match-preview bytes; search still scans the complete line and file. |
+| `workspace.search_debounce_ms` | 150 | milliseconds | budget | Debounce for query edits only; explicit search opening, mode changes and paging execute immediately. |
 | `workspace.search_results` | 60 | items | page | Visible page/batch size; later search results or saved workspaces remain accessible through continuation controls. |
 | `workspace.search_entries` | None | items | unlimited | Search traverses all eligible entries with cancellable result pages; there is no entry-scan total cutoff. |
 | `workspace.recent_workspaces` | 30 | items | page | Visible page/batch size; later search results or saved workspaces remain accessible through continuation controls. |
@@ -394,7 +397,7 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `remote.search_concurrency` | 2 | jobs | budget | Concurrent remote path-index scans; queued scans wait without occupying workers, independently of file opening. |
+| `remote.search_concurrency` | 2 | jobs | budget | Concurrent remote path-index jobs and local/remote content searches; queued work waits without occupying workers, independently of file opening. |
 | `remote.search_batch_paths` | 256 | paths per transaction | budget | Paths committed per search-index transaction; partial results publish sooner on the first file or elapsed publish interval. Total indexed paths are unlimited. |
 | `remote.search_poll_ms` | 250 | milliseconds | budget | Search-index publication and UI revision-poll interval; unchanged revisions do not rerun the filename query. |
 | `remote.search_directory_batch` | 64 | directories per cycle | budget | Maximum directory metadata checks per incremental search-index job; changed listings stream through disk-backed staging. Total directory count is unlimited. |

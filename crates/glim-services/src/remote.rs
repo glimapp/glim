@@ -1,4 +1,5 @@
 //! SSH connection records and read-only SFTP access. Call on background workers.
+mod content_search;
 mod search_index;
 mod sftp;
 pub use search_index::{IndexedPage, SearchIndexProgress, SearchIndexUpdate};

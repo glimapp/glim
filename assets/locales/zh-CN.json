@@ -727,5 +727,14 @@
   "More Options": "更多选项",
   "Not connected": "未连接",
   "Add SSH Connection": "添加 SSH 连接",
-  "SSH connection timed out; reconnect to continue": "SSH 连接响应超时，请重新连接"
+  "SSH connection timed out; reconnect to continue": "SSH 连接响应超时，请重新连接",
+  "File names": "文件名",
+  "File contents": "文件内容",
+  "Case-sensitive · Text files": "区分大小写 · 文本文件",
+  "Searching file contents…": "正在搜索文件内容…",
+  "Content search is incomplete": "内容搜索结果可能不完整",
+  "Enter text to search file contents": "输入文字以搜索文件内容",
+  "Some files could not be searched ({count}).": "有 {count} 个文件或目录无法搜索。",
+  "Content search used an incomplete file index. Retry after indexing finishes.": "文件索引尚不完整或部分文件无法访问；索引完成后可重试内容搜索。",
+  "Some remote files could not be searched. Check permissions and retry.": "部分远端文件无法搜索，请检查访问权限后重试。"
 }

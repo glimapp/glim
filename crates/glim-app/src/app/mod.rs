@@ -584,6 +584,15 @@ pub(crate) fn reveal_existing_file(
     exclude: Option<EntityId>,
     cx: &mut App,
 ) -> bool {
+    reveal_existing_file_at(path, exclude, None, cx)
+}
+
+pub(crate) fn reveal_existing_file_at(
+    path: &std::path::Path,
+    exclude: Option<EntityId>,
+    offset: Option<u64>,
+    cx: &mut App,
+) -> bool {
     let windows = OpenWorkspaces::windows(cx);
     windows
         .into_iter()
@@ -591,8 +600,14 @@ pub(crate) fn reveal_existing_file(
         .any(|(view, handle)| {
             handle
                 .update(cx, |_, window, cx| {
-                    view.update(cx, |v, cx| v.reveal_file_path(path, window, cx))
-                        .unwrap_or(false)
+                    view.update(cx, |v, cx| {
+                        let found = v.reveal_file_path(path, window, cx);
+                        if found && let Some(offset) = offset {
+                            v.reveal_content_at(path, offset, window, cx);
+                        }
+                        found
+                    })
+                    .unwrap_or(false)
                 })
                 .unwrap_or(false)
         })

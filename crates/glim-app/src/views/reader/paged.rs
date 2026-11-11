@@ -262,6 +262,27 @@ impl PagedReader {
         }));
         cx.notify();
     }
+    pub fn reveal_offset(&mut self, offset: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if offset >= self.page.start && offset < self.page.end {
+            let relative = (offset - self.page.start) as usize;
+            if let Some(source) = &self.source_editor {
+                source.edit.editor().update(cx, |editor, cx| {
+                    editor.set_selected_range(relative..relative, cx);
+                    editor.focus(window, cx);
+                });
+            } else if let Some(row) = self
+                .page
+                .rows
+                .iter()
+                .position(|range| range.end >= relative)
+            {
+                self.scroll.scroll_to_item(row, ScrollStrategy::Top);
+            }
+            cx.notify();
+        } else {
+            self.load(offset, false, false, window, cx);
+        }
+    }
     fn load(
         &mut self,
         start: u64,

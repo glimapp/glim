@@ -477,14 +477,31 @@ fn scan_shell(
     Ok(())
 }
 
-struct ScanProcess {
+pub(super) struct ScanProcess {
     child: Arc<Mutex<Child>>,
     activity: Arc<Mutex<Instant>>,
     done: Arc<AtomicBool>,
     watch: Option<std::thread::JoinHandle<()>>,
 }
 impl ScanProcess {
+    pub(super) fn wait(&self, cancel: &Cancellation) -> Result<std::process::ExitStatus> {
+        loop {
+            cancel.check()?;
+            if let Some(status) = self
+                .child
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .try_wait()?
+            {
+                return Ok(status);
+            }
+            std::thread::sleep(Duration::from_millis(limits::REMOTE_SEARCH_POLL_MS));
+        }
+    }
     fn new(child: Child, cancel: Cancellation) -> Self {
+        Self::new_with_timeout(child, cancel, true)
+    }
+    pub(super) fn new_with_timeout(child: Child, cancel: Cancellation, idle_timeout: bool) -> Self {
         let child = Arc::new(Mutex::new(child));
         let activity = Arc::new(Mutex::new(Instant::now()));
         let done = Arc::new(AtomicBool::new(false));
@@ -492,8 +509,9 @@ impl ScanProcess {
         let watch = std::thread::spawn(move || {
             while !stop.load(Ordering::Relaxed) {
                 if cancel.check().is_err()
-                    || progress.lock().unwrap_or_else(|e| e.into_inner()).elapsed()
-                        >= Duration::from_millis(limits::REMOTE_IDLE_TIMEOUT_MS)
+                    || (idle_timeout
+                        && progress.lock().unwrap_or_else(|e| e.into_inner()).elapsed()
+                            >= Duration::from_millis(limits::REMOTE_IDLE_TIMEOUT_MS))
                 {
                     if let Ok(mut child) = worker.lock() {
                         terminate(&mut child);
