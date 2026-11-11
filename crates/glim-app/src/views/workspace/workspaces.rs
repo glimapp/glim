@@ -174,7 +174,11 @@ impl Workspace {
                 let selected = self.page != Page::Start && workspace.id == self.recent_id;
                 let id = workspace.id.clone();
                 let title = workspace.title();
-                let background = cx.theme().sidebar;
+                let background = if selected {
+                    crate::views::workspace_background(cx)
+                } else {
+                    cx.theme().sidebar
+                };
                 Button::new(SharedString::from(format!(
                     "collapsed-workspace-{}",
                     workspace.id

@@ -80,6 +80,7 @@ impl WorkspaceOutline {
 
     pub fn render(self, cx: &App) -> AnyElement {
         let color = cx.theme().border.opacity(0.65);
+        let surface = crate::views::workspace_background(cx);
         canvas(
             |_, _, _| (),
             move |_, _, window, _| {
@@ -105,6 +106,7 @@ impl WorkspaceOutline {
                 corners.push((point(left, top), px(12.)));
                 corners.dedup_by(|a, b| a.0 == b.0);
                 let mut path = PathBuilder::stroke(px(1.));
+                let mut fill = PathBuilder::fill();
                 for index in 0..corners.len() {
                     let (corner, radius) = corners[index];
                     let previous = corners[(index + corners.len() - 1) % corners.len()].0;
@@ -116,12 +118,30 @@ impl WorkspaceOutline {
                     let radius = radius.min(before_length / 2.).min(after_length / 2.);
                     let entry = corner + before * (radius / before_length);
                     let exit = corner + after * (radius / after_length);
-                    if index == 0 {
-                        path.move_to(entry);
-                    } else {
-                        path.line_to(entry);
+                    for builder in [&mut path, &mut fill] {
+                        if index == 0 {
+                            builder.move_to(entry);
+                        } else {
+                            builder.line_to(entry);
+                        }
+                        builder.curve_to(exit, corner);
                     }
-                    path.curve_to(exit, corner);
+                }
+                if let Some(row) = self
+                    .row
+                    .get()
+                    .filter(|row| row.size.height > px(12.) && row.right() < tree.left())
+                {
+                    fill.close();
+                    if let Ok(fill) = fill.build() {
+                        let bridge = Bounds::from_corners(
+                            point(row.right() - px(7.), row.top() - px(4.)),
+                            point(tree.left() + px(1.), row.bottom() + px(4.)),
+                        );
+                        window.with_content_mask(Some(ContentMask { bounds: bridge }), |window| {
+                            window.paint_path(fill, surface);
+                        });
+                    }
                 }
                 path.close();
                 if let Ok(path) = path.build() {
