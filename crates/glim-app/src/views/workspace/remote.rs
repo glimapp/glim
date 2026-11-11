@@ -838,6 +838,7 @@ impl Workspace {
                             view.active = Some(0);
                         }
                         view.remote_disconnected = false;
+                        view.reveal_search_location(window, cx);
                         view.reveal_active_file(cx);
                         view.record_history(cx);
                     }

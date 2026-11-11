@@ -726,5 +726,14 @@
   "More Options": "More Options",
   "Not connected": "Not connected",
   "Add SSH Connection": "Add SSH Connection",
-  "SSH connection timed out; reconnect to continue": "SSH connection timed out; reconnect to continue"
+  "SSH connection timed out; reconnect to continue": "SSH connection timed out; reconnect to continue",
+  "File names": "File names",
+  "File contents": "File contents",
+  "Case-sensitive · Text files": "Case-sensitive · Text files",
+  "Searching file contents…": "Searching file contents…",
+  "Content search is incomplete": "Content search is incomplete",
+  "Enter text to search file contents": "Enter text to search file contents",
+  "Some files could not be searched ({count}).": "Some files could not be searched ({count}).",
+  "Content search used an incomplete file index. Retry after indexing finishes.": "Content search used an incomplete file index. Retry after indexing finishes.",
+  "Some remote files could not be searched. Check permissions and retry.": "Some remote files could not be searched. Check permissions and retry."
 }

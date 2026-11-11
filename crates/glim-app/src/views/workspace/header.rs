@@ -58,6 +58,10 @@ impl Workspace {
         self.navigating = true;
         self.open_path(target.path, window, cx);
     }
+    pub(super) fn search_input_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.search_offset = 0;
+        self.load_search_page_with_debounce(true, window, cx);
+    }
     pub(super) fn search_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search_offset = 0;
         self.search_selected = 0;
@@ -65,12 +69,25 @@ impl Workspace {
         self.load_search_page(window, cx);
     }
     pub(super) fn load_search_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.load_search_page_with_debounce(false, window, cx);
+    }
+    fn load_search_page_with_debounce(
+        &mut self,
+        debounce: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let query = self.search.read(cx).value().to_string();
         self.results.clear();
+        self.content_results.clear();
         self.search_task = None;
         self.search_more = false;
         self.search_loading = false;
-        self.search_error = self.search_index_error.clone();
+        self.search_error = if self.search_content {
+            None
+        } else {
+            self.search_index_error.clone()
+        };
         self.search_partial = false;
         self.search_selected = 0;
         self.search_scroll.set_offset(point(px(0.), px(0.)));
@@ -93,6 +110,10 @@ impl Workspace {
             cx.notify();
             return;
         }
+        if self.search_content {
+            self.load_content_search(query, debounce, window, cx);
+            return;
+        }
         self.search_loading = true;
         let roots = self.roots.clone();
         let remote = self.remote.clone();
@@ -100,9 +121,13 @@ impl Workspace {
         let (cancel, guard) = glim_services::work::Cancellation::task();
         self.search_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(150))
-                .await;
+            if debounce {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(
+                        glim_services::limits::WORKSPACE_SEARCH_DEBOUNCE_MS,
+                    ))
+                    .await;
+            }
             let mut revision = None;
             let mut reported = false;
             let mut failure_reported = false;

@@ -2,6 +2,7 @@
 
 pub mod archive;
 pub mod binary;
+pub mod content_search;
 pub mod csv;
 pub mod diagnostics;
 pub mod documents;

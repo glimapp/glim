@@ -1369,6 +1369,21 @@
       }
     },
     "workspace": {
+      "content_buffer_bytes": {
+        "value": 65536, "type": "usize", "unit": "bytes", "effect": "budget",
+        "description": "Streaming content-search read buffer; files and lines have no total size cap.",
+        "description_zh": "内容搜索流式读取缓冲，不限制文件或单行总大小。"
+      },
+      "content_snippet_bytes": {
+        "value": 320, "type": "usize", "unit": "bytes per match", "effect": "budget",
+        "description": "Retained match-preview bytes; search still scans the complete line and file.",
+        "description_zh": "每条命中保留的预览字节预算；搜索仍检查完整行与完整文件。"
+      },
+      "search_debounce_ms": {
+        "value": 150, "type": "u64", "unit": "milliseconds", "effect": "budget",
+        "description": "Debounce for query edits only; explicit search opening, mode changes and paging execute immediately.",
+        "description_zh": "仅搜索输入变化使用的防抖间隔；打开搜索、切换模式与翻页立即执行。"
+      },
       "search_results": {
         "value": 60,
         "type": "usize",
@@ -1636,8 +1651,8 @@
         "type": "usize",
         "unit": "jobs",
         "effect": "budget",
-        "description": "Concurrent remote path-index scans; queued scans wait without occupying workers, independently of file opening.",
-        "description_zh": "远端路径索引扫描的并发预算；排队扫描不占工作线程，与文件打开独立。"
+        "description": "Concurrent remote path-index jobs and local/remote content searches; queued work waits without occupying workers, independently of file opening.",
+        "description_zh": "远端路径索引任务及本地／远端内容搜索的共享并发预算；排队任务不占工作线程，与文件打开独立。"
       },
       "search_batch_paths": {
         "value": 256,

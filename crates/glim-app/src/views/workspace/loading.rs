@@ -214,6 +214,13 @@ impl Workspace {
 
     pub(super) fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         self.close_search(window, cx);
+        if self
+            .pending_search_location
+            .as_ref()
+            .is_some_and(|(target, _)| target != &path)
+        {
+            self.pending_search_location = None;
+        }
         if self.pending_open_path() == Some(&path) {
             return;
         }
@@ -237,7 +244,12 @@ impl Workspace {
             self.tabs[index].activate(cx);
             return;
         }
-        if crate::app::reveal_existing_file(&path, Some(cx.entity_id()), cx) {
+        let offset = self
+            .pending_search_location
+            .as_ref()
+            .map(|(_, offset)| *offset);
+        if crate::app::reveal_existing_file_at(&path, Some(cx.entity_id()), offset, cx) {
+            self.pending_search_location = None;
             return;
         }
         glim_services::telemetry::file_event("file_open_requested", &path, []);
@@ -510,6 +522,7 @@ impl Workspace {
         {
             self.tabs[i].reveal_anchor(&anchor, cx);
         }
+        self.reveal_search_location(window, cx);
         self.reveal_active_file(cx);
         self.observe_autosave(window, cx);
         self.record_history(cx);

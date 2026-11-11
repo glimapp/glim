@@ -58,6 +58,9 @@ pub struct Workspace {
     history_swipe: Option<gestures::HistorySwipe>,
     search: Entity<InputState>,
     search_visible: bool,
+    search_content: bool,
+    content_results: Vec<glim_services::content_search::Match>,
+    pending_search_location: Option<(PathBuf, u64)>,
     search_focus: FocusHandle,
     search_previous_focus: Option<FocusHandle>,
     search_selected: usize,
@@ -227,7 +230,7 @@ impl Workspace {
         });
         let subscription = cx.subscribe_in(&search, window, |view, _, event, window, cx| {
             if matches!(event, InputEvent::Change) {
-                view.search_files(window, cx);
+                view.search_input_changed(window, cx);
             }
         });
         let appearance_subscription = window.observe_window_appearance(|window, cx| {
@@ -290,6 +293,9 @@ impl Workspace {
             watch_scan_task: None,
             search,
             search_visible: false,
+            search_content: false,
+            content_results: Vec::new(),
+            pending_search_location: None,
             search_focus: cx.focus_handle(),
             search_previous_focus: None,
             search_selected: 0,

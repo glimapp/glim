@@ -390,13 +390,12 @@ impl Sftp {
         }
         Ok(())
     }
-    pub fn download(
+    pub(super) fn read_chunks(
         &mut self,
         path: &Path,
-        target: &Path,
-        received: &AtomicU64,
         cancel: &Cancellation,
-    ) -> Result<()> {
+        mut consume: impl FnMut(&[u8]) -> Result<bool>,
+    ) -> Result<bool> {
         cancel.check()?;
         let _watch = self.watch(cancel);
         let mut open = string(path.as_os_str().as_encoded_bytes())?;
@@ -405,9 +404,6 @@ impl Sftp {
         let reply = self.request(3, &open)?;
         let handle = Packet::body(&reply, 102)?.string()?.to_vec();
         let result = (|| {
-            let mut file = tempfile::NamedTempFile::new_in(
-                target.parent().context("Missing cache directory")?,
-            )?;
             let mut offset = 0u64;
             loop {
                 cancel.check()?;
@@ -416,7 +412,7 @@ impl Sftp {
                 read.extend_from_slice(&limits::REMOTE_TRANSFER_BYTES.to_be_bytes());
                 let reply = self.request(5, &read)?;
                 if eof(&reply) {
-                    break;
+                    return Ok(true);
                 }
                 let mut packet = Packet::body(&reply, 103)?;
                 let bytes = packet.string()?;
@@ -424,21 +420,39 @@ impl Sftp {
                     !bytes.is_empty(),
                     "The SFTP server returned an empty data block"
                 );
-                file.write_all(bytes)?;
+                if !consume(bytes)? {
+                    return Ok(false);
+                }
                 offset = offset
                     .checked_add(bytes.len() as u64)
                     .context("Remote file offset overflow")?;
-                received.store(offset, Ordering::Relaxed);
             }
-            cancel.check()?;
-            file.as_file()
-                .set_permissions(std::fs::Permissions::from_mode(0o400))?;
-            file.persist(target).map_err(|error| error.error)?;
-            Ok(())
         })();
         let close = self.request(4, &string(&handle)?);
-        result?;
+        let complete = result?;
         close?;
+        Ok(complete)
+    }
+    pub fn download(
+        &mut self,
+        path: &Path,
+        target: &Path,
+        received: &AtomicU64,
+        cancel: &Cancellation,
+    ) -> Result<()> {
+        let mut file =
+            tempfile::NamedTempFile::new_in(target.parent().context("Missing cache directory")?)?;
+        let mut offset = 0;
+        self.read_chunks(path, cancel, |bytes| {
+            file.write_all(bytes)?;
+            offset += bytes.len() as u64;
+            received.store(offset, Ordering::Relaxed);
+            Ok(true)
+        })?;
+        cancel.check()?;
+        file.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o400))?;
+        file.persist(target).map_err(|error| error.error)?;
         Ok(())
     }
 }

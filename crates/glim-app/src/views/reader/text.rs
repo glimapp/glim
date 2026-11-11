@@ -275,6 +275,18 @@ impl Reader {
             ReaderMode::Source
         }
     }
+    pub fn reveal_content_offset(&mut self, offset: u64, window: &mut Window, cx: &mut App) {
+        self.set_preview(false, cx);
+        if let Renderer::Paged { view, .. } = &self.renderer {
+            view.update(cx, |view, cx| view.reveal_offset(offset, window, cx));
+        } else if let Some(source) = self.source() {
+            source.edit.editor().update(cx, |editor, cx| {
+                let offset = usize::try_from(offset).unwrap_or(usize::MAX);
+                editor.set_selected_range(offset..offset, cx);
+                editor.focus(window, cx);
+            });
+        }
+    }
     pub fn reveal_anchor(&mut self, anchor: &str, cx: &mut App) {
         if let Renderer::Paged {
             html: Some((browser, _)),
