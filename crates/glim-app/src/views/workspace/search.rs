@@ -36,7 +36,7 @@ impl Workspace {
             }
             let result = crate::app::reader_jobs::run(
                 cx.background_executor().clone(),
-                crate::app::reader_jobs::JobClass::RemoteSearch,
+                crate::app::reader_jobs::JobClass::ContentSearch,
                 crate::app::reader_jobs::Priority::Interactive,
                 cancel,
                 move |cancel| match remote {
@@ -134,8 +134,10 @@ impl Workspace {
                     tr("Indexing files: {count} scanned").replace("{count}", &count.to_string())
                 },
             ))
-        } else if self.search_index_error.is_some() || self.search_error.is_some() {
+        } else if self.search_error.is_some() {
             Some(tr("Remote search is incomplete"))
+        } else if self.search_index_error.is_some() {
+            Some(tr("File index will retry automatically"))
         } else if self.search_is_scanning() {
             Some(tr("Scanning remote files…"))
         } else if self.search_loading {
@@ -162,13 +164,7 @@ impl Workspace {
             .relative()
             .size(px(16.))
             .flex_shrink_0()
-            .child(
-                Icon::new(IconName::Search)
-                    .size(px(16.))
-                    .when(self.search_index_error.is_some() && !scanning, |icon| {
-                        icon.text_color(cx.theme().danger)
-                    }),
-            )
+            .child(Icon::new(IconName::Search).size(px(16.)))
             .when(scanning, |icon| {
                 icon.child(div().absolute().inset_0().size(px(16.)).with_animation(
                     "workspace-search-progress",
@@ -266,6 +262,7 @@ impl Workspace {
         self.remote_index_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
             let mut force = force;
+            let mut failures: u32 = 0;
             loop {
                 let progress = Arc::new(glim_services::remote::SearchIndexProgress::default());
                 if view
@@ -290,30 +287,35 @@ impl Workspace {
                 )
                 .await;
                 let busy = matches!(result, Ok(glim_services::remote::SearchIndexUpdate::Busy));
-                let failed = result.is_err();
+                failures = if result.is_err() {
+                    failures.saturating_add(1)
+                } else {
+                    0
+                };
                 if view
                     .update(cx, |view, cx| {
                         view.search_indexing = busy && !view.search_index_ready;
                         view.remote_index_progress_task = None;
                         if !busy {
                             view.search_indexed_files = progress.files();
-                            view.search_index_ready = result.is_ok();
+                            view.search_index_ready = matches!(
+                                result,
+                                Ok(glim_services::remote::SearchIndexUpdate::Ready(_))
+                            );
                             let previous_error = view.search_index_error.take();
                             if !view.search_content && view.search_error == previous_error {
                                 view.search_error = None;
                             }
                             let warning = match &result {
-                                Ok(glim_services::remote::SearchIndexUpdate::Ready(warning)) => {
-                                    warning.clone()
-                                }
+                                Ok(
+                                    glim_services::remote::SearchIndexUpdate::Ready(warning)
+                                    | glim_services::remote::SearchIndexUpdate::Pending(warning),
+                                ) => warning.clone(),
                                 Err(error) => Some(format!("{error:#}")),
                                 _ => None,
                             };
                             if let Some(warning) = warning {
                                 let message: SharedString = warning.into();
-                                if !view.search_content {
-                                    view.search_error = Some(message.clone());
-                                }
                                 view.search_index_error = Some(message);
                             }
                         }
@@ -327,8 +329,8 @@ impl Workspace {
                     force = false;
                 }
                 cx.background_executor()
-                    .timer(Duration::from_millis(if failed {
-                        limits::REMOTE_SEARCH_REFRESH_MS
+                    .timer(Duration::from_millis(if failures > 0 {
+                        glim_services::remote::search_retry_delay(failures)
                     } else if busy {
                         limits::REMOTE_SEARCH_POLL_MS
                     } else {
@@ -550,6 +552,8 @@ impl Workspace {
                 }
             } else if empty_query && self.search_content {
                 "Enter text to search file contents"
+            } else if !self.search_content && self.search_index_error.is_some() {
+                "No matches in cached files. Indexing will retry automatically."
             } else if self.search_indexing && !self.search_content {
                 "Searching files…"
             } else if empty_query {
@@ -756,6 +760,7 @@ impl Workspace {
                                         IconName::RefreshCw,
                                         self.search_error
                                             .as_ref()
+                                            .or(self.search_index_error.as_ref())
                                             .map(|error| format!("{}: {error}", tr("Retry")))
                                             .unwrap_or_else(|| tr("Refresh file search")),
                                     )

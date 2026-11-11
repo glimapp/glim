@@ -2,7 +2,7 @@
 mod content_search;
 mod search_index;
 mod sftp;
-pub use search_index::{IndexedPage, SearchIndexProgress, SearchIndexUpdate};
+pub use search_index::{IndexedPage, SearchIndexProgress, SearchIndexUpdate, search_retry_delay};
 
 use crate::{storage, work::Cancellation};
 use anyhow::{Context, Result, ensure};
@@ -172,6 +172,7 @@ pub struct Session {
     pub home: PathBuf,
     transport: Arc<Mutex<sftp::Sftp>>,
     search_transport: Arc<Mutex<Option<sftp::Sftp>>>,
+    search_connect_after: Arc<AtomicU64>,
     pub received: Arc<AtomicU64>,
     connected: Arc<std::sync::atomic::AtomicBool>,
     cache: Arc<tempfile::TempDir>,
@@ -196,6 +197,7 @@ impl Session {
             home,
             transport: Arc::new(Mutex::new(transport)),
             search_transport: Default::default(),
+            search_connect_after: Default::default(),
             received: Arc::new(AtomicU64::new(0)),
             cache: Arc::new(cache),
             versions: Default::default(),

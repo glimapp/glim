@@ -1,6 +1,6 @@
 mod incremental;
 
-use super::{Connection, Session, sftp::Sftp};
+use super::{Connection, Session};
 use crate::{limits, work::Cancellation, workspace::SearchPage};
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection as Database, OpenFlags, OptionalExtension};
@@ -32,6 +32,16 @@ pub struct IndexedPage {
 pub enum SearchIndexUpdate {
     Busy,
     Ready(Option<String>),
+    Pending(Option<String>),
+}
+
+pub fn search_retry_delay(failures: u32) -> u64 {
+    limits::REMOTE_SEARCH_RETRY_INITIAL_MS
+        .saturating_mul(
+            1u64.checked_shl(failures.saturating_sub(1))
+                .unwrap_or(u64::MAX),
+        )
+        .min(limits::REMOTE_SEARCH_REFRESH_MS)
 }
 
 #[derive(Default)]
@@ -131,7 +141,7 @@ impl Session {
     pub fn refresh_search_index(
         &self,
         roots: &[PathBuf],
-        force: bool,
+        retry_now: bool,
         cancel: &Cancellation,
         progress: &SearchIndexProgress,
     ) -> Result<SearchIndexUpdate> {
@@ -170,23 +180,28 @@ impl Session {
         db.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; BEGIN IMMEDIATE;
              CREATE TABLE IF NOT EXISTS files(path BLOB PRIMARY KEY, folded TEXT NOT NULL, generation INTEGER NOT NULL) WITHOUT ROWID;
-             CREATE TABLE IF NOT EXISTS pending(path BLOB PRIMARY KEY, done INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID;
-             CREATE INDEX IF NOT EXISTS pending_done ON pending(done,path);
+             DROP TABLE IF EXISTS pending;
              CREATE TABLE IF NOT EXISTS state(id INTEGER PRIMARY KEY CHECK(id=1), generation INTEGER NOT NULL, revision INTEGER NOT NULL, completed_ms INTEGER NOT NULL, complete INTEGER NOT NULL, warning TEXT);
              INSERT OR IGNORE INTO state VALUES(1,0,0,0,0,NULL); COMMIT;",
         )?;
-        let complete: bool =
-            db.query_row("SELECT complete FROM state WHERE id=1", [], |r| r.get(0))?;
-        if !force && complete {
-            progress.cached_ready.store(true, Ordering::Release);
-            return incremental::refresh(self, &mut db, &roots, cancel);
+        let (complete, generation): (bool, i64) = db.query_row(
+            "SELECT complete,generation FROM state WHERE id=1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if complete || generation > 0 {
+            progress.cached_ready.store(complete, Ordering::Release);
+            return incremental::refresh(self, &mut db, &roots, retry_now, cancel, progress);
         }
-        db.execute_batch("BEGIN IMMEDIATE; DELETE FROM pending; UPDATE state SET generation=generation+1,revision=revision+1,complete=0,warning=NULL; COMMIT;")?;
-        let generation = db.query_row("SELECT generation FROM state", [], |r| r.get(0))?;
+        // Attempt the fast shell enumeration once. Persist this before starting so
+        // interruption falls back to the resumable directory queue on the next job.
+        db.execute_batch(
+            "UPDATE state SET generation=1,revision=revision+1,complete=0,warning=NULL;",
+        )?;
         progress.started.store(true, Ordering::Release);
         let mut writer = Writer {
             db,
-            generation,
+            generation: 1,
             changes: 0,
             first_file: true,
             published: Instant::now(),
@@ -194,35 +209,16 @@ impl Session {
             progress,
         };
         let result = scan_shell(&self.connection, &roots, &mut writer, cancel);
-        let result = match result {
-            Ok(()) => Ok(()),
-            Err(_) if cancel.check().is_ok() => {
-                scan_sftp(&self.connection, &roots, &mut writer, cancel)
-            }
-            Err(error) => Err(error),
-        };
         cancel.check()?;
         writer.publish()?;
-        match result {
-            Ok(()) => {
-                let tx = writer.db.transaction()?;
-                tx.execute("DELETE FROM files WHERE generation<>?1", [generation])?;
-                tx.execute(
-                    "UPDATE state SET revision=revision+1,complete=1,completed_ms=?1,warning=NULL",
-                    [now_ms()],
-                )?;
-                tx.execute("DELETE FROM pending", [])?;
-                tx.execute_batch("DROP TABLE IF EXISTS directories")?;
-                tx.commit()?;
-                Ok(SearchIndexUpdate::Ready(None))
-            }
-            Err(error) => {
-                writer.db.execute(
-                    "UPDATE state SET revision=revision+1,warning=?1",
-                    [format!("{error:#}")],
-                )?;
-                Err(error)
-            }
+        if result.is_ok() {
+            writer.db.execute(
+                "UPDATE state SET revision=revision+1,complete=1,completed_ms=?1,warning=NULL",
+                [now_ms()],
+            )?;
+            Ok(SearchIndexUpdate::Ready(None))
+        } else {
+            incremental::refresh(self, &mut writer.db, &roots, false, cancel, progress)
         }
     }
 }
@@ -304,27 +300,20 @@ struct Writer<'a> {
     progress: &'a SearchIndexProgress,
 }
 impl Writer<'_> {
-    fn add(&mut self, path: &Path, directory: bool) -> Result<()> {
+    fn add(&mut self, path: &Path) -> Result<()> {
         if self.changes == 0 {
             self.db.execute_batch("BEGIN IMMEDIATE")?;
         }
         let bytes = path.as_os_str().as_bytes();
-        if directory {
-            self.db
-                .execute("INSERT OR IGNORE INTO pending(path) VALUES(?1)", [bytes])?;
-        } else {
-            let added = self.db.execute("INSERT INTO files VALUES(?1,?2,?3) ON CONFLICT(path) DO UPDATE SET generation=excluded.generation,folded=excluded.folded WHERE files.generation<>excluded.generation", (bytes, path.to_string_lossy().to_lowercase(), self.generation))?;
-            self.files += added as u64;
-        }
+        let added = self.db.execute("INSERT INTO files VALUES(?1,?2,?3) ON CONFLICT(path) DO UPDATE SET generation=excluded.generation,folded=excluded.folded WHERE files.generation<>excluded.generation", (bytes, path.to_string_lossy().to_lowercase(), self.generation))?;
+        self.files += added as u64;
         self.changes += 1;
-        if (!directory && self.first_file)
+        if self.first_file
             || self.changes >= limits::REMOTE_SEARCH_BATCH_PATHS
             || self.published.elapsed() >= Duration::from_millis(limits::REMOTE_SEARCH_POLL_MS)
         {
             self.publish()?;
-            if !directory {
-                self.first_file = false;
-            }
+            self.first_file = false;
         }
         Ok(())
     }
@@ -338,55 +327,6 @@ impl Writer<'_> {
         }
         Ok(())
     }
-}
-
-fn scan_sftp(
-    connection: &Connection,
-    roots: &[PathBuf],
-    writer: &mut Writer<'_>,
-    cancel: &Cancellation,
-) -> Result<()> {
-    let mut transport = Sftp::connect(connection, cancel)?;
-    for root in roots {
-        writer.add(root, true)?;
-    }
-    writer.publish()?;
-    let mut failure = None;
-    loop {
-        cancel.check()?;
-        let directory = writer
-            .db
-            .query_row(
-                "SELECT path FROM pending WHERE done=0 ORDER BY path LIMIT 1",
-                [],
-                |r| r.get::<_, Vec<u8>>(0),
-            )
-            .optional()?;
-        let Some(directory) = directory else { break };
-        let path = PathBuf::from(OsString::from_vec(directory.clone()));
-        let result = transport.visit_directory(&path, cancel, |entry| {
-            if entry.path.file_name().is_some_and(|name| name == ".git")
-                || (entry.is_dir && entry.is_symlink)
-            {
-                return Ok(());
-            }
-            writer.add(&entry.path, entry.is_dir)
-        });
-        writer.publish()?;
-        writer
-            .db
-            .execute("UPDATE pending SET done=1 WHERE path=?1", [&directory])?;
-        if let Err(error) = result {
-            cancel.check()?;
-            if !transport.healthy() {
-                return Err(error);
-            }
-            if failure.is_none() {
-                failure = Some(error.context(format!("Cannot scan {}", path.display())));
-            }
-        }
-    }
-    failure.map_or(Ok(()), Err)
 }
 
 fn scan_shell(
@@ -449,7 +389,7 @@ fn scan_shell(
                         valid_path(&path) && path.starts_with(root),
                         "Remote search returned an invalid path"
                     );
-                    writer.add(&path, false)?;
+                    writer.add(&path)?;
                 }
                 record.clear();
             }

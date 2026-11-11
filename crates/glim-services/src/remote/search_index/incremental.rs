@@ -1,23 +1,31 @@
 use super::*;
+use crate::remote::sftp::Sftp;
 
 pub(super) fn refresh(
     session: &Session,
     db: &mut Database,
     roots: &[PathBuf],
+    retry_now: bool,
     cancel: &Cancellation,
+    progress: &SearchIndexProgress,
 ) -> Result<SearchIndexUpdate> {
     seed(db, roots, cancel)?;
+    if retry_now {
+        db.execute(
+            "UPDATE directories SET retry_after_ms=0,checked_ms=0 WHERE error IS NOT NULL",
+            [],
+        )?;
+    }
     let now = now_ms();
     let directories = db
-        .prepare("SELECT path,modified,verified_ms FROM directories WHERE checked_ms<=?1 AND (error IS NULL OR checked_ms<=?3) ORDER BY checked_ms,path LIMIT ?2")?
+        .prepare("SELECT path,modified,verified_ms,failures FROM directories WHERE checked_ms<=?1 AND retry_after_ms<=?3 ORDER BY (verified_ms=0) DESC,checked_ms,path LIMIT ?2")?
         .query_map(
-            (now.saturating_sub(limits::REMOTE_SEARCH_DIRECTORY_POLL_MS), limits::REMOTE_SEARCH_DIRECTORY_BATCH as i64, now.saturating_sub(limits::REMOTE_SEARCH_REFRESH_MS)),
-            |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Option<u32>>(1)?, row.get::<_, u64>(2)?)),
+            (now.saturating_sub(limits::REMOTE_SEARCH_DIRECTORY_POLL_MS), limits::REMOTE_SEARCH_DIRECTORY_BATCH as i64, now),
+            |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Option<u32>>(1)?, row.get::<_, u64>(2)?, row.get::<_, u32>(3)?)),
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if directories.is_empty() {
-        let warning = db.query_row("SELECT warning FROM state", [], |r| r.get(0))?;
-        return Ok(SearchIndexUpdate::Ready(warning));
+        return finish(db);
     }
     let mut retained = match session.search_transport.try_lock() {
         Ok(transport) => transport,
@@ -28,11 +36,45 @@ pub(super) fn refresh(
         .as_ref()
         .is_none_or(|transport| !transport.healthy())
     {
-        *retained = Some(Sftp::connect(&session.connection, cancel)?);
+        *retained = None;
+        if now >= session.search_connect_after.load(Ordering::Relaxed) {
+            match Sftp::connect_background(&session.connection, cancel) {
+                Ok(transport) => *retained = Some(transport),
+                Err(_) => {
+                    cancel.check()?;
+                    session.search_connect_after.store(
+                        now_ms().saturating_add(limits::REMOTE_SEARCH_REFRESH_MS),
+                        Ordering::Relaxed,
+                    );
+                }
+            }
+        }
     }
-    let transport = retained.as_mut().context("Missing search connection")?;
+    // Password-only sessions can reuse an authenticated idle connection without
+    // another prompt. Release it after one directory so foreground I/O gets a turn.
+    let shared_connection = retained.is_none();
+    let mut shared = if shared_connection {
+        match session.transport.try_lock() {
+            Ok(transport) if transport.healthy() => Some(transport),
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(SearchIndexUpdate::Busy),
+            _ => anyhow::bail!("Background index is waiting for an authenticated connection"),
+        }
+    } else {
+        None
+    };
+    let transport = retained
+        .as_mut()
+        .or(shared.as_deref_mut())
+        .context("Missing search connection")?;
     db.execute_batch("CREATE TEMP TABLE listing(path BLOB PRIMARY KEY, directory INTEGER NOT NULL, folded TEXT NOT NULL) WITHOUT ROWID;")?;
-    for (bytes, modified, verified) in directories {
+    if !progress.cache_ready() {
+        progress.files.store(
+            db.query_row("SELECT count(*) FROM files", [], |r| r.get(0))?,
+            Ordering::Release,
+        );
+        progress.started.store(true, Ordering::Release);
+    }
+    for (bytes, modified, verified, failures) in directories {
         cancel.check()?;
         let path = PathBuf::from(OsString::from_vec(bytes.clone()));
         // A parent processed earlier in this batch may have removed this subtree.
@@ -43,19 +85,40 @@ pub(super) fn refresh(
         )? {
             continue;
         }
+        let verified = if failures == 0 { verified } else { 0 };
         let result = update_directory(db, transport, &path, modified, verified, roots, cancel);
         cancel.check()?;
         let error = result
             .err()
             .map(|error| format!("{}: {error:#}", path.display()));
+        let failures = if error.is_some() {
+            failures.saturating_add(1)
+        } else {
+            0
+        };
+        let retry_after = if error.is_some() {
+            now_ms().saturating_add(search_retry_delay(failures))
+        } else {
+            0
+        };
         db.execute(
-            "UPDATE directories SET checked_ms=?2,error=?3 WHERE path=?1",
-            (&bytes, now_ms(), &error),
+            "UPDATE directories SET checked_ms=?2,error=?3,failures=?4,retry_after_ms=?5 WHERE path=?1",
+            (&bytes, now_ms(), &error, failures, retry_after),
         )?;
-        if !transport.healthy() {
+        if shared_connection || !transport.healthy() {
             break;
         }
     }
+    if progress.files().is_some() {
+        progress.files.store(
+            db.query_row("SELECT count(*) FROM files", [], |r| r.get(0))?,
+            Ordering::Release,
+        );
+    }
+    finish(db)
+}
+
+fn finish(db: &mut Database) -> Result<SearchIndexUpdate> {
     let warning: Option<String> = db
         .query_row(
             "SELECT error FROM directories WHERE error IS NOT NULL ORDER BY path LIMIT 1",
@@ -63,11 +126,20 @@ pub(super) fn refresh(
             |r| r.get(0),
         )
         .optional()?;
-    db.execute(
-        "UPDATE state SET warning=?1,revision=revision+1 WHERE warning IS NOT ?1",
-        [&warning],
+    let complete: bool = db.query_row(
+        "SELECT NOT EXISTS(SELECT 1 FROM directories WHERE verified_ms=0 OR error IS NOT NULL)",
+        [],
+        |r| r.get(0),
     )?;
-    Ok(SearchIndexUpdate::Ready(warning))
+    db.execute(
+        "UPDATE state SET warning=?1,complete=?2,revision=revision+1,completed_ms=CASE WHEN ?2 THEN ?3 ELSE completed_ms END WHERE warning IS NOT ?1 OR complete<>?2",
+        (&warning, complete, now_ms()),
+    )?;
+    Ok(if complete {
+        SearchIndexUpdate::Ready(warning)
+    } else {
+        SearchIndexUpdate::Pending(warning)
+    })
 }
 
 fn seed(db: &mut Database, roots: &[PathBuf], cancel: &Cancellation) -> Result<()> {
@@ -79,6 +151,19 @@ fn seed(db: &mut Database, roots: &[PathBuf], cancel: &Cancellation) -> Result<(
     CREATE INDEX IF NOT EXISTS directories_checked ON directories(checked_ms,path);
     CREATE INDEX IF NOT EXISTS directories_parent ON directories(parent,path);",
     )?;
+    // Migrate v1 caches without discarding paths or completed directory checkpoints.
+    for column in ["failures", "retry_after_ms"] {
+        let exists: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('directories') WHERE name=?1)",
+            [column],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            db.execute_batch(&format!(
+                "ALTER TABLE directories ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0;"
+            ))?;
+        }
+    }
     if db.query_row("SELECT EXISTS(SELECT 1 FROM directories)", [], |r| {
         r.get::<_, bool>(0)
     })? {

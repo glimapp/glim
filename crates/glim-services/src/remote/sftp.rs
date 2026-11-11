@@ -72,8 +72,24 @@ impl Drop for Watch {
 }
 impl Sftp {
     pub fn connect(connection: &Connection, cancel: &Cancellation) -> Result<Self> {
+        Self::connect_mode(connection, cancel, false)
+    }
+    pub(super) fn connect_background(
+        connection: &Connection,
+        cancel: &Cancellation,
+    ) -> Result<Self> {
+        Self::connect_mode(connection, cancel, true)
+    }
+    fn connect_mode(
+        connection: &Connection,
+        cancel: &Cancellation,
+        background: bool,
+    ) -> Result<Self> {
         cancel.check()?;
         let mut command = connection.ssh_command()?;
+        if background {
+            command.args(["-o", "BatchMode=yes"]);
+        }
         command.arg("-s").arg(&connection.host).arg("sftp");
         let mut child = command
             .spawn()
