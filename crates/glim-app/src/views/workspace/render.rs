@@ -387,7 +387,8 @@ impl Render for Workspace {
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.choose_add_folder(window, cx)
                             })),
-                    ),
+                    )
+                    .child(self.file_tree_toggle(cx).custom(workspace_action_style)),
             )
             .child(div().flex_1().min_h_0().w_full().child(panel_content))
             .id("workspace-file-tree");

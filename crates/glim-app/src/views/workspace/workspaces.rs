@@ -447,7 +447,9 @@ impl Workspace {
                             .invisible()
                             .group_hover(hover_group, |view| view.visible())
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .when(selected, |row| row.child(self.file_tree_toggle(cx)))
+                            .when(selected && !self.explorer_visible, |row| {
+                                row.child(self.file_tree_toggle(cx))
+                            })
                             .child(
                                 Button::new(SharedString::from(format!(
                                     "close-workspace-{}",
