@@ -461,7 +461,7 @@ impl Render for Workspace {
                                         cx.notify();
                                     })),
                             )
-                            .child(self.collapsed_workspace_navigation(&outline, cx)),
+                            .child(self.collapsed_workspace_navigation(&outline, window, cx)),
                     )
                 })
                 .child(

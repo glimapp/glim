@@ -227,13 +227,28 @@ impl WorkspaceOutline {
                 {
                     fill.close();
                     if let Ok(fill) = fill.build() {
-                        let bridge = Bounds::from_corners(
-                            point(row.right() - px(7.), row.top() - px(4.)),
-                            point(tree.left() + px(1.), row.bottom() + px(4.)),
-                        );
-                        window.with_content_mask(Some(ContentMask { bounds: bridge }), |window| {
-                            window.paint_path(fill, surface);
-                        });
+                        // Fill the join without repainting over the row's label.
+                        for bridge in [
+                            Bounds::from_corners(
+                                point(row.right(), row.top()),
+                                point(tree.left() + px(1.), row.bottom()),
+                            ),
+                            Bounds::from_corners(
+                                point(row.right() - px(7.), row.top() - px(4.)),
+                                point(tree.left() + px(1.), row.top()),
+                            ),
+                            Bounds::from_corners(
+                                point(row.right() - px(7.), row.bottom()),
+                                point(tree.left() + px(1.), row.bottom() + px(4.)),
+                            ),
+                        ] {
+                            window.with_content_mask(
+                                Some(ContentMask { bounds: bridge }),
+                                |window| {
+                                    window.paint_path(fill.clone(), surface);
+                                },
+                            );
+                        }
                     }
                 }
                 if let Ok(path) = path.build() {

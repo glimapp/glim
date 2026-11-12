@@ -17,47 +17,24 @@ fn workspace_list_height(count: usize) -> f32 {
     (count as f32 * (super::WORKSPACE_ROW_HEIGHT + 4.) - 4.).max(0.)
 }
 
-fn workspace_short_names(workspaces: &[RecentWorkspace]) -> Vec<String> {
-    let bases: Vec<String> = workspaces
-        .iter()
-        .map(|workspace| {
-            let title = workspace.title();
-            let letters: String = title.chars().filter(|ch| ch.is_alphanumeric()).collect();
-            let name = if letters.is_empty() {
-                title.trim()
-            } else {
-                &letters
-            };
-            name.chars()
-                .take(if name.is_ascii() { 3 } else { 2 })
-                .collect()
-        })
-        .collect();
-    let reserved: std::collections::HashSet<_> =
-        bases.iter().map(|name| name.to_lowercase()).collect();
-    let mut used = std::collections::HashSet::new();
-    bases
-        .iter()
-        .map(|base| {
-            if used.insert(base.to_lowercase()) {
-                return base.clone();
-            }
-            for number in 2.. {
-                let suffix = number.to_string();
-                let limit = if base.is_ascii() { 3usize } else { 2 };
-                let prefix: String = base
-                    .chars()
-                    .take(limit.saturating_sub(suffix.len()))
-                    .collect();
-                let name = format!("{prefix}{suffix}");
-                let key = name.to_lowercase();
-                if !reserved.contains(&key) && used.insert(key) {
-                    return name;
-                }
-            }
-            unreachable!()
-        })
-        .collect()
+fn workspace_short_name(title: &str, window: &Window, cx: &App) -> String {
+    let title = title.lines().next().unwrap_or_default();
+    let mut font = font(cx.theme().font_family.clone());
+    font.weight = FontWeight::MEDIUM;
+    let line = window.text_system().shape_line(
+        title.to_owned().into(),
+        px(11.),
+        &[TextRun {
+            len: title.len(),
+            font,
+            color: cx.theme().foreground,
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        }],
+        None,
+    );
+    title[..line.index_for_x(px(28.)).unwrap_or(title.len())].to_owned()
 }
 
 struct PinnedWorkspaceList {
@@ -276,6 +253,7 @@ impl Workspace {
     pub(super) fn collapsed_workspace_navigation(
         &self,
         outline: &super::layout::WorkspaceOutline,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let slots = self
@@ -300,7 +278,6 @@ impl Workspace {
             .map(|host| host.read(cx).navigation_scroll.clone())
             .unwrap_or_default();
         let count = slots.len();
-        let short_names = workspace_short_names(&slots);
         let mut pinned = None;
         let list = v_flex()
             .id("collapsed-workspaces")
@@ -345,9 +322,16 @@ impl Workspace {
                     button.rounded_tr(px(0.)).rounded_br(px(0.))
                 })
                 .toggled(selected)
-                .text_size(px(11.))
-                .font_weight(FontWeight::MEDIUM)
-                .label(short_names[index].clone())
+                .child(
+                    div()
+                        .w_full()
+                        .text_center()
+                        .font_family(cx.theme().font_family.clone())
+                        .text_size(px(11.))
+                        .line_height(px(14.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(workspace_short_name(&title, window, cx)),
+                )
                 .tooltip(title.clone())
                 .accessibility_label(title)
                 .on_click(cx.listener(move |view, _, window, cx| {
