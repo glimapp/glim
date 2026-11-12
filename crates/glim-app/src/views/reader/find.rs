@@ -507,6 +507,7 @@ impl Render for FindBar {
                         .child(
                             h_flex()
                                 .w(px(176.))
+                                .max_w(relative(0.5))
                                 .flex_shrink_0()
                                 .gap(px(4.))
                                 .child(
