@@ -341,6 +341,9 @@ impl Workspace {
                 .p_0()
                 .flex_shrink_0()
                 .rounded(px(7.))
+                .when(selected && self.explorer_visible, |button| {
+                    button.rounded_tr(px(0.)).rounded_br(px(0.))
+                })
                 .toggled(selected)
                 .text_size(px(11.))
                 .font_weight(FontWeight::MEDIUM)
@@ -567,6 +570,9 @@ impl Workspace {
             .min_w_0()
             .items_center()
             .rounded(px(6.))
+            .when(selected && self.explorer_visible, |view| {
+                view.rounded_tr(px(0.)).rounded_br(px(0.))
+            })
             .bg(background)
             .hover(|view| view.bg(hover_background))
             .child(
@@ -590,6 +596,9 @@ impl Workspace {
                         FontWeight::NORMAL
                     })
                     .rounded(px(6.))
+                    .when(selected && self.explorer_visible, |button| {
+                        button.rounded_tr(px(0.)).rounded_br(px(0.))
+                    })
                     .accessibility_label(title.clone())
                     .child(
                         h_flex()

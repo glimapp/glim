@@ -223,7 +223,7 @@ impl WorkspaceOutline {
                 if let Some(row) = self
                     .row
                     .get()
-                    .filter(|row| row.size.height > px(12.) && row.right() < tree.left())
+                    .filter(|row| row.size.height > px(12.) && row.right() <= tree.left() + px(1.))
                 {
                     fill.close();
                     if let Ok(fill) = fill.build() {
