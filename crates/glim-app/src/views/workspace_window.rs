@@ -166,7 +166,7 @@ impl WorkspaceWindow {
         crate::app::workspace_sessions::remember_window(self.group.clone(), sessions, cx);
     }
 
-    fn reveal_navigation(&self) {
+    pub(super) fn reveal_navigation(&self) {
         let Some(active) = self.slots.get(self.active) else {
             return;
         };

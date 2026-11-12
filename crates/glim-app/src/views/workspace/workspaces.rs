@@ -174,12 +174,20 @@ impl Workspace {
         if let Some(host) = self.workspace_window.clone() {
             cx.defer(move |cx| {
                 let _ = host.update(cx, |host, cx| {
-                    if let Some(slot) = host
+                    if let Some(index) = host
                         .slots
-                        .iter_mut()
-                        .find(|slot| slot.view.entity_id() == entity_id)
+                        .iter()
+                        .position(|slot| slot.view.entity_id() == entity_id)
                     {
-                        slot.workspace = workspace.clone();
+                        let previous = &host.slots[index].workspace;
+                        let reveal = index == host.active
+                            && previous.folders.is_empty()
+                            && previous.name.is_none()
+                            && (!workspace.folders.is_empty() || workspace.name.is_some());
+                        host.slots[index].workspace = workspace.clone();
+                        if reveal {
+                            host.reveal_navigation();
+                        }
                     }
                     host.remember_window(cx);
                     cx.notify();
