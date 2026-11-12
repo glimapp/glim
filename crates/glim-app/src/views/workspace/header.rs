@@ -305,7 +305,12 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn header(&self, tabs: Option<AnyElement>, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn header(
+        &self,
+        tabs: Option<AnyElement>,
+        rounded_join: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         v_flex()
             .relative()
             .w_full()
@@ -340,6 +345,7 @@ impl Workspace {
                     )
                     .when(tabs.is_some(), |row| row.child(title_bar_separator(cx)))
                     .children(tabs.map(|tabs| div().flex_1().min_w_0().h_full().child(tabs))),
+                rounded_join,
                 cx,
             ))
             .into_any_element()
@@ -354,10 +360,11 @@ fn title_bar_separator(cx: &App) -> Div {
         .bg(cx.theme().border)
 }
 
-fn workspace_title_bar(content: impl IntoElement, cx: &App) -> AnyElement {
+fn workspace_title_bar(content: impl IntoElement, rounded_join: bool, cx: &App) -> AnyElement {
     TitleBar::new()
         .bg(cx.theme().sidebar)
         .border_b_0()
+        .when(rounded_join, |view| view.rounded_br(px(6.)))
         .h(px(super::TITLE_BAR_HEIGHT))
         .pl_0()
         .pr_0()

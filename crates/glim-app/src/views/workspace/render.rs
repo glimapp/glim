@@ -77,10 +77,17 @@ impl Render for Workspace {
         let explorer_width = self.explorer_column_width(window_width);
         let navigation_width = sidebar_width + explorer_width;
         let header_width = navigation_width.max(self.header_controls_width(cx));
+        let rounded_header_join = !sidebar_visible && explorer_width == 0.;
+        let header_cutout = rounded_header_join.then(|| {
+            size(
+                px(header_width - navigation_width),
+                px(super::TITLE_BAR_HEIGHT - super::CONTENT_INSET),
+            )
+        });
         let has_tabs = self.page == Page::Document
             && (!self.tabs.is_empty() || self.pending_open_path().is_some());
         let tab_bar = self.tab_bar((header_width - navigation_width).max(0.), window, cx);
-        let header = self.header(None, cx);
+        let header = self.header(None, rounded_header_join, cx);
         let view = cx.entity().downgrade();
         let open: crate::views::reader::OpenLink =
             std::sync::Arc::new(move |path, anchor, window, cx| {
@@ -246,7 +253,7 @@ impl Render for Workspace {
             .bg(cx.theme().sidebar)
             .child(viewer)
             .when(!self.file_fullscreen, |view| {
-                view.child(super::layout::reader_frame(&outline, cx))
+                view.child(super::layout::reader_frame(&outline, header_cutout, cx))
             });
         let panel_content = self
             .explorer

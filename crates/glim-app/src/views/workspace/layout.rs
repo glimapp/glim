@@ -10,7 +10,11 @@ use gpui_kit::{
     *,
 };
 
-pub(super) fn reader_frame(workspace_outline: &WorkspaceOutline, cx: &App) -> AnyElement {
+pub(super) fn reader_frame(
+    workspace_outline: &WorkspaceOutline,
+    header_cutout: Option<Size<Pixels>>,
+    cx: &App,
+) -> AnyElement {
     let outside = cx.theme().sidebar;
     let surface = crate::views::workspace_background(cx);
     let border = cx.theme().border;
@@ -24,12 +28,22 @@ pub(super) fn reader_frame(workspace_outline: &WorkspaceOutline, cx: &App) -> An
             let radius = px(12.)
                 .min(bounds.size.width / 2.)
                 .min(bounds.size.height / 2.);
-            for (corner, x, y) in [
-                (bounds.origin, 1., 1.),
-                (point(bounds.right(), bounds.top()), -1., 1.),
-                (point(bounds.right(), bounds.bottom()), -1., -1.),
-                (point(bounds.left(), bounds.bottom()), 1., -1.),
-            ] {
+            let cutout = header_cutout.map(|size| bounds.origin + point(size.width, size.height));
+            let mut corners = vec![
+                (
+                    point(cutout.map_or(bounds.left(), |p| p.x), bounds.top()),
+                    1.,
+                    1.,
+                    radius,
+                ),
+                (point(bounds.right(), bounds.top()), -1., 1., radius),
+                (point(bounds.right(), bounds.bottom()), -1., -1., radius),
+                (point(bounds.left(), bounds.bottom()), 1., -1., radius),
+            ];
+            if let Some(cutout) = cutout {
+                corners.push((point(bounds.left(), cutout.y), 1., 1., px(6.)));
+            }
+            for (corner, x, y, radius) in corners {
                 let offset = |a: Pixels, b: Pixels| corner + point(a * x, b * y);
                 let tangent = radius * (1. - 0.552_284_8);
                 let mut path = PathBuilder::fill();
@@ -51,13 +65,63 @@ pub(super) fn reader_frame(workspace_outline: &WorkspaceOutline, cx: &App) -> An
                     window.paint_path(path, if connected_corner { surface } else { outside });
                 }
             }
-            // Match GPUI's border painting: transparent pixels retain the border
-            // RGB so corner antialiasing cannot interpolate toward black.
-            window.paint_quad(
-                outline(bounds, border, BorderStyle::default())
-                    .background(border.opacity(0.))
-                    .corner_radii(radius),
-            );
+            if let Some(cutout) = cutout {
+                let inset = px(0.5);
+                let outer_radius = radius - inset;
+                let corners = [
+                    (point(cutout.x + inset, bounds.top() + inset), outer_radius),
+                    (
+                        point(bounds.right() - inset, bounds.top() + inset),
+                        outer_radius,
+                    ),
+                    (
+                        point(bounds.right() - inset, bounds.bottom() - inset),
+                        outer_radius,
+                    ),
+                    (
+                        point(bounds.left() + inset, bounds.bottom() - inset),
+                        outer_radius,
+                    ),
+                    (
+                        point(bounds.left() + inset, cutout.y + inset),
+                        px(6.) - inset,
+                    ),
+                    (cutout + point(inset, inset), px(6.) + inset),
+                ];
+                let mut path = PathBuilder::stroke(px(1.));
+                for index in 0..corners.len() {
+                    let (corner, radius) = corners[index];
+                    let before = corners[(index + corners.len() - 1) % corners.len()].0 - corner;
+                    let after = corners[(index + 1) % corners.len()].0 - corner;
+                    let before_length = before.x.abs() + before.y.abs();
+                    let after_length = after.x.abs() + after.y.abs();
+                    let radius = radius.min(before_length / 2.).min(after_length / 2.);
+                    let entry = corner + before * (radius / before_length);
+                    let exit = corner + after * (radius / after_length);
+                    if index == 0 {
+                        path.move_to(entry);
+                    } else {
+                        path.line_to(entry);
+                    }
+                    path.cubic_bezier_to(
+                        exit,
+                        entry + (corner - entry) * 0.552_284_8,
+                        exit + (corner - exit) * 0.552_284_8,
+                    );
+                }
+                path.close();
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, border);
+                }
+            } else {
+                // Match GPUI's border painting: transparent pixels retain the border
+                // RGB so corner antialiasing cannot interpolate toward black.
+                window.paint_quad(
+                    outline(bounds, border, BorderStyle::default())
+                        .background(border.opacity(0.))
+                        .corner_radii(radius),
+                );
+            }
         },
     )
     .absolute()
