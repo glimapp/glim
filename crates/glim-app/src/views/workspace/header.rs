@@ -67,10 +67,12 @@ impl Workspace {
     }
     pub(super) fn search_input_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search_offset = 0;
+        self.search_filename_fallback = false;
         self.load_search_page_with_debounce(true, window, cx);
     }
     pub(super) fn search_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search_offset = 0;
+        self.search_filename_fallback = false;
         self.search_selected = 0;
         self.search_scroll.set_offset(point(px(0.), px(0.)));
         self.load_search_page(window, cx);
@@ -113,7 +115,7 @@ impl Workspace {
             cx.notify();
             return;
         }
-        if self.search_content {
+        if !self.search_filename_fallback {
             self.load_content_search(query, debounce, window, cx);
             return;
         }

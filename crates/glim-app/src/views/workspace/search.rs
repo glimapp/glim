@@ -45,7 +45,17 @@ impl Workspace {
                 },
             )
             .await;
-            let _ = view.update(cx, |view, cx| {
+            let _ = view.update_in(cx, |view, window, cx| {
+                if offset == 0
+                    && match &result {
+                        Ok(page) => page.matches.is_empty(),
+                        Err(_) => true,
+                    }
+                {
+                    view.search_filename_fallback = true;
+                    view.load_search_page(window, cx);
+                    return;
+                }
                 view.search_loading = false;
                 match result {
                     Ok(page) => {
@@ -60,15 +70,6 @@ impl Workspace {
             });
         }));
         cx.notify();
-    }
-
-    fn set_content_search(&mut self, content: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.search_content == content {
-            return;
-        }
-        self.search_content = content;
-        self.search_files(window, cx);
-        self.search.update(cx, |input, cx| input.focus(window, cx));
     }
 
     fn watch_search_index_progress(
@@ -117,8 +118,8 @@ impl Workspace {
                 && self.search_error.is_none())
     }
 
-    fn search_status(&self) -> Option<String> {
-        if self.search_content {
+    fn search_status(&self, cx: &App) -> Option<String> {
+        if !self.search_filename_fallback && !self.search.read(cx).value().trim().is_empty() {
             return Some(tr(if self.search_loading {
                 "Searching file contents…"
             } else if self.search_error.is_some() {
@@ -157,7 +158,7 @@ impl Workspace {
         let painted_bounds = hint_bounds.clone();
         let scanning = self.search_is_scanning() || self.search_loading;
         let mut label = format!("{} · ⌘P", tr("Search workspace files"));
-        if let Some(status) = self.search_status() {
+        if let Some(status) = self.search_status(cx) {
             label.push('\n');
             label.push_str(&status);
         }
@@ -320,7 +321,8 @@ impl Workspace {
                                 Ok(glim_services::remote::SearchIndexUpdate::Ready(_))
                             );
                             let previous_error = view.search_index_error.take();
-                            if !view.search_content && view.search_error == previous_error {
+                            let filename_fallback = view.search_filename_fallback;
+                            if filename_fallback && view.search_error == previous_error {
                                 view.search_error = None;
                             }
                             let warning = match &result {
@@ -360,9 +362,7 @@ impl Workspace {
     }
 
     fn retry_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.search_content {
-            self.start_remote_search_index(true, window, cx);
-        }
+        self.start_remote_search_index(true, window, cx);
         self.search_files(window, cx);
     }
 
@@ -404,9 +404,6 @@ impl Workspace {
         if !self.search.read(cx).value().trim().is_empty() {
             return self.results.clone();
         }
-        if self.search_content {
-            return Vec::new();
-        }
         let mut seen = HashSet::new();
         self.history
             .iter()
@@ -432,7 +429,7 @@ impl Workspace {
         let location = self
             .content_results
             .get(index)
-            .filter(|_| self.search_content)
+            .filter(|hit| hit.path == path)
             .map(|hit| hit.offset);
         self.close_search(window, cx);
         self.search
@@ -563,16 +560,14 @@ impl Workspace {
             );
         } else if paths.is_empty() {
             let message = if self.search_loading {
-                if self.search_content {
-                    "Searching file contents…"
-                } else {
+                if self.search_filename_fallback {
                     "Searching files…"
+                } else {
+                    "Searching file contents…"
                 }
-            } else if empty_query && self.search_content {
-                "Enter text to search file contents"
-            } else if !self.search_content && self.search_index_error.is_some() {
+            } else if self.search_filename_fallback && self.search_index_error.is_some() {
                 "No matches in cached files. Indexing will retry automatically."
-            } else if self.search_indexing && !self.search_content {
+            } else if self.search_indexing && self.search_filename_fallback {
                 "Searching files…"
             } else if empty_query {
                 "No recently opened files"
@@ -608,7 +603,7 @@ impl Workspace {
                 let hit = self
                     .content_results
                     .get(index)
-                    .filter(|_| self.search_content);
+                    .filter(|hit| &hit.path == path);
                 let mut name = path
                     .file_name()
                     .unwrap_or(path.as_os_str())
@@ -721,34 +716,6 @@ impl Workspace {
                                     })),
                             ),
                     )
-                    .child(
-                        h_flex()
-                            .flex_shrink_0()
-                            .px_3()
-                            .py_2()
-                            .gap_1()
-                            .child(
-                                Button::new("search-mode-filenames")
-                                    .small()
-                                    .ghost()
-                                    .label(tr("File names"))
-                                    .selected(!self.search_content)
-                                    .on_click(cx.listener(|view, _, window, cx| {
-                                        view.set_content_search(false, window, cx)
-                                    })),
-                            )
-                            .child(
-                                Button::new("search-mode-content")
-                                    .small()
-                                    .ghost()
-                                    .label(tr("File contents"))
-                                    .selected(self.search_content)
-                                    .tooltip(tr("Case-sensitive · Text files"))
-                                    .on_click(cx.listener(|view, _, window, cx| {
-                                        view.set_content_search(true, window, cx)
-                                    })),
-                            ),
-                    )
                     .child(list)
                     .child(
                         h_flex()
@@ -766,12 +733,12 @@ impl Workspace {
                                     .min_w_0()
                                     .truncate()
                                     .child(
-                                        self.search_status().unwrap_or_else(|| {
+                                        self.search_status(cx).unwrap_or_else(|| {
                                             tr("↑↓ Select · ↵ Open · Esc Close")
                                         }),
                                     ),
                             )
-                            .when(self.remote.is_some() || self.search_content, |footer| {
+                            .when(self.remote.is_some() || !empty_query, |footer| {
                                 footer.child(
                                     crate::views::icon_button(
                                         "refresh-remote-search",
