@@ -363,7 +363,9 @@ impl Workspace {
             .rounded(px(6.))
             .disabled(self.picking || crate::app::updates::busy(cx))
             .accessibility_label(label.clone())
-            .when(collapsed, |button| button.w(px(32.)).tooltip(label.clone()))
+            .when(collapsed, |button| {
+                button.w(px(32.)).p_0().tooltip(label.clone())
+            })
             .when(!collapsed, |button| button.w_full().px_3().justify_start())
             .child(
                 h_flex()
