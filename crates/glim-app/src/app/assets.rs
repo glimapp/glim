@@ -55,6 +55,8 @@ gpui_kit::assets::icon_assets!(
         ChevronLeft,
         ChevronsLeft,
         ChevronsRight,
+        ChevronsDown,
+        ChevronsUp,
         CircleAlert,
         CircleCheck,
         Copy,
