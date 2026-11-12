@@ -76,7 +76,7 @@ impl Render for Workspace {
         let sidebar_width = self.workspace_column_width(window_width);
         let explorer_width = self.explorer_column_width(window_width);
         let navigation_width = sidebar_width + explorer_width;
-        let header_width = navigation_width.max(self.header_controls_width(cx));
+        let header_width = navigation_width.max(self.header_controls_width(window, cx));
         let rounded_header_join = header_width - navigation_width > 0.5;
         let header_cutout = rounded_header_join.then(|| {
             size(

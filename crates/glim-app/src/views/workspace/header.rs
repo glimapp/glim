@@ -18,11 +18,33 @@ impl Target {
     }
 }
 impl Workspace {
-    pub(super) fn header_controls_width(&self, cx: &App) -> f32 {
+    pub(super) fn header_controls_width(&self, window: &Window, cx: &App) -> f32 {
         let restore = self.reader_toolbar_collapsed && self.page == super::Page::Document;
         let update = crate::app::updates::state(cx)
             .is_some_and(|state| state.read(cx).snapshot.has_update());
-        224. + if restore { 32. } else { 0. } + if update { 28. } else { 0. }
+        let mut brand_font = font(cx.theme().font_family.clone());
+        brand_font.weight = FontWeight::SEMIBOLD;
+        let brand = window.text_system().shape_line(
+            "Glim".into(),
+            px(16.),
+            &[TextRun {
+                len: 4,
+                font: brand_font,
+                color: cx.theme().foreground,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }],
+            None,
+        );
+        // Match the title bar's padding, separator, gaps and navigation buttons.
+        94. + f32::from(brand.width)
+            + 16.
+            + 1.
+            + 64.
+            + 8.
+            + if restore { 32. } else { 0. }
+            + if update { 28. } else { 0. }
     }
 
     pub(super) fn record_history(&mut self, cx: &mut Context<Self>) {
