@@ -401,6 +401,7 @@ impl Workspace {
             crate::app::remember_explorer(roots, expanded, cx);
         }
         self.scan_workspace_roots(window, cx);
+        self.discover_git_repositories(cx);
     }
 
     pub(super) fn remove_folder(
@@ -435,7 +436,39 @@ impl Workspace {
         let (roots, expanded) = explorer.read(cx).expansion_state();
         crate::app::remember_explorer(roots, expanded, cx);
         self.scan_workspace_roots(window, cx);
+        self.discover_git_repositories(cx);
         cx.notify();
+    }
+
+    pub(super) fn discover_git_repositories(&mut self, cx: &mut Context<Self>) {
+        self.git_discovery_task = None;
+        if glim_services::remote::is_remote_id(&self.recent_id) || self.roots.is_empty() {
+            self.git_repositories.clear();
+            self.changes_expanded = false;
+            return;
+        }
+        let roots = self.roots.clone();
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        let work = cx.background_executor().spawn(async move {
+            let repositories = glim_services::workspace::discover_git_roots(&roots, &cancel);
+            (roots, repositories)
+        });
+        self.git_discovery_task = Some(cx.spawn(async move |view, cx| {
+            let _guard = guard;
+            let (roots, result) = work.await;
+            let _ = view.update(cx, |view, cx| {
+                if view.roots != roots {
+                    return;
+                }
+                if let Ok(repositories) = result {
+                    view.git_repositories = repositories;
+                    if view.git_repositories.is_empty() {
+                        view.changes_expanded = false;
+                    }
+                    cx.notify();
+                }
+            });
+        }));
     }
 
     fn scan_workspace_roots(&mut self, window: &mut Window, cx: &mut Context<Self>) {

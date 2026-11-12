@@ -10,6 +10,8 @@ use gpui_kit::{
     *,
 };
 
+const TAB_HEIGHT: f32 = 30.;
+
 #[derive(Clone)]
 struct DraggedTab {
     workspace: EntityId,
@@ -560,7 +562,7 @@ impl Workspace {
                         .absolute()
                         .inset_0(),
                     )
-                    .h(px(30.))
+                    .h(px(TAB_HEIGHT))
                     .border_1()
                     .border_color(if active {
                         crate::views::accent(cx).opacity(0.4)
@@ -734,7 +736,7 @@ impl Workspace {
                 .aria_label(label.clone())
                 .aria_description(status.clone())
                 .aria_selected(false)
-                .h(px(30.))
+                .h(px(TAB_HEIGHT))
                 .flex_shrink_0()
                 .gap_1()
                 .pl(px(7.))

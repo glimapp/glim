@@ -803,7 +803,8 @@ fn workspace_window_options(cx: &App) -> WindowOptions {
         titlebar: Some(TitlebarOptions {
             traffic_light_position: Some(point(
                 px(9.),
-                px((crate::views::workspace::TITLE_BAR_HEIGHT - 14.) / 2.),
+                px(crate::views::workspace::CONTENT_INSET
+                    + (crate::views::workspace::TITLE_BAR_HEIGHT - 14.) / 2.),
             )),
             ..gpui_kit::component::TitleBar::title_bar_options()
         }),

@@ -21,6 +21,170 @@ use gpui_kit::{
     *,
 };
 
+const FILE_PANEL_HEADING_HEIGHT: f32 = 40.;
+const FILE_PANEL_HEADING_BUTTON_HEIGHT: f32 = 34.;
+
+impl Workspace {
+    fn file_panel_heading_style(cx: &App) -> ButtonCustomVariant {
+        ButtonCustomVariant::new(cx)
+            .foreground(cx.theme().foreground)
+            .hover(cx.theme().foreground.opacity(0.04))
+            .active(cx.theme().foreground.opacity(0.08))
+    }
+
+    fn changes_panel_preview(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.changes_expanded {
+            return v_flex()
+                .id("changes-panel-preview")
+                .w_full()
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .child(
+                    h_flex()
+                        .w_full()
+                        .h(px(FILE_PANEL_HEADING_HEIGHT))
+                        .flex_shrink_0()
+                        .px_2()
+                        .gap(px(2.))
+                        .child(
+                            Button::new("expanded-changes-heading")
+                                .custom(Self::file_panel_heading_style(cx))
+                                .flex_1()
+                                .min_w_0()
+                                .h(px(FILE_PANEL_HEADING_BUTTON_HEIGHT))
+                                .px_1()
+                                .rounded(px(6.))
+                                .justify_start()
+                                .accessibility_label(glim_services::locale::tr("Show Files"))
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .min_w_0()
+                                        .gap_2()
+                                        .child(
+                                            Icon::new(gpui_kit::assets::IconName::GitCompareArrows)
+                                                .size(px(16.))
+                                                .flex_shrink_0(),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .truncate()
+                                                .text_sm()
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .child(glim_services::locale::tr("Changes")),
+                                        ),
+                                )
+                                .on_click(cx.listener(|view, _, window, cx| {
+                                    view.changes_expanded = false;
+                                    window.focus(&view.focus, cx);
+                                    cx.notify();
+                                })),
+                        )
+                        .child(self.file_tree_toggle(cx).w(px(24.))),
+                )
+                .children(self.git_repositories.iter().map(|repository| {
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .h(px(34.))
+                        .flex_shrink_0()
+                        .pl_3()
+                        .pr_1()
+                        .gap_2()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(
+                            Icon::new(gpui_kit::assets::IconName::FolderGit2)
+                                .size(px(14.))
+                                .flex_shrink_0(),
+                        )
+                        .child(
+                            div().flex_1().min_w_0().truncate().child(
+                                repository
+                                    .file_name()
+                                    .unwrap_or(repository.as_os_str())
+                                    .to_string_lossy()
+                                    .into_owned(),
+                            ),
+                        )
+                }))
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_h_0()
+                        .justify_center()
+                        .items_center()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(glim_services::locale::tr("Changes preview")),
+                )
+                .into_any_element();
+        }
+        h_flex()
+            .id("collapsed-changes-heading")
+            .w_full()
+            .h(px(FILE_PANEL_HEADING_HEIGHT))
+            .flex_shrink_0()
+            .px_2()
+            .cursor_pointer()
+            .on_click(cx.listener(|view, _, window, cx| {
+                view.path_hint.hide();
+                view.changes_expanded = true;
+                window.focus(&view.focus, cx);
+                cx.notify();
+            }))
+            .child(
+                Button::new("file-panel-changes")
+                    .custom(Self::file_panel_heading_style(cx))
+                    .w_full()
+                    .min_w_0()
+                    .h(px(FILE_PANEL_HEADING_BUTTON_HEIGHT))
+                    .px_1()
+                    .rounded(px(6.))
+                    .justify_start()
+                    .text_left()
+                    .accessibility_label(glim_services::locale::tr("Show Changes"))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .gap_2()
+                            .child(
+                                Icon::new(gpui_kit::assets::IconName::GitCompareArrows)
+                                    .size(px(16.))
+                                    .flex_shrink_0(),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(glim_services::locale::tr("Changes")),
+                            )
+                            .child(
+                                Icon::new(gpui_kit::assets::IconName::ChevronRight)
+                                    .size(px(12.))
+                                    .flex_shrink_0()
+                                    .text_color(cx.theme().muted_foreground),
+                            ),
+                    )
+                    .on_click(cx.listener(|view, _, window, cx| {
+                        cx.stop_propagation();
+                        view.path_hint.hide();
+                        view.changes_expanded = true;
+                        window.focus(&view.focus, cx);
+                        cx.notify();
+                    })),
+            )
+            .into_any_element()
+    }
+}
+
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let outline = super::layout::WorkspaceOutline::default();
@@ -81,7 +245,7 @@ impl Render for Workspace {
         let header_cutout = rounded_header_join.then(|| {
             size(
                 px(header_width - navigation_width),
-                px(super::TITLE_BAR_HEIGHT - super::CONTENT_INSET),
+                px(super::TITLE_BAR_HEIGHT),
             )
         });
         let has_tabs = self.page == Page::Document
@@ -196,11 +360,7 @@ impl Render for Workspace {
             .size_full()
             .min_w_0()
             .overflow_hidden()
-            .when(!self.file_fullscreen, |view| {
-                view.rounded(px(12.))
-                    .border_1()
-                    .border_color(cx.theme().transparent)
-            })
+            .when(!self.file_fullscreen, |view| view.rounded(px(12.)))
             .bg(cx.theme().background)
             .when(
                 !has_tabs && self.page != Page::Start && !self.file_fullscreen,
@@ -316,6 +476,152 @@ impl Render for Workspace {
             )
             .child(self.workspace_navigation(&outline, cx))
             .id("workspace-sidebar");
+        let has_git = !self.git_repositories.is_empty();
+        let show_changes = has_git && self.changes_expanded;
+        let files_heading = h_flex()
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .text_left()
+            .text_sm()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(cx.theme().foreground)
+            .child(
+                Icon::new(gpui_kit::assets::IconName::Folder)
+                    .size(px(16.))
+                    .flex_shrink_0(),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(glim_services::locale::tr("Files")),
+            )
+            .when(show_changes, |row| {
+                row.child(
+                    Icon::new(gpui_kit::assets::IconName::ChevronRight)
+                        .size(px(12.))
+                        .flex_shrink_0(),
+                )
+            });
+        let files_header = h_flex()
+            .id("file-panel-files-header")
+            .w_full()
+            .min_w_0()
+            .h(px(FILE_PANEL_HEADING_HEIGHT))
+            .flex_shrink_0()
+            .px_2()
+            .gap(px(2.))
+            .when(has_git, |header| header.cursor_pointer())
+            .on_click(cx.listener(move |view, _, window, cx| {
+                if has_git {
+                    view.path_hint.hide();
+                    view.changes_expanded = !view.changes_expanded;
+                    window.focus(&view.focus, cx);
+                    cx.notify();
+                }
+            }))
+            .child(if has_git {
+                Button::new("file-panel-files")
+                    .custom(Self::file_panel_heading_style(cx))
+                    .small()
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(FILE_PANEL_HEADING_BUTTON_HEIGHT))
+                    .rounded(px(6.))
+                    .px_1()
+                    .justify_start()
+                    .text_left()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(cx.theme().foreground)
+                    .accessibility_label(glim_services::locale::tr(if show_changes {
+                        "Show Files"
+                    } else {
+                        "Show Changes"
+                    }))
+                    .child(files_heading)
+                    .on_click(cx.listener(|view, _, window, cx| {
+                        cx.stop_propagation();
+                        view.path_hint.hide();
+                        view.changes_expanded = !view.changes_expanded;
+                        window.focus(&view.focus, cx);
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            } else {
+                h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(FILE_PANEL_HEADING_BUTTON_HEIGHT))
+                    .px_1()
+                    .child(files_heading)
+                    .into_any_element()
+            })
+            .when(!show_changes, |header| {
+                header
+                    .child(
+                        Button::new("workspace-new-file")
+                            .disabled(glim_services::remote::is_remote_id(&self.recent_id))
+                            .custom(workspace_action_style)
+                            .small()
+                            .w(px(24.))
+                            .h(px(28.))
+                            .p_0()
+                            .flex_shrink_0()
+                            .icon(gpui_kit::assets::IconName::FilePlus)
+                            .tooltip(glim_services::locale::tr("New File"))
+                            .accessibility_label(glim_services::locale::tr("New File"))
+                            .on_click(cx.listener(|view, _, window, cx| {
+                                cx.stop_propagation();
+                                view.choose_new_file(window, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("workspace-new-folder")
+                            .custom(workspace_action_style)
+                            .small()
+                            .w(px(24.))
+                            .h(px(28.))
+                            .p_0()
+                            .flex_shrink_0()
+                            .icon(gpui_kit::assets::IconName::FolderPlus)
+                            .disabled(
+                                self.roots.is_empty()
+                                    || glim_services::remote::is_remote_id(&self.recent_id),
+                            )
+                            .tooltip(glim_services::locale::tr("New Folder…"))
+                            .accessibility_label(glim_services::locale::tr("New Folder…"))
+                            .on_click(cx.listener(|view, _, window, cx| {
+                                cx.stop_propagation();
+                                view.choose_new_folder(window, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("workspace-add-folder")
+                            .custom(workspace_action_style)
+                            .small()
+                            .w(px(24.))
+                            .h(px(28.))
+                            .p_0()
+                            .flex_shrink_0()
+                            .icon(gpui_kit::assets::IconName::Folders)
+                            .tooltip(glim_services::locale::tr("Add Folder to Workspace…"))
+                            .accessibility_label(glim_services::locale::tr(
+                                "Add Folder to Workspace…",
+                            ))
+                            .on_click(cx.listener(|view, _, window, cx| {
+                                cx.stop_propagation();
+                                view.choose_add_folder(window, cx)
+                            })),
+                    )
+                    .child(
+                        self.file_tree_toggle(cx)
+                            .custom(workspace_action_style)
+                            .w(px(24.)),
+                    )
+            });
         let file_tree = v_flex()
             .relative()
             .child(outline.tree_marker())
@@ -325,68 +631,28 @@ impl Render for Workspace {
             .bg(crate::views::workspace_background(cx))
             .rounded_tl(px(12.))
             .rounded_bl(px(12.))
-            .px_2()
-            .pb_1()
-            .child(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .h(px(34.))
-                    .flex_shrink_0()
-                    .pl_1()
-                    .gap_1()
-                    .child(
+            .child(files_header)
+            .when(!show_changes, |view| {
+                view.child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .w_full()
+                        .px_2()
+                        .child(panel_content),
+                )
+            })
+            .when(has_git, |view| {
+                view.child(
+                    div().w_full().flex_shrink_0().px_3().child(
                         div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(glim_services::locale::tr("Files")),
-                    )
-                    .child(
-                        Button::new("workspace-new-file")
-                            .disabled(glim_services::remote::is_remote_id(&self.recent_id))
-                            .custom(workspace_action_style)
-                            .small()
-                            .icon(gpui_kit::assets::IconName::FilePlus)
-                            .tooltip(glim_services::locale::tr("New File"))
-                            .accessibility_label(glim_services::locale::tr("New File"))
-                            .on_click(
-                                cx.listener(|view, _, window, cx| view.choose_new_file(window, cx)),
-                            ),
-                    )
-                    .child(
-                        Button::new("workspace-new-folder")
-                            .custom(workspace_action_style)
-                            .small()
-                            .icon(gpui_kit::assets::IconName::FolderPlus)
-                            .disabled(
-                                self.roots.is_empty()
-                                    || glim_services::remote::is_remote_id(&self.recent_id),
-                            )
-                            .tooltip(glim_services::locale::tr("New Folder…"))
-                            .accessibility_label(glim_services::locale::tr("New Folder…"))
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.choose_new_folder(window, cx)
-                            })),
-                    )
-                    .child(
-                        Button::new("workspace-add-folder")
-                            .custom(workspace_action_style)
-                            .small()
-                            .icon(gpui_kit::assets::IconName::Folders)
-                            .tooltip(glim_services::locale::tr("Add Folder to Workspace…"))
-                            .accessibility_label(glim_services::locale::tr(
-                                "Add Folder to Workspace…",
-                            ))
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.choose_add_folder(window, cx)
-                            })),
-                    )
-                    .child(self.file_tree_toggle(cx).custom(workspace_action_style)),
-            )
-            .child(div().flex_1().min_h_0().w_full().child(panel_content))
+                            .w_full()
+                            .h(px(1.))
+                            .bg(cx.theme().foreground.opacity(0.08)),
+                    ),
+                )
+                .child(self.changes_panel_preview(cx))
+            })
             .id("workspace-file-tree");
         let file_tree = if self.explorer.is_none() {
             file_tree
@@ -699,7 +965,7 @@ impl Render for Workspace {
                 view.child(
                     div()
                         .absolute()
-                        .top_0()
+                        .top(px(super::CONTENT_INSET))
                         .left_0()
                         .w(px(header_width))
                         .child(header),

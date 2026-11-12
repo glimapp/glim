@@ -138,7 +138,7 @@ impl Render for TableView {
         let horizontal = self.horizontal_scroll.clone();
         let vertical = self.scroll.0.borrow().base_handle.clone();
         let view = cx.entity().downgrade();
-        v_flex().relative().size_full().min_h_0()
+        v_flex().relative().size_full().min_w_0().min_h_0().overflow_hidden()
             .child(canvas(
                 |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
                 move |_, hitbox, window, _| {
@@ -152,15 +152,20 @@ impl Render for TableView {
                             return;
                         }
                         let delta = event.delta.pixel_delta(window.line_height());
-                        if event.modifiers.shift {
-                            // macOS may already map Shift-wheel's vertical delta to x.
-                            let distance = if delta.x.abs() > delta.y.abs() { delta.x } else { delta.y };
+                        // macOS may already map Shift-wheel's vertical delta to x.
+                        let horizontal_delta = if event.modifiers.shift {
+                            if delta.x.abs() > delta.y.abs() { delta.x } else { delta.y }
+                        } else {
+                            delta.x
+                        };
+                        if horizontal_delta != px(0.) {
                             let offset = horizontal.offset();
                             horizontal.set_offset(point(
-                                (offset.x + distance).clamp(-horizontal.max_offset().x.max(px(0.)), px(0.)),
+                                (offset.x + horizontal_delta).clamp(-horizontal.max_offset().x.max(px(0.)), px(0.)),
                                 px(0.),
                             ));
-                        } else {
+                        }
+                        if !event.modifiers.shift && delta.y != px(0.) {
                             let offset = vertical.offset();
                             vertical.set_offset(point(px(0.),
                                 (offset.y + delta.y).clamp(-vertical.max_offset().y.max(px(0.)), px(0.))));
@@ -173,7 +178,7 @@ impl Render for TableView {
                 },
             ).absolute().size_full())
 
-            .child(div().id("csv-horizontal").flex_1().min_h_0().overflow_x_scroll().track_scroll(&self.horizontal_scroll).child(
+            .child(div().id("csv-horizontal").w_full().flex_1().min_w_0().min_h_0().overflow_x_scroll().track_scroll(&self.horizontal_scroll).child(
                 v_flex().w(px(width)).h_full()
                     .child(h_flex().h(px(32.)).child(div().w(px(64.)).child((self.host.translate)("Row")))
                         .children((0..columns).map(|column| div().w(px(200.)).px_3().child(if geographic {

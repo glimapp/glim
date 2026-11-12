@@ -10,6 +10,26 @@ pub struct FolderSnapshot {
     pub entries: Vec<DirectoryEntry>,
 }
 
+pub fn discover_git_roots(
+    roots: &[PathBuf],
+    cancel: &crate::work::Cancellation,
+) -> Result<Vec<PathBuf>> {
+    let mut repositories = Vec::new();
+    for root in roots {
+        for directory in root.ancestors() {
+            cancel.check()?;
+            // Worktrees and submodules use a .git file instead of a directory.
+            if directory.join(".git").exists() {
+                if !repositories.iter().any(|root| root == directory) {
+                    repositories.push(directory.to_path_buf());
+                }
+                break;
+            }
+        }
+    }
+    Ok(repositories)
+}
+
 pub fn create_folder(path: &Path) -> Result<()> {
     std::fs::create_dir(path).with_context(|| format!("Cannot create folder {}", path.display()))
 }

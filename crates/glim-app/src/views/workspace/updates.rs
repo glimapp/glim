@@ -89,6 +89,7 @@ impl Workspace {
         }));
     }
     pub(super) fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.discover_git_repositories(cx);
         if self.remote.is_some() || self.remote_disconnected {
             if self.search_visible {
                 self.start_remote_search_index(true, window, cx);

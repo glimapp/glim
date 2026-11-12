@@ -17,7 +17,7 @@ mod usage;
 mod workspaces;
 
 pub(crate) const TITLE_BAR_HEIGHT: f32 = 40.;
-const CONTENT_INSET: f32 = 6.;
+pub(crate) const CONTENT_INSET: f32 = 6.;
 const WORKSPACE_ROW_HEIGHT: f32 = 34.;
 
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -112,6 +112,9 @@ pub struct Workspace {
     root: Option<PathBuf>,
     roots: Vec<PathBuf>,
     explorer: Option<Entity<Explorer>>,
+    git_repositories: Vec<PathBuf>,
+    git_discovery_task: Option<Task<()>>,
+    changes_expanded: bool,
     subscriptions: Vec<Subscription>,
     tabs: Vec<Reader>,
     active: Option<usize>,
@@ -296,6 +299,9 @@ impl Workspace {
             explorer_ratio: DEFAULT_EXPLORER_RATIO,
             explorer_layout: cx.new(|_| gpui_kit::component::resizable::ResizableState::default()),
             explorer_container_width: 0.,
+            git_repositories: Vec::new(),
+            git_discovery_task: None,
+            changes_expanded: false,
             page: Page::Start,
             file_fullscreen: false,
             reader_toolbar_collapsed: false,
