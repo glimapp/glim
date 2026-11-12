@@ -763,6 +763,14 @@ impl Workspace {
                                 .h(px(super::WORKSPACE_ROW_HEIGHT))
                                 .flex_shrink_0()
                                 .into_any_element()
+                        } else if joined_tree {
+                            div()
+                                .w_full()
+                                .h(px(super::WORKSPACE_ROW_HEIGHT))
+                                .flex_shrink_0()
+                                .pr_1()
+                                .child(row)
+                                .into_any_element()
                         } else {
                             row
                         }
