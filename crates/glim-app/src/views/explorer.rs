@@ -1142,20 +1142,21 @@ impl Explorer {
                                         .active(cx.theme().foreground.opacity(0.07)),
                                 )
                                 .small()
-                                .w(px(24.))
+                                .px_1()
                                 .h(px(24.))
                                 .flex_shrink_0()
-                                .text_color(cx.theme().muted_foreground)
+                                .text_size(px(12.))
+                                .text_color(cx.theme().foreground)
                                 .disabled(if expand {
                                     self.expansion_tasks.contains_key(&root_id)
                                 } else {
                                     self.expanded[root_index].is_empty()
                                 })
-                                .icon(if expand {
-                                    gpui_kit::assets::IconName::UnfoldVertical
+                                .label(glim_services::locale::tr(if expand {
+                                    "Expand"
                                 } else {
-                                    gpui_kit::assets::IconName::FoldVertical
-                                })
+                                    "Collapse"
+                                }))
                                 .tooltip(label.clone())
                                 .accessibility_label(label)
                                 .on_click(cx.listener(move |view, _, window, cx| {
