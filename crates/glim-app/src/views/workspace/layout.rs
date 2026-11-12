@@ -370,6 +370,9 @@ impl Workspace {
                         // without proportionally stretching the adjacent file tree.
                         window.defer(cx, move |window, cx| {
                             workspace.update(cx, |view, cx| {
+                                if !view.is_visible_workspace(cx) {
+                                    return;
+                                }
                                 view.explorer_container_width = width;
                                 if view.explorer_visible {
                                     let desired = view.explorer_column_width(f32::from(

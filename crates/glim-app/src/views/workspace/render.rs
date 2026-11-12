@@ -105,16 +105,12 @@ impl Render for Workspace {
             });
         if (self.sidebar_window_width - window_width).abs() > 0.5 {
             self.sidebar_window_width = window_width;
-            let layout = self.sidebar_layout.clone();
-            let explorer_layout = self.explorer_layout.clone();
-            window.defer(cx, move |window, cx| {
-                layout.update(cx, |state, cx| {
-                    state.resize_panel(0, px(sidebar_width), window, cx)
-                });
-                explorer_layout.update(cx, |state, cx| {
-                    state.resize_panel(0, px(explorer_width), window, cx)
-                });
-            });
+            self.explorer_container_width =
+                (window_width - sidebar_width - super::CONTENT_INSET).max(0.);
+            // Let the panels' initial sizes take effect before layout, rather
+            // than painting stale sizes and correcting them in later frames.
+            self.sidebar_layout.update(cx, |state, _| state.clear());
+            self.explorer_layout.update(cx, |state, _| state.clear());
         }
         let task_workspace = cx.entity().downgrade();
         let toggle_task: crate::views::reader::ToggleTask =
