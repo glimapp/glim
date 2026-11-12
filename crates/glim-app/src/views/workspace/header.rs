@@ -364,9 +364,12 @@ fn title_bar_separator(cx: &App) -> Div {
 
 fn workspace_title_bar(content: impl IntoElement, rounded_join: bool, cx: &App) -> AnyElement {
     TitleBar::new()
-        .bg(cx.theme().sidebar)
+        .bg(if rounded_join {
+            cx.theme().transparent
+        } else {
+            cx.theme().sidebar
+        })
         .border_b_0()
-        .when(rounded_join, |view| view.rounded_br(px(6.)))
         .h(px(super::TITLE_BAR_HEIGHT))
         .pl_0()
         .pr_0()

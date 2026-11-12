@@ -29,42 +29,6 @@ pub(super) fn reader_frame(
                 .min(bounds.size.width / 2.)
                 .min(bounds.size.height / 2.);
             let cutout = header_cutout.map(|size| bounds.origin + point(size.width, size.height));
-            let mut corners = vec![
-                (
-                    point(cutout.map_or(bounds.left(), |p| p.x), bounds.top()),
-                    1.,
-                    1.,
-                    radius,
-                ),
-                (point(bounds.right(), bounds.top()), -1., 1., radius),
-                (point(bounds.right(), bounds.bottom()), -1., -1., radius),
-                (point(bounds.left(), bounds.bottom()), 1., -1., radius),
-            ];
-            if let Some(cutout) = cutout {
-                corners.push((point(bounds.left(), cutout.y), 1., 1., px(6.)));
-            }
-            for (corner, x, y, radius) in corners {
-                let offset = |a: Pixels, b: Pixels| corner + point(a * x, b * y);
-                let tangent = radius * (1. - 0.552_284_8);
-                let mut path = PathBuilder::fill();
-                path.move_to(corner);
-                path.line_to(offset(radius, px(0.)));
-                path.cubic_bezier_to(
-                    offset(px(0.), radius),
-                    offset(tangent, px(0.)),
-                    offset(px(0.), tangent),
-                );
-                path.close();
-                if let Ok(path) = path.build() {
-                    let connected_corner = x > 0.
-                        && y < 0.
-                        && tree.get().is_some_and(|tree| {
-                            (tree.right() - bounds.left()).abs() <= px(1.)
-                                && (tree.bottom() - bounds.bottom()).abs() <= px(1.)
-                        });
-                    window.paint_path(path, if connected_corner { surface } else { outside });
-                }
-            }
             if let Some(cutout) = cutout {
                 let inset = px(0.5);
                 let outer_radius = radius - inset;
@@ -88,40 +52,98 @@ pub(super) fn reader_frame(
                     ),
                     (cutout + point(inset, inset), px(6.) + inset),
                 ];
-                let mut path = PathBuilder::stroke(px(1.));
-                for index in 0..corners.len() {
-                    let (corner, radius) = corners[index];
-                    let before = corners[(index + corners.len() - 1) % corners.len()].0 - corner;
-                    let after = corners[(index + 1) % corners.len()].0 - corner;
-                    let before_length = before.x.abs() + before.y.abs();
-                    let after_length = after.x.abs() + after.y.abs();
-                    let radius = radius.min(before_length / 2.).min(after_length / 2.);
-                    let entry = corner + before * (radius / before_length);
-                    let exit = corner + after * (radius / after_length);
-                    if index == 0 {
-                        path.move_to(entry);
-                    } else {
-                        path.line_to(entry);
+                // The mask and border share the same radii, including narrow header overlaps.
+                let trace = |path: &mut PathBuilder| {
+                    for index in 0..corners.len() {
+                        let (corner, radius) = corners[index];
+                        let before =
+                            corners[(index + corners.len() - 1) % corners.len()].0 - corner;
+                        let after = corners[(index + 1) % corners.len()].0 - corner;
+                        let before_length = before.x.abs() + before.y.abs();
+                        let after_length = after.x.abs() + after.y.abs();
+                        let radius = radius.min(before_length / 2.).min(after_length / 2.);
+                        let entry = corner + before * (radius / before_length);
+                        let exit = corner + after * (radius / after_length);
+                        if index == 0 {
+                            path.move_to(entry);
+                        } else {
+                            path.line_to(entry);
+                        }
+                        path.cubic_bezier_to(
+                            exit,
+                            entry + (corner - entry) * 0.552_284_8,
+                            exit + (corner - exit) * 0.552_284_8,
+                        );
                     }
-                    path.cubic_bezier_to(
-                        exit,
-                        entry + (corner - entry) * 0.552_284_8,
-                        exit + (corner - exit) * 0.552_284_8,
-                    );
+                    path.close();
+                };
+                let mut mask = PathBuilder::fill().with_style(PathStyle::Fill(
+                    FillOptions::default().with_fill_rule(FillRule::EvenOdd),
+                ));
+                mask.move_to(bounds.origin);
+                mask.line_to(point(bounds.right(), bounds.top()));
+                mask.line_to(bounds.bottom_right());
+                mask.line_to(point(bounds.left(), bounds.bottom()));
+                mask.close();
+                trace(&mut mask);
+                if let Ok(mask) = mask.build() {
+                    window.paint_path(mask.clone(), outside);
+                    if tree.get().is_some_and(|tree| {
+                        (tree.right() - bounds.left()).abs() <= px(1.)
+                            && (tree.bottom() - bounds.bottom()).abs() <= px(1.)
+                    }) {
+                        window.with_content_mask(
+                            Some(ContentMask {
+                                bounds: Bounds::new(
+                                    point(bounds.left(), bounds.bottom() - radius),
+                                    size(radius, radius),
+                                ),
+                            }),
+                            |window| window.paint_path(mask, surface),
+                        );
+                    }
                 }
+                let mut border_path = PathBuilder::stroke(px(1.));
+                trace(&mut border_path);
+                if let Ok(border_path) = border_path.build() {
+                    window.paint_path(border_path, border);
+                }
+                return;
+            }
+            let corners = [
+                (point(bounds.left(), bounds.top()), 1., 1., radius),
+                (point(bounds.right(), bounds.top()), -1., 1., radius),
+                (point(bounds.right(), bounds.bottom()), -1., -1., radius),
+                (point(bounds.left(), bounds.bottom()), 1., -1., radius),
+            ];
+            for (corner, x, y, radius) in corners {
+                let offset = |a: Pixels, b: Pixels| corner + point(a * x, b * y);
+                let tangent = radius * (1. - 0.552_284_8);
+                let mut path = PathBuilder::fill();
+                path.move_to(corner);
+                path.line_to(offset(radius, px(0.)));
+                path.cubic_bezier_to(
+                    offset(px(0.), radius),
+                    offset(tangent, px(0.)),
+                    offset(px(0.), tangent),
+                );
                 path.close();
                 if let Ok(path) = path.build() {
-                    window.paint_path(path, border);
+                    let connected_corner = x > 0.
+                        && y < 0.
+                        && tree.get().is_some_and(|tree| {
+                            (tree.right() - bounds.left()).abs() <= px(1.)
+                                && (tree.bottom() - bounds.bottom()).abs() <= px(1.)
+                        });
+                    window.paint_path(path, if connected_corner { surface } else { outside });
                 }
-            } else {
-                // Match GPUI's border painting: transparent pixels retain the border
-                // RGB so corner antialiasing cannot interpolate toward black.
-                window.paint_quad(
-                    outline(bounds, border, BorderStyle::default())
-                        .background(border.opacity(0.))
-                        .corner_radii(radius),
-                );
             }
+            // Retain the border RGB in transparent pixels for corner antialiasing.
+            window.paint_quad(
+                outline(bounds, border, BorderStyle::default())
+                    .background(border.opacity(0.))
+                    .corner_radii(radius),
+            );
         },
     )
     .absolute()
