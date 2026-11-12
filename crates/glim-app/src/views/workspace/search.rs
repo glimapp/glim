@@ -520,7 +520,7 @@ impl Workspace {
             .overflow_y_scroll()
             .track_scroll(&self.search_scroll)
             .px_2()
-            .pb_2();
+            .py_2();
 
         if let Some(error) = self
             .search_error
