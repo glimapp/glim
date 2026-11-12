@@ -629,6 +629,9 @@ impl Workspace {
                                 Icon::new(gpui_kit::assets::IconName::PanelsTopLeft)
                                     .size(px(16.))
                                     .flex_shrink_0()
+                                    .when(selected, |icon| {
+                                        icon.text_color(crate::views::accent(cx))
+                                    })
                                     .into_any_element()
                             })
                             .child(div().flex_1().min_w_0().truncate().child(title)),
