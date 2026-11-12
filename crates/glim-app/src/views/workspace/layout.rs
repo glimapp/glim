@@ -306,7 +306,14 @@ impl Workspace {
             .h(px(28.))
             .p_0()
             .flex_shrink_0()
-            .child(Icon::new(gpui_kit::assets::IconName::PanelLeft).size(px(16.)))
+            .child(
+                Icon::new(if self.explorer_visible {
+                    gpui_kit::assets::IconName::ChevronsLeft
+                } else {
+                    gpui_kit::assets::IconName::ChevronsRight
+                })
+                .size(px(16.)),
+            )
             .child(
                 canvas(
                     move |bounds, _, _| painted_bounds.set(bounds),
