@@ -8,7 +8,7 @@ use glim_services::workspace::list_directory_cancellable;
 use gpui_kit::{
     base::TestSupportExt,
     component::{
-        ActiveTheme, Disableable, FocusableExt, Icon, Sizable,
+        ActiveTheme, Disableable, FocusableExt, Icon,
         button::{Button, ButtonCustomVariant, ButtonVariants},
     },
     prelude::FluentBuilder,
