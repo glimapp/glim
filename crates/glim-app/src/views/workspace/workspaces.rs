@@ -739,6 +739,7 @@ impl Workspace {
         let indicator_color = cx.theme().muted_foreground.opacity(0.60);
         let shadow_color = cx.theme().foreground.opacity(0.045);
         let count = slots.len();
+        let joined_tree = self.page != Page::Start && self.explorer_visible;
         let mut pinned = None;
         let list = v_flex()
             .id("workspace-navigation")
@@ -836,6 +837,7 @@ impl Workspace {
             .min_h_0()
             .flex_1()
             .gap_1()
+            .when(!joined_tree, |view| view.pr_2())
             .child(PinnedWorkspaceList {
                 viewport,
                 current: pinned,
@@ -845,7 +847,7 @@ impl Workspace {
                 view.child(
                     div()
                         .flex_shrink_0()
-                        .pr_2()
+                        .when(joined_tree, |view| view.pr_2())
                         .child(self.open_workspace_button(false, cx)),
                 )
             })
