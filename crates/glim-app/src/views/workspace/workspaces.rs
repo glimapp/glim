@@ -2,7 +2,7 @@ use super::{Page, Workspace};
 use glim_services::preferences::RecentWorkspace;
 use gpui_kit::{
     component::{
-        ActiveTheme, Icon, Sizable,
+        ActiveTheme, Disableable, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         input::{Input, InputEvent, InputState},
@@ -12,6 +12,97 @@ use gpui_kit::{
     prelude::FluentBuilder,
     *,
 };
+
+fn workspace_list_height(count: usize) -> f32 {
+    (count as f32 * (super::WORKSPACE_ROW_HEIGHT + 4.) - 4.).max(0.)
+}
+
+struct PinnedWorkspaceList {
+    viewport: AnyElement,
+    current: Option<(usize, AnyElement)>,
+    scroll: ScrollHandle,
+}
+
+impl IntoElement for PinnedWorkspaceList {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for PinnedWorkspaceList {
+    type RequestLayoutState = ();
+    type PrepaintState = Option<Bounds<Pixels>>;
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        (self.viewport.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        self.viewport.prepaint(window, cx);
+        let viewport = self.scroll.bounds();
+        let (index, current) = self.current.as_mut()?;
+        let item = self.scroll.bounds_for_item(*index)?;
+        // Keep the original slot in the list while clamping only the current
+        // row's visible position, so scrolling does not rearrange the list.
+        let origin = point(
+            item.left(),
+            (item.top() + self.scroll.offset().y).max(viewport.top()),
+        );
+        window.with_content_mask(Some(ContentMask { bounds: viewport }), |window| {
+            current.prepaint_as_root(
+                origin,
+                size(item.size.width, px(super::WORKSPACE_ROW_HEIGHT)).into(),
+                window,
+                cx,
+            );
+        });
+        Some(viewport)
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        viewport: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.viewport.paint(window, cx);
+        if let Some((_, current)) = self.current.as_mut()
+            && let Some(bounds) = *viewport
+        {
+            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                current.paint(window, cx);
+            });
+        }
+    }
+}
 
 impl Workspace {
     pub(crate) fn workspace_descriptor(&self) -> RecentWorkspace {
@@ -157,7 +248,9 @@ impl Workspace {
             .and_then(|host| host.upgrade())
             .map(|host| host.read(cx).navigation_scroll.clone())
             .unwrap_or_default();
-        v_flex()
+        let count = slots.len();
+        let mut pinned = None;
+        let list = v_flex()
             .id("collapsed-workspaces")
             .min_h_0()
             .flex_1()
@@ -166,7 +259,7 @@ impl Workspace {
             .gap_1()
             .overflow_y_scroll()
             .track_scroll(&scroll)
-            .children(slots.into_iter().map(|workspace| {
+            .children(slots.into_iter().enumerate().map(|(index, workspace)| {
                 let selected = self.page != Page::Start && workspace.id == self.recent_id;
                 let id = workspace.id.clone();
                 let title = workspace.title();
@@ -175,7 +268,7 @@ impl Workspace {
                 } else {
                     cx.theme().sidebar
                 };
-                Button::new(SharedString::from(format!(
+                let row = Button::new(SharedString::from(format!(
                     "collapsed-workspace-{}",
                     workspace.id
                 )))
@@ -215,6 +308,92 @@ impl Workspace {
                         .when(selected, |view| view.child(outline.row_marker()))
                         .child(button)
                 })
+                .into_any_element();
+                if selected {
+                    pinned = Some((index, self.pinned_workspace_row(row, &scroll, cx)));
+                    div()
+                        .w(px(32.))
+                        .h(px(super::WORKSPACE_ROW_HEIGHT))
+                        .flex_shrink_0()
+                        .into_any_element()
+                } else {
+                    row
+                }
+            }))
+            .max_h(px(workspace_list_height(count)))
+            .into_any_element();
+        v_flex()
+            .w_full()
+            .min_h_0()
+            .flex_1()
+            .items_center()
+            .gap_1()
+            .child(PinnedWorkspaceList {
+                viewport: list,
+                current: pinned,
+                scroll,
+            })
+            .when(count > 0, |view| {
+                view.child(self.open_workspace_button(true, cx))
+            })
+            .into_any_element()
+    }
+
+    fn open_workspace_button(&self, collapsed: bool, cx: &mut Context<Self>) -> Button {
+        let label = glim_services::locale::tr("Open Workspace…");
+        Button::new("sidebar-open-workspace")
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .color(cx.theme().sidebar)
+                    .foreground(cx.theme().foreground)
+                    .hover(cx.theme().foreground.opacity(0.06))
+                    .active(cx.theme().foreground.opacity(0.10)),
+            )
+            .bg(cx.theme().sidebar)
+            .h(px(super::WORKSPACE_ROW_HEIGHT))
+            .flex_shrink_0()
+            .rounded(px(6.))
+            .disabled(self.picking || crate::app::updates::busy(cx))
+            .accessibility_label(label.clone())
+            .when(collapsed, |button| button.w(px(32.)).tooltip(label.clone()))
+            .when(!collapsed, |button| button.w_full().px_3().justify_start())
+            .child(
+                h_flex()
+                    .gap_3()
+                    .min_w_0()
+                    .when(!collapsed, |row| row.w_full())
+                    .child(
+                        Icon::new(gpui_kit::assets::IconName::FolderOpen)
+                            .size(px(16.))
+                            .flex_shrink_0(),
+                    )
+                    .when(!collapsed, |row| {
+                        row.child(div().flex_1().min_w_0().truncate().child(label))
+                    }),
+            )
+            .on_click(cx.listener(|view, _, window, cx| view.choose_path(true, window, cx)))
+    }
+
+    fn pinned_workspace_row(
+        &self,
+        row: AnyElement,
+        scroll: &ScrollHandle,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let scroll = scroll.clone();
+        div()
+            .id("pinned-workspace-row")
+            .size_full()
+            .occlude()
+            .child(row)
+            .on_scroll_wheel(cx.listener(move |_, event: &ScrollWheelEvent, window, cx| {
+                let delta = event.delta.pixel_delta(window.line_height());
+                scroll.set_offset(point(
+                    px(0.),
+                    (scroll.offset().y + delta.y).clamp(-scroll.max_offset().y.max(px(0.)), px(0.)),
+                ));
+                cx.stop_propagation();
+                cx.notify();
             }))
             .into_any_element()
     }
@@ -287,6 +466,178 @@ impl Workspace {
         crate::app::remember_named_workspace(self.workspace_descriptor(), cx);
     }
 
+    fn workspace_navigation_row(
+        &self,
+        workspace: RecentWorkspace,
+        restoring: bool,
+        outline: &super::layout::WorkspaceOutline,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if let Some((id, input, _)) = &self.workspace_rename
+            && *id == workspace.id
+        {
+            return div()
+                .w_full()
+                .h(px(super::WORKSPACE_ROW_HEIGHT))
+                .flex_shrink_0()
+                .child(Input::new(input))
+                .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
+                    if event.keystroke.key == "escape" {
+                        view.workspace_rename = None;
+                        window.focus(&view.focus, cx);
+                        cx.notify();
+                    }
+                }))
+                .into_any_element();
+        }
+        let selected = self.page != Page::Start && self.recent_id == workspace.id;
+        let background = if selected {
+            crate::views::workspace_background(cx)
+        } else {
+            cx.theme().sidebar
+        };
+        let id = workspace.id.clone();
+        let close_id = workspace.id.clone();
+        let title = workspace.title();
+        let rename = workspace.clone();
+        let weak = cx.entity().downgrade();
+        let hover_group = SharedString::from(format!("workspace-row-{}", workspace.id));
+        let hover_background = background.blend(cx.theme().foreground.opacity(0.06));
+        h_flex()
+            .id(hover_group.clone())
+            .h(px(super::WORKSPACE_ROW_HEIGHT))
+            .flex_shrink_0()
+            .relative()
+            .when(selected, |view| view.child(outline.row_marker()))
+            .group(hover_group.clone())
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .rounded(px(6.))
+            .bg(background)
+            .hover(|view| view.bg(hover_background))
+            .child(
+                Button::new(SharedString::from(format!("workspace-{}", workspace.id)))
+                    .custom(
+                        ButtonCustomVariant::new(cx)
+                            .color(cx.theme().transparent)
+                            .foreground(cx.theme().foreground)
+                            .hover(cx.theme().transparent)
+                            .active(background.blend(cx.theme().foreground.opacity(0.10))),
+                    )
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(super::WORKSPACE_ROW_HEIGHT))
+                    .px_3()
+                    .justify_start()
+                    .bg(cx.theme().transparent)
+                    .font_weight(if selected {
+                        FontWeight::MEDIUM
+                    } else {
+                        FontWeight::NORMAL
+                    })
+                    .rounded(px(6.))
+                    .accessibility_label(title.clone())
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .gap_3()
+                            .child(if restoring {
+                                crate::views::loading_icon(
+                                    SharedString::from(format!(
+                                        "workspace-loading-{}",
+                                        workspace.id
+                                    )),
+                                    px(16.),
+                                    glim_services::locale::tr("Loading…"),
+                                    cx,
+                                )
+                            } else if glim_services::remote::is_remote_id(&workspace.id) {
+                                crate::views::connection_icon(
+                                    SharedString::from(format!(
+                                        "workspace-status-{}",
+                                        workspace.id
+                                    )),
+                                    crate::app::remote::workspace_is_connected(&workspace.id, cx),
+                                    px(16.),
+                                    cx,
+                                )
+                            } else {
+                                Icon::new(gpui_kit::assets::IconName::PanelsTopLeft)
+                                    .size(px(16.))
+                                    .flex_shrink_0()
+                                    .into_any_element()
+                            })
+                            .child(div().flex_1().min_w_0().truncate().child(title)),
+                    )
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        view.select_workspace(id.clone(), window, cx)
+                    })),
+            )
+            .child(
+                h_flex()
+                    .absolute()
+                    .right(px(4.))
+                    .top(px((super::WORKSPACE_ROW_HEIGHT - 28.) / 2.))
+                    .h(px(28.))
+                    .bg(hover_background)
+                    .invisible()
+                    .group_hover(hover_group, |view| view.visible())
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .when(selected && !self.explorer_visible, |row| {
+                        row.child(self.file_tree_toggle(cx))
+                    })
+                    .child(
+                        Button::new(SharedString::from(format!(
+                            "close-workspace-{}",
+                            workspace.id
+                        )))
+                        .custom(
+                            ButtonCustomVariant::new(cx)
+                                .color(cx.theme().transparent)
+                                .foreground(cx.theme().muted_foreground)
+                                .hover(background.blend(cx.theme().foreground.opacity(0.12)))
+                                .active(background.blend(cx.theme().foreground.opacity(0.10))),
+                        )
+                        .small()
+                        .w(px(28.))
+                        .h(px(28.))
+                        .bg(cx.theme().transparent)
+                        .icon(Icon::new(gpui_kit::assets::IconName::X).size(px(16.)))
+                        .accessibility_label(glim_services::locale::tr("Close Workspace"))
+                        .on_click(cx.listener(
+                            move |view, _, window, cx| {
+                                cx.stop_propagation();
+                                view.path_hint.hide();
+                                if let Some(host) = view.workspace_window.clone() {
+                                    let id = close_id.clone();
+                                    window.defer(cx, move |window, cx| {
+                                        let _ = host.update(cx, |host, cx| {
+                                            host.request_workspace_close(&id, window, cx)
+                                        });
+                                    });
+                                }
+                            },
+                        )),
+                    ),
+            )
+            .context_menu(move |menu, _, _| {
+                let weak = weak.clone();
+                let rename = rename.clone();
+                menu.item(
+                    PopupMenuItem::new(glim_services::locale::tr("Rename Workspace…")).on_click(
+                        move |_, window, cx| {
+                            let _ = weak.update(cx, |view, cx| {
+                                view.begin_workspace_rename(rename.clone(), window, cx)
+                            });
+                        },
+                    ),
+                )
+            })
+            .into_any_element()
+    }
+
     pub(super) fn workspace_navigation(
         &self,
         outline: &super::layout::WorkspaceOutline,
@@ -328,185 +679,41 @@ impl Workspace {
         let edge_color = cx.theme().sidebar;
         let indicator_color = cx.theme().muted_foreground.opacity(0.60);
         let shadow_color = cx.theme().foreground.opacity(0.045);
+        let count = slots.len();
+        let mut pinned = None;
         let list = v_flex()
             .id("workspace-navigation")
             .w_full()
             .min_h_0()
+            .flex_1()
             .overflow_y_scroll()
             .track_scroll(&scroll)
             .gap_1()
-            .children(slots.into_iter().map(|(workspace, restoring)| {
-                if let Some((id, input, _)) = &self.workspace_rename
-                    && *id == workspace.id
-                {
-                    return div()
-                        .w_full()
-                        .child(Input::new(input))
-                        .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
-                            if event.keystroke.key == "escape" {
-                                view.workspace_rename = None;
-                                window.focus(&view.focus, cx);
-                                cx.notify();
-                            }
-                        }))
-                        .into_any_element();
-                }
-                let selected = self.page != Page::Start && self.recent_id == workspace.id;
-                let background = if selected {
-                    crate::views::workspace_background(cx)
-                } else {
-                    cx.theme().sidebar
-                };
-                let id = workspace.id.clone();
-                let close_id = workspace.id.clone();
-                let title = workspace.title();
-                let rename = workspace.clone();
-                let weak = cx.entity().downgrade();
-                let hover_group = SharedString::from(format!("workspace-row-{}", workspace.id));
-                let hover_background = background.blend(cx.theme().foreground.opacity(0.06));
-                h_flex()
-                    .id(hover_group.clone())
-                    .relative()
-                    .when(selected, |view| view.child(outline.row_marker()))
-                    .group(hover_group.clone())
-                    .w_full()
-                    .min_w_0()
-                    .items_center()
-                    .rounded(px(6.))
-                    .bg(background)
-                    .hover(|view| view.bg(hover_background))
-                    .child(
-                        Button::new(SharedString::from(format!("workspace-{}", workspace.id)))
-                            .custom(
-                                ButtonCustomVariant::new(cx)
-                                    .color(cx.theme().transparent)
-                                    .foreground(cx.theme().foreground)
-                                    .hover(cx.theme().transparent)
-                                    .active(background.blend(cx.theme().foreground.opacity(0.10))),
-                            )
-                            .flex_1()
-                            .min_w_0()
-                            .h(px(super::WORKSPACE_ROW_HEIGHT))
-                            .px_3()
-                            .justify_start()
-                            .bg(cx.theme().transparent)
-                            .font_weight(if selected {
-                                FontWeight::MEDIUM
-                            } else {
-                                FontWeight::NORMAL
-                            })
-                            .rounded(px(6.))
-                            .accessibility_label(title.clone())
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .min_w_0()
-                                    .gap_3()
-                                    .child(if restoring {
-                                        crate::views::loading_icon(
-                                            SharedString::from(format!(
-                                                "workspace-loading-{}",
-                                                workspace.id
-                                            )),
-                                            px(16.),
-                                            glim_services::locale::tr("Loading…"),
-                                            cx,
-                                        )
-                                    } else if glim_services::remote::is_remote_id(&workspace.id) {
-                                        crate::views::connection_icon(
-                                            SharedString::from(format!(
-                                                "workspace-status-{}",
-                                                workspace.id
-                                            )),
-                                            crate::app::remote::workspace_is_connected(
-                                                &workspace.id,
-                                                cx,
-                                            ),
-                                            px(16.),
-                                            cx,
-                                        )
-                                    } else {
-                                        Icon::new(gpui_kit::assets::IconName::PanelsTopLeft)
-                                            .size(px(16.))
-                                            .flex_shrink_0()
-                                            .into_any_element()
-                                    })
-                                    .child(div().flex_1().min_w_0().truncate().child(title)),
-                            )
-                            .on_click(cx.listener(move |view, _, window, cx| {
-                                view.select_workspace(id.clone(), window, cx)
-                            })),
-                    )
-                    .child(
-                        h_flex()
-                            .absolute()
-                            .right(px(4.))
-                            .top(px((super::WORKSPACE_ROW_HEIGHT - 28.) / 2.))
-                            .h(px(28.))
-                            .bg(hover_background)
-                            .invisible()
-                            .group_hover(hover_group, |view| view.visible())
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .when(selected && !self.explorer_visible, |row| {
-                                row.child(self.file_tree_toggle(cx))
-                            })
-                            .child(
-                                Button::new(SharedString::from(format!(
-                                    "close-workspace-{}",
-                                    workspace.id
-                                )))
-                                .custom(
-                                    ButtonCustomVariant::new(cx)
-                                        .color(cx.theme().transparent)
-                                        .foreground(cx.theme().muted_foreground)
-                                        .hover(
-                                            background.blend(cx.theme().foreground.opacity(0.12)),
-                                        )
-                                        .active(
-                                            background.blend(cx.theme().foreground.opacity(0.10)),
-                                        ),
-                                )
-                                .small()
-                                .w(px(28.))
-                                .h(px(28.))
-                                .bg(cx.theme().transparent)
-                                .icon(Icon::new(gpui_kit::assets::IconName::X).size(px(16.)))
-                                .accessibility_label(glim_services::locale::tr("Close Workspace"))
-                                .on_click(cx.listener(
-                                    move |view, _, window, cx| {
-                                        cx.stop_propagation();
-                                        view.path_hint.hide();
-                                        if let Some(host) = view.workspace_window.clone() {
-                                            let id = close_id.clone();
-                                            window.defer(cx, move |window, cx| {
-                                                let _ = host.update(cx, |host, cx| {
-                                                    host.request_workspace_close(&id, window, cx)
-                                                });
-                                            });
-                                        }
-                                    },
-                                )),
-                            ),
-                    )
-                    .context_menu(move |menu, _, _| {
-                        let weak = weak.clone();
-                        let rename = rename.clone();
-                        menu.item(
-                            PopupMenuItem::new(glim_services::locale::tr("Rename Workspace…"))
-                                .on_click(move |_, window, cx| {
-                                    let _ = weak.update(cx, |view, cx| {
-                                        view.begin_workspace_rename(rename.clone(), window, cx)
-                                    });
-                                }),
-                        )
-                    })
-                    .into_any_element()
-            }));
-        v_flex()
+            .children(
+                slots
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, (workspace, restoring))| {
+                        let selected = self.page != Page::Start && self.recent_id == workspace.id;
+                        let row = self.workspace_navigation_row(workspace, restoring, outline, cx);
+                        if selected {
+                            pinned = Some((index, self.pinned_workspace_row(row, &scroll, cx)));
+                            div()
+                                .w_full()
+                                .h(px(super::WORKSPACE_ROW_HEIGHT))
+                                .flex_shrink_0()
+                                .into_any_element()
+                        } else {
+                            row
+                        }
+                    }),
+            );
+        let viewport = v_flex()
             .relative()
             .w_full()
             .min_h_0()
             .flex_1()
+            .max_h(px(workspace_list_height(count)))
             .overflow_hidden()
             .child(list)
             .child(
@@ -558,6 +765,25 @@ impl Workspace {
                 .absolute()
                 .size_full(),
             )
+            .into_any_element();
+        v_flex()
+            .w_full()
+            .min_h_0()
+            .flex_1()
+            .gap_1()
+            .child(PinnedWorkspaceList {
+                viewport,
+                current: pinned,
+                scroll,
+            })
+            .when(count > 0, |view| {
+                view.child(
+                    div()
+                        .flex_shrink_0()
+                        .pr_2()
+                        .child(self.open_workspace_button(false, cx)),
+                )
+            })
             .into_any_element()
     }
 }
