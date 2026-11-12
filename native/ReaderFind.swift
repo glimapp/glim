@@ -86,9 +86,6 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
                 if key == "g" && (flags == .command || flags == [.command, .shift]) {
                     self.run(backwards: flags.contains(.shift), changed: false); return nil
                 }
-                if event.keyCode == 99 && (flags.isEmpty || flags == .shift) {
-                    self.run(backwards: flags.contains(.shift), changed: false); return nil
-                }
             }
             return event
         }

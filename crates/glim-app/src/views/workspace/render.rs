@@ -614,8 +614,23 @@ impl Render for Workspace {
             }))
             .on_action(
                 cx.listener(|v, _: &gpui_kit::component::input::Search, window, cx| {
-                    if let Some(reader) = v.active_reader() {
+                    if !v.search_visible
+                        && v.page == Page::Document
+                        && let Some(reader) = v.active_reader().filter(|reader| reader.can_find(cx))
+                    {
                         reader.find(window, cx);
+                    } else {
+                        v.show_search(window, cx);
+                    }
+                }),
+            )
+            .on_action(
+                cx.listener(|v, _: &gpui_kit::component::input::Replace, window, cx| {
+                    if !v.search_visible
+                        && v.page == Page::Document
+                        && let Some(reader) = v.active_reader()
+                    {
+                        reader.replace(window, cx);
                     }
                 }),
             )

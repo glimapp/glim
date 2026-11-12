@@ -24,6 +24,18 @@ impl Reader {
     }
 
     pub fn find(&self, window: &mut Window, cx: &mut App) {
+        self.show_find(false, window, cx);
+    }
+    pub fn replace(&self, window: &mut Window, cx: &mut App) {
+        if self.mode() == glim_core::ReaderMode::Source
+            && self
+                .editor()
+                .is_some_and(|editor| editor.read(cx).is_replaceable())
+        {
+            self.show_find(true, window, cx);
+        }
+    }
+    fn show_find(&self, replace: bool, window: &mut Window, cx: &mut App) {
         if !self.can_find(cx) {
             return;
         }
@@ -54,7 +66,7 @@ impl Reader {
             Renderer::Paged { view, .. } => {
                 if let Some(editor) = &view.read(cx).source_editor {
                     let find = editor.find.clone();
-                    find.update(cx, |find, cx| find.show(false, window, cx));
+                    find.update(cx, |find, cx| find.show(replace, window, cx));
                 }
                 return;
             }
@@ -64,7 +76,7 @@ impl Reader {
             Renderer::Markup(m) if m.preview && !m.html => &m.find,
             _ => &self.source().expect("searchable source").find,
         };
-        find.update(cx, |find, cx| find.show(false, window, cx));
+        find.update(cx, |find, cx| find.show(replace, window, cx));
     }
     pub fn preview_text_state(&self) -> Option<Entity<gpui_kit::base::TextViewState>> {
         match &self.renderer {

@@ -11,7 +11,7 @@ See [installation](../README.md#download) first.
 - ⌘O opens a file; ⌘⇧O opens a folder as a workspace. Use the sidebar to open related files.
 - Add Folder to Workspace appends material to the current workspace. The sidebar can also hold several workspaces, each retaining its own tabs when switched.
 - Home offers file, workspace and new-file actions, plus recent workspaces. Renaming a workspace changes its display name, not the directory on disk.
-- Title-bar search finds workspace files by name or path, not by their contents. Use source-editor search within the current text.
+- ⌘K or ⇧⌘F searches the workspace. Text-content search falls back to filenames when it finds no matches or cannot complete. ⌘F finds within the current file; ⌥⌘F opens replacement in editable text.
 
 ## Open a remote folder
 
@@ -39,7 +39,7 @@ A tab's context menu can reveal it in Finder, copy its path or move it to a sepa
 | Audio and video | Playback and ordered or shuffled folder playlists |
 | Mind maps and structured data | Expand or fold XMind topics; switch supported data to an interactive graph |
 
-Actions appear in toolbars or content context menus. Some floating toolbars appear when you pause the pointer near the bottom of the content. File fullscreen expands the current reader; Escape returns to the workspace. Keyboard help is in Settings → Keyboard Shortcuts.
+Actions appear in toolbars or content context menus. Some floating toolbars appear when you pause the pointer near the bottom of the content. File fullscreen expands the current reader; Escape returns to the workspace. ⌘B shows or hides workspaces; ⌥⌘B toggles the file tree. ⌥⌘P switches Preview / Source, and Control-Tab / Control-Shift-Tab switches file tabs. ⌘/ opens keyboard help, also available in Settings → Keyboard Shortcuts.
 
 Actions differ by format. See [topics](topics.md) and [format compatibility](file-format-support.md).
 

@@ -157,7 +157,7 @@ impl Workspace {
         let hint_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::default()));
         let painted_bounds = hint_bounds.clone();
         let scanning = self.search_is_scanning() || self.search_loading;
-        let mut label = format!("{} · ⌘P", tr("Search workspace files"));
+        let mut label = format!("{} · ⌘K", tr("Search workspace files"));
         if let Some(status) = self.search_status(cx) {
             label.push('\n');
             label.push_str(&status);
