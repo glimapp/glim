@@ -542,7 +542,11 @@ impl Workspace {
         let rename = workspace.clone();
         let weak = cx.entity().downgrade();
         let hover_group = SharedString::from(format!("workspace-row-{}", workspace.id));
-        let hover_background = background.blend(cx.theme().foreground.opacity(0.06));
+        let hover_background = if selected {
+            background
+        } else {
+            background.blend(cx.theme().foreground.opacity(0.06))
+        };
         h_flex()
             .id(hover_group.clone())
             .h(px(super::WORKSPACE_ROW_HEIGHT))
@@ -566,7 +570,11 @@ impl Workspace {
                             .color(cx.theme().transparent)
                             .foreground(cx.theme().foreground)
                             .hover(cx.theme().transparent)
-                            .active(background.blend(cx.theme().foreground.opacity(0.10))),
+                            .active(if selected {
+                                cx.theme().transparent
+                            } else {
+                                background.blend(cx.theme().foreground.opacity(0.10))
+                            }),
                     )
                     .flex_1()
                     .min_w_0()
@@ -630,6 +638,7 @@ impl Workspace {
                     .right(px(4.))
                     .top(px((super::WORKSPACE_ROW_HEIGHT - 28.) / 2.))
                     .h(px(28.))
+                    .rounded(px(6.))
                     .bg(hover_background)
                     .invisible()
                     .group_hover(hover_group, |view| view.visible())
@@ -652,6 +661,7 @@ impl Workspace {
                         .small()
                         .w(px(28.))
                         .h(px(28.))
+                        .rounded(px(6.))
                         .bg(cx.theme().transparent)
                         .icon(Icon::new(gpui_kit::assets::IconName::X).size(px(16.)))
                         .accessibility_label(glim_services::locale::tr("Close Workspace"))
