@@ -8,7 +8,7 @@ use glim_services::workspace::list_directory_cancellable;
 use gpui_kit::{
     base::TestSupportExt,
     component::{
-        ActiveTheme, FocusableExt, Icon, Sizable,
+        ActiveTheme, Disableable, FocusableExt, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
     },
     prelude::FluentBuilder,
@@ -341,36 +341,23 @@ impl Explorer {
         }));
     }
 
-    fn should_collapse_all_folders(&self, root_index: usize) -> bool {
-        self.expansion_tasks
-            .contains_key(&self.root_ids[root_index])
-            || self
-                .rows
-                .iter()
-                .filter(|row| {
-                    row.root_index == root_index && row.entry.is_dir && !row.entry.is_symlink
-                })
-                .all(|row| {
-                    self.expanded[root_index].contains(&row.entry.path)
-                        && self.directories.contains_key(&row.entry.path)
-                })
-    }
-
-    fn toggle_all_folders(&mut self, root_id: u64, cx: &mut Context<Self>) {
+    fn set_all_folders_expanded(&mut self, root_id: u64, expand: bool, cx: &mut Context<Self>) {
         if self.remote.is_some() {
+            return;
+        }
+        if expand && self.expansion_tasks.contains_key(&root_id) {
             return;
         }
         let Some(root_index) = self.root_ids.iter().position(|id| *id == root_id) else {
             return;
         };
         let root = self.roots[root_index].clone();
-        let collapse = self.should_collapse_all_folders(root_index);
         self.expansion_tasks.remove(&root_id);
         self.pending_reveal = None;
         self.pending_reveal_root = None;
         self.preserve_next_reveal = None;
         self.show_all_ancestors = false;
-        if collapse {
+        if !expand {
             self.expanded[root_index].clear();
         } else {
             self.expanded[root_index].insert(root.clone());
@@ -1132,40 +1119,51 @@ impl Explorer {
                     })),
             )
             .when(row.depth == 0 && self.remote.is_none(), |entry| {
-                let collapse = self.should_collapse_all_folders(root_index);
-                let label = glim_services::locale::tr(if collapse {
-                    "Collapse all folders"
-                } else {
-                    "Expand all folders"
-                });
                 entry.child(
-                    Button::new(row.element_id(if sticky {
-                        "sticky-toggle-all-folders"
-                    } else {
-                        "toggle-all-folders"
-                    }))
-                    .custom(
-                        ButtonCustomVariant::new(cx)
-                            .hover(cx.theme().foreground.opacity(0.04))
-                            .active(cx.theme().foreground.opacity(0.07)),
-                    )
-                    .small()
-                    .w(px(24.))
-                    .h(px(24.))
-                    .flex_shrink_0()
-                    .text_color(cx.theme().muted_foreground)
-                    .icon(if collapse {
-                        gpui_kit::assets::IconName::FoldVertical
-                    } else {
-                        gpui_kit::assets::IconName::UnfoldVertical
-                    })
-                    .tooltip(label.clone())
-                    .accessibility_label(label)
-                    .on_click(cx.listener(move |view, _, window, cx| {
-                        cx.stop_propagation();
-                        view.toggle_all_folders(root_id, cx);
-                        window.focus(&view.focus, cx);
-                    })),
+                    gpui_kit::component::h_flex()
+                        .gap_1()
+                        .flex_shrink_0()
+                        .children([true, false].into_iter().map(|expand| {
+                            let label = glim_services::locale::tr(if expand {
+                                "Expand all folders"
+                            } else {
+                                "Collapse all folders"
+                            });
+                            let id = match (sticky, expand) {
+                                (true, true) => "sticky-expand-all-folders",
+                                (true, false) => "sticky-collapse-all-folders",
+                                (false, true) => "expand-all-folders",
+                                (false, false) => "collapse-all-folders",
+                            };
+                            Button::new(row.element_id(id))
+                                .custom(
+                                    ButtonCustomVariant::new(cx)
+                                        .hover(cx.theme().foreground.opacity(0.04))
+                                        .active(cx.theme().foreground.opacity(0.07)),
+                                )
+                                .small()
+                                .w(px(24.))
+                                .h(px(24.))
+                                .flex_shrink_0()
+                                .text_color(cx.theme().muted_foreground)
+                                .disabled(if expand {
+                                    self.expansion_tasks.contains_key(&root_id)
+                                } else {
+                                    self.expanded[root_index].is_empty()
+                                })
+                                .icon(if expand {
+                                    gpui_kit::assets::IconName::UnfoldVertical
+                                } else {
+                                    gpui_kit::assets::IconName::FoldVertical
+                                })
+                                .tooltip(label.clone())
+                                .accessibility_label(label)
+                                .on_click(cx.listener(move |view, _, window, cx| {
+                                    cx.stop_propagation();
+                                    view.set_all_folders_expanded(root_id, expand, cx);
+                                    window.focus(&view.focus, cx);
+                                }))
+                        })),
                 )
             })
             .on_mouse_down(
@@ -2111,7 +2109,7 @@ mod interaction_tests {
         let view = cx.update(|cx| {
             let view = cx.new(|cx| Explorer::new(root, entries, cx));
             view.update(cx, |view, cx| {
-                view.toggle_all_folders(0, cx);
+                view.set_all_folders_expanded(0, true, cx);
             });
             view
         });
@@ -2126,9 +2124,9 @@ mod interaction_tests {
                 assert_eq!(view.expanded[0].len(), 10_001);
                 assert_eq!(view.rows.len(), 20_001);
                 assert!(view.expansion_tasks.is_empty());
-                view.toggle_all_folders(0, cx);
-                view.toggle_all_folders(0, cx);
-                view.toggle_all_folders(0, cx);
+                view.set_all_folders_expanded(0, false, cx);
+                view.set_all_folders_expanded(0, true, cx);
+                view.set_all_folders_expanded(0, false, cx);
             })
         });
         cx.run_until_parked();
