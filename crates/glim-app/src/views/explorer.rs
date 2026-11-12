@@ -341,6 +341,21 @@ impl Explorer {
         }));
     }
 
+    fn should_collapse_all_folders(&self, root_index: usize) -> bool {
+        self.expansion_tasks
+            .contains_key(&self.root_ids[root_index])
+            || self
+                .rows
+                .iter()
+                .filter(|row| {
+                    row.root_index == root_index && row.entry.is_dir && !row.entry.is_symlink
+                })
+                .all(|row| {
+                    self.expanded[root_index].contains(&row.entry.path)
+                        && self.directories.contains_key(&row.entry.path)
+                })
+    }
+
     fn toggle_all_folders(&mut self, root_id: u64, cx: &mut Context<Self>) {
         if self.remote.is_some() {
             return;
@@ -349,12 +364,13 @@ impl Explorer {
             return;
         };
         let root = self.roots[root_index].clone();
+        let collapse = self.should_collapse_all_folders(root_index);
         self.expansion_tasks.remove(&root_id);
         self.pending_reveal = None;
         self.pending_reveal_root = None;
         self.preserve_next_reveal = None;
         self.show_all_ancestors = false;
-        if self.expanded[root_index].contains(&root) {
+        if collapse {
             self.expanded[root_index].clear();
         } else {
             self.expanded[root_index].insert(root.clone());
@@ -1116,7 +1132,8 @@ impl Explorer {
                     })),
             )
             .when(row.depth == 0 && self.remote.is_none(), |entry| {
-                let label = glim_services::locale::tr(if expanded {
+                let collapse = self.should_collapse_all_folders(root_index);
+                let label = glim_services::locale::tr(if collapse {
                     "Collapse all folders"
                 } else {
                     "Expand all folders"
@@ -1137,7 +1154,7 @@ impl Explorer {
                     .h(px(24.))
                     .flex_shrink_0()
                     .text_color(cx.theme().muted_foreground)
-                    .icon(if expanded {
+                    .icon(if collapse {
                         gpui_kit::assets::IconName::FoldVertical
                     } else {
                         gpui_kit::assets::IconName::UnfoldVertical
@@ -2094,7 +2111,6 @@ mod interaction_tests {
         let view = cx.update(|cx| {
             let view = cx.new(|cx| Explorer::new(root, entries, cx));
             view.update(cx, |view, cx| {
-                view.toggle_all_folders(0, cx);
                 view.toggle_all_folders(0, cx);
             });
             view
