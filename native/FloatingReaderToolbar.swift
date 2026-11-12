@@ -150,6 +150,7 @@ final class FloatingReaderToolbar: NSView, NSPopoverDelegate {
             }
             if let label = item as? NSTextField, !label.isEditable {
                 label.textColor = .secondaryLabelColor
+                label.alignment = .center
                 label.lineBreakMode = item.identifier?.rawValue == "zoom-status" ? .byClipping : .byTruncatingTail
                 label.maximumNumberOfLines = 1
                 label.toolTip = label.stringValue
