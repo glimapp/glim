@@ -107,6 +107,7 @@ pub struct Explorer {
     media_presence: HashMap<PathBuf, bool>,
     media_tasks: HashMap<PathBuf, Task<()>>,
     rows: Vec<Row>,
+    deepest_row: Option<usize>,
     folded_ancestors: FoldedAncestors,
     clipped_labels: HashSet<(usize, PathBuf, bool)>,
     path_hint: super::path_hint::PathHint,
@@ -151,6 +152,7 @@ impl Explorer {
             media_presence: HashMap::new(),
             media_tasks: HashMap::new(),
             rows: Vec::new(),
+            deepest_row: None,
             folded_ancestors: HashMap::new(),
             clipped_labels: HashSet::new(),
             path_hint: Default::default(),
@@ -756,6 +758,11 @@ impl Explorer {
                             .is_some_and(|paths| paths.contains(&path)))
             })
         });
+        self.deepest_row = rows
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, row)| row.depth)
+            .map(|(index, _)| index);
         self.rows = rows;
     }
 
@@ -955,6 +962,7 @@ impl Explorer {
             )
             .h(px(row_height))
             .w_full()
+            .min_w(px(136. + depth as f32 * 14.))
             .flex()
             .items_center()
             .rounded(px(6.))
@@ -1261,6 +1269,7 @@ impl Explorer {
             .id(id.clone())
             .relative()
             .w_full()
+            .min_w(px(136. + depth as f32 * 14.))
             .h(px(row_height(cx)))
             .pl(px(8. + depth as f32 * 14.))
             .pr_2()
@@ -1529,15 +1538,7 @@ impl Render for Explorer {
                                 view.render_row(
                                     index,
                                     false,
-                                    if view.show_all_ancestors {
-                                        pinned.display_depth(index, &view.rows)
-                                    } else {
-                                        pinned.display_depth(index, &view.rows).min(
-                                            indentation_capacity(f32::from(
-                                                scroll.bounds().size.width,
-                                            )),
-                                        )
-                                    },
+                                    pinned.display_depth(index, &view.rows),
                                     cx,
                                 )
                             })
@@ -1547,6 +1548,8 @@ impl Render for Explorer {
                 .w_full()
                 .flex_1()
                 .min_h_0()
+                .with_width_from_item(self.deepest_row)
+                .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
                 .track_scroll(&self.scroll),
             )
             .child(
@@ -1554,7 +1557,7 @@ impl Render for Explorer {
                     move |bounds, window, cx| {
                         // Layout the pinned rows after the list, using this frame's actual
                         // scroll position. They overlay the list without changing its height.
-                        let (mut pinned, blank_top) = view
+                        let (mut pinned, blank_top, horizontal_offset) = view
                             .update(cx, |view, cx| {
                                 let offset =
                                     -f32::from(view.scroll.0.borrow().base_handle.offset().y);
@@ -1579,7 +1582,9 @@ impl Render for Explorer {
                                         (row.y, element)
                                     })
                                     .collect::<Vec<_>>();
-                                (elements, blank_top)
+                                let horizontal_offset =
+                                    view.scroll.0.borrow().base_handle.offset().x;
+                                (elements, blank_top, horizontal_offset)
                             })
                             .unwrap_or_default();
                         // A separate hit area below the final row: never an ancestor
@@ -1609,8 +1614,8 @@ impl Render for Explorer {
                         };
                         for (y, element) in &mut pinned {
                             element.prepaint_as_root(
-                                bounds.origin + point(px(0.), px(*y)),
-                                size(bounds.size.width, px(row_height)).into(),
+                                bounds.origin + point(horizontal_offset, px(*y)),
+                                size(bounds.size.width - horizontal_offset, px(row_height)).into(),
                                 window,
                                 cx,
                             );
@@ -1709,10 +1714,6 @@ fn compact_directory_chains(rows: Vec<Row>) -> (Vec<Row>, FoldedAncestors) {
         });
     }
     (compact, folded)
-}
-
-fn indentation_capacity(width: f32) -> usize {
-    (((width * 0.4 - 32.) / 14.).max(1.) as usize).min(MAX_ANCESTOR_ROWS)
 }
 
 #[cfg(test)]
@@ -1814,9 +1815,7 @@ fn sticky_rows_with_height(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Row, compact_directory_chains, indentation_capacity, sticky_capacity, sticky_rows,
-    };
+    use super::{Row, compact_directory_chains, sticky_capacity, sticky_rows};
     use glim_core::DirectoryEntry;
 
     fn row(name: &str, parent: Option<usize>, depth: usize, end: usize, is_dir: bool) -> Row {
@@ -1937,11 +1936,9 @@ mod tests {
     }
 
     #[test]
-    fn ancestor_and_indentation_budgets_stay_bounded_in_tall_and_narrow_views() {
+    fn ancestor_rows_stay_bounded_in_tall_and_short_views() {
         assert_eq!(sticky_capacity(1200., 28.), 4);
         assert_eq!(sticky_capacity(112., 28.), 2);
-        assert_eq!(indentation_capacity(300.), 4);
-        assert!(indentation_capacity(160.) < indentation_capacity(300.));
     }
     #[test]
     fn ancestors_pin_only_after_scrolling_and_keep_tree_order() {
