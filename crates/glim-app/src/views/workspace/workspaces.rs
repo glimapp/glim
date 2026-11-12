@@ -742,22 +742,28 @@ impl Workspace {
                             } else {
                                 point(bounds.origin.x, bounds.bottom() - height)
                             };
-                            window.paint_quad(fill(
-                                Bounds::new(origin, size(bounds.size.width, height)),
-                                linear_gradient(
-                                    if top { 180. } else { 0. },
-                                    linear_color_stop(edge_color.opacity(0.95), 0.),
-                                    linear_color_stop(edge_color.opacity(0.), 1.),
-                                ),
-                            ));
-                            window.paint_quad(fill(
-                                Bounds::new(origin, size(bounds.size.width, height)),
-                                linear_gradient(
-                                    if top { 180. } else { 0. },
-                                    linear_color_stop(shadow_color, 0.),
-                                    linear_color_stop(shadow_color.opacity(0.), 1.),
-                                ),
-                            ));
+                            window.paint_quad(
+                                fill(
+                                    Bounds::new(origin, size(bounds.size.width, height)),
+                                    linear_gradient(
+                                        if top { 180. } else { 0. },
+                                        linear_color_stop(edge_color.opacity(0.95), 0.),
+                                        linear_color_stop(edge_color.opacity(0.), 1.),
+                                    ),
+                                )
+                                .corner_radii(px(6.)),
+                            );
+                            window.paint_quad(
+                                fill(
+                                    Bounds::new(origin, size(bounds.size.width, height)),
+                                    linear_gradient(
+                                        if top { 180. } else { 0. },
+                                        linear_color_stop(shadow_color, 0.),
+                                        linear_color_stop(shadow_color.opacity(0.), 1.),
+                                    ),
+                                )
+                                .corner_radii(px(6.)),
+                            );
                             let center = point(bounds.center().x, origin.y + height / 2.);
                             let direction = if top { -1. } else { 1. };
                             let mut arrow = PathBuilder::stroke(px(1.4));
