@@ -5,6 +5,7 @@ mod json_edit;
 pub mod mcp;
 
 use anyhow::{Context, Result, ensure};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -110,7 +111,10 @@ fn entry(kind: Kind) -> Result<Value> {
     Ok(if kind == Kind::Codex {
         json!({
             "label":"Glim",
-            "icon":crate::preferences::directory()?.join("Integrations/glim.png"),
+            "icon":format!(
+                "data:image/png;base64,{}",
+                STANDARD.encode(include_bytes!("../../../assets/branding/glim-integration.png"))
+            ),
             "command":app.join("Contents/MacOS/glim"),
             "args":["--open-from-codex"],
             "input":"json_stdin",
@@ -174,14 +178,14 @@ fn legacy_codex(value: &Value) -> Result<bool> {
     )
 }
 
-/// Upgrade only Glim's old handler; preserve editor choices made in Codex.
+/// Upgrade Glim's managed handler and icon; preserve editor choices made in Codex.
 pub fn upgrade_codex_handlers() -> Result<()> {
     for target in discover()? {
         if target.kind == Kind::Codex
             && target.status == Status::Configured
             && let Some(source) = &target.original
             && let Some(value) = value(source, Kind::Codex)?
-            && legacy_codex(&value)?
+            && (legacy_codex(&value)? || value.get("icon") != entry(Kind::Codex)?.get("icon"))
             && let Err(error) = configure_inner(&target, true, false)
         {
             log::warn!(
@@ -523,12 +527,6 @@ fn configure_inner(target: &Target, install: bool, preferences: bool) -> Result<
     let directory = crate::preferences::directory()?.join("Integrations");
     fs::create_dir_all(&directory)?;
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
-    if install && target.kind == Kind::Codex {
-        fs::write(
-            directory.join("glim.png"),
-            include_bytes!("../../../assets/branding/glim.png"),
-        )?;
-    }
     if let Some(original) = &current {
         let hash = format!(
             "{:x}",

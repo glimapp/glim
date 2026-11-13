@@ -38,6 +38,8 @@ try {
   await sharp(welcomePixels, { raw: info }).png()
     .toFile(fileURLToPath(new URL('../assets/branding/glim-welcome.png', import.meta.url)));
   await sharp(Buffer.from(source)).resize(1024, 1024).png().toFile(fileURLToPath(new URL('../assets/branding/glim.png', import.meta.url)));
+  await sharp(Buffer.from(dockSource)).resize(64, 64).png()
+    .toFile(fileURLToPath(new URL('../assets/branding/glim-integration.png', import.meta.url)));
   const iconset = join(directory, 'Glim.iconset');
   await mkdir(iconset);
   for (const size of [16, 32, 128, 256, 512]) {
