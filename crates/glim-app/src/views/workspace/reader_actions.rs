@@ -2,35 +2,62 @@ use super::Page;
 use crate::views::reader::Reader;
 use gpui_kit::{App, Context, Window, assets::IconName};
 
-pub(super) fn preview_text_menu(
-    menu: gpui_kit::component::menu::PopupMenu,
-    state: gpui_kit::Entity<gpui_kit::base::TextViewState>,
-    cx: &gpui_kit::App,
-) -> gpui_kit::component::menu::PopupMenu {
-    use gpui_kit::{ClipboardItem, component::menu::PopupMenuItem};
+impl super::Workspace {
+    pub(super) fn show_reader_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::views::native_menu_bridge::MenuItem;
+        use glim_services::locale::tr;
+        use gpui_kit::ClipboardItem;
 
-    // Capture before the popup takes focus away from the document.
-    let selected = state.read(cx).selected_text();
-    menu.item(
-        PopupMenuItem::new(glim_services::locale::tr("Copy"))
-            .disabled(selected.is_empty())
-            .on_click(move |_, _, cx| {
-                if !selected.is_empty() {
-                    cx.write_to_clipboard(ClipboardItem::new_string(selected.clone()));
-                }
-            }),
-    )
-    .item(
-        PopupMenuItem::new(glim_services::locale::tr("Select All")).on_click(
-            move |_, window, cx| {
-                state.update(cx, |state, cx| {
+        enum Command {
+            Copy(String),
+            SelectAll(gpui_kit::Entity<gpui_kit::base::TextViewState>),
+            Reader(ToolbarAction),
+        }
+        let Some(reader) = self.active_reader() else {
+            return;
+        };
+        let target = super::header::Target::from_reader(reader);
+        let mut items = Vec::new();
+        let mut commands = Vec::new();
+        if let Some(state) = reader.preview_text_state() {
+            // Capture selection before menu tracking can move document focus.
+            let selected = state.read(cx).selected_text();
+            items.push(MenuItem::new(tr("Copy")).enabled(!selected.is_empty()));
+            commands.push(Some(Command::Copy(selected)));
+            items.push(MenuItem::new(tr("Select All")));
+            commands.push(Some(Command::SelectAll(state)));
+            items.push(MenuItem::separator());
+            commands.push(None);
+        }
+        for item in self.reader_actions(cx) {
+            items.push(
+                MenuItem::new(tr(item.label))
+                    .enabled(item.enabled)
+                    .checked(item.selected)
+                    .symbol(item.native_symbol()),
+            );
+            commands.push(Some(Command::Reader(item.action)));
+        }
+        self.show_context_menu(items, window, cx, move |view, index, window, cx| {
+            if view
+                .active_reader()
+                .map(super::header::Target::from_reader)
+                .as_ref()
+                != Some(&target)
+            {
+                return;
+            }
+            match commands.get_mut(index).and_then(Option::take) {
+                Some(Command::Copy(text)) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
+                Some(Command::SelectAll(state)) => state.update(cx, |state, cx| {
                     state.focus_handle().focus(window, cx);
                     state.select_all(cx);
-                });
-            },
-        ),
-    )
-    .separator()
+                }),
+                Some(Command::Reader(action)) => view.run_toolbar_action(action, window, cx),
+                None => {}
+            }
+        });
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -96,7 +123,8 @@ impl ToolbarItem {
             ToolbarAction::FileFullscreen => "arrow.up.left.and.arrow.down.right",
             ToolbarAction::Extract => "archivebox",
             ToolbarAction::CancelExtract => "xmark",
-            _ => "ellipsis",
+            ToolbarAction::Sidebar => "sidebar.left",
+            ToolbarAction::Update => "arrow.down.circle",
         }
     }
 

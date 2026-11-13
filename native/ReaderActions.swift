@@ -193,10 +193,7 @@ enum ReaderMenu {
     }
     static func own(_ item: NSMenuItem) {
         item.identifier = NSUserInterfaceItemIdentifier("glim-reader-action")
-        showImage(item)
-        if item.image == nil, let symbol = symbol(for: item.title) {
-            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: item.title)
-        }
+        decorateItem(item)
     }
     private static func showImage(_ item: NSMenuItem) {
         // macOS 27 defaults to hiding menu images. Use the public property's
@@ -211,6 +208,10 @@ enum ReaderMenu {
             ("Copy", "doc.on.doc"), ("Copy Text", "doc.on.doc"), ("Copy Image", "photo.on.rectangle"),
             ("Copy Preview Text", "doc.on.doc"), ("Cut", "scissors"), ("Paste", "doc.on.clipboard"),
             ("Select All", "selection.pin.in.out"), ("Extract Text", "text.viewfinder"),
+            ("Preview", "eye"), ("Source", "chevron.left.forwardslash.chevron.right"),
+            ("Word wrap", "arrow.turn.down.left"), ("Word wrap · Source view", "arrow.turn.down.left"),
+            ("Enter File Fullscreen", "arrow.up.left.and.arrow.down.right"),
+            ("Exit File Fullscreen", "arrow.down.right.and.arrow.up.left"),
             ("Recognize Image Text", "text.viewfinder"), ("Fit width", "arrow.left.and.right"),
             ("Fit page", "rectangle.arrowtriangle.2.inward"),
             ("Single Page", "doc"), ("Single Page Continuous", "doc.text"),
@@ -223,19 +224,28 @@ enum ReaderMenu {
             ("Previous columns", "arrow.left.to.line"), ("Next columns", "arrow.right.to.line"),
             ("Next image", "photo.stack"),
             ("Play Slideshow", "play.rectangle"), ("Play / Pause", "playpause"),
+            ("Choose Application…", "folder"),
             ("Open with Another App", "arrow.up.forward.app"), ("Exit Slideshow", "arrow.down.right.and.arrow.up.left")
         ]
         return entries.first(where: { L($0.0) == title })?.1
     }
     static func decorate(_ menu: NSMenu) {
         for item in menu.items where !item.isSeparatorItem {
-            showImage(item)
+            decorateItem(item)
             if let submenu = item.submenu { decorate(submenu) }
-            if item.image == nil, let symbol = symbol(for: item.title) {
-                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: item.title)
-            }
         }
-
+    }
+    private static func decorateItem(_ item: NSMenuItem) {
+        showImage(item)
+        if item.image == nil, let symbol = symbol(for: item.title) {
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: item.title)
+        }
+        if item.title == L("Find in file · ⌘F") {
+            item.title = L("Find in file · ⌘F").replacingOccurrences(of: " · ⌘F", with: "")
+            item.keyEquivalent = "f"; item.keyEquivalentModifierMask = .command
+        } else if let command = [("Cut", "x"), ("Copy", "c"), ("Paste", "v"), ("Select All", "a")].first(where: { L($0.0) == item.title }) {
+            item.keyEquivalent = command.1; item.keyEquivalentModifierMask = .command
+        }
     }
 }
 

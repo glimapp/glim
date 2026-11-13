@@ -19,18 +19,65 @@ pub(super) struct NativeMenu {
     handle: NonNull<c_void>,
     _main_thread: PhantomData<Rc<()>>,
 }
+pub(super) struct MenuItem {
+    title: Option<String>,
+    enabled: bool,
+    checked: bool,
+    symbol: Option<&'static str>,
+}
+impl MenuItem {
+    pub fn new(title: String) -> Self {
+        let symbol = menu_symbol(&title);
+        Self {
+            title: Some(title),
+            enabled: true,
+            checked: false,
+            symbol,
+        }
+    }
+    pub fn separator() -> Self {
+        Self {
+            title: None,
+            enabled: false,
+            checked: false,
+            symbol: None,
+        }
+    }
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+    pub fn checked(mut self, checked: bool) -> Self {
+        self.checked = checked;
+        self
+    }
+    pub fn symbol(mut self, symbol: &'static str) -> Self {
+        self.symbol = Some(symbol);
+        self
+    }
+}
 impl NativeMenu {
     pub fn new(items: &[(Option<String>, bool)], window: &Window) -> Option<Self> {
+        let items = items
+            .iter()
+            .map(|(title, enabled)| {
+                title.as_ref().map_or_else(MenuItem::separator, |title| {
+                    MenuItem::new(title.clone()).enabled(*enabled)
+                })
+            })
+            .collect::<Vec<_>>();
+        Self::with_items(&items, window)
+    }
+    pub fn with_items(items: &[MenuItem], window: &Window) -> Option<Self> {
         let handle = HasWindowHandle::window_handle(window).ok()?;
         let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
             return None;
         };
         let position = window.mouse_position();
-        let items = items
-            .iter()
-            .map(|(title, enabled)| serde_json::json!({"title": title, "enabled": enabled, "symbol": title.as_deref().and_then(menu_symbol)}))
-            .collect::<Vec<_>>();
-        let bytes = serde_json::to_vec(&items).expect("Context menu titles");
+        let items = items.iter().map(|item| serde_json::json!({
+            "title": item.title, "enabled": item.enabled, "checked": item.checked, "symbol": item.symbol,
+        })).collect::<Vec<_>>();
+        let bytes = serde_json::to_vec(&items).expect("Context menu items");
         // SAFETY: AppKit's live parent view is owned by this window. Swift copies
         // titles and schedules menu tracking after the current Rust update ends.
         let pointer = unsafe {
@@ -81,6 +128,10 @@ fn menu_symbol(title: &str) -> Option<&'static str> {
         ("New File", "doc.badge.plus"),
         ("New Folder…", "folder.badge.plus"),
         ("Rename…", "pencil"),
+        ("Rename Workspace…", "pencil"),
+        ("Open in Current Window", "macwindow"),
+        ("Open in New Window", "macwindow.badge.plus"),
+        ("Remove from Recent Workspaces", "clock.badge.xmark"),
         ("Add Folder to Workspace…", "folder.badge.plus"),
         ("Open", "arrow.up.forward.app"),
         ("Open Preview / Play", "play"),

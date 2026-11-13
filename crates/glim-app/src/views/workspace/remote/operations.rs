@@ -83,7 +83,7 @@ impl Workspace {
                 glim_services::telemetry::text(action.telemetry_action()),
             )],
         );
-        window.open_dialog(cx, move |dialog, _, cx| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let validation = validation.clone();
             let submit = owner.clone();
             let cancel = cancel_owner.clone();
@@ -96,10 +96,12 @@ impl Workspace {
             dialog
                 .title(tr(action.label()))
                 .width(px(420.))
-                .child(Input::new(&input).aria_label(tr(match action {
-                    FileAction::Move => "Destination folder",
-                    _ => "Name",
-                })))
+                .child(
+                    crate::views::form_input(&input, window, cx).aria_label(tr(match action {
+                        FileAction::Move => "Destination folder",
+                        _ => "Name",
+                    })),
+                )
                 .when_some(message, |dialog, message| {
                     dialog.child(div().text_sm().text_color(cx.theme().danger).child(message))
                 })
@@ -113,20 +115,23 @@ impl Workspace {
                                 .on_click(|_, window, cx| window.close_dialog(cx)),
                         )
                         .child(
-                            Button::new("remote-operation-confirm")
-                                .primary()
-                                .label(tr(match action {
+                            crate::views::primary_button(
+                                "remote-operation-confirm",
+                                &tr(match action {
                                     FileAction::Move => "Move Here",
                                     _ => "Save",
-                                }))
-                                .on_click(|_, window, cx| {
-                                    window.dispatch_action(
-                                        Box::new(gpui_kit::component::dialog::Confirm {
-                                            secondary: false,
-                                        }),
-                                        cx,
-                                    )
                                 }),
+                                false,
+                                cx,
+                            )
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(
+                                    Box::new(gpui_kit::component::dialog::Confirm {
+                                        secondary: false,
+                                    }),
+                                    cx,
+                                )
+                            }),
                         ),
                 )
                 .button_props(DialogButtonProps::default().cancel_text(tr("Cancel")))

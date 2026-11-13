@@ -1347,16 +1347,17 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
             let key = Bundle(url: application)?.bundleIdentifier ?? application.standardizedFileURL.path
             return seen.insert(key).inserted
         }.sorted { FileManager.default.displayName(atPath: $0.path).localizedStandardCompare(FileManager.default.displayName(atPath: $1.path)) == .orderedAscending }
-        let menu = NSMenu()
+        let menu = ReaderMenu.make()
         for application in available {
             let item = NSMenuItem(title: FileManager.default.displayName(atPath: application.path), action: #selector(openInSelectedApplication(_:)), keyEquivalent: "")
             item.target = self; item.representedObject = application
             let icon = NSWorkspace.shared.icon(forFile: application.path); icon.size = NSSize(width: 16, height: 16); item.image = icon
+            ReaderMenu.own(item)
             menu.addItem(item)
         }
         if !available.isEmpty { menu.addItem(.separator()) }
         let choose = NSMenuItem(title: L("Choose Application…"), action: #selector(chooseExternalApplication), keyEquivalent: "")
-        choose.target = self; menu.addItem(choose)
+        choose.target = self; ReaderMenu.own(choose); menu.addItem(choose)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
     }
     @objc private func openInSelectedApplication(_ sender: NSMenuItem) {

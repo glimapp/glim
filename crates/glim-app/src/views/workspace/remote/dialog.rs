@@ -1,20 +1,6 @@
 use super::*;
-use gpui_kit::component::{button::ButtonCustomVariant, tooltip::Tooltip};
-
-fn primary_button(id: &'static str, label: &str, disabled: bool, cx: &App) -> Button {
-    let ink = crate::views::accent(cx);
-    Button::new(id)
-        .label(label.to_owned())
-        .disabled(disabled)
-        .when(!disabled, |button| button.bg(ink))
-        .custom(
-            ButtonCustomVariant::new(cx)
-                .color(ink)
-                .foreground(cx.theme().background)
-                .hover(ink.blend(cx.theme().foreground.opacity(0.08)))
-                .active(ink.blend(cx.theme().foreground.opacity(0.16))),
-        )
-}
+use crate::views::primary_button;
+use gpui_kit::component::tooltip::Tooltip;
 
 fn connection_dot(id: impl Into<ElementId>, connected: bool, cx: &App) -> AnyElement {
     let status = tr(if connected {
@@ -48,16 +34,10 @@ fn connection_input(
     window: &Window,
     cx: &App,
 ) -> Input {
-    let focused = state.read(cx).focus_handle(cx).is_focused(window);
-    Input::new(state)
+    crate::views::form_input(state, window, cx)
         .aria_label(label.to_owned())
         .disabled(disabled)
-        .focus_bordered(false)
-        .border_color(if focused && !disabled {
-            crate::views::accent(cx)
-        } else {
-            cx.theme().input
-        })
+        .when(disabled, |input| input.border_color(cx.theme().input))
 }
 
 impl RemoteDialog {

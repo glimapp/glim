@@ -28,6 +28,51 @@ fn accent(cx: &gpui_kit::App) -> gpui_kit::Hsla {
     .into()
 }
 
+/// Form fields keep a single border and a stable surface while focus moves.
+fn form_input(
+    state: &gpui_kit::Entity<gpui_kit::component::input::InputState>,
+    window: &gpui_kit::Window,
+    cx: &gpui_kit::App,
+) -> gpui_kit::component::input::Input {
+    use gpui_kit::{Focusable, Styled, component::ActiveTheme};
+    gpui_kit::component::input::Input::new(state)
+        .focus_bordered(false)
+        .bg(cx.theme().background)
+        .border_color(if state.read(cx).focus_handle(cx).is_focused(window) {
+            accent(cx)
+        } else {
+            cx.theme().input
+        })
+}
+
+fn primary_button(
+    id: &'static str,
+    label: &str,
+    disabled: bool,
+    cx: &gpui_kit::App,
+) -> gpui_kit::component::button::Button {
+    use gpui_kit::{
+        Styled,
+        component::{
+            ActiveTheme, Disableable,
+            button::{Button, ButtonCustomVariant, ButtonVariants},
+        },
+        prelude::FluentBuilder,
+    };
+    let ink = accent(cx);
+    Button::new(id)
+        .label(label.to_owned())
+        .disabled(disabled)
+        .when(!disabled, |button| button.bg(ink))
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .color(ink)
+                .foreground(cx.theme().background)
+                .hover(ink.blend(cx.theme().foreground.opacity(0.08)))
+                .active(ink.blend(cx.theme().foreground.opacity(0.16))),
+        )
+}
+
 fn icon_button(
     id: impl Into<gpui_kit::ElementId>,
     icon: gpui_kit::assets::IconName,

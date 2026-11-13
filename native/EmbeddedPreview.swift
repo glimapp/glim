@@ -167,9 +167,9 @@ func glimPreviewRevealAnchor(_ handle: UnsafeMutableRawPointer, _ bytes: UnsafeP
 
 // AppKit context menus live above both GPUI and native document surfaces.
 // They never hide, pause or reconstruct a document reader.
-private struct FileMenuItem: Decodable { let title: String?; let enabled: Bool; let symbol: String? }
+private struct FileMenuItem: Decodable { let title: String?; let enabled: Bool; let symbol: String?; let checked: Bool? }
 private final class FileContextMenu: NSObject {
-    let menu = NSMenu()
+    let menu = ReaderMenu.make()
     var selection: Int64 = -2
     init(items: [FileMenuItem]) {
         super.init()
@@ -178,10 +178,12 @@ private final class FileContextMenu: NSObject {
             if let title = specification.title {
                 let item = NSMenuItem(title: title, action: #selector(choose(_:)), keyEquivalent: "")
                 item.target = self; item.tag = index; item.isEnabled = specification.enabled
+                item.state = specification.checked == true ? .on : .off
                 if let symbol = specification.symbol {
                     item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
                     item.representedObject = symbol
                 }
+                ReaderMenu.own(item)
                 menu.addItem(item)
             } else {
                 menu.addItem(.separator())

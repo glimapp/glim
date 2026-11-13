@@ -6,7 +6,6 @@ use gpui_kit::{
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         input::{Input, InputEvent, InputState},
-        menu::{ContextMenuExt, PopupMenuItem},
         v_flex,
     },
     prelude::FluentBuilder,
@@ -129,6 +128,28 @@ impl Element for PinnedWorkspaceList {
 }
 
 impl Workspace {
+    pub(in crate::views) fn show_context_menu(
+        &mut self,
+        items: Vec<crate::views::native_menu_bridge::MenuItem>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        selected: impl FnOnce(&mut Self, usize, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        self.context_menu_task = None;
+        let Some(menu) = crate::views::native_menu_bridge::NativeMenu::with_items(&items, window)
+        else {
+            return;
+        };
+        self.context_menu_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let index = menu.choose(cx).await;
+            let _ = view.update_in(cx, |view, window, cx| {
+                view.context_menu_task = None;
+                if let Some(index) = index {
+                    selected(view, index, window, cx);
+                }
+            });
+        }));
+    }
     pub(crate) fn workspace_descriptor(&self) -> RecentWorkspace {
         RecentWorkspace {
             id: self.recent_id.clone(),
@@ -714,18 +735,19 @@ impl Workspace {
                         )),
                     ),
             )
-            .context_menu(move |menu, _, _| {
-                let weak = weak.clone();
+            .on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                cx.stop_propagation();
                 let rename = rename.clone();
-                menu.item(
-                    PopupMenuItem::new(glim_services::locale::tr("Rename Workspace…")).on_click(
-                        move |_, window, cx| {
-                            let _ = weak.update(cx, |view, cx| {
-                                view.begin_workspace_rename(rename.clone(), window, cx)
-                            });
-                        },
-                    ),
-                )
+                let _ = weak.update(cx, |view, cx| {
+                    view.show_context_menu(
+                        vec![crate::views::native_menu_bridge::MenuItem::new(
+                            glim_services::locale::tr("Rename Workspace…"),
+                        )],
+                        window,
+                        cx,
+                        move |view, _, window, cx| view.begin_workspace_rename(rename, window, cx),
+                    );
+                });
             })
             .into_any_element()
     }

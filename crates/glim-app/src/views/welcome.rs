@@ -5,7 +5,7 @@ use gpui_kit::{
         ActiveTheme, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
-        menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
+        menu::{DropdownMenu, PopupMenuItem},
         v_flex,
     },
     prelude::FluentBuilder,
@@ -468,50 +468,34 @@ pub fn welcome(
                                             )
                                         }),
                                 )
-                                .context_menu(move |menu, _, _| {
-                                    let open = context_workspace.clone();
-                                    let weak = context_weak.clone();
-                                    let new_window = context_workspace.clone();
-                                    let remove = context_workspace.id.clone();
-                                    menu.item(
-                                        PopupMenuItem::new(glim_services::locale::tr(
-                                            "Open in Current Window",
-                                        ))
-                                        .on_click(
-                                            move |_, window, cx| {
-                                                let _ = weak.update(cx, |view, cx| {
-                                                    view.open_recent_here(open.clone(), window, cx)
-                                                });
-                                            },
-                                        ),
-                                    )
-                                    .item(
-                                        PopupMenuItem::new(glim_services::locale::tr(
-                                            "Open in New Window",
-                                        ))
-                                        .on_click(
-                                            move |_, _, cx| {
-                                                crate::app::open_recent_workspace(
-                                                    new_window.clone(),
+                                .on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                                    use super::native_menu_bridge::MenuItem;
+                                    use glim_services::locale::tr;
+                                    cx.stop_propagation();
+                                    let workspace = context_workspace.clone();
+                                    let _ = context_weak.update(cx, |view, cx| {
+                                        view.show_context_menu(
+                                            vec![
+                                                MenuItem::new(tr("Open in Current Window")),
+                                                MenuItem::new(tr("Open in New Window")),
+                                                MenuItem::separator(),
+                                                MenuItem::new(tr("Remove from Recent Workspaces")),
+                                            ],
+                                            window,
+                                            cx,
+                                            move |view, index, window, cx| match index {
+                                                0 => view.open_recent_here(workspace, window, cx),
+                                                1 => {
+                                                    crate::app::open_recent_workspace(workspace, cx)
+                                                }
+                                                3 => crate::app::remove_recent_workspace(
+                                                    workspace.id,
                                                     cx,
-                                                )
+                                                ),
+                                                _ => {}
                                             },
-                                        ),
-                                    )
-                                    .separator()
-                                    .item(
-                                        PopupMenuItem::new(glim_services::locale::tr(
-                                            "Remove from Recent Workspaces",
-                                        ))
-                                        .on_click(
-                                            move |_, _, cx| {
-                                                crate::app::remove_recent_workspace(
-                                                    remove.clone(),
-                                                    cx,
-                                                )
-                                            },
-                                        ),
-                                    )
+                                        );
+                                    });
                                 })
                         }),
                     ))

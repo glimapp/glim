@@ -13,7 +13,6 @@ use gpui_kit::{
         ActiveTheme, Disableable, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
-        menu::{ContextMenuExt, PopupMenuItem},
         resizable::{h_resizable, resizable_panel},
         v_flex,
     },
@@ -319,36 +318,16 @@ impl Render for Workspace {
                 reader.is_archive()
                     || (reader.can_preview() && reader.mode() == glim_core::ReaderMode::Preview)
             }) {
-            let workspace = cx.entity().downgrade();
             div()
                 .size_full()
                 .child(content)
-                .context_menu(move |mut menu, _, cx| {
-                    if let Some(workspace) = workspace.upgrade() {
-                        if let Some(state) = workspace
-                            .read(cx)
-                            .active_reader()
-                            .and_then(|reader| reader.preview_text_state())
-                        {
-                            menu = super::reader_actions::preview_text_menu(menu, state, cx);
-                        }
-                        for item in workspace.read(cx).reader_actions(cx) {
-                            let action = item.action;
-                            let workspace = workspace.downgrade();
-                            menu = menu.item(
-                                PopupMenuItem::new(glim_services::locale::tr(item.label))
-                                    .disabled(!item.enabled)
-                                    .checked(item.selected)
-                                    .on_click(move |_, window, cx| {
-                                        let _ = workspace.update(cx, |workspace, cx| {
-                                            workspace.run_toolbar_action(action, window, cx)
-                                        });
-                                    }),
-                            );
-                        }
-                    }
-                    menu
-                })
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(|view, _, window, cx| {
+                        cx.stop_propagation();
+                        view.show_reader_menu(window, cx);
+                    }),
+                )
                 .into_any_element()
         } else {
             content
@@ -653,14 +632,20 @@ impl Render for Workspace {
             .id("workspace-file-tree");
         let file_tree = if self.explorer.is_none() {
             file_tree
-                .context_menu(|menu, _, _| {
-                    menu.item(
-                        PopupMenuItem::new(glim_services::locale::tr("Add Folder to Workspace…"))
-                            .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(AddFolder), cx);
-                            }),
-                    )
-                })
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(|view, _, window, cx| {
+                        cx.stop_propagation();
+                        view.show_context_menu(
+                            vec![crate::views::native_menu_bridge::MenuItem::new(
+                                glim_services::locale::tr("Add Folder to Workspace…"),
+                            )],
+                            window,
+                            cx,
+                            |_, _, window, cx| window.dispatch_action(Box::new(AddFolder), cx),
+                        );
+                    }),
+                )
                 .into_any_element()
         } else {
             file_tree.into_any_element()

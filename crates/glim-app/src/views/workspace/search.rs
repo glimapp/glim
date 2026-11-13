@@ -757,6 +757,8 @@ impl Workspace {
                                     .h(px(36.))
                                     .text_size(px(16.))
                                     .appearance(false)
+                                    .bordered(false)
+                                    .focus_bordered(false)
                                     .flex_1()
                                     .min_w_0(),
                             )

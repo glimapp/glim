@@ -7,7 +7,7 @@ use gpui_kit::{
         ActiveTheme, Disableable, Sizable,
         button::Button,
         h_flex,
-        input::{Input, InputEvent, InputState},
+        input::{InputEvent, InputState},
         table::{
             Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableSelection, TableState,
         },
@@ -365,7 +365,7 @@ impl SqliteView {
     }
 }
 impl Render for SqliteView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tr = self.host.translate;
         let table_filter = self.table_search.read(cx).value().to_lowercase();
         let tables = self.tables.clone();
@@ -409,7 +409,7 @@ impl Render for SqliteView {
                     .child(DataTable::new(&self.grid).stripe(true).small()),
             )
             .child(super::super::controls::floating("sqlite-controls",
-                super::super::controls::ActionBindings::new().action("table-search",div().w(px(180.)).child(Input::new(&self.search).small()))
+                super::super::controls::ActionBindings::new().action("table-search",div().w(px(180.)).child(crate::views::form_input(&self.search, window, cx).small()))
                     .action("first",
                         crate::views::icon_button("first", gpui_kit::assets::IconName::ChevronsLeft, tr("First page"))
                             .disabled(busy || self.status.page == 0)
@@ -424,7 +424,7 @@ impl Render for SqliteView {
                                 cx.emit(Request::Navigate(Navigation::Previous));
                             })),
                     )
-                    .action("page-input",div().w(px(80.)).child(Input::new(&self.page_input).small()))
+                    .action("page-input",div().w(px(80.)).child(crate::views::form_input(&self.page_input, window, cx).small()))
                     .action("page-status",div().child(format!(
                             "{} / {}",
                             self.status.page + 1,
@@ -560,7 +560,11 @@ impl Render for SqliteView {
                     .h_full()
                     .border_r_1()
                     .border_color(cx.theme().border)
-                    .child(div().p_2().child(Input::new(&self.table_search).small()))
+                    .child(
+                        div().p_2().child(
+                            crate::views::form_input(&self.table_search, window, cx).small(),
+                        ),
+                    )
                     .child(
                         div()
                             .id("sqlite-tables")
