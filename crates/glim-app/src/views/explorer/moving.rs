@@ -9,10 +9,12 @@ use std::path::{Path, PathBuf};
 pub(super) struct DraggedEntry {
     pub path: PathBuf,
     pub is_dir: bool,
+    pub storage: Option<String>,
 }
 impl DraggedEntry {
-    pub fn accepts(&self, directory: &Path) -> bool {
-        directory != self.path
+    pub fn accepts(&self, directory: &Path, storage: &Option<String>) -> bool {
+        self.storage == *storage
+            && directory != self.path
             && self.path.parent() != Some(directory)
             && (!self.is_dir || !directory.starts_with(&self.path))
     }
@@ -48,6 +50,12 @@ impl Render for DraggedEntry {
 }
 
 impl Explorer {
+    pub(super) fn storage_key(&self) -> Option<String> {
+        self.remote
+            .as_ref()
+            .map(|session| format!("{}:{}", session.connection.id, session.connection.address()))
+    }
+
     pub(super) fn start_move_scroll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.drag_scroll.is_some() || self.move_scroll_step(window, cx).is_none() {
             return;
@@ -111,7 +119,7 @@ impl Explorer {
         cx: &mut Context<Self>,
     ) {
         let hovered = event.bounds.contains(&event.event.position)
-            && event.drag(cx).accepts(path)
+            && event.drag(cx).accepts(path, &self.storage_key())
             && !crate::app::workspace_editors_locked(cx);
         if !hovered {
             if self

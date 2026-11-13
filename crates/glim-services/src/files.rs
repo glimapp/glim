@@ -121,11 +121,19 @@ pub fn prepare_draft_destination(
     open_files: &[std::path::PathBuf],
     cancel: &crate::work::Cancellation,
 ) -> Result<DraftDestination> {
-    cancel.check()?;
     ensure!(
         is_text_save_path(path),
         "This note is plain text. Choose .txt, .md or a source-code filename."
     );
+    prepare_save_destination(path, open_files, cancel)
+}
+
+pub fn prepare_save_destination(
+    path: &Path,
+    open_files: &[std::path::PathBuf],
+    cancel: &crate::work::Cancellation,
+) -> Result<DraftDestination> {
+    cancel.check()?;
     let parent = path
         .parent()
         .context("File has no parent folder")?
@@ -168,8 +176,19 @@ pub fn save_new_document(
     text: &str,
     cancel: &crate::work::Cancellation,
 ) -> Result<std::path::PathBuf> {
-    let _guard = save_lock(cancel)?;
     ensure!(!text.contains('\0'), "Text contains a null byte");
+    publish_document(destination, cancel, |output| {
+        cancel.copy(std::io::Cursor::new(text.as_bytes()), output)?;
+        Ok(())
+    })
+}
+
+fn publish_document(
+    destination: &DraftDestination,
+    cancel: &crate::work::Cancellation,
+    write: impl FnOnce(&mut File) -> Result<()>,
+) -> Result<std::path::PathBuf> {
+    let _guard = save_lock(cancel)?;
     let parent = destination
         .target
         .parent()
@@ -190,10 +209,7 @@ pub fn save_new_document(
         )
     );
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    cancel.copy(
-        std::io::Cursor::new(text.as_bytes()),
-        temporary.as_file_mut(),
-    )?;
+    write(temporary.as_file_mut())?;
     if destination.existing.is_some() {
         let metadata = std::fs::metadata(&destination.target)?;
         ensure!(
@@ -222,6 +238,80 @@ pub fn save_new_document(
             .map_err(|error| error.error)?;
     }
     Ok(destination.selected.clone())
+}
+
+/// A live descriptor keeps a trashed inode available until its last tab closes.
+pub struct RetainedFile(std::sync::Mutex<File>);
+impl RetainedFile {
+    pub fn open(path: &Path) -> Result<Option<std::sync::Arc<Self>>> {
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        if !file.metadata()?.is_file() {
+            return Ok(None);
+        }
+        Ok(Some(std::sync::Arc::new(Self(std::sync::Mutex::new(file)))))
+    }
+
+    pub fn save_as(
+        &self,
+        destination: &DraftDestination,
+        page: Option<(&crate::paged::PageEdit, &str)>,
+        cancel: &crate::work::Cancellation,
+    ) -> Result<std::path::PathBuf> {
+        use std::{io::SeekFrom, os::unix::fs::MetadataExt};
+        let mut source = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Retained file unavailable"))?;
+        let before = source.metadata()?;
+        publish_document(destination, cancel, |output| {
+            if let Some((page, text)) = page {
+                ensure!(!text.contains('\0'), "Text contains a null byte");
+                ensure!(
+                    before.len() == page.total
+                        && before.modified().ok() == page.modified
+                        && (before.dev(), before.ino()) == page.identity,
+                    "File changed; your edits are still open."
+                );
+                ensure!(
+                    page.start <= page.end
+                        && page.end <= page.total
+                        && page.end - page.start == page.expected.len() as u64,
+                    "Invalid page snapshot"
+                );
+                source.seek(SeekFrom::Start(page.start))?;
+                let mut buffer = vec![0; reader_limits::IO_BUFFER_BYTES];
+                for expected in page
+                    .expected
+                    .as_bytes()
+                    .chunks(reader_limits::IO_BUFFER_BYTES)
+                {
+                    cancel.check()?;
+                    source.read_exact(&mut buffer[..expected.len()])?;
+                    ensure!(
+                        &buffer[..expected.len()] == expected,
+                        "File changed; your edits are still open."
+                    );
+                }
+                source.rewind()?;
+                cancel.copy((&mut *source).take(page.start), &mut *output)?;
+                cancel.copy(std::io::Cursor::new(text.as_bytes()), &mut *output)?;
+                source.seek(SeekFrom::Start(page.end))?;
+            } else {
+                source.rewind()?;
+            }
+            cancel.copy(&mut *source, output)?;
+            let after = source.metadata()?;
+            ensure!(
+                after.len() == before.len() && after.modified().ok() == before.modified().ok(),
+                "File changed while saving; your tab is still open."
+            );
+            Ok(())
+        })
+    }
 }
 
 pub fn read_document(path: &Path) -> Result<Document> {
@@ -493,6 +583,71 @@ mod tests {
         }
         assert!(read_document(directory.path()).is_err());
         assert!(read_document(&directory.path().join("missing")).is_err());
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod retained_tests {
+    use super::*;
+    #[test]
+    fn retained_binary_and_edited_page_save_after_source_is_removed() -> Result<()> {
+        use std::os::unix::fs::MetadataExt;
+        let directory = tempfile::tempdir()?;
+        let source = directory.path().join("source.bin");
+        let bytes = [0, 1, 255, 42, 0, 16];
+        std::fs::write(&source, bytes)?;
+        let retained = RetainedFile::open(&source)?.unwrap();
+        std::fs::remove_file(&source)?;
+        let cancel = crate::work::Cancellation::default();
+        let copy = directory.path().join("copy.bin");
+        retained.save_as(
+            &prepare_save_destination(&copy, &[], &cancel)?,
+            None,
+            &cancel,
+        )?;
+        assert_eq!(std::fs::read(&copy)?, bytes);
+        assert!(!source.exists());
+        let destination = prepare_save_destination(&copy, &[], &cancel)?;
+        std::fs::write(&copy, "external")?;
+        assert!(retained.save_as(&destination, None, &cancel).is_err());
+        assert_eq!(std::fs::read_to_string(&copy)?, "external");
+        let source = directory.path().join("page.txt");
+        std::fs::write(&source, "before\nold\nafter\n")?;
+        let metadata = std::fs::metadata(&source)?;
+        let page = crate::paged::PageEdit {
+            path: source.clone(),
+            start: 7,
+            end: 11,
+            total: metadata.len(),
+            modified: metadata.modified().ok(),
+            identity: (metadata.dev(), metadata.ino()),
+            expected: "old\n".into(),
+        };
+        let retained = RetainedFile::open(&source)?.unwrap();
+        std::fs::remove_file(&source)?;
+        let copy = directory.path().join("restored.txt");
+        retained.save_as(
+            &prepare_save_destination(&copy, &[], &cancel)?,
+            Some((&page, "新内容\n")),
+            &cancel,
+        )?;
+        assert_eq!(std::fs::read_to_string(&copy)?, "before\n新内容\nafter\n");
+        let changed = crate::paged::PageEdit {
+            expected: "bad\n".into(),
+            ..page
+        };
+        let rejected = directory.path().join("rejected.txt");
+        assert!(
+            retained
+                .save_as(
+                    &prepare_save_destination(&rejected, &[], &cancel)?,
+                    Some((&changed, "bad")),
+                    &cancel
+                )
+                .is_err()
+        );
+        assert!(!rejected.exists());
         Ok(())
     }
 }

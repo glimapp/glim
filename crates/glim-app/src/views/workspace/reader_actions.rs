@@ -197,7 +197,14 @@ impl super::Workspace {
                 "markdown_task_toggled",
                 [("completed", glim_services::telemetry::flag(checked))],
             );
-            self.save_editor(editor, window, cx);
+            if self.tabs.iter().any(|reader| {
+                reader.document.autosave_enabled()
+                    && reader
+                        .editor()
+                        .is_some_and(|state| state.entity_id() == editor)
+            }) {
+                self.save_editor(editor, window, cx);
+            }
         }
         cx.notify();
     }

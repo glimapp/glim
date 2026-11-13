@@ -15,6 +15,7 @@ pub(crate) type RefreshFailureHandler =
     std::rc::Rc<dyn Fn(glim_services::documents::ReadFailureKind, &mut App)>;
 
 pub(super) trait ReaderSurface: crate::views::reader::contract::ReaderView {
+    fn retain_snapshot(&self, _cx: &mut App) {}
     fn refresh_request(&self, path: &Path, _force: bool, _cx: &App) -> Option<RefreshRequest> {
         Some(RefreshRequest::Reload(path.to_path_buf()))
     }

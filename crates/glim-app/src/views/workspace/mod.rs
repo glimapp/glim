@@ -167,7 +167,7 @@ impl Workspace {
         self.set_editing_locked(false, cx);
         self.load_incoming_file(window, cx);
         self.refresh(window, cx);
-        // Finish removing trashed readers before resuming paused autosaves.
+        // Mark trashed readers before resuming paused autosaves.
         let view = cx.entity().downgrade();
         window.defer(cx, move |window, cx| {
             let _ = view.update(cx, |view, cx| view.resume_queued_saves(window, cx));

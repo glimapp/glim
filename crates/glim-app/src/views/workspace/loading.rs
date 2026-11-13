@@ -378,8 +378,38 @@ impl Workspace {
                     ExplorerEvent::NewFile(path) => {
                         view.choose_new_file_in(path.clone(), window, cx)
                     }
+                    ExplorerEvent::NewFolder(path) => {
+                        if view.remote.is_some() {
+                            view.remote_file_dialog(
+                                super::remote::operations::FileAction::NewFolder,
+                                path.clone(),
+                                window,
+                                cx,
+                            );
+                        } else {
+                            view.choose_new_folder_in(path.clone(), window, cx);
+                        }
+                    }
+                    ExplorerEvent::RenameEntry(path) => view.remote_file_dialog(
+                        super::remote::operations::FileAction::Rename,
+                        path.clone(),
+                        window,
+                        cx,
+                    ),
                     ExplorerEvent::TrashEntry(path) => view.confirm_trash(path.clone(), window, cx),
                     ExplorerEvent::MoveEntry(source, directory) => {
+                        if view.remote.is_some() {
+                            let destination =
+                                directory.join(source.file_name().unwrap_or_default());
+                            view.run_remote_file_operation(
+                                super::remote::operations::FileAction::Move,
+                                source.clone(),
+                                destination,
+                                window,
+                                cx,
+                            );
+                            return;
+                        }
                         let source = source.clone();
                         let directory = directory.clone();
                         let requester = cx.entity().downgrade();
@@ -463,15 +493,24 @@ impl Workspace {
 
     pub(super) fn discover_git_repositories(&mut self, cx: &mut Context<Self>) {
         self.git_discovery_task = None;
-        if glim_services::remote::is_remote_id(&self.recent_id) || self.roots.is_empty() {
+        if self.roots.is_empty() {
             self.git_repositories.clear();
             self.changes_expanded = false;
             return;
         }
+        if glim_services::remote::is_remote_id(&self.recent_id)
+            && (self.remote.is_none() || self.remote_disconnected)
+        {
+            return;
+        }
         let roots = self.roots.clone();
+        let remote = self.remote.clone();
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let work = cx.background_executor().spawn(async move {
-            let repositories = glim_services::workspace::discover_git_roots(&roots, &cancel);
+            let repositories = match remote {
+                Some(remote) => remote.discover_git_roots(&roots, &cancel),
+                None => glim_services::workspace::discover_git_roots(&roots, &cancel),
+            };
             (roots, repositories)
         });
         self.git_discovery_task = Some(cx.spawn(async move |view, cx| {

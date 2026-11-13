@@ -1011,6 +1011,7 @@ pub(crate) fn workspace_editors_locked(cx: &App) -> bool {
 pub(crate) fn lock_workspace_editors(
     exclude: EntityId,
     path: &std::path::Path,
+    preserve_unsaved: bool,
     cx: &mut App,
 ) -> Result<()> {
     anyhow::ensure!(
@@ -1033,9 +1034,10 @@ pub(crate) fn lock_workspace_editors(
         )
     );
     anyhow::ensure!(
-        others
-            .iter()
-            .all(|view| !view.read(cx).has_unsaved_in(path)),
+        preserve_unsaved
+            || others
+                .iter()
+                .all(|view| !view.read(cx).has_unsaved_in(path)),
         glim_services::locale::tr(
             "An open file in this item has unsaved changes. Save it before moving this item to Trash."
         )
@@ -1049,6 +1051,12 @@ pub(crate) fn lock_workspace_editors(
 pub(crate) fn finish_trash_operation(
     exclude: EntityId,
     deleted_path: Option<std::path::PathBuf>,
+    retained: std::sync::Arc<
+        std::collections::HashMap<
+            std::path::PathBuf,
+            std::sync::Arc<glim_services::files::RetainedFile>,
+        >,
+    >,
     cx: &mut App,
 ) {
     cx.set_global(WorkspaceEditorLock(false));
@@ -1057,16 +1065,51 @@ pub(crate) fn finish_trash_operation(
             && view.entity_id() != exclude
         {
             let deleted_path = deleted_path.clone();
+            let retained = retained.clone();
             // Other workspaces may share the window currently dispatching this operation.
             cx.defer(move |cx| {
                 let _ = handle.update(cx, |_, window, cx| {
                     view.update(cx, |view, cx| {
                         view.set_editing_locked(false, cx);
                         if let Some(path) = deleted_path {
-                            view.did_trash(&path, window, cx);
+                            view.did_trash_local(&path, &retained, window, cx);
                         }
                         view.unlock_and_refresh(window, cx);
                     });
+                });
+            });
+        }
+    }
+}
+
+pub(crate) fn notify_remote_file_operation(
+    exclude: EntityId,
+    remote: glim_services::remote::Session,
+    source: Option<std::path::PathBuf>,
+    destination: Option<std::path::PathBuf>,
+    trashed: bool,
+    cx: &mut App,
+) {
+    for (view, handle) in OpenWorkspaces::windows(cx) {
+        if let Some(view) = view.upgrade()
+            && view.entity_id() != exclude
+        {
+            let remote = remote.clone();
+            let source = source.clone();
+            let destination = destination.clone();
+            cx.defer(move |cx| {
+                let _ = handle.update(cx, |_, window, cx| {
+                    view.update(cx, |view, cx| {
+                        if view.matches_remote(&remote) {
+                            view.did_remote_file_operation(
+                                source.as_deref(),
+                                destination.as_deref(),
+                                trashed,
+                                window,
+                                cx,
+                            );
+                        }
+                    })
                 });
             });
         }

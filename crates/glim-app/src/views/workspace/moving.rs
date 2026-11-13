@@ -11,10 +11,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if glim_services::remote::is_remote_id(&self.recent_id)
-            || self.picking
-            || crate::app::workspace_editors_locked(cx)
-        {
+        if glim_services::remote::is_remote_id(&self.recent_id) {
+            self.remote_file_dialog(
+                super::remote::operations::FileAction::Move,
+                source,
+                window,
+                cx,
+            );
+            return;
+        }
+        if self.picking || crate::app::workspace_editors_locked(cx) {
             return;
         }
         self.picking = true;
@@ -84,8 +90,7 @@ impl Workspace {
         self.tabs
             .iter()
             .filter(|reader| {
-                reader.document.draft_directory.is_none()
-                    && reader.document.path.starts_with(source)
+                reader.document.restore_on_launch() && reader.document.path.starts_with(source)
             })
             .map(|reader| reader.session_tab(cx))
             .collect()
@@ -99,7 +104,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let Some(index) = self.tabs.iter().position(|reader| {
-            reader.document.path == old_path && reader.document.draft_directory.is_none()
+            reader.document.path == old_path && reader.document.restore_on_launch()
         }) else {
             return;
         };
@@ -167,8 +172,7 @@ impl Workspace {
         }
         if roots_changed
             || self.tabs.iter().any(|reader| {
-                reader.document.path.starts_with(destination)
-                    && reader.document.draft_directory.is_none()
+                reader.document.path.starts_with(destination) && reader.document.restore_on_launch()
             })
         {
             self.scan_workspace_roots(window, cx);

@@ -42,7 +42,9 @@ impl Workspace {
                         .tabs
                         .iter()
                         .filter(|reader| {
-                            reader.document.remote.is_some() && !reader.refresh_busy(cx)
+                            reader.document.remote.is_some()
+                                && !reader.document.trashed
+                                && !reader.refresh_busy(cx)
                         })
                         .map(|reader| reader.document.path.clone())
                         .collect::<Vec<_>>();
@@ -51,7 +53,11 @@ impl Workspace {
                         &mut file_cursor,
                         glim_services::limits::REMOTE_REFRESH_BATCH,
                     );
-                    if let Some(reader) = view.active.and_then(|index| view.tabs.get(index)) {
+                    if let Some(reader) = view
+                        .active
+                        .and_then(|index| view.tabs.get(index))
+                        .filter(|reader| !reader.document.trashed)
+                    {
                         selected.retain(|path| *path != reader.document.path);
                         selected.insert(0, reader.document.path.clone());
                     }
@@ -94,7 +100,8 @@ impl Workspace {
                     if view
                         .update_in(cx, |view, window, cx| {
                             let Some(index) = view.tabs.iter().position(|reader| {
-                                reader.document.path == path
+                                !reader.document.trashed
+                                    && reader.document.path == path
                                     && reader.refresh_version(cx) == version
                             }) else {
                                 return;

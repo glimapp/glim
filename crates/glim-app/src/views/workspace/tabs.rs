@@ -202,7 +202,7 @@ impl Workspace {
         self.select_workspace(self.recent_id.clone(), window, cx);
         reader.bind_window(window, cx);
         let editor = reader.editor();
-        let autosave = reader.document.draft_directory.is_none() && reader.is_dirty();
+        let autosave = reader.document.autosave_enabled() && reader.is_dirty();
         let index = self.tabs.len();
         self.tabs.push(reader);
         self.observe_autosave(window, cx);
@@ -225,7 +225,7 @@ impl Workspace {
 
     pub(super) fn reveal_active_file(&self, cx: &mut Context<Self>) {
         if let (Some(explorer), Some(reader)) = (&self.explorer, self.active_reader())
-            && reader.document.draft_directory.is_none()
+            && reader.document.restore_on_launch()
         {
             explorer.update(cx, |explorer, cx| {
                 explorer.reveal_path(reader.document.path.clone(), cx)
@@ -548,7 +548,9 @@ impl Workspace {
                         .to_string_lossy()
                         .into_owned()
                 };
-                let hint_path = if reader.document.draft_directory.is_some() {
+                let hint_path = if reader.document.trashed {
+                    glim_services::locale::tr("Deleted · Kept until you quit · ⌘S to save a copy")
+                } else if reader.document.draft_directory.is_some() {
                     glim_services::locale::tr("Not saved to disk")
                 } else if let Some(remote) = &reader.document.remote {
                     format!(
@@ -654,6 +656,9 @@ impl Workspace {
                     .child(
                         h_flex()
                             .id(("document-tab-label", index))
+                            .when(reader.document.trashed, |label| {
+                                label.text_color(cx.theme().muted_foreground)
+                            })
                             .h_full()
                             .gap(px(5.))
                             .on_hover(cx.listener(move |view, hovered: &bool, window, _| {

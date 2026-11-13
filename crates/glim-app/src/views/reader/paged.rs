@@ -14,6 +14,7 @@ type PreviewAction = std::rc::Rc<dyn Fn(&mut App)>;
 pub(super) struct PagedReader {
     memory: glim_core::resources::ResourceLease,
     suspended: bool,
+    retained: bool,
     expanded: bool,
     resume_scroll: Point<Pixels>,
     pub source_editor: Option<super::source::SourceReader>,
@@ -64,6 +65,7 @@ impl PagedReader {
         let mut reader = Self {
             memory: glim_services::resources::pool().track(0, memory_class),
             suspended: false,
+            retained: false,
             expanded: page.end.saturating_sub(page.start) > glim_services::paged::PAGE_BYTES,
             resume_scroll: point(px(0.), px(0.)),
             _source_owner: page.owner.take(),
@@ -93,8 +95,12 @@ impl PagedReader {
                 as u64
         });
     }
+    pub fn retain_snapshot(&mut self) {
+        self.retained = true;
+        self.task = None;
+    }
     pub fn suspend(&mut self) {
-        if self.source_editor.is_some() || self.suspended {
+        if self.retained || self.source_editor.is_some() || self.suspended {
             return;
         }
         if !self.page.rows.is_empty() {
@@ -305,7 +311,7 @@ impl PagedReader {
                 glim_services::telemetry::flag(self.page.source.binary),
             )],
         );
-        if self.task.is_some() || self.saving.get() {
+        if self.retained || self.task.is_some() || self.saving.get() {
             return;
         }
         if self
@@ -378,7 +384,7 @@ impl PagedReader {
 }
 impl Render for PagedReader {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let busy = self.task.is_some() || self.saving.get();
+        let busy = self.retained || self.task.is_some() || self.saving.get();
         let previous = self.previous.last().copied();
         let next = self.page.end;
         v_flex()

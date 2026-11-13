@@ -22,6 +22,8 @@ pub enum ExplorerEvent {
     SelectionChanged,
     OpenFile(PathBuf),
     NewFile(PathBuf),
+    NewFolder(PathBuf),
+    RenameEntry(PathBuf),
     RemoveFolder(u64),
     TrashEntry(PathBuf),
     MoveEntry(PathBuf, PathBuf),
@@ -90,6 +92,8 @@ impl StickyRows {
 #[derive(Clone, Copy)]
 enum FileMenuAction {
     NewFile,
+    NewFolder,
+    Rename,
     Play(bool),
     Open,
     Reveal,
@@ -424,7 +428,17 @@ impl Explorer {
                         view.expansion_dirty = true;
                         view.schedule_directory_update(cx);
                         if let Some(error) = first_error {
-                            cx.emit(ExplorerEvent::Error(format!("{error:#}")));
+                            let gone =
+                                error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+                                    matches!(
+                                        error.kind(),
+                                        std::io::ErrorKind::NotFound
+                                            | std::io::ErrorKind::NotADirectory
+                                    )
+                                });
+                            if !gone {
+                                cx.emit(ExplorerEvent::Error(format!("{error:#}")));
+                            }
                         }
                         next
                     }) else {
@@ -636,6 +650,34 @@ impl Explorer {
         self.schedule_directory_update(cx);
     }
 
+    pub(crate) fn did_trash(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
+        self.tasks.retain(|entry, _| !entry.starts_with(path));
+        self.pending_refresh
+            .retain(|entry| !entry.starts_with(path));
+        self.expansion_tasks.clear();
+        self.directories.retain(|entry, _| !entry.starts_with(path));
+        for entries in self.directories.values_mut() {
+            entries.retain(|entry| !entry.path.starts_with(path));
+        }
+        for expanded in &mut self.expanded {
+            expanded.retain(|entry| !entry.starts_with(path));
+        }
+        self.media_tasks.retain(|entry, _| !entry.starts_with(path));
+        self.media_presence
+            .retain(|entry, _| !entry.starts_with(path));
+        if self
+            .pending_reveal
+            .as_ref()
+            .is_some_and(|entry| entry.starts_with(path))
+        {
+            self.pending_reveal = None;
+            self.pending_reveal_root = None;
+        }
+        self.drag_hover = None;
+        self.expansion_dirty = true;
+        self.schedule_directory_update(cx);
+    }
+
     pub fn refresh_changed(
         &mut self,
         changes: &glim_services::watch::Changes,
@@ -697,7 +739,15 @@ impl Explorer {
                             view.pending_reveal_root = None;
                         }
                         view.expansion_dirty = true;
-                        cx.emit(ExplorerEvent::Error(format!("{error:#}")));
+                        let gone = error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+                            matches!(
+                                error.kind(),
+                                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                            )
+                        });
+                        if !gone {
+                            cx.emit(ExplorerEvent::Error(format!("{error:#}")));
+                        }
                     }
                 }
                 view.tasks.remove(&path);
@@ -930,10 +980,13 @@ impl Explorer {
         let drag = DraggedEntry {
             path: row.entry.path.clone(),
             is_dir: row.entry.is_dir,
+            storage: self.storage_key(),
         };
         let drop_path = row.entry.path.clone();
         let highlight_path = drop_path.clone();
         let accept_path = drop_path.clone();
+        let accept_storage = self.storage_key();
+        let highlight_storage = accept_storage.clone();
         let hover_target = drop_path.clone();
         let moving = crate::app::file_move::destination(cx) == Some(row.entry.path.as_path());
         let entry = div()
@@ -1000,7 +1053,7 @@ impl Explorer {
             )
             .when(sticky, |row| row.occlude())
             .when(
-                self.remote.is_none() && row.depth > 0 && !crate::app::workspace_editors_locked(cx),
+                row.depth > 0 && !crate::app::workspace_editors_locked(cx),
                 |entry| {
                     entry.on_drag(drag, |drag, _, _, cx| {
                         cx.stop_propagation();
@@ -1008,17 +1061,17 @@ impl Explorer {
                     })
                 },
             )
-            .when(self.remote.is_none() && row.entry.is_dir, |entry| {
+            .when(row.entry.is_dir, |entry| {
                 entry
                     .can_drop(move |value, _, cx| {
                         !crate::app::workspace_editors_locked(cx)
                             && value
                                 .downcast_ref::<DraggedEntry>()
-                                .is_some_and(|drag| drag.accepts(&accept_path))
+                                .is_some_and(|drag| drag.accepts(&accept_path, &accept_storage))
                     })
                     .drag_over::<DraggedEntry>(move |style, drag, _, cx| {
                         if !crate::app::workspace_editors_locked(cx)
-                            && drag.accepts(&highlight_path)
+                            && drag.accepts(&highlight_path, &highlight_storage)
                         {
                             style.bg(super::selection_background(cx))
                         } else {
@@ -1033,7 +1086,9 @@ impl Explorer {
                     .on_drop(cx.listener(move |view, drag: &DraggedEntry, _, cx| {
                         view.drag_hover = None;
                         view.drag_scroll = None;
-                        if drag.accepts(&drop_path) && !crate::app::workspace_editors_locked(cx) {
+                        if drag.accepts(&drop_path, &view.storage_key())
+                            && !crate::app::workspace_editors_locked(cx)
+                        {
                             cx.emit(ExplorerEvent::MoveEntry(
                                 drag.path.clone(),
                                 drop_path.clone(),
@@ -1408,7 +1463,11 @@ impl Explorer {
         use FileMenuAction::*;
         let mut items = Vec::new();
         if is_dir {
-            items.extend([(Some("New File"), Some(NewFile)), (None, None)]);
+            items.extend([
+                (Some("New File"), Some(NewFile)),
+                (Some("New Folder…"), Some(NewFolder)),
+                (None, None),
+            ]);
         }
         if is_dir && self.media_presence.get(&path).copied() == Some(true) {
             items.extend([
@@ -1426,7 +1485,10 @@ impl Explorer {
             (Some("Copy Absolute Path"), Some(CopyAbsolute)),
             (None, None),
         ]);
-        if root_id.is_none() && self.remote.is_none() {
+        if root_id.is_none() {
+            if self.remote.is_some() {
+                items.push((Some("Rename…"), Some(Rename)));
+            }
             items.push((Some("Move to Folder…"), Some(Move)));
         }
         items.push((Some("Move to Trash…"), Some(Trash)));
@@ -1437,7 +1499,11 @@ impl Explorer {
             ]);
         }
         if self.remote.is_some() {
-            items.retain(|(_, action)| !matches!(action, Some(NewFile | Play(_) | Reveal | Trash)));
+            items.retain(|(_, action)| !matches!(action, Some(Play(_) | Reveal)));
+            items.dedup_by(|left, right| left.0.is_none() && right.0.is_none());
+            if items.first().is_some_and(|item| item.0.is_none()) {
+                items.remove(0);
+            }
         }
         let titles = items
             .iter()
@@ -1461,6 +1527,8 @@ impl Explorer {
                 {
                     let action_name = match action {
                         NewFile => "new_file",
+                        NewFolder => "new_folder",
+                        Rename => "rename",
                         Play(true) => "play_folder_shuffle",
                         Play(false) => "play_folder",
                         Open => "open",
@@ -1481,6 +1549,8 @@ impl Explorer {
                     );
                     match action {
                         NewFile => cx.emit(ExplorerEvent::NewFile(path.clone())),
+                        NewFolder => cx.emit(ExplorerEvent::NewFolder(path.clone())),
+                        Rename => cx.emit(ExplorerEvent::RenameEntry(path.clone())),
                         Play(shuffle) => cx.emit(ExplorerEvent::PlayFolder(path.clone(), shuffle)),
                         Open => cx.emit(ExplorerEvent::OpenFile(path.clone())),
                         Reveal => cx.reveal_path(&path),

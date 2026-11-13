@@ -79,6 +79,8 @@ fn menu_symbol(title: &str) -> Option<&'static str> {
     [
         ("Move Tab to New Window", "macwindow.badge.plus"),
         ("New File", "doc.badge.plus"),
+        ("New Folder…", "folder.badge.plus"),
+        ("Rename…", "pencil"),
         ("Add Folder to Workspace…", "folder.badge.plus"),
         ("Open", "arrow.up.forward.app"),
         ("Open Preview / Play", "play"),

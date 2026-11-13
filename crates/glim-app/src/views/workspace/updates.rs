@@ -13,11 +13,9 @@ impl Workspace {
         let workspace = cx.entity().downgrade();
         std::rc::Rc::new(move |kind, cx| {
             let _ = workspace.update(cx, |view, cx| {
-                let Some(reader) = view
-                    .tabs
-                    .iter_mut()
-                    .find(|reader| reader.refresh_version(cx) == version)
-                else {
+                let Some(reader) = view.tabs.iter_mut().find(|reader| {
+                    !reader.document.trashed && reader.refresh_version(cx) == version
+                }) else {
                     return;
                 };
                 reader.document.source_missing =
@@ -64,7 +62,7 @@ impl Workspace {
         let parents = self
             .tabs
             .iter()
-            .filter(|r| r.document.draft_directory.is_none())
+            .filter(|r| r.document.restore_on_launch())
             .filter_map(|r| r.document.path.parent().map(ToOwned::to_owned))
             .collect::<std::collections::BTreeSet<_>>();
         let work = cx.background_executor().spawn(async move {
@@ -133,7 +131,9 @@ impl Workspace {
         let changes = std::mem::take(&mut self.pending_refresh);
         let force = std::mem::take(&mut self.force_refresh);
         for reader in &mut self.tabs {
-            reader.refresh_dependencies(cx);
+            if !reader.document.trashed {
+                reader.refresh_dependencies(cx);
+            }
         }
         let mut targets = self
             .tabs

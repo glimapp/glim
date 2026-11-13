@@ -1,5 +1,6 @@
-//! SSH connection records and read-only SFTP access. Call on background workers.
+//! SSH connection records and SFTP access. Call on background workers.
 mod content_search;
+mod operations;
 mod search_index;
 mod sftp;
 pub use search_index::{IndexedPage, SearchIndexProgress, SearchIndexUpdate, search_retry_delay};

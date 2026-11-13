@@ -64,7 +64,10 @@ pub fn list_directory_cancellable(
     cancel: &crate::work::Cancellation,
 ) -> Result<Vec<DirectoryEntry>> {
     cancel.check()?;
-    ensure!(path.is_dir(), "Not a directory: {}", path.display());
+    let metadata = std::fs::metadata(path)?;
+    if !metadata.is_dir() {
+        return Err(std::io::Error::from(std::io::ErrorKind::NotADirectory).into());
+    }
     let mut entries = Vec::new();
     for entry in WalkBuilder::new(path)
         .max_depth(Some(1))

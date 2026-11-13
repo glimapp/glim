@@ -478,6 +478,12 @@ impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntit
     }
 }
 impl super::surface::ReaderSurface for super::surface::SurfaceEntity<NativeReader> {
+    fn retain_snapshot(&self, cx: &mut App) {
+        if let Some(raw) = &self.read(cx).raw.clone() {
+            raw.update(cx, |page, _| page.retain_snapshot());
+        }
+    }
+
     fn refresh_in_place(
         &self,
         content: &glim_services::documents::Content,

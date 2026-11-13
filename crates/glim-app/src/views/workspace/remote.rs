@@ -1,4 +1,5 @@
 mod dialog;
+pub(super) mod operations;
 mod watch;
 
 use super::Workspace;
@@ -1140,7 +1141,10 @@ impl Workspace {
         if let Some(explorer) = &self.explorer {
             explorer.update(cx, |view, cx| view.refresh(cx));
         }
-        if let Some(reader) = self.active_reader() {
+        if let Some(reader) = self
+            .active_reader()
+            .filter(|reader| !reader.document.trashed)
+        {
             self.read_remote_file(reader.document.path.clone(), true, window, cx);
         }
     }

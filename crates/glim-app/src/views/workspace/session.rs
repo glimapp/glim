@@ -33,7 +33,11 @@ impl Workspace {
             let mut session = pending.clone();
             session.name = self.workspace_name.clone();
             session.show_home = self.is_home();
-            for reader in &self.tabs {
+            for reader in self
+                .tabs
+                .iter()
+                .filter(|reader| reader.document.restore_on_launch())
+            {
                 let tab = reader.session_tab(cx);
                 let path = |tab: &SessionTab| match tab {
                     SessionTab::File { path, .. } | SessionTab::Playlist { path, .. } => {
@@ -55,16 +59,16 @@ impl Workspace {
             tabs: self
                 .tabs
                 .iter()
-                .filter(|r| r.document.draft_directory.is_none())
+                .filter(|r| r.document.restore_on_launch())
                 .map(|r| r.session_tab(cx))
                 .collect(),
             active: self
                 .active
-                .filter(|index| self.tabs[*index].document.draft_directory.is_none())
+                .filter(|index| self.tabs[*index].document.restore_on_launch())
                 .map(|index| {
                     self.tabs[..index]
                         .iter()
-                        .filter(|r| r.document.draft_directory.is_none())
+                        .filter(|r| r.document.restore_on_launch())
                         .count()
                 }),
             workspace_id: Some(self.recent_id.clone()),

@@ -64,6 +64,8 @@ impl Reader {
             }
         }
         self.document.path = reader.document.path;
+        self.document.remote = None;
+        self.document.remote_version = None;
         self.title = reader.title;
         self.projection = reader.projection;
         self.structured_controls = TextPresentation::for_path(&self.document.path)
@@ -86,6 +88,16 @@ impl Reader {
         }
         self.set_preview(false, cx);
         self.mark_saved(saved, cx);
+    }
+    pub(crate) fn retain_deleted_snapshot(&self, cx: &mut App) {
+        match &self.renderer {
+            Renderer::Paged { view, .. } => view.update(cx, |view, _| view.retain_snapshot()),
+            Renderer::Surface(view) => view.retain_snapshot(cx),
+            _ => {}
+        }
+    }
+    pub(crate) fn is_full_text_editor(&self) -> bool {
+        matches!(&self.renderer, Renderer::Source(_) | Renderer::Markup(_))
     }
     pub fn editor(&self) -> Option<Entity<gpui_kit::component::input::EditorState>> {
         self.document

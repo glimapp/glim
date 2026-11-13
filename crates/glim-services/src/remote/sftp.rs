@@ -1,4 +1,4 @@
-//! SFTP v3 over the system OpenSSH client; the protocol only exposes reads.
+//! SFTP v3 over the system OpenSSH client.
 use super::Connection;
 use crate::{limits, work::Cancellation};
 use anyhow::{Context, Result, bail, ensure};
@@ -277,6 +277,44 @@ impl Sftp {
         }
         Ok(reply)
     }
+    fn expect_ok(reply: &[u8]) -> Result<()> {
+        let mut packet = Packet::body(reply, 101)?;
+        ensure!(packet.u32()? == 0, "SFTP operation did not complete");
+        Ok(())
+    }
+    pub(super) fn mkdir(&mut self, path: &Path, cancel: &Cancellation) -> Result<()> {
+        cancel.check()?;
+        let _watch = self.watch(cancel);
+        let mut body = string(path.as_os_str().as_encoded_bytes())?;
+        body.extend_from_slice(&4u32.to_be_bytes()); // SSH_FILEXFER_ATTR_PERMISSIONS
+        body.extend_from_slice(&0o700u32.to_be_bytes());
+        Self::expect_ok(&self.request(14, &body)?)
+    }
+    pub(super) fn create_file(&mut self, path: &Path, cancel: &Cancellation) -> Result<()> {
+        cancel.check()?;
+        let _watch = self.watch(cancel);
+        let mut body = string(path.as_os_str().as_encoded_bytes())?;
+        body.extend_from_slice(&(2u32 | 8 | 32).to_be_bytes()); // WRITE | CREAT | EXCL
+        body.extend_from_slice(&4u32.to_be_bytes());
+        body.extend_from_slice(&0o600u32.to_be_bytes());
+        let reply = self.request(3, &body)?;
+        let handle = Packet::body(&reply, 102)?.string()?.to_vec();
+        Self::expect_ok(&self.request(4, &string(&handle)?)?)
+    }
+    pub(super) fn rename(
+        &mut self,
+        source: &Path,
+        destination: &Path,
+        cancel: &Cancellation,
+    ) -> Result<()> {
+        cancel.check()?;
+        let _watch = self.watch(cancel);
+        let mut body = string(source.as_os_str().as_encoded_bytes())?;
+        body.extend_from_slice(&string(destination.as_os_str().as_encoded_bytes())?);
+        // v3 RENAME refuses replacement; do not use posix-rename's overwrite semantics.
+        Self::expect_ok(&self.request(18, &body)?)
+    }
+
     pub fn realpath(&mut self, path: &Path, cancel: &Cancellation) -> Result<PathBuf> {
         cancel.check()?;
         let _watch = self.watch(cancel);
@@ -540,5 +578,38 @@ impl<'a> Packet<'a> {
             modified,
             mode,
         })
+    }
+}
+
+#[cfg(test)]
+impl Sftp {
+    pub(super) fn local_test(directory: &Path) -> Result<Self> {
+        use std::os::unix::process::CommandExt;
+        let mut child = Command::new("/usr/libexec/sftp-server")
+            .current_dir(directory)
+            .process_group(0)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let mut session = Self {
+            input: child.stdin.take().unwrap(),
+            output: child.stdout.take().unwrap(),
+            child: Arc::new(Mutex::new(child)),
+            errors: Default::default(),
+            next_id: 0,
+            healthy: Arc::new(AtomicBool::new(true)),
+            io_activity: Default::default(),
+            timed_out: Default::default(),
+            process_watch: None,
+        };
+        session.send(&[1, 0, 0, 0, 3])?;
+        let reply = session.receive()?;
+        let mut packet = Packet::new(&reply);
+        ensure!(
+            packet.byte()? == 2 && packet.u32()? == 3,
+            "Expected SFTP v3"
+        );
+        Ok(session)
     }
 }

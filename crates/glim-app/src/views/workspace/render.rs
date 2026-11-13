@@ -563,7 +563,7 @@ impl Render for Workspace {
                 header
                     .child(
                         Button::new("workspace-new-file")
-                            .disabled(glim_services::remote::is_remote_id(&self.recent_id))
+                            .disabled(self.remote_disconnected)
                             .custom(workspace_action_style)
                             .small()
                             .w(px(24.))
@@ -587,10 +587,7 @@ impl Render for Workspace {
                             .p_0()
                             .flex_shrink_0()
                             .icon(gpui_kit::assets::IconName::FolderPlus)
-                            .disabled(
-                                self.roots.is_empty()
-                                    || glim_services::remote::is_remote_id(&self.recent_id),
-                            )
+                            .disabled(self.roots.is_empty() || self.remote_disconnected)
                             .tooltip(glim_services::locale::tr("New Folder…"))
                             .accessibility_label(glim_services::locale::tr("New Folder…"))
                             .on_click(cx.listener(|view, _, window, cx| {

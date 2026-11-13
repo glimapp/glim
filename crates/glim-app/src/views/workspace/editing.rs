@@ -62,7 +62,10 @@ impl Workspace {
         self.tabs.iter().any(|r| r.is_dirty())
     }
     pub fn is_saving(&self) -> bool {
-        self.saving.is_some() || self.editing_locked || self.tabs.iter().any(|r| r.is_persisting())
+        self.saving.is_some()
+            || self.editing_locked
+            || self.save_cancel.is_some()
+            || self.tabs.iter().any(|r| r.is_persisting())
     }
 
     pub(super) fn cancel_save(&mut self, cx: &mut Context<Self>) {
@@ -78,7 +81,9 @@ impl Workspace {
     pub(crate) fn open_document_paths(&self) -> Vec<std::path::PathBuf> {
         self.tabs
             .iter()
-            .filter(|reader| reader.document.draft_directory.is_none())
+            .filter(|reader| {
+                reader.document.restore_on_launch() && reader.document.remote.is_none()
+            })
             .map(|reader| reader.document.path.clone())
             .collect()
     }
@@ -156,7 +161,7 @@ impl Workspace {
     pub(super) fn save_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self
             .active_reader()
-            .is_some_and(|reader| reader.document.remote.is_some())
+            .is_some_and(|reader| reader.document.remote.is_some() && !reader.document.trashed)
         {
             return;
         }
@@ -169,6 +174,14 @@ impl Workspace {
                     glim_services::telemetry::flag(reader.document.draft_directory.is_some()),
                 )],
             );
+        }
+        if let Some(index) = self
+            .active
+            .filter(|index| self.tabs[*index].document.trashed)
+            && (!self.tabs[index].is_full_text_editor() || self.tabs[index].editor().is_none())
+        {
+            self.save_retained(index, window, cx);
+            return;
         }
         if let Some(editor) = self.active_reader().and_then(|r| r.editor()) {
             self.save_editor(editor.entity_id(), window, cx);
@@ -234,7 +247,7 @@ impl Workspace {
                             }
                             view.checkpoint_editor(id, cx);
                             if view.tabs.iter().any(|reader| {
-                                reader.document.draft_directory.is_some()
+                                !reader.document.autosave_enabled()
                                     && reader
                                         .editor()
                                         .is_some_and(|editor| editor.entity_id() == id)
@@ -260,7 +273,7 @@ impl Workspace {
     }
 
     pub(super) fn resume_queued_saves(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        while !self.editing_locked && self.saving.is_none() {
+        while !self.editing_locked && self.saving.is_none() && self.save_cancel.is_none() {
             let Some(next) = self.save_queue.pop_front() else {
                 break;
             };
@@ -274,19 +287,28 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.editing_locked || self.saving.is_some() {
+        if self.editing_locked || self.saving.is_some() || self.save_cancel.is_some() {
             if !self.save_queue.contains(&id) {
                 self.save_queue.push_back(id);
             }
             return;
         }
         let Some(reader) = self.tabs.iter().find(|r| {
-            (r.is_dirty() || r.document.draft_directory.is_some())
+            (r.is_dirty() || r.document.draft_directory.is_some() || r.document.trashed)
                 && r.editor().is_some_and(|e| e.entity_id() == id)
         }) else {
             return;
         };
-        if reader.document.draft_directory.is_some() {
+        if reader.document.trashed && !reader.is_full_text_editor() {
+            let index = self
+                .tabs
+                .iter()
+                .position(|r| r.editor().is_some_and(|e| e.entity_id() == id))
+                .unwrap();
+            self.save_retained(index, window, cx);
+            return;
+        }
+        if reader.document.draft_directory.is_some() || reader.document.trashed {
             self.save_draft(id, window, cx);
             return;
         }
@@ -375,6 +397,144 @@ impl Workspace {
         cx.notify();
     }
 
+    fn save_retained(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.picking || self.is_saving() || crate::app::workspace_editors_locked(cx) {
+            return;
+        }
+        let reader = &mut self.tabs[index];
+        let file = reader.document.retained_file.clone();
+        let cached = reader
+            .document
+            .remote
+            .as_ref()
+            .and_then(|remote| remote.cache_path(&reader.document.path).ok());
+        if file.is_none() && cached.is_none() {
+            return;
+        }
+        let version = reader.document.version();
+        let name = reader
+            .document
+            .path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let directory = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| "/".into());
+        let selection = cx.prompt_for_new_path(&directory, Some(&name));
+        let page = reader.page_save_request(cx);
+        let text = reader
+            .editor()
+            .map(|editor| editor.read(cx).value().to_string());
+        reader.set_editing_locked(true, cx);
+        self.picking = true;
+        self.refresh_task = None;
+        let (cancel, guard) = glim_services::work::Cancellation::task();
+        self.save_cancel = Some(guard);
+        self.save_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let outcome = match selection.await {
+                Ok(Ok(Some(path))) => {
+                    let open = cx
+                        .update(|_, cx| crate::app::open_document_paths(cx))
+                        .unwrap_or_default();
+                    Some(
+                        cx.background_executor()
+                            .spawn(async move {
+                                let destination = glim_services::files::prepare_save_destination(
+                                    &path, &open, &cancel,
+                                )?;
+                                let page = page.as_ref().zip(text.as_deref());
+                                let file = match file {
+                                    Some(file) => file,
+                                    None => glim_services::files::RetainedFile::open(
+                                        cached.as_deref().ok_or_else(|| {
+                                            anyhow::anyhow!("Retained file unavailable")
+                                        })?,
+                                    )?
+                                    .ok_or_else(|| anyhow::anyhow!("Retained file unavailable"))?,
+                                };
+                                let path = file.save_as(&destination, page, &cancel)?;
+                                // Reopen only after the complete original (plus any page edit) is published.
+                                let content = glim_services::documents::read_content_cancellable(
+                                    &path, &cancel,
+                                );
+                                Ok::<_, anyhow::Error>((path, content))
+                            })
+                            .await,
+                    )
+                }
+                Ok(Ok(None)) => None,
+                other => Some(Err(anyhow::anyhow!(
+                    "Cannot choose save location: {other:?}"
+                ))),
+            };
+            let _ = view.update_in(cx, |view, window, cx| {
+                view.picking = false;
+                view.save_cancel = None;
+                if let Some(index) = view
+                    .tabs
+                    .iter()
+                    .position(|reader| reader.document.version() == version)
+                {
+                    view.tabs[index].finish_page_save();
+                    view.tabs[index].set_editing_locked(view.editing_locked, cx);
+                    match outcome {
+                        Some(Ok((_path, Ok(content)))) => {
+                            let old = super::header::Target::from_reader(&view.tabs[index]);
+                            let mut reader =
+                                crate::views::reader::Reader::from_content(content, window, cx);
+                            reader.set_word_wrap(view.word_wrap, window, cx);
+                            reader.set_editing_locked(view.editing_locked, cx);
+                            view.tabs[index].deactivate(cx);
+                            view.tabs[index] = reader;
+                            let new = super::header::Target::from_reader(&view.tabs[index]);
+                            if let Some(CloseRequest {
+                                action: DiscardAction::CloseTabs(targets),
+                                ..
+                            }) = &mut view.close_request
+                            {
+                                for target in targets {
+                                    if *target == old {
+                                        *target = new.clone();
+                                    }
+                                }
+                            }
+                            if view.active == Some(index) {
+                                view.tabs[index].activate(cx);
+                                view.reveal_active_file(cx);
+                            }
+                            view.error = None;
+                        }
+                        Some(Ok((path, Err(_)))) => {
+                            // The saved copy is safe even when its preview cannot be rebuilt.
+                            view.cancel_close_request(cx);
+                            view.open_system_file(path, window, cx);
+                        }
+                        other => {
+                            view.cancel_close_request(cx);
+                            if let Some(Err(error)) = other {
+                                view.error = Some(
+                                    format!(
+                                        "{}: {error:#}",
+                                        glim_services::locale::tr("Save failed")
+                                    )
+                                    .into(),
+                                );
+                            }
+                        }
+                    }
+                }
+                view.observe_autosave(window, cx);
+                view.remember_session(cx);
+                view.resume_queued_saves(window, cx);
+                view.continue_close(window, cx);
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
     fn save_draft(&mut self, id: EntityId, window: &mut Window, cx: &mut Context<Self>) {
         if self.picking || crate::app::updates::busy(cx) {
             self.cancel_close_request(cx);
@@ -387,7 +547,17 @@ impl Workspace {
         }) else {
             return;
         };
-        let directory = reader.document.draft_directory.clone().unwrap();
+        let directory = reader.document.draft_directory.clone().unwrap_or_else(|| {
+            reader
+                .document
+                .path
+                .ancestors()
+                .skip(1)
+                .find(|path| self.roots.iter().any(|root| root == *path))
+                .map(ToOwned::to_owned)
+                .or_else(|| std::env::var_os("HOME").map(std::path::PathBuf::from))
+                .unwrap_or_else(|| "/".into())
+        });
         let name = if std::path::Path::new(reader.title.as_ref())
             .extension()
             .is_some()
@@ -502,7 +672,7 @@ impl Workspace {
                         view.cancel_close_request(cx);
                         // Cancel a batch of draft-save dialogs as a unit; ordinary
                         // file autosaves may continue without opening more panels.
-                        let drafts = view.tabs.iter().filter(|reader| reader.document.draft_directory.is_some())
+                        let drafts = view.tabs.iter().filter(|reader| !reader.document.autosave_enabled())
                             .filter_map(|reader| reader.editor().map(|editor| editor.entity_id()))
                             .collect::<Vec<_>>();
                         view.save_queue.retain(|queued| *queued != id && !drafts.contains(queued));

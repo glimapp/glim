@@ -43,7 +43,7 @@ pub(crate) fn start(
                 view.read(cx).check_file_move(&source, cx)?;
             }
         }
-        super::lock_workspace_editors(requester.entity_id(), &source, cx)
+        super::lock_workspace_editors(requester.entity_id(), &source, false, cx)
     })();
     if let Err(error) = validation {
         requester.update(cx, |view, cx| {
