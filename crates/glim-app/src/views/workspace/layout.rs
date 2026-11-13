@@ -302,7 +302,7 @@ impl Workspace {
         if self.workspace_sidebar_visible() {
             (window_width * self.sidebar_ratio).clamp(160., window_width * 0.35)
         } else {
-            48.
+            super::COLLAPSED_WORKSPACE_WIDTH
         }
     }
 

@@ -322,7 +322,7 @@ impl Workspace {
                         .active(background),
                 )
                 .bg(background)
-                .w(px(32.))
+                .w(px(super::COLLAPSED_WORKSPACE_ROW_WIDTH))
                 .h(px(super::WORKSPACE_ROW_HEIGHT))
                 .p_0()
                 .flex_shrink_0()
@@ -349,7 +349,7 @@ impl Workspace {
                 .map(|button| {
                     div()
                         .relative()
-                        .w(px(32.))
+                        .w(px(super::COLLAPSED_WORKSPACE_ROW_WIDTH))
                         .h(px(super::WORKSPACE_ROW_HEIGHT))
                         .flex_shrink_0()
                         .when(selected, |view| view.child(outline.row_marker()))
@@ -359,7 +359,7 @@ impl Workspace {
                 if selected {
                     pinned = Some((index, self.pinned_workspace_row(row, &scroll, cx)));
                     div()
-                        .w(px(32.))
+                        .w(px(super::COLLAPSED_WORKSPACE_ROW_WIDTH))
                         .h(px(super::WORKSPACE_ROW_HEIGHT))
                         .flex_shrink_0()
                         .into_any_element()
@@ -403,7 +403,10 @@ impl Workspace {
             .disabled(self.picking || crate::app::updates::busy(cx))
             .accessibility_label(label.clone())
             .when(collapsed, |button| {
-                button.w(px(32.)).p_0().tooltip(label.clone())
+                button
+                    .w(px(super::COLLAPSED_WORKSPACE_ROW_WIDTH))
+                    .p_0()
+                    .tooltip(label.clone())
             })
             .when(!collapsed, |button| button.w_full().px_3().justify_start())
             .child(

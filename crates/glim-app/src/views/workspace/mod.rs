@@ -19,6 +19,8 @@ mod workspaces;
 pub(crate) const TITLE_BAR_HEIGHT: f32 = 40.;
 pub(crate) const CONTENT_INSET: f32 = 6.;
 const WORKSPACE_ROW_HEIGHT: f32 = 34.;
+const COLLAPSED_WORKSPACE_WIDTH: f32 = 56.;
+const COLLAPSED_WORKSPACE_ROW_WIDTH: f32 = 40.;
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;

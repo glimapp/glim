@@ -697,7 +697,7 @@ impl Render for Workspace {
                     view.child(
                         v_flex()
                             .id("collapsed-sidebar")
-                            .w(px(48.))
+                            .w(px(super::COLLAPSED_WORKSPACE_WIDTH))
                             .h_full()
                             .flex_shrink_0()
                             .items_center()
@@ -714,7 +714,7 @@ impl Render for Workspace {
                                             .active(cx.theme().sidebar),
                                     )
                                     .bg(cx.theme().sidebar)
-                                    .w(px(32.))
+                                    .w(px(super::COLLAPSED_WORKSPACE_ROW_WIDTH))
                                     .h(px(super::WORKSPACE_ROW_HEIGHT))
                                     .flex_shrink_0()
                                     .icon(
