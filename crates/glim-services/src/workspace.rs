@@ -5,6 +5,9 @@ use anyhow::{Context, Result, ensure};
 use glim_core::DirectoryEntry;
 use ignore::WalkBuilder;
 
+mod moving;
+pub use moving::move_entry;
+
 pub struct FolderSnapshot {
     pub root: PathBuf,
     pub entries: Vec<DirectoryEntry>,
@@ -174,7 +177,6 @@ pub fn search_page(
 
 /// Move the entry itself to macOS Trash. Never resolve a symlink to its target.
 pub fn trash_entry(path: &Path) -> Result<()> {
-    use std::{os::unix::fs::PermissionsExt, process::Command};
     let _guard = crate::files::SAVE_LOCK
         .lock()
         .map_err(|_| anyhow::anyhow!("File operation lock unavailable"))?;
@@ -184,6 +186,11 @@ pub fn trash_entry(path: &Path) -> Result<()> {
         "Cannot trash a filesystem root"
     );
     std::fs::symlink_metadata(&path).context("The item no longer exists")?;
+    run_file_operation(&[std::ffi::OsStr::new("--trash"), path.as_os_str()])
+}
+
+fn run_file_operation(arguments: &[&std::ffi::OsStr]) -> Result<()> {
+    use std::{os::unix::fs::PermissionsExt, process::Command};
     let directory = tempfile::tempdir()?;
     let helper = directory.path().join("glim-file-operation");
     std::fs::write(
@@ -191,7 +198,7 @@ pub fn trash_entry(path: &Path) -> Result<()> {
         include_bytes!(concat!(env!("OUT_DIR"), "/glim-preview")),
     )?;
     std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700))?;
-    let output = Command::new(helper).arg("--trash").arg(&path).output()?;
+    let output = Command::new(helper).args(arguments).output()?;
     ensure!(
         output.status.success(),
         "{}",

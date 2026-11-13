@@ -13,6 +13,12 @@ See [installation](../README.md#download) first.
 - Home offers file, workspace and new-file actions, plus recent workspaces. Renaming a workspace changes its display name, not the directory on disk.
 - ⌘K or ⇧⌘F searches the workspace. Text-content search falls back to filenames when it finds no matches or cannot complete. ⌘F finds within the current file; ⌥⌘F opens replacement in editable text.
 
+## Move files and folders
+
+In a local file tree, drag one file or folder onto a destination folder. The destination highlights, and pausing over a collapsed folder expands it. Workspace roots can receive items. You can also use **Move to Folder…** in an item's context menu, or select it in the file tree and press ⇧⌘M to choose a destination.
+
+Moves refuse existing names and moving a folder into itself or its descendants. Save unsaved files first. Open tabs reload at their new paths; undo history and document preview position may reset. SSH workspaces remain read-only.
+
 ## Open a remote folder
 
 Use the arrow beside Home’s **Open Workspace…** button to add an SSH connection or choose a saved connection. Settings → Files → SSH Connections manages multiple connections and offers a connection test. Enter a host (an SSH configuration alias also works), optionally a username or port. The form shows name, host and port, username, and private key in that order. Glim uses your Mac’s SSH configuration and agent when optional fields are empty. Connection tests cover the form with a status overlay; success dismisses after two seconds, and errors can be closed to edit the form. Saving from the manager immediately returns to the updated connection list and retains a successful test connection when its host and authentication settings still match. Green globes in the workspace list and recent workspaces, and green dots in SSH dialogs, indicate a live session. Red means disconnected or not connected; saving configuration alone does not establish a connection. The indicators update automatically when the SSH process exits. OpenSSH asks for host trust, passwords or key passphrases when needed.

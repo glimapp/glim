@@ -762,5 +762,12 @@
   "Indent / outdent (editor)": "编辑器中增加 / 减少缩进",
   "Go Back": "后退",
   "Go Forward": "前进",
-  "Book contents": "电子书目录"
+  "Book contents": "电子书目录",
+  "Could not move item": "无法移动项目",
+  "Moving item": "正在移动…",
+  "Move to Folder…": "移动到文件夹…",
+  "Move Here": "移动到这里",
+  "Move selected item in file tree": "移动文件树中选中的项目",
+  "A file operation is in progress. Wait for it to finish before moving this item.": "文件操作正在进行中，请完成后再移动。",
+  "An open file in this item has unsaved changes. Save it before moving this item.": "此项目中有未保存的文件，请保存后再移动。"
 }

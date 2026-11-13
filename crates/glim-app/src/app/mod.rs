@@ -4,6 +4,7 @@ mod assets;
 pub(crate) mod diagram_engine;
 pub(crate) mod document_session;
 pub(crate) mod edit_session;
+pub(crate) mod file_move;
 mod file_open;
 pub(crate) mod finder_integration;
 mod image_http;

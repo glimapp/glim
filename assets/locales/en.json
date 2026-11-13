@@ -762,5 +762,12 @@
   "Indent / outdent (editor)": "Indent / outdent (editor)",
   "Go Back": "Go Back",
   "Go Forward": "Go Forward",
-  "Book contents": "Book contents"
+  "Book contents": "Book contents",
+  "Could not move item": "Could not move item",
+  "Moving item": "Moving item",
+  "Move to Folder…": "Move to Folder…",
+  "Move Here": "Move Here",
+  "Move selected item in file tree": "Move selected item in file tree",
+  "A file operation is in progress. Wait for it to finish before moving this item.": "A file operation is in progress. Wait for it to finish before moving this item.",
+  "An open file in this item has unsaved changes. Save it before moving this item.": "An open file in this item has unsaved changes. Save it before moving this item."
 }

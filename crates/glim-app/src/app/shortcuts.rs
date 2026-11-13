@@ -50,6 +50,7 @@ impl Render for Shortcuts {
             ("Recognize image text (native preview)", "⇧⌘I"),
             ("Book contents", "⇧⌘T"),
             ("Select / expand / open in file tree", "↑↓ / ←→ / Enter"),
+            ("Move selected item in file tree", "⇧⌘M"),
             ("Open Settings", "⌘,"),
             ("Toggle theme", "⌥⌘T"),
             ("Keyboard shortcuts", "⌘/"),

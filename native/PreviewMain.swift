@@ -31,6 +31,18 @@ if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--trash" {
         exit(1)
     }
 }
+if CommandLine.arguments.count == 4 && CommandLine.arguments[1] == "--move" {
+    do {
+        try FileManager.default.moveItem(
+            at: URL(fileURLWithPath: CommandLine.arguments[2]),
+            to: URL(fileURLWithPath: CommandLine.arguments[3])
+        )
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data(error.localizedDescription.utf8))
+        exit(1)
+    }
+}
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 let delegate = SettingsApp()

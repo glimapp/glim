@@ -15,18 +15,26 @@ use gpui_kit::{
     *,
 };
 
+mod moving;
+use moving::DraggedEntry;
+
 pub enum ExplorerEvent {
     SelectionChanged,
     OpenFile(PathBuf),
     NewFile(PathBuf),
     RemoveFolder(u64),
     TrashEntry(PathBuf),
+    MoveEntry(PathBuf, PathBuf),
+    ChooseMoveEntry(PathBuf),
     PlayFolder(PathBuf, bool),
     Error(String),
     ExpansionChanged(Vec<PathBuf>, glim_services::preferences::ExplorerExpansion),
 }
 
-gpui_kit::actions!(explorer, [Up, Down, Expand, Collapse, OpenSelected]);
+gpui_kit::actions!(
+    explorer,
+    [Up, Down, Expand, Collapse, OpenSelected, MoveSelected]
+);
 
 const DIRECTORY_SCAN_CONCURRENCY: usize = 32;
 const MAX_ANCESTOR_ROWS: usize = 4;
@@ -88,6 +96,7 @@ enum FileMenuAction {
     CopyRelative,
     CopyAbsolute,
     Trash,
+    Move,
     RemoveFolder(u64),
 }
 
@@ -121,6 +130,8 @@ pub struct Explorer {
     scroll: UniformListScrollHandle,
     show_all_ancestors: bool,
     context_menu_task: Option<Task<()>>,
+    drag_hover: Option<(PathBuf, Task<()>)>,
+    drag_scroll: Option<Task<()>>,
 }
 
 impl EventEmitter<ExplorerEvent> for Explorer {}
@@ -133,6 +144,7 @@ impl Explorer {
             KeyBinding::new("right", Expand, Some("Explorer")),
             KeyBinding::new("left", Collapse, Some("Explorer")),
             KeyBinding::new("enter", OpenSelected, Some("Explorer")),
+            KeyBinding::new("secondary-shift-m", MoveSelected, Some("Explorer")),
         ]);
     }
 
@@ -166,6 +178,8 @@ impl Explorer {
             scroll: UniformListScrollHandle::new(),
             show_all_ancestors: false,
             context_menu_task: None,
+            drag_hover: None,
+            drag_scroll: None,
         };
         view.rebuild();
         view
@@ -913,6 +927,15 @@ impl Explorer {
         let hover_path = menu_path.clone();
 
         let menu_root = self.roots[root_index].clone();
+        let drag = DraggedEntry {
+            path: row.entry.path.clone(),
+            is_dir: row.entry.is_dir,
+        };
+        let drop_path = row.entry.path.clone();
+        let highlight_path = drop_path.clone();
+        let accept_path = drop_path.clone();
+        let hover_target = drop_path.clone();
+        let moving = crate::app::file_move::destination(cx) == Some(row.entry.path.as_path());
         let entry = div()
             .id(row.element_id(if sticky { "sticky-row" } else { "tree-row" }))
             .relative()
@@ -976,6 +999,49 @@ impl Explorer {
                 },
             )
             .when(sticky, |row| row.occlude())
+            .when(
+                self.remote.is_none() && row.depth > 0 && !crate::app::workspace_editors_locked(cx),
+                |entry| {
+                    entry.on_drag(drag, |drag, _, _, cx| {
+                        cx.stop_propagation();
+                        cx.new(|_| drag.clone())
+                    })
+                },
+            )
+            .when(self.remote.is_none() && row.entry.is_dir, |entry| {
+                entry
+                    .can_drop(move |value, _, cx| {
+                        !crate::app::workspace_editors_locked(cx)
+                            && value
+                                .downcast_ref::<DraggedEntry>()
+                                .is_some_and(|drag| drag.accepts(&accept_path))
+                    })
+                    .drag_over::<DraggedEntry>(move |style, drag, _, cx| {
+                        if !crate::app::workspace_editors_locked(cx)
+                            && drag.accepts(&highlight_path)
+                        {
+                            style.bg(super::selection_background(cx))
+                        } else {
+                            style
+                        }
+                    })
+                    .on_drag_move(cx.listener(
+                        move |view, event: &DragMoveEvent<DraggedEntry>, window, cx| {
+                            view.hover_move_folder(&hover_target, root_id, event, window, cx);
+                        },
+                    ))
+                    .on_drop(cx.listener(move |view, drag: &DraggedEntry, _, cx| {
+                        view.drag_hover = None;
+                        view.drag_scroll = None;
+                        if drag.accepts(&drop_path) && !crate::app::workspace_editors_locked(cx) {
+                            cx.emit(ExplorerEvent::MoveEntry(
+                                drag.path.clone(),
+                                drop_path.clone(),
+                            ));
+                        }
+                        cx.stop_propagation();
+                    }))
+            })
             .children((0..depth).map(|level| {
                 div()
                     .absolute()
@@ -1028,7 +1094,8 @@ impl Explorer {
                                         .justify_center()
                                         .child(
                                             if row.entry.is_dir
-                                                && self.tasks.contains_key(&row.entry.path)
+                                                && (moving
+                                                    || self.tasks.contains_key(&row.entry.path))
                                             {
                                                 super::loading_icon(
                                                     row.element_id(if sticky {
@@ -1037,7 +1104,11 @@ impl Explorer {
                                                         "loading"
                                                     }),
                                                     px(14.),
-                                                    glim_services::locale::tr("Loading folder"),
+                                                    glim_services::locale::tr(if moving {
+                                                        "Moving item"
+                                                    } else {
+                                                        "Loading folder"
+                                                    }),
                                                     cx,
                                                 )
                                             } else if row.entry.is_dir {
@@ -1354,8 +1425,11 @@ impl Explorer {
             (Some("Copy Relative Path"), Some(CopyRelative)),
             (Some("Copy Absolute Path"), Some(CopyAbsolute)),
             (None, None),
-            (Some("Move to Trash…"), Some(Trash)),
         ]);
+        if root_id.is_none() && self.remote.is_none() {
+            items.push((Some("Move to Folder…"), Some(Move)));
+        }
+        items.push((Some("Move to Trash…"), Some(Trash)));
         if let Some(id) = root_id {
             items.extend([
                 (None, None),
@@ -1367,7 +1441,12 @@ impl Explorer {
         }
         let titles = items
             .iter()
-            .map(|(label, _)| (label.map(glim_services::locale::tr), true))
+            .map(|(label, action)| {
+                (
+                    label.map(glim_services::locale::tr),
+                    !matches!(action, Some(Move)) || !crate::app::workspace_editors_locked(cx),
+                )
+            })
             .collect::<Vec<_>>();
         self.context_menu_task = None;
         let Some(menu) = super::native_menu_bridge::NativeMenu::new(&titles, window) else {
@@ -1389,6 +1468,7 @@ impl Explorer {
                         CopyRelative => "copy_relative_path",
                         CopyAbsolute => "copy_absolute_path",
                         Trash => "trash",
+                        Move => "move",
                         RemoveFolder(_) => "remove_folder",
                     };
                     glim_services::telemetry::file_event(
@@ -1417,6 +1497,7 @@ impl Explorer {
                             path.to_string_lossy().into_owned(),
                         )),
                         Trash => cx.emit(ExplorerEvent::TrashEntry(path.clone())),
+                        Move => cx.emit(ExplorerEvent::ChooseMoveEntry(path.clone())),
                         RemoveFolder(id) => cx.emit(ExplorerEvent::RemoveFolder(id)),
                     }
                 }
@@ -1471,11 +1552,25 @@ impl Render for Explorer {
             .min_h_0()
             .key_context("Explorer")
             .track_focus(&self.focus)
+            .on_drag_move(
+                cx.listener(|view, _: &DragMoveEvent<DraggedEntry>, window, cx| {
+                    view.start_move_scroll(window, cx);
+                }),
+            )
             .on_action(cx.listener(|view, _: &Up, _, cx| view.move_selection(false, cx)))
             .on_action(cx.listener(|view, _: &Down, _, cx| view.move_selection(true, cx)))
             .on_action(cx.listener(|view, _: &OpenSelected, window, cx| {
                 if let Some(index) = view.selected {
                     view.activate(index, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|view, _: &MoveSelected, _, cx| {
+                if view.remote.is_none()
+                    && !crate::app::workspace_editors_locked(cx)
+                    && let Some(row) = view.selected.and_then(|index| view.rows.get(index))
+                    && row.depth > 0
+                {
+                    cx.emit(ExplorerEvent::ChooseMoveEntry(row.entry.path.clone()));
                 }
             }))
             .on_action(cx.listener(|view, _: &Expand, window, cx| {

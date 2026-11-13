@@ -154,7 +154,10 @@ impl Workspace {
         true
     }
     pub(super) fn load_incoming_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.incoming_file_task.is_some() || self.loading {
+        if self.incoming_file_task.is_some()
+            || self.loading
+            || crate::app::file_move::destination(cx).is_some()
+        {
             return;
         }
         let Some(path) = self.incoming_files.front().cloned() else {
@@ -215,6 +218,12 @@ impl Workspace {
     }
 
     pub(super) fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if crate::app::file_move::destination(cx).is_some()
+            && !glim_services::remote::is_remote_id(&self.recent_id)
+        {
+            self.open_system_file(path, window, cx);
+            return;
+        }
         self.close_search(window, cx);
         if self
             .pending_search_location
@@ -370,6 +379,17 @@ impl Workspace {
                         view.choose_new_file_in(path.clone(), window, cx)
                     }
                     ExplorerEvent::TrashEntry(path) => view.confirm_trash(path.clone(), window, cx),
+                    ExplorerEvent::MoveEntry(source, directory) => {
+                        let source = source.clone();
+                        let directory = directory.clone();
+                        let requester = cx.entity().downgrade();
+                        cx.defer(move |cx| {
+                            crate::app::file_move::start(source, directory, requester, cx)
+                        });
+                    }
+                    ExplorerEvent::ChooseMoveEntry(source) => {
+                        view.choose_move_entry(source.clone(), window, cx)
+                    }
                     ExplorerEvent::RemoveFolder(root_id) => {
                         view.remove_folder(*root_id, window, cx)
                     }
@@ -472,7 +492,7 @@ impl Workspace {
         }));
     }
 
-    fn scan_workspace_roots(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn scan_workspace_roots(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if glim_services::remote::is_remote_id(&self.recent_id) {
             self.start_remote_search_index(false, window, cx);
             self.start_remote_watching(window, cx);

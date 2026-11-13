@@ -4,6 +4,7 @@ mod gestures;
 mod header;
 mod layout;
 mod loading;
+mod moving;
 mod reader_actions;
 mod remote;
 mod render;
@@ -164,6 +165,7 @@ impl Workspace {
     }
     pub(crate) fn unlock_and_refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.set_editing_locked(false, cx);
+        self.load_incoming_file(window, cx);
         self.refresh(window, cx);
         // Finish removing trashed readers before resuming paused autosaves.
         let view = cx.entity().downgrade();
