@@ -1503,12 +1503,8 @@ impl Explorer {
             (Some("Copy Absolute Path"), Some(CopyAbsolute)),
             (None, None),
         ]);
-        if root_id.is_none() {
-            if self.remote.is_some() {
-                items.push((Some("Rename…"), Some(Rename)));
-            }
-            items.push((Some("Move to Folder…"), Some(Move)));
-        }
+        items.push((Some("Rename…"), Some(Rename)));
+        items.push((Some("Move to Folder…"), Some(Move)));
         items.push((Some("Move to Trash…"), Some(Trash)));
         if let Some(id) = root_id {
             items.extend([
@@ -1528,7 +1524,13 @@ impl Explorer {
             .map(|(label, action)| {
                 (
                     label.map(glim_services::locale::tr),
-                    !matches!(action, Some(Move)) || !crate::app::workspace_editors_locked(cx),
+                    match action {
+                        Some(NewFile | NewFolder) => !crate::app::workspace_editors_locked(cx),
+                        Some(Rename | Move | Trash) => {
+                            path.file_name().is_some() && !crate::app::workspace_editors_locked(cx)
+                        }
+                        _ => true,
+                    },
                 )
             })
             .collect::<Vec<_>>();

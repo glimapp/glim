@@ -1,4 +1,5 @@
 mod editing;
+mod file_actions;
 mod file_operations;
 mod gestures;
 mod header;

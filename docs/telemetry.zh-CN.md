@@ -111,7 +111,7 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 | 布局停留 | `foreground_segment` 及工作区上下文带 `layout_mode`、`workspace_sidebar_expanded`、`file_tree_visible`、`changes_expanded`、`file_fullscreen`；布局变化切分前台片段。`three_column` 表示工作区栏、文件树与阅读区同时展开；收起工作区栏、隐藏文件树及文件全屏分别统计。 |
 | 工作区动作 | `workspace_action`：选择工作区、从最近列表打开、重命名、关闭、搜索开关／重试／选中结果、阅读器工具栏显隐，以及删除后保留标签的数量。均不含工作区名称。 |
 | 文件树调用 | `explorer_action`：菜单、拖放、移动快捷键的调用，`input_source=menu|drag_drop|keyboard`、`storage=local|ssh` 和是否为文件夹。 |
-| 文件操作结果 | `file_operation`：本地新建文件夹、移动、废纸篓；SSH 新建文件／文件夹、重命名、移动、废纸篓。记录 `action`、存储类型、结果和已开始工作耗时；选择器／确认框取消记 `cancelled`。本地新文件沿用草稿创建与首次落盘事件；尚未通过校验的请求不视为已完成工作。 |
+| 文件操作结果 | `file_operation`：本地与 SSH 文件树的新建文件／文件夹、重命名、移动、废纸篓。记录 `action`、存储类型、结果和已开始工作耗时；选择器／确认框取消记 `cancelled`。本地 ⌘N 新文件沿用草稿创建与首次落盘事件；尚未通过校验的请求不视为已完成工作。 |
 | 工作区搜索 | `workspace_search_completed`：`search_mode=content|filename`、存储类型、结果、当前页数量／偏移、耗时；内容检索还带 `filename_fallback`。远端文件名结果只在完整页就绪时计完成，不按索引轮询计数，不上传搜索词。 |
 | Git 仓库检测 | `workspace_git_detected`：存储类型、结果、耗时与仓库数量；`semantic=observation`、`trigger=background`。当前没有 diff 内容使用事件；检测和变更面板展开不能当作看过 diff。 |
 | PDF／图片 | 原生动作区分 `fit_page`、`fit_width`、`fit_image`、`actual_size`；PDF 的 `layout` 带具体布局；原生查找增加上／下一个匹配、关闭、大小写开关，以及 `⌘F`、`⌘G`、`⇧⌘G`、Enter／Shift+Enter 和 Esc 的已处理快捷键。初次打开 PDF 的自动整页适配不记用户操作。`pan` 在实际移动后的鼠标松开时每次拖动只记一条，包含可视区 point×100 的横纵累计位移，排除边界上未移动的输入；统计开关在拖动中变化会丢弃该段。 |

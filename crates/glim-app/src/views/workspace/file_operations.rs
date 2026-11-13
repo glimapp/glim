@@ -14,61 +14,12 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_some() {
-            self.remote_file_dialog(
-                super::remote::operations::FileAction::NewFolder,
-                directory,
-                window,
-                cx,
-            );
-            return;
-        }
-        if self.picking || crate::app::workspace_editors_locked(cx) || crate::app::updates::busy(cx)
-        {
-            return;
-        }
-        self.picking = true;
-        let selection = cx.prompt_for_new_path(
-            &directory,
-            Some(&glim_services::locale::tr("Untitled Folder")),
+        self.file_action_dialog(
+            super::file_actions::FileAction::NewFolder,
+            directory,
+            window,
+            cx,
         );
-        self.picker_task = Some(cx.spawn_in(window, async move |view, cx| {
-            let result = match selection.await {
-                Ok(Ok(Some(path))) => {
-                    cx.background_executor()
-                        .spawn(async move {
-                            let started = std::time::Instant::now();
-                            let result = glim_services::workspace::create_folder(&path);
-                            glim_services::telemetry::file_operation(
-                                "new_folder",
-                                "local",
-                                &path,
-                                started,
-                                &result,
-                            );
-                            result
-                        })
-                        .await
-                }
-                Ok(Ok(None)) => {
-                    glim_services::telemetry::file_operation_cancelled(
-                        "new_folder",
-                        "local",
-                        &directory,
-                    );
-                    Ok(())
-                }
-                other => Err(anyhow::anyhow!("Cannot choose folder: {other:?}")),
-            };
-            let _ = view.update_in(cx, |view, window, cx| {
-                view.picking = false;
-                if let Err(error) = result {
-                    view.error = Some(format!("{error:#}").into());
-                }
-                view.refresh(window, cx);
-                cx.notify();
-            });
-        }));
     }
     pub(super) fn choose_new_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let directory = self
@@ -93,8 +44,8 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if glim_services::remote::is_remote_id(&self.recent_id) {
-            self.remote_file_dialog(
-                super::remote::operations::FileAction::NewFile,
+            self.file_action_dialog(
+                super::file_actions::FileAction::NewFile,
                 directory,
                 window,
                 cx,

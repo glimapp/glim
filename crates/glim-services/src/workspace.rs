@@ -6,7 +6,7 @@ use glim_core::DirectoryEntry;
 use ignore::WalkBuilder;
 
 mod moving;
-pub use moving::move_entry;
+pub use moving::{move_entry, rename_entry};
 
 pub struct FolderSnapshot {
     pub root: PathBuf,
@@ -35,6 +35,15 @@ pub fn discover_git_roots(
 
 pub fn create_folder(path: &Path) -> Result<()> {
     std::fs::create_dir(path).with_context(|| format!("Cannot create folder {}", path.display()))
+}
+
+pub fn create_file(path: &Path) -> Result<()> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .with_context(|| format!("Cannot create file {}", path.display()))?;
+    Ok(())
 }
 
 pub fn open_folder(path: &Path) -> Result<FolderSnapshot> {

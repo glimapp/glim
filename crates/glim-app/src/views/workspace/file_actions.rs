@@ -1,6 +1,14 @@
-use super::*;
-use gpui_kit::component::{WindowExt, dialog::DialogButtonProps};
-use std::path::Path;
+use super::Workspace;
+use glim_services::{locale::tr, remote::Session, work::Cancellation};
+use gpui_kit::{
+    component::{
+        ActiveTheme, WindowExt, button::Button, dialog::DialogButtonProps, h_flex,
+        input::InputState,
+    },
+    prelude::FluentBuilder,
+    *,
+};
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy)]
 pub(crate) enum FileAction {
@@ -36,18 +44,20 @@ impl Workspace {
         })
     }
 
-    pub(in crate::views::workspace) fn remote_file_dialog(
+    pub(super) fn file_action_dialog(
         &mut self,
         action: FileAction,
         path: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote.is_none()
+        let is_remote = glim_services::remote::is_remote_id(&self.recent_id);
+        if (is_remote && (self.remote.is_none() || self.remote_disconnected))
             || self.loading
             || self.remote_restore.is_some()
-            || self.remote_disconnected
             || self.picking
+            || self.confirm_task.is_some()
+            || crate::app::updates::busy(cx)
             || crate::app::workspace_editors_locked(cx)
         {
             return;
@@ -77,7 +87,7 @@ impl Workspace {
         let close_owner = owner.clone();
         self.picking = true;
         self.record_workspace_action(
-            "remote_file_dialog",
+            "file_dialog",
             [(
                 "file_action",
                 glim_services::telemetry::text(action.telemetry_action()),
@@ -110,13 +120,13 @@ impl Workspace {
                         .justify_end()
                         .gap_2()
                         .child(
-                            Button::new("remote-operation-cancel")
+                            Button::new("file-operation-cancel")
                                 .label(tr("Cancel"))
                                 .on_click(|_, window, cx| window.close_dialog(cx)),
                         )
                         .child(
                             crate::views::primary_button(
-                                "remote-operation-confirm",
+                                "file-operation-confirm",
                                 &tr(match action {
                                     FileAction::Move => "Move Here",
                                     _ => "Save",
@@ -172,13 +182,10 @@ impl Workspace {
                                 }
                             };
                             view.picking = false;
-                            view.run_remote_file_operation(
-                                action,
-                                path.clone(),
-                                destination,
-                                window,
-                                cx,
-                            );
+                            if matches!(action, FileAction::Rename) && destination == path {
+                                return true;
+                            }
+                            view.run_file_action(action, path.clone(), destination, window, cx);
                             true
                         })
                         .unwrap_or(true)
@@ -188,7 +195,7 @@ impl Workspace {
                         if view.picking {
                             glim_services::telemetry::file_operation_cancelled(
                                 action.telemetry_action(),
-                                "ssh",
+                                if is_remote { "ssh" } else { "local" },
                                 &cancelled_path,
                             );
                         }
@@ -202,7 +209,7 @@ impl Workspace {
                         if view.picking {
                             glim_services::telemetry::file_operation_cancelled(
                                 action.telemetry_action(),
-                                "ssh",
+                                if is_remote { "ssh" } else { "local" },
                                 &closed_path,
                             );
                         }
@@ -211,6 +218,73 @@ impl Workspace {
                     });
                 })
         });
+    }
+
+    fn run_file_action(
+        &mut self,
+        action: FileAction,
+        source: PathBuf,
+        destination: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if glim_services::remote::is_remote_id(&self.recent_id) {
+            self.run_remote_file_operation(action, source, destination, window, cx);
+            return;
+        }
+        if matches!(action, FileAction::Rename | FileAction::Move) {
+            let requester = cx.entity().downgrade();
+            cx.defer(move |cx| {
+                if matches!(action, FileAction::Rename) {
+                    if let Some(name) = destination.file_name() {
+                        crate::app::file_move::rename(source, name.to_owned(), requester, cx);
+                    }
+                } else if let Some(directory) = destination.parent() {
+                    crate::app::file_move::start(source, directory.to_path_buf(), requester, cx);
+                }
+            });
+            return;
+        }
+        let path = destination.clone();
+        let work = cx.background_executor().spawn(async move {
+            let started = std::time::Instant::now();
+            let result = match action {
+                FileAction::NewFile => glim_services::workspace::create_file(&path),
+                FileAction::NewFolder => glim_services::workspace::create_folder(&path),
+                _ => unreachable!(),
+            };
+            glim_services::telemetry::file_operation(
+                action.telemetry_action(),
+                "local",
+                &path,
+                started,
+                &result,
+            );
+            result
+        });
+        self.confirm_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let result = work.await;
+            let _ = view.update_in(cx, |view, window, cx| {
+                view.confirm_task = None;
+                match result {
+                    Ok(()) => {
+                        view.refresh(window, cx);
+                        if let Some(explorer) = &view.explorer {
+                            explorer.update(cx, |explorer, cx| {
+                                explorer.reveal_path(destination.clone(), cx)
+                            });
+                        }
+                        if matches!(action, FileAction::NewFile) {
+                            view.open_path(destination, window, cx);
+                        }
+                    }
+                    Err(error) => {
+                        view.error = Some(format!("{error:#}").into());
+                        cx.notify();
+                    }
+                }
+            });
+        }));
     }
 
     pub(in crate::views::workspace) fn run_remote_file_operation(
@@ -274,6 +348,9 @@ impl Workspace {
                             window,
                             cx,
                         );
+                        if matches!(action, FileAction::NewFile) {
+                            view.open_path(destination.clone(), window, cx);
+                        }
                         crate::app::notify_remote_file_operation(
                             cx.entity_id(),
                             remote,

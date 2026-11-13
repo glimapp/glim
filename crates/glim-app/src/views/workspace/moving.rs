@@ -12,12 +12,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if glim_services::remote::is_remote_id(&self.recent_id) {
-            self.remote_file_dialog(
-                super::remote::operations::FileAction::Move,
-                source,
-                window,
-                cx,
-            );
+            self.file_action_dialog(super::file_actions::FileAction::Move, source, window, cx);
             return;
         }
         if self.picking || crate::app::workspace_editors_locked(cx) {

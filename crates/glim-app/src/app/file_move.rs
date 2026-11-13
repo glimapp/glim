@@ -33,6 +33,28 @@ pub(crate) fn start(
     requester: WeakEntity<Workspace>,
     cx: &mut App,
 ) {
+    start_operation(source, directory, None, requester, cx)
+}
+
+pub(crate) fn rename(
+    source: PathBuf,
+    name: std::ffi::OsString,
+    requester: WeakEntity<Workspace>,
+    cx: &mut App,
+) {
+    let Some(parent) = source.parent().map(Path::to_path_buf) else {
+        return;
+    };
+    start_operation(source, parent, Some(name), requester, cx)
+}
+
+fn start_operation(
+    source: PathBuf,
+    directory: PathBuf,
+    name: Option<std::ffi::OsString>,
+    requester: WeakEntity<Workspace>,
+    cx: &mut App,
+) {
     let Some(requester) = requester.upgrade() else {
         return;
     };
@@ -64,10 +86,25 @@ pub(crate) fn start(
         .collect::<Vec<_>>();
     let target = directory.clone();
     let origin = source.clone();
+    let error_label = if name.is_some() {
+        "Could not rename item"
+    } else {
+        "Could not move item"
+    };
     let work = cx.background_executor().spawn(async move {
         let started = std::time::Instant::now();
-        let result = glim_services::workspace::move_entry(&origin, &target);
-        glim_services::telemetry::file_operation("move", "local", &origin, started, &result);
+        let (action, result) = if let Some(name) = name {
+            (
+                "rename",
+                glim_services::workspace::rename_entry(&origin, &name),
+            )
+        } else {
+            (
+                "move",
+                glim_services::workspace::move_entry(&origin, &target),
+            )
+        };
+        glim_services::telemetry::file_operation(action, "local", &origin, started, &result);
         result
     });
     let task = cx.spawn(async move |cx| {
@@ -112,12 +149,10 @@ pub(crate) fn start(
             for (view, handle) in OpenWorkspaces::windows(cx) {
                 let moved = result.as_ref().ok().cloned();
                 let source = source.clone();
-                let error = result.as_ref().err().map(|error| {
-                    format!(
-                        "{}: {error:#}",
-                        glim_services::locale::tr("Could not move item")
-                    )
-                });
+                let error = result
+                    .as_ref()
+                    .err()
+                    .map(|error| format!("{}: {error:#}", glim_services::locale::tr(error_label)));
                 let requester = requester.downgrade();
                 cx.defer(move |cx| {
                     let _ = handle.update(cx, |_, window, cx| {

@@ -375,23 +375,17 @@ impl Workspace {
                         cx.notify();
                     }
                     ExplorerEvent::OpenFile(path) => view.open_path(path.clone(), window, cx),
-                    ExplorerEvent::NewFile(path) => {
-                        view.choose_new_file_in(path.clone(), window, cx)
-                    }
+                    ExplorerEvent::NewFile(path) => view.file_action_dialog(
+                        super::file_actions::FileAction::NewFile,
+                        path.clone(),
+                        window,
+                        cx,
+                    ),
                     ExplorerEvent::NewFolder(path) => {
-                        if view.remote.is_some() {
-                            view.remote_file_dialog(
-                                super::remote::operations::FileAction::NewFolder,
-                                path.clone(),
-                                window,
-                                cx,
-                            );
-                        } else {
-                            view.choose_new_folder_in(path.clone(), window, cx);
-                        }
+                        view.choose_new_folder_in(path.clone(), window, cx);
                     }
-                    ExplorerEvent::RenameEntry(path) => view.remote_file_dialog(
-                        super::remote::operations::FileAction::Rename,
+                    ExplorerEvent::RenameEntry(path) => view.file_action_dialog(
+                        super::file_actions::FileAction::Rename,
                         path.clone(),
                         window,
                         cx,
@@ -402,7 +396,7 @@ impl Workspace {
                             let destination =
                                 directory.join(source.file_name().unwrap_or_default());
                             view.run_remote_file_operation(
-                                super::remote::operations::FileAction::Move,
+                                super::file_actions::FileAction::Move,
                                 source.clone(),
                                 destination,
                                 window,

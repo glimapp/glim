@@ -1,5 +1,4 @@
 mod dialog;
-pub(super) mod operations;
 mod watch;
 
 use super::Workspace;
