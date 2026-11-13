@@ -23,6 +23,7 @@ pub(super) struct MarkupReader {
     pending_anchor: Option<String>,
     preview_text: String,
     initial_preview: Option<String>,
+    eager_layout: bool,
     preview_generation: Rc<Cell<usize>>,
     format_path: Option<std::path::PathBuf>,
     _subscription: Subscription,
@@ -60,6 +61,7 @@ impl MarkupReader {
         let normalized =
             (!html).then(|| glim_services::markdown_preview::normalize_tables(preview_content));
         let preview_content = normalized.as_deref().unwrap_or(preview_content);
+        let eager_layout = eager_preview_layout(preview_content);
         let state = cx.new(|cx| {
             if html {
                 TextViewState::html("", cx)
@@ -67,6 +69,9 @@ impl MarkupReader {
                 TextViewState::markdown("", cx)
             }
         });
+        if !eager_layout {
+            state.read(cx).list_state().measure_visible(px(42.));
+        }
         let base = url::Url::from_file_path(path).expect("absolute document path");
         let pictures = cx.new(|cx| {
             Pictures::new(
@@ -137,6 +142,7 @@ impl MarkupReader {
             pending_anchor: None,
             preview_text: text.to_owned(),
             initial_preview: (!html).then(|| preview_content.to_owned()),
+            eager_layout,
             preview_generation: Rc::new(Cell::new(0)),
             format_path,
         }
@@ -175,6 +181,16 @@ impl MarkupReader {
             .get_or_insert_with(|| self.state.read(cx).list_state().logical_scroll_top());
         self.pending_scroll_source = Some(text.clone());
         self.headings = headings(&text);
+        let eager_layout = eager_preview_layout(&text);
+        if eager_layout != self.eager_layout {
+            let list = self.state.read(cx).list_state().clone();
+            if eager_layout {
+                list.measure_all();
+            } else {
+                list.measure_visible(px(42.));
+            }
+            self.eager_layout = eager_layout;
+        }
         self.state.update(cx, |s, cx| s.set_text(&text, cx));
         self.pictures.update(cx, |pictures, cx| {
             pictures.load(text.clone(), self.html, cx)
@@ -325,7 +341,6 @@ impl MarkupReader {
             }
         }
         let list = self.state.read(cx).list_state().clone();
-        list.measure_visible(px(42.));
         if !self.state.read(cx).rendered_text().source().is_empty()
             && preview_ready
             && let Some(offset) = self.pending_scroll.take()
@@ -364,8 +379,8 @@ impl MarkupReader {
         list.set_scroll_handler(move |_, _, cx| {
             let _ = minimap.update(cx, |_, cx| cx.notify());
         });
-        // The viewport owns a virtual block list; offscreen tables are not
-        // rebuilt and laid out on every wheel event.
+        // Cache exact block heights up front within the eager-layout budget;
+        // painting stays virtual so wheel events only rebuild nearby blocks.
         let style = TextViewDefaults::global(cx)
             .style()
             .cloned()
@@ -552,6 +567,12 @@ pub(super) fn follow_link(
         }
     }
 }
+fn eager_preview_layout(text: &str) -> bool {
+    use glim_services::limits::{MARKUP_EAGER_LAYOUT_BYTES, MARKUP_EAGER_LAYOUT_LINES};
+    text.len() <= MARKUP_EAGER_LAYOUT_BYTES
+        && text.lines().take(MARKUP_EAGER_LAYOUT_LINES + 1).count() <= MARKUP_EAGER_LAYOUT_LINES
+}
+
 // The mdast list-item span starts at its bullet, so matching the marker here
 // cannot toggle examples in code blocks or similarly worded tasks elsewhere.
 fn task_marker(text: &str, start: usize) -> Option<usize> {
@@ -643,6 +664,76 @@ fn headings(text: &str) -> HashMap<String, Range<usize>> {
 #[cfg(test)]
 mod tests {
     use super::{decode_fragment, headings};
+    use gpui_kit::{
+        AppContext, Context, IntoElement, ListAlignment, ListState, Render, ScrollDelta,
+        ScrollWheelEvent, Styled, TestAppContext, VisualTestContext, Window, div, list, point, px,
+        size,
+    };
+
+    #[gpui_kit::test]
+    fn visible_preview_scrolls_both_ways_after_drag(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let state = ListState::new(10_000, ListAlignment::Top, px(100.));
+        state.measure_visible(px(42.));
+
+        struct TestView(ListState);
+        impl Render for TestView {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                list(self.0.clone(), |ix, _, _| {
+                    div()
+                        .h(px(if ix % 7 == 0 { 700. } else { 50. }))
+                        .w_full()
+                        .into_any_element()
+                })
+                .size_full()
+            }
+        }
+        let view = cx.update(|_, cx| cx.new(|_| TestView(state.clone())));
+        for width in [100., 200.] {
+            let draw = |cx: &mut VisualTestContext| {
+                cx.draw(point(px(0.), px(0.)), size(px(width), px(200.)), |_, _| {
+                    view.clone().into_any_element()
+                });
+            };
+            draw(cx);
+            assert!(state.max_offset_for_scrollbar().y > px(400_000.));
+            state.scrollbar_drag_started();
+            state.set_offset_from_scrollbar(point(px(0.), -state.max_offset_for_scrollbar().y));
+            draw(cx);
+            state.scrollbar_drag_ended();
+            let bottom = state.logical_scroll_top();
+            cx.simulate_event(ScrollWheelEvent {
+                position: point(px(50.), px(50.)),
+                delta: ScrollDelta::Pixels(point(px(0.), px(100.))),
+                ..Default::default()
+            });
+            draw(cx);
+            let above = state.logical_scroll_top();
+            assert!(
+                above.item_ix < bottom.item_ix
+                    || (above.item_ix == bottom.item_ix
+                        && above.offset_in_item < bottom.offset_in_item)
+            );
+            assert!(
+                above.item_ix > 9_000,
+                "upward wheel must not jump across unmeasured blocks"
+            );
+
+            state.scrollbar_drag_started();
+            state.set_offset_from_scrollbar(point(px(0.), px(0.)));
+            draw(cx);
+            state.scrollbar_drag_ended();
+            cx.simulate_event(ScrollWheelEvent {
+                position: point(px(50.), px(50.)),
+                delta: ScrollDelta::Pixels(point(px(0.), -px(100.))),
+                ..Default::default()
+            });
+            draw(cx);
+            let below = state.logical_scroll_top();
+            assert!(below.item_ix > 0 || below.offset_in_item > px(0.));
+        }
+    }
+
     #[test]
     fn anchors_handle_unicode_duplicate_titles_and_fences() {
         let text = "# 中文 标题\n# 中文 标题\n```\n# ignore\n```\n";

@@ -233,6 +233,8 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
+| `markup.eager_layout_bytes` | 8 MiB | bytes | budget | Measure the complete preview before scrolling when both eager-layout budgets fit. Larger documents retain viewport layout and remain fully accessible; this does not limit file size. |
+| `markup.eager_layout_lines` | 32,768 | source lines | budget | Source-line working budget for complete preview measurement, including table rows and nested lists. Both eager-layout budgets must fit; larger documents retain viewport layout without truncation. |
 | `markup.scan_bytes` | None | bytes | unlimited | Scan the current text for image references; large documents use source pages instead of a total reference-scan cutoff. |
 
 ## remote_image

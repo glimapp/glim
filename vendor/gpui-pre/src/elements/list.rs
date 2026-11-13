@@ -1556,9 +1556,12 @@ impl Element for List {
             .last_layout_bounds
             .is_none_or(|last_bounds| last_bounds.size.width != bounds.size.width)
         {
+            // Visible-only lists still need a nonzero height for offscreen
+            // items; losing their hints collapses the scroll range at either end.
+            let size_hint = state.estimated_item_height.map(|height| size(px(0.), height));
             let new_items = SumTree::from_iter(
                 state.items.iter().map(|item| ListItem::Unmeasured {
-                    size_hint: None,
+                    size_hint,
                     focus_handle: item.focus_handle(),
                 }),
                 (),
