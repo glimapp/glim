@@ -398,6 +398,10 @@
 
 | Key | 当前值 | 单位 | 超限效果 | 实际行为 |
 | --- | ---: | --- | --- | --- |
+| `remote.connection_check_interval_ms` | 30,000 | milliseconds | 处理／内存预算 | 后台 SFTP 连接检查成功后的周期；应用启动即尝试所有已保存连接，无需激活工作区。 |
+| `remote.connection_retry_ms` | 5,000 | milliseconds | 处理／内存预算 | 连接失败后的首次静默重试间隔；逐次翻倍，上限为 connection_retry_max_ms，后台尝试不弹出认证对话框。 |
+| `remote.connection_retry_max_ms` | 60,000 | milliseconds | 处理／内存预算 | 后台连接失败重试的最大间隔；连接仍被保存且应用运行时持续重试。 |
+| `remote.connection_concurrency` | 2 | connections | 处理／内存预算 | 后台连接检查或重连并发预算；其余已保存连接排队，不阻塞界面。 |
 | `remote.search_retry_initial_ms` | 10,000 | milliseconds | 处理／内存预算 | 索引连接或目录失败后的首次静默重试间隔；逐次翻倍，上限为 search_refresh_ms。 |
 | `remote.search_concurrency` | 2 | jobs | 处理／内存预算 | 远端路径索引任务并发预算，独立于内容搜索和文件打开；排队任务不占工作线程。 |
 | `remote.search_batch_paths` | 256 | paths per transaction | 处理／内存预算 | 每个搜索索引事务提交的路径数；首个文件或达到发布间隔时提前发布部分结果，不限制总路径数。 |

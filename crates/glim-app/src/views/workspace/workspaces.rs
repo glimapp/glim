@@ -173,6 +173,15 @@ impl Workspace {
         }
         window.focus(&self.focus, cx);
         self.reveal_active_file(cx);
+        let workspace = cx.entity().downgrade();
+        // Session restoration reads the window host after its selection update ends.
+        window.defer(cx, move |window, cx| {
+            let _ = workspace.update(cx, |view, cx| {
+                if view.is_visible_workspace(cx) {
+                    view.resume_remote_connection(window, cx);
+                }
+            });
+        });
         cx.notify();
     }
 

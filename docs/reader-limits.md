@@ -398,6 +398,10 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
+| `remote.connection_check_interval_ms` | 30,000 | milliseconds | budget | Background SFTP health-check interval after a successful check; all saved connections are attempted at application startup, even without an active workspace. |
+| `remote.connection_retry_ms` | 5,000 | milliseconds | budget | Initial quiet connection retry delay; doubles after each failure up to connection_retry_max_ms. Background attempts do not show authentication dialogs. |
+| `remote.connection_retry_max_ms` | 60,000 | milliseconds | budget | Maximum delay between failed background connection attempts; retries continue while the connection remains saved and the application is running. |
+| `remote.connection_concurrency` | 2 | connections | budget | Concurrent background connection checks or reconnects; additional saved connections queue without blocking the UI. |
 | `remote.search_retry_initial_ms` | 10,000 | milliseconds | budget | Initial quiet retry delay for failed index connections or directories; doubles up to search_refresh_ms. |
 | `remote.search_concurrency` | 2 | jobs | budget | Concurrent remote path-index jobs, independent of content searches and file opening; queued work waits without occupying workers. |
 | `remote.search_batch_paths` | 256 | paths per transaction | budget | Paths committed per search-index transaction; partial results publish sooner on the first file or elapsed publish interval. Total indexed paths are unlimited. |

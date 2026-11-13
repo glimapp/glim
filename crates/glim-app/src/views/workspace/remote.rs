@@ -627,6 +627,9 @@ impl Workspace {
     pub(crate) fn remote_workspace_is_connected(&self) -> bool {
         self.remote.as_ref().is_some_and(Session::is_connected)
     }
+    pub(crate) fn remote_session(&self) -> Option<Session> {
+        self.remote.clone()
+    }
     pub(crate) fn remote_connection_is_live(&self, connection: &Connection) -> bool {
         self.remote.as_ref().is_some_and(|session| {
             session.connection.id == connection.id
@@ -926,8 +929,12 @@ impl Workspace {
         let (cancel, guard) = Cancellation::task();
         let worker_cancel = cancel.clone();
         let started = std::time::Instant::now();
+        let cached = crate::app::remote::cached_session(&connection, cx);
         let work = cx.background_executor().spawn(async move {
-            let remote = Session::connect(connection, &worker_cancel)?;
+            let remote = match cached {
+                Some(remote) => remote,
+                None => Session::connect(connection, &worker_cancel)?,
+            };
             let mut folders = Vec::new();
             for root in descriptor.roots {
                 let (root, entries) = remote.list(&root, &worker_cancel)?;
@@ -1039,7 +1046,9 @@ impl Workspace {
                 view.sync_workspace(cx);
                 view.remember_session(cx);
                 view.reveal_active_file(cx);
-                if let Some(index) = view.active {
+                if view.is_visible_workspace(cx)
+                    && let Some(index) = view.active
+                {
                     view.tabs[index].focus_source(window, cx);
                 }
                 view.drain_remote_open_paths(window, cx);
@@ -1047,6 +1056,64 @@ impl Workspace {
             });
         }));
     }
+    pub(crate) fn resume_remote_connection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.loading || !glim_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
+        if self.remote_restore.is_some() || self.remote.is_none() {
+            self.reconnect_remote(window, cx);
+            return;
+        }
+        let Some(remote) = self.remote.clone() else {
+            return;
+        };
+        let was_disconnected = self.remote_disconnected;
+        self.remote_disconnected = !remote.is_connected();
+        if !self.remote_disconnected {
+            if was_disconnected {
+                self.error = None;
+                if let Some(explorer) = &self.explorer {
+                    explorer.update(cx, |explorer, cx| explorer.refresh(cx));
+                }
+                cx.notify();
+            }
+            return;
+        }
+        self.loading = true;
+        self.loading_path = None;
+        self.error = None;
+        let path = self.roots.first().cloned().unwrap_or(remote.home.clone());
+        let (cancel, guard) = Cancellation::task();
+        // Reusing the transport keeps existing readers and cached files alive.
+        let work = cx.background_executor().spawn(async move {
+            let result = remote.list_entries(&path, &cancel);
+            (remote, path, result)
+        });
+        self.load_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let _guard = guard;
+            let (remote, path, result) = work.await;
+            let _ = view.update_in(cx, |view, window, cx| {
+                view.loading = false;
+                view.remote_disconnected = !remote.is_connected();
+                match result {
+                    Ok(entries) => {
+                        if let Some(explorer) = &view.explorer {
+                            explorer.update(cx, |explorer, cx| {
+                                explorer.apply_remote_listing(path, entries, cx);
+                                explorer.refresh(cx);
+                            });
+                        }
+                        view.drain_remote_open_paths(window, cx);
+                    }
+                    Err(error) => view.error = Some(error.to_string().into()),
+                }
+                cx.refresh_windows();
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
     pub(super) fn reconnect_remote(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let descriptor = cx
             .global::<Connections>()

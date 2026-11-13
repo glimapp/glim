@@ -189,7 +189,18 @@ pub struct FileStamp {
 pub type RemoteVersion = BTreeMap<PathBuf, Option<FileStamp>>;
 impl Session {
     pub fn connect(connection: Connection, cancel: &Cancellation) -> Result<Self> {
-        let mut transport = sftp::Sftp::connect(&connection, cancel)?;
+        let transport = sftp::Sftp::connect(&connection, cancel)?;
+        Self::from_transport(connection, transport, cancel)
+    }
+    pub fn connect_background(connection: Connection, cancel: &Cancellation) -> Result<Self> {
+        let transport = sftp::Sftp::connect_background(&connection, cancel)?;
+        Self::from_transport(connection, transport, cancel)
+    }
+    fn from_transport(
+        connection: Connection,
+        mut transport: sftp::Sftp,
+        cancel: &Cancellation,
+    ) -> Result<Self> {
         let home = transport.realpath(Path::new("."), cancel)?;
         let cache = tempfile::Builder::new().prefix("glim-remote-").tempdir()?;
         Ok(Self {
@@ -236,6 +247,27 @@ impl Session {
             Err(std::sync::TryLockError::WouldBlock) => self.connected.load(Ordering::Relaxed),
             Err(std::sync::TryLockError::Poisoned(_)) => false,
         }
+    }
+    pub fn shares_transport(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.transport, &other.transport)
+    }
+    /// Probe idle sessions and recover dead transports without authentication dialogs.
+    pub fn maintain_connection(&self, cancel: &Cancellation) -> Result<()> {
+        cancel.check()?;
+        let mut transport = match self.transport.try_lock() {
+            Ok(transport) => transport,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(()),
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                anyhow::bail!("SSH connection closed; reconnect to continue")
+            }
+        };
+        if !transport.healthy() {
+            self.connected.store(false, Ordering::Relaxed);
+            *transport = sftp::Sftp::connect_background(&self.connection, cancel)?;
+        }
+        let result = transport.realpath(Path::new("."), cancel).map(|_| ());
+        self.connected.store(transport.healthy(), Ordering::Relaxed);
+        result
     }
     pub fn is_idle(&self) -> bool {
         self.transport

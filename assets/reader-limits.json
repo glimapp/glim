@@ -1651,6 +1651,26 @@
       }
     },
     "remote": {
+      "connection_check_interval_ms": {
+        "value": 30000, "type": "u64", "unit": "milliseconds", "effect": "budget",
+        "description": "Background SFTP health-check interval after a successful check; all saved connections are attempted at application startup, even without an active workspace.",
+        "description_zh": "后台 SFTP 连接检查成功后的周期；应用启动即尝试所有已保存连接，无需激活工作区。"
+      },
+      "connection_retry_ms": {
+        "value": 5000, "type": "u64", "unit": "milliseconds", "effect": "budget",
+        "description": "Initial quiet connection retry delay; doubles after each failure up to connection_retry_max_ms. Background attempts do not show authentication dialogs.",
+        "description_zh": "连接失败后的首次静默重试间隔；逐次翻倍，上限为 connection_retry_max_ms，后台尝试不弹出认证对话框。"
+      },
+      "connection_retry_max_ms": {
+        "value": 60000, "type": "u64", "unit": "milliseconds", "effect": "budget",
+        "description": "Maximum delay between failed background connection attempts; retries continue while the connection remains saved and the application is running.",
+        "description_zh": "后台连接失败重试的最大间隔；连接仍被保存且应用运行时持续重试。"
+      },
+      "connection_concurrency": {
+        "value": 2, "type": "usize", "unit": "connections", "effect": "budget",
+        "description": "Concurrent background connection checks or reconnects; additional saved connections queue without blocking the UI.",
+        "description_zh": "后台连接检查或重连并发预算；其余已保存连接排队，不阻塞界面。"
+      },
       "search_retry_initial_ms": {
         "value": 10000, "type": "u64", "unit": "milliseconds", "effect": "budget",
         "description": "Initial quiet retry delay for failed index connections or directories; doubles up to search_refresh_ms.",
