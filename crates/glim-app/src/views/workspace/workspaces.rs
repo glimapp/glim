@@ -534,6 +534,8 @@ impl Workspace {
             && *id == workspace.id
         {
             return div()
+                .flex()
+                .items_center()
                 .w_full()
                 .h(px(super::WORKSPACE_ROW_HEIGHT))
                 .flex_shrink_0()
