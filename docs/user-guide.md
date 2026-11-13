@@ -43,6 +43,8 @@ A tab's context menu can reveal it in Finder, copy its path or move it to a sepa
 | Images and fonts | Zoom and copy images; extract text from supported raster previews; enter font samples |
 | Ebooks and comics | Contents, chapters or comic pages, typography, bookmarks and saved position |
 | Audio and video | Playback and ordered or shuffled folder playlists |
+
+PDFs open fitted to the current page; images and SVGs fit fully within the viewport. Fit mode follows window and sidebar resizing. Multipage PDFs retain continuous vertical scrolling, and manual zoom allows scrolling through details. The PDF context menu also offers Fit width; ⌘0 returns to Fit page or Fit image.
 | Mind maps and structured data | Expand or fold XMind topics; switch supported data to an interactive graph |
 
 Actions appear in toolbars or content context menus. Some floating toolbars appear when you pause the pointer near the bottom of the content. File fullscreen expands the current reader; Escape returns to the workspace. ⌘B shows or hides workspaces; ⌥⌘B toggles the file tree. ⌥⌘P switches Preview / Source, and Control-Tab / Control-Shift-Tab switches file tabs. ⌘/ opens keyboard help, also available in Settings → Keyboard Shortcuts.

@@ -532,52 +532,79 @@ final class NativePreviewHost: NSView {
 // Build the PDF reading menu from public PDFKit actions. System text services
 // and browser/search integrations do not belong in this document context menu.
 final class ReaderPDFView: PDFView {
-    private var fitsWidth = false
-    private var applyingWidth = false
-    override func layout() { super.layout(); refitWidth() }
-    @objc func fitToWidth() { ReaderTelemetry.record(2, 4, 0); fitsWidth = true; autoScales = false; needsLayout = true; refitWidth() }
-    @objc private func widthPageChanged() { refitWidth() }
-    private func refitWidth() {
-        guard fitsWidth, !applyingWidth, let page = currentPage, bounds.width > 0 else { return }
-        func width(_ page: PDFPage) -> CGFloat {
-            let box = page.bounds(for: displayBox)
-            return page.rotation % 180 == 0 ? box.width : box.height
+    private enum Fit { case width, page }
+    private var fitting: Fit?
+    private var applyingFit = false
+    override func layout() {
+        super.layout()
+        if let scroll = documentView?.enclosingScrollView {
+            if !scroll.autohidesScrollers { scroll.autohidesScrollers = true }
+            if scroll.scrollerStyle != .overlay { scroll.scrollerStyle = .overlay }
         }
-        var pageWidth = width(page)
+        refit()
+    }
+    @objc func fitToWidth() { ReaderTelemetry.record(2, 4, 0); setFit(.width) }
+    @objc func fitPage() { ReaderTelemetry.record(2, 4, 0); setFit(.page) }
+    private func setFit(_ fit: Fit) {
+        fitting = fit; autoScales = false; needsLayout = true; refit()
+    }
+    @objc private func fitPageChanged() { refit() }
+    private func refit() {
+        guard let fitting = fitting, !applyingFit, let page = currentPage, bounds.width > 0, bounds.height > 0 else { return }
+        func size(_ page: PDFPage) -> NSSize {
+            let box = page.bounds(for: displayBox)
+            return page.rotation % 180 == 0 ? box.size : NSSize(width: box.height, height: box.width)
+        }
+        var spread = size(page)
         var pageCount = 1
         if displayMode == .twoUp || displayMode == .twoUpContinuous, let document = document {
             let index = document.index(for: page)
             if (0..<document.pageCount).contains(index) {
                 let partner = displaysAsBook ? (index % 2 == 1 ? index + 1 : index - 1) : (index % 2 == 0 ? index + 1 : index - 1)
                 let other = (0..<document.pageCount).contains(partner) ? document.page(at: partner) : nil
-                pageWidth += other.map(width) ?? width(page)
+                let otherSize = other.map(size) ?? size(page)
+                spread.width += otherSize.width
+                spread.height = max(spread.height, otherSize.height)
                 pageCount = 2
             }
         }
-        let viewport = documentView?.enclosingScrollView?.contentSize.width ?? bounds.width
-        let margins = displaysPageBreaks ? (pageBreakMargins.left + pageBreakMargins.right) * CGFloat(pageCount) : 0
-        let available = viewport - margins
-        guard pageWidth > 0, available > 0 else { return }
-        let target = available / pageWidth
-        guard target.isFinite, target > 0 else { return }
+        let viewport = documentView?.enclosingScrollView?.contentSize ?? bounds.size
+        let margins = pageBreakMargins
+        // PDFKit scales its margins too; paged and two-up modes also add outer
+        // padding. Use its laid-out bounds instead of subtracting view margins.
+        spread.width = ceil(spread.width + (margins.left + margins.right) * CGFloat(pageCount))
+        spread.height = ceil(spread.height + (margins.top + margins.bottom) * 2)
+        if let layout = documentView?.bounds.size {
+            spread.width = max(spread.width, layout.width)
+            let continuous = displayMode == .singlePageContinuous || displayMode == .twoUpContinuous
+            if layout.height > 0, !continuous || (document?.pageCount ?? 0) <= pageCount {
+                spread.height = layout.height
+            }
+        }
         let backingScale = window?.backingScaleFactor ?? 1
+        let pixel = 1 / backingScale
+        guard spread.width > 0, spread.height > 0, viewport.width > pixel, viewport.height > pixel else { return }
+        let widthScale = (viewport.width - pixel) / spread.width
+        let target = fitting == .width ? widthScale : min(widthScale, (viewport.height - pixel) / spread.height)
+        guard target.isFinite, target > 0 else { return }
         // PDFKit can quantize scaleFactor; subpixel differences must not start another layout.
-        guard (target * pageWidth * backingScale).rounded() != (scaleFactor * pageWidth * backingScale).rounded() else { return }
-        applyingWidth = true; defer { applyingWidth = false }
+        let edge = max(spread.width, spread.height) * backingScale
+        guard (target * edge).rounded() != (scaleFactor * edge).rounded() else { return }
+        applyingFit = true; defer { applyingFit = false }
         // Fit the viewport naturally, including unusually small/large pages.
         minScaleFactor = min(minScaleFactor, target)
         maxScaleFactor = max(maxScaleFactor, target)
         scaleFactor = target
     }
-    override func zoomIn(_ sender: Any?) { ReaderTelemetry.record(2, 1, 0); fitsWidth = false; super.zoomIn(sender) }
-    override func zoomOut(_ sender: Any?) { ReaderTelemetry.record(2, 2, 0); fitsWidth = false; super.zoomOut(sender) }
-    override func magnify(with event: NSEvent) { fitsWidth = false; super.magnify(with: event) }
+    override func zoomIn(_ sender: Any?) { ReaderTelemetry.record(2, 1, 0); fitting = nil; autoScales = false; super.zoomIn(sender) }
+    override func zoomOut(_ sender: Any?) { ReaderTelemetry.record(2, 2, 0); fitting = nil; autoScales = false; super.zoomOut(sender) }
+    override func magnify(with event: NSEvent) { fitting = nil; autoScales = false; super.magnify(with: event) }
     private var contextMenuRouter: ReaderContextMenu?
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         NotificationCenter.default.removeObserver(self, name: .PDFViewPageChanged, object: self)
         if window != nil {
-            NotificationCenter.default.addObserver(self, selector: #selector(widthPageChanged), name: .PDFViewPageChanged, object: self)
+            NotificationCenter.default.addObserver(self, selector: #selector(fitPageChanged), name: .PDFViewPageChanged, object: self)
         }
         contextMenuRouter = nil
         guard window != nil else { return }
@@ -596,8 +623,8 @@ final class ReaderPDFView: PDFView {
         }
         add("Copy", #selector(PDFView.copy(_:)), enabled: document?.allowsCopying == true && !(currentSelection?.string ?? "").isEmpty)
         menu.addItem(.separator())
-        add("Fit width", #selector(fitToWidth), checked: fitsWidth)
-        add("Fit page", #selector(fitPage), checked: !fitsWidth && autoScales)
+        add("Fit width", #selector(fitToWidth), checked: fitting == .width)
+        add("Fit page", #selector(fitPage), checked: fitting == .page || (fitting == nil && autoScales))
         add("Zoom in", #selector(PDFView.zoomIn(_:)), enabled: canZoomIn)
         add("Zoom out", #selector(PDFView.zoomOut(_:)), enabled: canZoomOut)
         add("Actual size", #selector(actualSize))
@@ -610,10 +637,9 @@ final class ReaderPDFView: PDFView {
         add("Previous page", #selector(PDFView.goToPreviousPage(_:)), enabled: canGoToPreviousPage)
         return menu
     }
-    @objc private func fitPage() { ReaderTelemetry.record(2, 4, 0); fitsWidth = false; autoScales = true }
-    @objc private func actualSize() { ReaderTelemetry.record(2, 3, 0); fitsWidth = false; autoScales = false; scaleFactor = 1 }
+    @objc private func actualSize() { ReaderTelemetry.record(2, 3, 0); fitting = nil; autoScales = false; scaleFactor = 1 }
     @objc private func changeLayout(_ sender: NSMenuItem) { ReaderTelemetry.record(2, 12, 0);
-        if let mode = PDFDisplayMode(rawValue: sender.tag) { displayMode = mode; needsLayout = true; refitWidth() }
+        if let mode = PDFDisplayMode(rawValue: sender.tag) { displayMode = mode; needsLayout = true; refit() }
     }
 }
 
@@ -892,7 +918,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         if pdf {
             toolbar.addArrangedSubview(button("−", #selector(zoomOut)).readerAction("zoom-out"))
             toolbar.addArrangedSubview(button("+", #selector(zoomIn)).readerAction("zoom-in"))
-            toolbar.addArrangedSubview(button(L("Fit width"), #selector(fit)).readerAction("fit"))
+            toolbar.addArrangedSubview(button(L("Fit page"), #selector(fit)).readerAction("fit"))
             let slideshow = button(L("Play Slideshow"), #selector(presentPDF))
             slideshow.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: L("Play Slideshow"))
             slideshow.imagePosition = .imageLeading
@@ -914,7 +940,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 pdfUnlockPassword = password.stringValue
                 password.stringValue = ""
             }
-            pdfView.document = document; pdfView.displayMode = .singlePageContinuous; pdfView.fitToWidth()
+            pdfView.document = document; pdfView.displayMode = .singlePageContinuous; pdfView.fitPage()
             let search = PDFReaderFind(view: pdfView); pdfFind = search
             let find = ReaderFindBar(host: host, content: pdfView, telemetryKind: 2, search: { query, sensitive, backwards, changed, completion in
                 search.search(query, sensitive: sensitive, backwards: backwards, changed: changed, completion: completion)
@@ -1377,7 +1403,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     @objc func togglePlay() { ReaderTelemetry.record(5, 10, 0); if player.rate == 0 { player.play() } else { player.pause() } }
     @objc func zoomIn() { pdfView.zoomIn(nil) }
     @objc func zoomOut() { pdfView.zoomOut(nil) }
-    @objc func fit() { pdfView.fitToWidth() }
+    @objc func fit() { pdfView.fitPage() }
     // The workspace owns file watching; this controller only replaces its document.
     var canReloadPDF: Bool { !closed && pdf && !urls.isEmpty && pdfView.document != nil }
     func startPDFReload(completion: @escaping (PDFReloadOutcome) -> Void) {

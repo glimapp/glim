@@ -245,7 +245,9 @@ final class ImagePreview: NSObject {
         }
         function fit() {
             fitting = true;
-            apply(Math.min(viewport.clientWidth / image.naturalWidth, viewport.clientHeight / image.naturalHeight, 1));
+            const pixel = 1 / (window.devicePixelRatio || 1);
+            if (viewport.clientWidth <= pixel || viewport.clientHeight <= pixel) return;
+            apply(Math.min((viewport.clientWidth - pixel) / image.naturalWidth, (viewport.clientHeight - pixel) / image.naturalHeight, 1));
         }
         image.onload = () => { ready = image.naturalWidth > 0 && image.naturalHeight > 0; if (ready) fit(); };
         window.glimImageViewer = { command(name) {
@@ -455,12 +457,13 @@ final class ImagePreview: NSObject {
         guard view.window != nil, imageView.image != nil else { return }
         let viewport = scroll.contentSize
         let size = imageView.frame.size
-        guard viewport.width > 0, viewport.height > 0, size.width > 0, size.height > 0 else { return }
+        let pixel = 1 / (view.window?.backingScaleFactor ?? 1)
+        guard viewport.width > pixel, viewport.height > pixel, size.width > 0, size.height > 0 else { return }
         guard needsInitialFit || (fitting && viewport != fittedViewport) else { return }
         fittedViewport = viewport
         // Never commit an almost-zero fit for an unattached/unlaid-out native view.
         needsInitialFit = false
-        let fit = min(viewport.width / size.width, viewport.height / size.height, 1)
+        let fit = min((viewport.width - pixel) / size.width, (viewport.height - pixel) / size.height, 1)
         scroll.magnification = fitting ? max(scroll.minMagnification, fit) : requestedMagnification
         updateZoomLabel()
         scroll.contentView.scroll(to: scroll.contentView.constrainBoundsRect(scroll.contentView.bounds).origin)
