@@ -87,6 +87,7 @@ fn menu_symbol(title: &str) -> Option<&'static str> {
         ("Reveal in Finder", "folder"),
         ("Copy Relative Path", "doc.on.doc"),
         ("Copy Absolute Path", "link"),
+        ("Move to Folder…", "folder"),
         ("Move to Trash…", "trash"),
         ("Remove Folder from Workspace", "folder.badge.minus"),
         ("Close", "xmark"),
