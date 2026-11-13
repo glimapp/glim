@@ -5,7 +5,6 @@ use base64::Engine;
 use roxmltree::Node;
 use std::{
     collections::HashMap,
-    io::Read,
     path::Path,
     sync::{Arc, OnceLock},
 };
@@ -63,13 +62,7 @@ fn decode_page(node: Node<'_, '_>, cancel: &Cancellation) -> Result<String> {
             .collect::<String>(),
     )?;
     let decoder = flate2::read::DeflateDecoder::new(compressed.as_slice());
-    let mut data = Vec::new();
-    crate::work::Reader {
-        inner: decoder,
-        cancel: cancel.clone(),
-    }
-    .take(limits::DRAWIO_XML_BYTES as u64 + 1)
-    .read_to_end(&mut data)?;
+    let data = crate::resources::read_to_end(decoder, cancel)?;
     ensure!(
         data.len() <= limits::DRAWIO_XML_BYTES,
         "Draw.io page exceeds preview XML budget"
@@ -455,13 +448,11 @@ fn raster(svg: &str, remaining: u64) -> Result<(Vec<u8>, u64)> {
     Ok((pixmap.encode_png()?, decoded))
 }
 pub fn read(path: &Path, cancel: &Cancellation) -> Result<ImageDocument> {
-    let mut source = String::new();
-    crate::work::Reader {
-        inner: std::fs::File::open(path)?,
-        cancel: cancel.clone(),
-    }
-    .take(limits::DRAWIO_XML_BYTES as u64 + 1)
-    .read_to_string(&mut source)?;
+    let source = String::from_utf8(crate::resources::read_to_end(
+        std::fs::File::open(path)?,
+        cancel,
+    )?)?;
+    let _parser_memory = crate::resources::reserve_parser(source.len())?;
     ensure!(
         source.len() <= limits::DRAWIO_XML_BYTES,
         "Draw.io document exceeds preview XML budget"

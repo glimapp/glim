@@ -6,7 +6,7 @@ Glim is a focused file viewer for macOS on Apple Silicon and Intel. Readers shar
 
 This reference explains responsibilities and data flow for contributors. For everyday use, start with [topics](topics.md) and the [user guide](user-guide.md).
 
-Read module boundaries first, then workspaces and editing, file loading and readers, and storage, telemetry and updates. See the [generated inventory](reader-limits.md) for budgets and the [resources and rendering](reader-resources.md) for ownership and remaining performance work.
+Read module boundaries first, then workspaces and editing, file loading and readers, and storage, telemetry and updates. See the [generated inventory](reader-limits.md) for budgets and the [resources and rendering](reader-resources.md) for ownership and remaining performance work. Full-content loading uses background-sampled system headroom through the services-owned resource pool; core receives only a cached admission callback and performs no I/O. Native preview decoding shares that admission through numeric resource handles.
 
 [Modules and data flow](#modules-and-data-flow) · [Workspaces and file operations](#workspaces-and-file-operations) · [Shared reading interactions](#shared-reading-interactions) · [Format readers](#format-readers) · [Local data and diagnostics](#local-data-and-diagnostics) · [Updates and platform integration](#updates-and-platform-integration)
 

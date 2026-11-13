@@ -59,6 +59,7 @@ struct State {
     cache_budget: u64,
     working_budget: u64,
     evictions: u64,
+    admission: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
 }
 
 #[derive(Clone)]
@@ -78,7 +79,14 @@ impl ResourcePool {
             cache_budget,
             working_budget,
             evictions: 0,
+            admission: None,
         })))
+    }
+
+    /// The service layer supplies current system headroom without adding I/O here.
+    pub fn with_admission(self, admission: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).admission = Some(Arc::new(admission));
+        self
     }
 
     pub fn track(&self, bytes: u64, class: ResourceClass) -> ResourceLease {
@@ -96,7 +104,11 @@ impl ResourcePool {
         assert!(minimum <= desired);
         let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let available = state
-            .working_budget
+            .admission
+            .as_ref()
+            .map_or(state.working_budget, |admit| {
+                admit().min(state.working_budget)
+            })
             .saturating_sub(state.bytes[ResourceClass::Working.index()]);
         let bytes = desired.min(available);
         if bytes < minimum {
@@ -175,8 +187,12 @@ impl ResourcePool {
     }
 
     pub fn trim(&self) {
-        let snapshot = self.snapshot();
-        if snapshot.cache_bytes <= snapshot.cache_budget {
+        self.trim_to(self.snapshot().cache_budget);
+    }
+
+    /// Drop unpinned cache values under pressure without changing the normal budget.
+    pub fn trim_to(&self, target_bytes: u64) {
+        if self.snapshot().cache_bytes <= target_bytes {
             return;
         }
         let mut candidates = {
@@ -196,7 +212,7 @@ impl ResourcePool {
         candidates.sort_by_key(|(retention, accessed, _)| (*retention, *accessed));
         for (_, _, candidate) in candidates {
             let snapshot = self.snapshot();
-            if snapshot.cache_bytes <= snapshot.cache_budget {
+            if snapshot.cache_bytes <= target_bytes {
                 break;
             }
             // Reclamation can destroy a charge; never call it with the pool locked.
@@ -249,7 +265,13 @@ impl WorkingReservation {
         })?;
         let mut state = pool.lock().unwrap_or_else(|error| error.into_inner());
         let used = state.bytes[ResourceClass::Working.index()];
-        let available = state.working_budget.saturating_sub(used);
+        let available = state
+            .admission
+            .as_ref()
+            .map_or(state.working_budget, |admit| {
+                admit().min(state.working_budget)
+            })
+            .saturating_sub(used);
         if additional > available {
             return Err(WorkingPressure {
                 minimum: additional,
@@ -382,6 +404,40 @@ impl<T> CachedResource<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shrinking_admission_preserves_results_and_allows_retry_after_recovery() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let ceiling = Arc::new(AtomicU64::new(12));
+        let admission = ceiling.clone();
+        let pool = ResourcePool::new(32).with_admission(move || admission.load(Ordering::Relaxed));
+        let mut active = pool.reserve_working(8, 8).unwrap();
+        ceiling.store(4, Ordering::Relaxed);
+        assert!(pool.reserve_working(1, 1).is_err());
+        assert!(active.try_grow_to(9).is_err());
+        assert_eq!(active.bytes(), 8);
+        ceiling.store(16, Ordering::Relaxed);
+        active.try_grow_to(12).unwrap();
+        let next = pool.reserve_working(4, 4).unwrap();
+        assert!(pool.reserve_working(1, 1).is_err());
+        drop((active, next));
+        assert_eq!(pool.snapshot().working_bytes, 0);
+    }
+
+    #[test]
+    fn emergency_trim_reclaims_below_normal_budget_without_discarding_live_values() {
+        let pool = ResourcePool::new(32);
+        let pinned = pool.cache("visible", 8, Retention::Viewport);
+        let live = pinned.get(Retention::Viewport).unwrap();
+        let background = pool.cache("hidden", 8, Retention::Background);
+        pool.trim_to(0);
+        assert!(background.get(Retention::Background).is_none());
+        assert_eq!(**live, "visible");
+        drop(live);
+        pool.trim_to(0);
+        assert!(pinned.get(Retention::Viewport).is_none());
+        assert_eq!(pool.snapshot().cache_bytes, 0);
+    }
 
     #[test]
     fn reservations_include_existing_owners_and_follow_retained_results() {

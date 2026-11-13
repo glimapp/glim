@@ -1,10 +1,14 @@
 use crate::limits as reader_limits;
-use std::{fs::File, io::Read, path::Path};
+use std::{
+    fs::File,
+    io::{Read, Seek},
+    path::Path,
+};
 
 use anyhow::{Context, Result, ensure};
 use glim_core::{Document, DocumentKind};
 
-/// In-memory editing budget; larger files use editable streaming-save pages.
+/// Compatibility value for the shared full-text policy; memory admission controls loading.
 pub const MAX_DOCUMENT_BYTES: u64 = reader_limits::TEXT_EDITABLE_BYTES;
 
 pub(crate) static SAVE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -229,23 +233,35 @@ pub fn read_document_cancellable(
 ) -> Result<Document> {
     cancel.check()?;
     ensure!(path.is_file(), "Not a regular file: {}", path.display());
-    let file = File::open(path).with_context(|| format!("Cannot open {}", path.display()))?;
+    let mut file = File::open(path).with_context(|| format!("Cannot open {}", path.display()))?;
     ensure!(
         file.metadata()?.is_file(),
         "Not a regular file: {}",
         path.display()
     );
-    // Limit the read itself, so a file growing after metadata inspection is bounded too.
-    let mut bytes = Vec::new();
-    crate::work::Reader {
-        inner: file,
-        cancel: cancel.clone(),
+    // Reject obvious binary input before preparing the full editable snapshot.
+    let mut prefix = vec![0; reader_limits::IO_BUFFER_BYTES];
+    let length = file.read(&mut prefix)?;
+    let prefix = &prefix[..length];
+    ensure!(
+        !prefix.contains(&0),
+        "Binary files are not supported: {}",
+        path.display()
+    );
+    if let Err(error) = std::str::from_utf8(prefix) {
+        ensure!(
+            error.error_len().is_none(),
+            "File is not UTF-8: {}",
+            path.display()
+        );
     }
-    .take(MAX_DOCUMENT_BYTES + 1)
-    .read_to_end(&mut bytes)?;
-    reader_limits::preview_budget(
-        bytes.len() as u64 <= MAX_DOCUMENT_BYTES,
-        "Use editable pages for this document",
+    file.rewind()?;
+    let bytes = crate::resources::read_to_end(
+        crate::work::Reader {
+            inner: file,
+            cancel: cancel.clone(),
+        },
+        cancel,
     )?;
     ensure!(
         !bytes.contains(&0),

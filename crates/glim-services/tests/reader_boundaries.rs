@@ -187,7 +187,7 @@ fn epub_retains_a_large_catalog_and_full_metadata_labels() -> Result<()> {
 }
 
 #[test]
-fn oversized_epub_chapter_keeps_complete_lazy_source_pages() -> Result<()> {
+fn epub_chapter_beyond_the_old_four_mib_gate_loads_completely() -> Result<()> {
     let root = tempfile::tempdir()?;
     let path = root.path().join("chapter.epub");
     let mut zip = zip::ZipWriter::new(File::create(&path)?);
@@ -199,31 +199,25 @@ fn oversized_epub_chapter_keeps_complete_lazy_source_pages() -> Result<()> {
     )?;
     let chapter = format!(
         "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>{}THE_END</p></body></html>",
-        "x".repeat(limits::BOOK_CHAPTER_BYTES as usize + 1)
+        "x".repeat(4 * 1024 * 1024 + 1)
     );
     entry(&mut zip, "OPS/chapter.xhtml", &chapter)?;
     zip.finish()?;
     let book = books::read(&path)?;
     let content = books::chapter(&book, 0)?;
-    let first = content
-        .page
-        .expect("large chapter must have source continuation");
-    assert!(!first.total_known);
-    let last = first.source.read(chapter.len() as u64 - 128, false)?;
-    assert!(last.total_known);
-    assert_eq!(last.end, chapter.len() as u64);
-    assert!(last.text.contains("THE_END"));
+    assert!(content.page.is_none());
+    assert!(content.html.contains("THE_END"));
     Ok(())
 }
 
 #[test]
-fn legacy_encoded_fb2_fallback_streams_without_losing_the_tail() -> Result<()> {
+fn legacy_encoded_fb2_keeps_decoded_text_at_the_tail() -> Result<()> {
     let root = tempfile::tempdir()?;
     let path = root.path().join("legacy.FB2");
     let mut file = File::create(&path)?;
     file.write_all(b"<?xml version=\"1.0\" encoding = 'windows-1251'?><FictionBook><description><title-info><book-title>Large</book-title></title-info></description><body><section><p>")?;
     let block = vec![b'x'; limits::IO_BUFFER_BYTES];
-    for _ in 0..(limits::BOOK_TEXT_BYTES / block.len() as u64 + 1) {
+    for _ in 0..(2 * 1024 * 1024 / block.len() as u64 + 1) {
         file.write_all(&block)?;
     }
     file.write_all(&[0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2])?;
@@ -231,23 +225,21 @@ fn legacy_encoded_fb2_fallback_streams_without_losing_the_tail() -> Result<()> {
     drop(file);
     let book = books::read(&path)?;
     let content = books::chapter(&book, 0)?;
-    let first = content.page.expect("large FB2 must retain source access");
-    let last = first.source.read(first.total - 128, false)?;
-    assert!(last.text.contains("Привет"));
-    assert!(last.text.ends_with("</FictionBook>"));
+    assert!(content.page.is_none());
+    assert!(content.html.contains("Привет"));
     Ok(())
 }
 
 #[test]
 fn coordinate_pages_preserve_continuation_cdata_and_character_references() -> Result<()> {
     let cancel = Cancellation::default();
-    let points = "0,0,0 ".repeat(limits::GEO_POINTS + 1);
+    let points = "0,0,0 ".repeat(10_001);
     let xml =
         format!("<kml><coordinates>{points}1&#46;5,2,3 <![CDATA[4,5,6]]></coordinates></kml>");
     let first = geo::read_page(xml.as_bytes(), 0, &cancel)?;
-    assert_eq!(first.rows.len(), limits::GEO_POINTS);
-    assert!(first.more);
-    let next = geo::read_page(xml.as_bytes(), first.rows.len(), &cancel)?;
+    assert_eq!(first.rows.len(), 10_003);
+    assert!(!first.more);
+    let next = geo::read_page(xml.as_bytes(), 10_000, &cancel)?;
     assert_eq!(next.rows.len(), 3);
     assert!(!next.more);
     assert_eq!(next.rows[1], ["1.5", "2", "3"]);
@@ -319,12 +311,12 @@ fn editable_pages_save_atomically_and_cancel_without_mutating_the_file() -> Resu
     let path = root.path().join("large.txt");
     let block = b"entry\n".repeat(limits::IO_BUFFER_BYTES / 6);
     let mut file = File::create(&path)?;
-    for _ in 0..(limits::TEXT_EDITABLE_BYTES / block.len() as u64 + 1) {
+    for _ in 0..(33 * 1024 * 1024 / block.len() as u64 + 1) {
         file.write_all(&block)?;
     }
     drop(file);
     let page = paged::read_page(&path, limits::TEXT_PAGE_BYTES, false)?;
-    assert!(page.total > limits::TEXT_EDITABLE_BYTES);
+    assert!(page.total > 32 * 1024 * 1024);
     assert!(page.source.is_editable());
     let changed = page.text.replacen("entry", "changed", 1);
     let edit = paged::PageEdit {

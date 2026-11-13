@@ -224,56 +224,41 @@ fn vector(path: &Path, cancel: &crate::work::Cancellation) -> anyhow::Result<Con
 }
 
 fn text_or_bytes(path: &Path, cancel: &crate::work::Cancellation) -> anyhow::Result<Content> {
-    let result = (|| {
-        let first = crate::paged::read_page_cancellable(path, 0, false, cancel)?;
-        if first.total > crate::files::MAX_DOCUMENT_BYTES
-            || first
-                .text
-                .lines()
-                .any(|line| line.len() > reader_limits::TEXT_LINE_BYTES)
-        {
-            Ok(Content::Page(first))
-        } else {
-            crate::files::read_document_cancellable(path, cancel)
-                .map(|d| {
-                    if d.text
-                        .lines()
-                        .any(|line| line.len() > reader_limits::TEXT_LINE_BYTES)
-                        || d.text
-                            .bytes()
-                            .filter(|b| *b == b'\n')
-                            .take(reader_limits::TEXT_EDITABLE_NEWLINES + 1)
-                            .count()
-                            > reader_limits::TEXT_EDITABLE_NEWLINES
-                    {
-                        Content::Page(first)
-                    } else {
-                        Content::File(d)
-                    }
-                })
-                .or_else(|error| {
-                    if error.is::<reader_limits::PreviewBudgetExceeded>() {
-                        crate::paged::read_page_cancellable(path, 0, false, cancel)
-                            .map(Content::Page)
-                    } else {
-                        Err(error)
-                    }
-                })
+    match crate::files::read_document_cancellable(path, cancel) {
+        Ok(document) => Ok(Content::File(document)),
+        Err(error) if crate::resources::is_memory_pressure(&error) => {
+            crate::paged::read_page_cancellable(path, 0, false, cancel).map(Content::Page)
         }
-    })();
-    // Unknown binary files use the same bounded, read-only byte pages as
-    // hidden files. A filename prefix does not determine whether bytes are viewable.
-    if result.is_err() {
-        cancel.check()?;
-        crate::paged::read_binary_page_cancellable(path, 0, cancel).map(Content::Page)
-    } else {
-        result
+        Err(error) if error.is::<crate::work::Cancelled>() => Err(error),
+        Err(_) => {
+            // Decode failures keep complete byte access; memory pressure must
+            // never turn a valid UTF-8 document into a binary preview.
+            crate::paged::read_binary_page_cancellable(path, 0, cancel).map(Content::Page)
+        }
     }
 }
 
 #[cfg(test)]
 mod format_tests {
     use super::{Content, read_content};
+
+    #[test]
+    fn text_beyond_old_size_line_and_newline_gates_is_loaded_whole() -> anyhow::Result<()> {
+        use std::io::Write;
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("complete.txt");
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(&vec![b'x'; 33 * 1024 * 1024])?;
+        file.write_all(&vec![b'\n'; 400_001])?;
+        file.write_all(b"THE_END")?;
+        drop(file);
+        let Content::File(document) = read_content(&path)? else {
+            panic!("valid text must not be automatically paged by size or line length");
+        };
+        assert_eq!(document.text.len(), 33 * 1024 * 1024 + 400_001 + 7);
+        assert!(document.text.ends_with("THE_END"));
+        Ok(())
+    }
 
     #[test]
     fn saved_text_cannot_collide_with_preview_identity() {

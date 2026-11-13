@@ -154,6 +154,29 @@ mod tests {
     use crate::{resources::ResourcePool, work::Cancellation};
 
     #[test]
+    fn complete_table_keeps_columns_beyond_the_old_window() {
+        let line = (0..300)
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let input = format!("{line}\n{line}\n");
+        let pool = ResourcePool::new(0);
+        let page = read_page_with_pool(
+            input.as_bytes(),
+            b',',
+            0,
+            0,
+            &Cancellation::default(),
+            &pool,
+        )
+        .unwrap();
+        assert_eq!(page.columns, 300);
+        assert_eq!(page.rows.len(), 2);
+        assert_eq!(page.rows[1][299], "299");
+        assert!(!page.more);
+    }
+
+    #[test]
     fn shared_pressure_pages_rows_without_skipping_quoted_or_unicode_values() {
         let input = (0..31)
             .map(|i| format!("\"行{i},value\",\"line {i}\ncontinued\"\n"))

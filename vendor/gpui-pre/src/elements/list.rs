@@ -10,8 +10,8 @@
 use crate::{
     AnyElement, App, AvailableSpace, Bounds, ContentMask, DispatchPhase, Edges, Element, EntityId,
     FocusHandle, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
-    Overflow, Pixels, Point, ScrollDelta, ScrollWheelEvent, Size, Style, StyleRefinement, Styled,
-    Window, point, px, size,
+    Overflow, Pixels, Point, ScrollWheelEvent, Size, Style, StyleRefinement, Styled, Window, point,
+    px, size,
 };
 use collections::VecDeque;
 use refineable::Refineable as _;
@@ -529,7 +529,9 @@ impl ListState {
         let mut new_items = old_items.slice(&Count(old_range.start), Bias::Right);
         old_items.seek_forward(&Count(old_range.end), Bias::Right);
 
-        let size_hint = state.estimated_item_height.map(|height| size(px(0.), height));
+        let size_hint = state
+            .estimated_item_height
+            .map(|height| size(px(0.), height));
         let mut spliced_count = 0;
         new_items.extend(
             focus_handles.into_iter().map(|focus_handle| {
@@ -908,7 +910,6 @@ impl StateInner {
 
     fn scroll(
         &mut self,
-        scroll_top: &ListOffset,
         height: Pixels,
         delta: Point<Pixels>,
         current_view: EntityId,
@@ -922,9 +923,10 @@ impl StateInner {
         }
 
         let padding = self.last_padding.unwrap_or_default();
+        let scroll_top = self.logical_scroll_top();
         let scroll_max =
             (self.items.summary().height + padding.top + padding.bottom - height).max(px(0.));
-        let new_scroll_top = (self.scroll_top(scroll_top) - delta.y)
+        let new_scroll_top = (self.scroll_top(&scroll_top) - delta.y)
             .max(px(0.))
             .min(scroll_max);
 
@@ -950,8 +952,9 @@ impl StateInner {
             self.follow_state.stop_following();
         }
 
+        let scroll_top = self.logical_scroll_top();
         if let Some(handler) = self.scroll_handler.as_mut() {
-            let visible_range = Self::visible_range(&self.items, height, scroll_top);
+            let visible_range = Self::visible_range(&self.items, height, &scroll_top);
             handler(
                 &ListScrollEvent {
                     visible_range,
@@ -1558,7 +1561,9 @@ impl Element for List {
         {
             // Visible-only lists still need a nonzero height for offscreen
             // items; losing their hints collapses the scroll range at either end.
-            let size_hint = state.estimated_item_height.map(|height| size(px(0.), height));
+            let size_hint = state
+                .estimated_item_height
+                .map(|height| size(px(0.), height));
             let new_items = SumTree::from_iter(
                 state.items.iter().map(|item| ListItem::Unmeasured {
                     size_hint,
@@ -1609,21 +1614,16 @@ impl Element for List {
         // div-based scroll containers.
         let list_state = self.state.clone();
         let height = bounds.size.height;
-        let scroll_top = prepaint.layout.scroll_top;
         let hitbox_id = prepaint.hitbox.id;
-        let mut accumulated_scroll_delta = ScrollDelta::default();
         window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
             if phase == DispatchPhase::Bubble && hitbox_id.should_handle_scroll(window) {
-                accumulated_scroll_delta = accumulated_scroll_delta.coalesce(event.delta);
-                let pixel_delta = accumulated_scroll_delta.pixel_delta(px(20.));
-                list_state.0.borrow_mut().scroll(
-                    &scroll_top,
-                    height,
-                    pixel_delta,
-                    current_view,
-                    window,
-                    cx,
-                )
+                // A scrollbar or minimap can move the list between paints.
+                // Apply each delta to live state, not the previous frame's anchor.
+                let pixel_delta = event.delta.pixel_delta(px(20.));
+                list_state
+                    .0
+                    .borrow_mut()
+                    .scroll(height, pixel_delta, current_view, window, cx)
             }
         });
 

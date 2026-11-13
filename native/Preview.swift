@@ -1158,8 +1158,10 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 let edge = min(Double(ReaderLimits.IMAGE_PREVIEW_EDGE), floor(sqrt(Double(ReaderLimits.IMAGE_DECODED_BYTES) / 4)))
                 let factor = edge / max(1, max(bounds.width, bounds.height))
                 self.copyRasterQueue.async {
-                    let image = page.thumbnail(of: NSSize(width: bounds.width * factor, height: bounds.height * factor), for: .cropBox)
-                    let raster = image.cgImage(forProposedRect: nil, context: nil, hints: nil).map(NativeRaster.init)
+                    let raster = NativeRaster.admitted(width: bounds.width * factor, height: bounds.height * factor) {
+                        let image = page.thumbnail(of: NSSize(width: bounds.width * factor, height: bounds.height * factor), for: .cropBox)
+                        return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+                    }
                     DispatchQueue.main.async { completion(raster) }
                 }
             }

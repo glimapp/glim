@@ -1,7 +1,7 @@
 //! Local, read-only OPML outlines; subscription URLs are never fetched.
 use crate::{limits, work::Cancellation};
 use anyhow::{Result, ensure};
-use std::{io::Read, path::Path};
+use std::path::Path;
 
 pub use glim_core::outline::{Document, Outline};
 pub fn supports(path: &Path) -> bool {
@@ -13,13 +13,8 @@ fn web_url(value: Option<&str>) -> Option<String> {
     matches!(url.scheme(), "http" | "https").then(|| value.to_string())
 }
 pub fn read(path: &Path, cancel: &Cancellation) -> Result<Document> {
-    let mut bytes = Vec::new();
-    crate::work::Reader {
-        inner: std::fs::File::open(path)?,
-        cancel: cancel.clone(),
-    }
-    .take(limits::OPML_XML_BYTES as u64 + 1)
-    .read_to_end(&mut bytes)?;
+    let bytes = crate::resources::read_to_end(std::fs::File::open(path)?, cancel)?;
+    let _parser_memory = crate::resources::reserve_parser(bytes.len())?;
     ensure!(
         bytes.len() <= limits::OPML_XML_BYTES,
         "OPML exceeds preview XML budget"
@@ -49,6 +44,7 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<Document> {
         .collect::<Vec<_>>();
     while let Some((node, parent, depth)) = stack.pop() {
         cancel.check()?;
+        crate::resources::check_memory()?;
         ensure!(
             depth < limits::OPML_NESTING && nodes.len() < limits::OPML_NODES,
             "OPML exceeds outline preview budget"

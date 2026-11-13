@@ -37,6 +37,11 @@ def generate(output):
             if value is None:
                 if entry['effect'] != 'unlimited':
                     raise ValueError(f'Null gate must be unlimited: {key}')
+                # Legacy numeric consumers use an index sentinel, never a
+                # preallocation size. Leave room for lookahead arithmetic.
+                sentinel = min(types[kind], types['usize']) // 2
+                rust.append(f'pub const {key}: {kind} = {sentinel};')
+                swift.append(f'    static let {key} = {sentinel}')
                 continue
             rust.append(f'pub const {key}: {kind} = {value};')
             swift.append(f'    static let {key} = {value}')

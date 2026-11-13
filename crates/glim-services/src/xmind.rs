@@ -48,9 +48,7 @@ pub fn read_cancellable(path: &Path, cancel: &crate::work::Cancellation) -> Resu
         entry.size() <= CONTENT_LIMIT,
         "XMind content exceeds the preview size limit",
     )?;
-    let mut bytes = Vec::new();
-    cancel
-        .copy((&mut entry).take(CONTENT_LIMIT + 1), &mut bytes)
+    let bytes = crate::resources::read_to_end((&mut entry).take(CONTENT_LIMIT + 1), cancel)
         .context(ReadStage("decompression"))?;
     reader_limits::preview_budget(
         bytes.len() as u64 <= CONTENT_LIMIT,
@@ -59,6 +57,7 @@ pub fn read_cancellable(path: &Path, cancel: &crate::work::Cancellation) -> Resu
     cancel.check()?;
     // A UTF-8 BOM is permitted by producers but rejected by serde_json.
     let content = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
+    let _parser_memory = crate::resources::reserve_parser(content.len())?;
     let value = if modern {
         serde_json::from_slice(content).map_err(|error| {
             if error.to_string().contains("recursion limit exceeded") {
@@ -87,6 +86,7 @@ fn text(value: &Value, key: &str) -> String {
         .to_owned()
 }
 fn sheets(value: Value) -> Result<Vec<Sheet>> {
+    crate::resources::check_memory()?;
     let values = value
         .as_array()
         .context("XMind content must contain a list of sheets")?;
@@ -140,6 +140,7 @@ fn add_topic(
     total: &mut usize,
     depth: usize,
 ) -> Result<usize> {
+    crate::resources::check_memory()?;
     ensure!(value.is_object(), "Invalid XMind topic");
     reader_limits::preview_budget(
         depth <= reader_limits::XMIND_NESTING && *total < TOPIC_LIMIT,

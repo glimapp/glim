@@ -74,6 +74,7 @@ pub struct Reader<R> {
 impl<R: Read> Read for Reader<R> {
     fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
         self.cancel.check().map_err(std::io::Error::other)?;
+        crate::resources::check_memory().map_err(std::io::Error::other)?;
         self.inner.read(bytes)
     }
 }

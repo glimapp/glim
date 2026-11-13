@@ -230,6 +230,10 @@ pub fn parse_format_cancellable(
         text.len() <= reader_limits::JSON_INPUT_BYTES,
         "Tree input exceeds the preview size limit"
     );
+    if format == "jsonc" {
+        return parse_jsonc_with(text, cancel, pool);
+    }
+    let _parser_memory = crate::resources::reserve_parser_with_pool(text.len(), pool)?;
     let value = match format {
         "json5" => json5::from_str(text)?,
         "ndjson" | "jsonl" => {
@@ -240,7 +244,6 @@ pub fn parse_format_cancellable(
             }
             Value::Array(values)
         }
-        "jsonc" => return parse_jsonc_with(text, cancel, pool),
         _ => serde_json::from_str(text)?,
     };
     cancel.check()?;

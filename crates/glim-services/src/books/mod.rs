@@ -73,9 +73,8 @@ pub struct ChapterContent {
 pub fn supports(path: &Path) -> bool {
     glim_core::formats::FormatSet::Book.matches(path)
 }
-fn bounded(reader: impl Read, limit: u64) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    reader.take(limit + 1).read_to_end(&mut bytes)?;
+fn bounded(reader: impl Read, limit: u64, cancel: &crate::work::Cancellation) -> Result<Vec<u8>> {
+    let bytes = crate::resources::read_to_end(reader.take(limit + 1), cancel)?;
     reader_limits::preview_budget(
         bytes.len() as u64 <= limit,
         "Ebook content exceeds reading limit",
@@ -87,7 +86,12 @@ fn archive(path: &Path) -> Result<zip::ZipArchive<std::fs::File>> {
         .context("Damaged or encrypted ebook archive")?;
     Ok(archive)
 }
-fn entry(archive: &mut zip::ZipArchive<std::fs::File>, name: &str, limit: u64) -> Result<Vec<u8>> {
+fn entry(
+    archive: &mut zip::ZipArchive<std::fs::File>,
+    name: &str,
+    limit: u64,
+    cancel: &crate::work::Cancellation,
+) -> Result<Vec<u8>> {
     let file = archive
         .by_name(name)
         .with_context(|| format!("Missing ebook resource: {name}"))?;
@@ -96,7 +100,7 @@ fn entry(archive: &mut zip::ZipArchive<std::fs::File>, name: &str, limit: u64) -
         file.unix_mode().is_none_or(|v| v & 0o170000 != 0o120000),
         "Ebook resources cannot be symbolic links"
     );
-    bounded(file, limit)
+    bounded(file, limit, cancel)
 }
 fn xml_encoding(bytes: &[u8]) -> &'static encoding_rs::Encoding {
     if let Some((encoding, _)) = encoding_rs::Encoding::for_bom(bytes) {
@@ -148,7 +152,18 @@ fn decode(bytes: &[u8]) -> Result<String> {
     }
     Ok(text)
 }
-fn xml(text: &str) -> Result<Document<'_>> {
+struct AdmittedXml<'a> {
+    document: Document<'a>,
+    _memory: crate::resources::WorkingReservation,
+}
+impl<'a> std::ops::Deref for AdmittedXml<'a> {
+    type Target = Document<'a>;
+    fn deref(&self) -> &Self::Target {
+        &self.document
+    }
+}
+fn xml(text: &str) -> Result<AdmittedXml<'_>> {
+    let memory = crate::resources::reserve_parser(text.len())?;
     ensure!(
         !text.contains("<!DOCTYPE"),
         "Ebook XML document types and external entities are unsupported"
@@ -165,7 +180,12 @@ fn xml(text: &str) -> Result<Document<'_>> {
         Err(roxmltree::Error::NodesLimitReached) => {
             Err(reader_limits::PreviewBudgetExceeded("Chapter XML working budget exceeded").into())
         }
-        result => result.context("Invalid ebook XML"),
+        result => result
+            .context("Invalid ebook XML")
+            .map(|document| AdmittedXml {
+                document,
+                _memory: memory,
+            }),
     }
 }
 fn named<'a, 'input>(node: Node<'a, 'input>, name: &str) -> impl Iterator<Item = Node<'a, 'input>> {
@@ -249,7 +269,10 @@ pub fn read(path: &Path) -> Result<Book> {
 }
 pub fn read_cancellable(path: &Path, cancel: &crate::work::Cancellation) -> Result<Book> {
     match read_structured(path, cancel) {
-        Err(error) if error.is::<reader_limits::PreviewBudgetExceeded>() => {
+        Err(error)
+            if error.is::<reader_limits::PreviewBudgetExceeded>()
+                || crate::resources::is_memory_pressure(&error) =>
+        {
             source_book(path, cancel)
         }
         result => result,
@@ -274,9 +297,9 @@ fn read_structured(path: &Path, cancel: &crate::work::Cancellation) -> Result<Bo
         .unwrap_or_default()
         .to_ascii_lowercase();
     let mut book = if name.ends_with(".epub") {
-        epub(path)?
+        epub(path, cancel)?
     } else if name.ends_with(".cbz") {
-        comic(path)?
+        comic(path, cancel)?
     } else {
         let bytes = if name.ends_with(".zip") {
             let mut package = archive(path)?;
@@ -286,9 +309,9 @@ fn read_structured(path: &Path, cancel: &crate::work::Cancellation) -> Result<Bo
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
             ensure!(entries.len() == 1, "FB2 ZIP must contain exactly one book");
-            entry(&mut package, &entries[0], TEXT_LIMIT)?
+            entry(&mut package, &entries[0], TEXT_LIMIT, cancel)?
         } else {
-            bounded(std::fs::File::open(path)?, TEXT_LIMIT)?
+            bounded(std::fs::File::open(path)?, TEXT_LIMIT, cancel)?
         };
         fictionbook(path, &decode(&bytes)?)?
     };
@@ -320,13 +343,14 @@ fn empty(path: &Path, format: Format) -> Result<Book> {
         source_pages: false,
     })
 }
-fn epub(path: &Path) -> Result<Book> {
+fn epub(path: &Path, cancel: &crate::work::Cancellation) -> Result<Book> {
     let mut package = archive(path)?;
     if package.file_names().any(|v| v == "META-INF/encryption.xml") {
         let value = decode(&entry(
             &mut package,
             "META-INF/encryption.xml",
             CHAPTER_LIMIT,
+            cancel,
         )?)?;
         let document = xml(&value)?;
         for method in named(document.root(), "EncryptionMethod") {
@@ -344,13 +368,14 @@ fn epub(path: &Path) -> Result<Book> {
         &mut package,
         "META-INF/container.xml",
         CHAPTER_LIMIT,
+        cancel,
     )?)?;
     let document = xml(&container)?;
     let root = named(document.root(), "rootfile")
         .find_map(|n| n.attribute("full-path"))
         .context("EPUB has no package document")?;
     let root = resolve("", root).context("EPUB package path is outside the archive")?;
-    let opf = decode(&entry(&mut package, &root, CHAPTER_LIMIT)?)?;
+    let opf = decode(&entry(&mut package, &root, CHAPTER_LIMIT, cancel)?)?;
     let document = xml(&opf)?;
     let mut book = empty(path, Format::Epub)?;
     book.title = named(document.root(), "title")
@@ -405,7 +430,7 @@ fn epub(path: &Path) -> Result<Book> {
         });
     }
     if let Some(nav) = nav {
-        let html = decode(&entry(&mut package, &nav, CHAPTER_LIMIT)?)?;
+        let html = decode(&entry(&mut package, &nav, CHAPTER_LIMIT, cancel)?)?;
         let doc = xml(&html)?;
         if let Some(toc) = named(doc.root(), "nav").find(|n| {
             attribute(*n, "type").is_some_and(|s| s.split_whitespace().any(|s| s == "toc"))
@@ -430,7 +455,7 @@ fn epub(path: &Path) -> Result<Book> {
     if book.toc.is_empty()
         && let Some(ncx) = ncx
     {
-        let body = decode(&entry(&mut package, &ncx, CHAPTER_LIMIT)?)?;
+        let body = decode(&entry(&mut package, &ncx, CHAPTER_LIMIT, cancel)?)?;
         let doc = xml(&body)?;
         for point in named(doc.root(), "navPoint") {
             let label = named(point, "navLabel")
@@ -478,7 +503,7 @@ fn epub(path: &Path) -> Result<Book> {
     }
     Ok(book)
 }
-fn comic(path: &Path) -> Result<Book> {
+fn comic(path: &Path, cancel: &crate::work::Cancellation) -> Result<Book> {
     let mut package = archive(path)?;
     let mut book = empty(path, Format::Comic)?;
     let mut images = package
@@ -508,7 +533,12 @@ fn comic(path: &Path) -> Result<Book> {
         });
     }
     if package.file_names().any(|s| s == "ComicInfo.xml") {
-        let metadata = decode(&entry(&mut package, "ComicInfo.xml", CHAPTER_LIMIT)?)?;
+        let metadata = decode(&entry(
+            &mut package,
+            "ComicInfo.xml",
+            CHAPTER_LIMIT,
+            cancel,
+        )?)?;
         let doc = xml(&metadata)?;
         book.title = named(doc.root(), "Title")
             .next()
@@ -698,7 +728,10 @@ pub fn chapter_cancellable(
         return source_chapter(book, index, cancel);
     }
     match chapter_structured(book, index, cancel) {
-        Err(error) if error.is::<reader_limits::PreviewBudgetExceeded>() => {
+        Err(error)
+            if error.is::<reader_limits::PreviewBudgetExceeded>()
+                || crate::resources::is_memory_pressure(&error) =>
+        {
             source_chapter(book, index, cancel)
         }
         result => result,
@@ -727,6 +760,7 @@ fn chapter_structured(
             &mut archive(&book.path)?,
             &chapter.href,
             CHAPTER_LIMIT,
+            cancel,
         )?)?
     };
     let doc = xml(&raw)?;

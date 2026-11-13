@@ -490,8 +490,10 @@ final class ImagePreview: NSObject {
             let budgetEdge = max(1, floor(sqrt(Double(ReaderLimits.IMAGE_DECODED_BYTES) / 4)))
             let edge = min(max(rasterWidth, rasterHeight), budgetEdge, original ? budgetEdge : Double(ReaderLimits.IMAGE_PREVIEW_EDGE))
             guard !token.cancelled else { return }
-            let image = source.flatMap { CGImageSourceCreateThumbnailAtIndex($0, page, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: edge, kCGImageSourceShouldCacheImmediately: true, kCGImageSourceShouldAllowFloat: false] as CFDictionary) }
-            let raster = image.map(NativeRaster.init)
+            let scale = min(1, edge / max(1, max(rasterWidth, rasterHeight)))
+            let raster = NativeRaster.admitted(width: rasterWidth * scale, height: rasterHeight * scale) {
+                source.flatMap { CGImageSourceCreateThumbnailAtIndex($0, page, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: edge, kCGImageSourceShouldCacheImmediately: true, kCGImageSourceShouldAllowFloat: false] as CFDictionary) }
+            }
             guard !token.cancelled else { return }
             DispatchQueue.main.async { [weak self] in
                 guard let self = self, !self.closed, self.generation == generation else { return }

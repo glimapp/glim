@@ -4,7 +4,7 @@ use crate::{limits, work::Cancellation};
 use anyhow::{Result, ensure};
 use glim_core::graph::PreparedGraph;
 use serde::Deserialize;
-use std::{io::Read, path::Path};
+use std::path::Path;
 
 pub fn supports(path: &Path) -> bool {
     glim_core::formats::FormatSet::StructuredGraph.matches(path)
@@ -18,11 +18,7 @@ pub fn read(path: &Path, text: Option<String>, cancel: &Cancellation) -> Result<
                 inner: std::fs::File::open(path)?,
                 cancel: cancel.clone(),
             };
-            let mut text = String::new();
-            input
-                .take(limits::JSON_INPUT_BYTES as u64 + 1)
-                .read_to_string(&mut text)?;
-            text
+            String::from_utf8(crate::resources::read_to_end(input, cancel)?)?
         }
     };
     ensure!(

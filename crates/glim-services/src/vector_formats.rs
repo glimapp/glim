@@ -2,15 +2,16 @@
 use crate::limits as reader_limits;
 use crate::media::ImageDocument;
 use anyhow::{Context, Result, ensure};
-use std::{fmt::Write as _, io::Read, path::Path};
+use std::{fmt::Write as _, path::Path};
 pub fn supports(path: &Path) -> bool {
     glim_core::formats::FormatSet::Vector.matches(path)
 }
 pub fn read_preview(path: &Path) -> Result<ImageDocument> {
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)?
-        .take(reader_limits::GEOMETRY_INPUT_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)?;
+    let bytes = crate::resources::read_to_end(
+        std::fs::File::open(path)?,
+        &crate::work::Cancellation::default(),
+    )?;
+    let _parser_memory = crate::resources::reserve_parser(bytes.len())?;
     reader_limits::preview_budget(
         bytes.len() <= reader_limits::GEOMETRY_INPUT_BYTES,
         "Static geometry exceeds the preview input size limit",
@@ -60,6 +61,7 @@ fn mesh(bytes: &[u8], ext: &str) -> Result<String> {
             "Mesh preview working budget exceeded",
         )?;
         for facet in bytes[84..].as_chunks::<50>().0 {
+            crate::resources::check_memory()?;
             let mut face = Vec::new();
             for data in facet[12..48].as_chunks::<12>().0 {
                 face.push(vertices.len());
@@ -73,6 +75,7 @@ fn mesh(bytes: &[u8], ext: &str) -> Result<String> {
         }
     } else {
         for line in std::str::from_utf8(bytes)?.lines() {
+            crate::resources::check_memory()?;
             let mut words = line.split_whitespace();
             match words.next() {
                 Some("v") if ext == "obj" => {

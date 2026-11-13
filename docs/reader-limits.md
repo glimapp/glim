@@ -18,12 +18,12 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `text.editable_bytes` | 32 MiB | bytes | fallback | In-memory editor working budget; larger/long-line documents use editable pages and streaming atomic saves, without a file-size rejection. |
-| `text.editable_newlines` | 400,000 | items | fallback | In-memory editor working budget; larger/long-line documents use editable pages and streaming atomic saves, without a file-size rejection. |
-| `text.line_bytes` | 64 KiB | bytes | fallback | In-memory editor working budget; larger/long-line documents use editable pages and streaming atomic saves, without a file-size rejection. |
+| `text.editable_bytes` | None | bytes | unlimited | Read complete UTF-8 text when memory permits; no size, line-length or line-count switch to pages. Memory pressure retains editable source-page fallback. |
+| `text.editable_newlines` | None | items | unlimited | Read complete UTF-8 text when memory permits; no size, line-length or line-count switch to pages. Memory pressure retains editable source-page fallback. |
+| `text.line_bytes` | None | bytes | unlimited | Read complete UTF-8 text when memory permits; no size, line-length or line-count switch to pages. Memory pressure retains editable source-page fallback. |
 | `text.page_bytes` | 1 MiB | bytes | budget | Bytes per normal text page; following pages preserve the rest of the file. |
-| `text.full_bytes` | 256 MiB | bytes | budget | Expanded-page working budget, not a full-file gate; previous/next controls keep the rest accessible. Editable and streamed sources also retain their own working budgets. |
-| `text.full_newlines` | 4,000,000 | items | budget | Expanded-page working budget, not a full-file gate; previous/next controls keep the rest accessible. Editable and streamed sources also retain their own working budgets. |
+| `text.full_bytes` | None | bytes | unlimited | Read complete UTF-8 text when memory permits; no size, line-length or line-count switch to pages. Memory pressure retains editable source-page fallback. |
+| `text.full_newlines` | None | items | unlimited | Read complete UTF-8 text when memory permits; no size, line-length or line-count switch to pages. Memory pressure retains editable source-page fallback. |
 | `text.layout_run_bytes` | 1 KiB | bytes | budget | Maximum text run per virtual read-only row; long logical lines wrap into further rows without losing source bytes. |
 
 ## binary
@@ -103,9 +103,9 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `json.input_bytes` | 16 MiB | bytes | fallback | Structured-tree working budget; Source retains the complete editable document, with pages for large files. |
+| `json.input_bytes` | None | bytes | unlimited | Prepare the complete structured tree under parser and retained-node memory admission, without an input-size or node-count gate. |
 | `json.field_chars` | 512 | characters | budget | Tree-label summary only; expand containers or double-click to inspect the complete key/value. Source retains all content. |
-| `json.nodes` | 250,000 | items | fallback | Structured-tree working budget; Source retains the complete editable document, with pages for large files. |
+| `json.nodes` | None | items | unlimited | Prepare the complete structured tree under parser and retained-node memory admission, without an input-size or node-count gate. |
 | `json.description_chars` | 80 | characters | budget | Tree-label summary only; expand containers or double-click to inspect the complete key/value. Source retains all content. |
 | `json.array_summary_chars` | 120 | characters | budget | Tree-label summary only; expand containers or double-click to inspect the complete key/value. Source retains all content. |
 | `json.auto_expand_children` | 16 | items | budget | Initial auto-expansion policy only; collapsed children can still be expanded explicitly. |
@@ -114,10 +114,10 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `csv.input_bytes` | 16 MiB | bytes | budget | Active page/record decoding memory, not a total-file gate. Oversized individual records remain accessible in editable Source pages. |
-| `csv.rows` | 100,000 | items | page | Active table page/window size; row and column navigation exposes the remaining records. |
-| `csv.columns` | 256 | items | page | Active table page/window size; row and column navigation exposes the remaining records. |
-| `csv.cells` | 1,000,000 | items | page | Active table page/window size; row and column navigation exposes the remaining records. |
+| `csv.input_bytes` | None | bytes | unlimited | Prepare complete rows and columns when admitted memory permits. Under pressure, publish complete row prefixes with continuation instead of a fixed row/column quota. |
+| `csv.rows` | None | items | unlimited | Prepare complete rows and columns when admitted memory permits. Under pressure, publish complete row prefixes with continuation instead of a fixed row/column quota. |
+| `csv.columns` | None | items | unlimited | Prepare complete rows and columns when admitted memory permits. Under pressure, publish complete row prefixes with continuation instead of a fixed row/column quota. |
+| `csv.cells` | None | items | unlimited | Prepare complete rows and columns when admitted memory permits. Under pressure, publish complete row prefixes with continuation instead of a fixed row/column quota. |
 | `csv.cell_chars` | 4,096 | characters | budget | Visible single-line cell excerpt; double-click retains the complete value and uses paged viewing for large values. |
 
 ## spreadsheet
@@ -131,27 +131,27 @@ This page is generated from the same policy. After editing it, run `python3 scri
 | `spreadsheet.input_bytes` | None | bytes | unlimited | XLSX cells, sheet names and saved formulas stream into a disk-backed index with paged values; there is no input/sheet/row/column/value/HTML total gate. Legacy XLS and oversized individual XML records use native Quick Look without an application size cap. |
 | `spreadsheet.sheet_text_bytes` | None | bytes | unlimited | XLSX cells, sheet names and saved formulas stream into a disk-backed index with paged values; there is no input/sheet/row/column/value/HTML total gate. Legacy XLS and oversized individual XML records use native Quick Look without an application size cap. |
 | `spreadsheet.html_bytes` | None | bytes | unlimited | XLSX cells, sheet names and saved formulas stream into a disk-backed index with paged values; there is no input/sheet/row/column/value/HTML total gate. Legacy XLS and oversized individual XML records use native Quick Look without an application size cap. |
-| `spreadsheet.column_window` | 256 | columns | page | Columns per worksheet presentation page, independent of the SQLite browser. |
-| `spreadsheet.catalog_window` | 5,000 | items | page | Worksheet catalog entries per page. |
+| `spreadsheet.column_window` | None | columns | unlimited | Load the complete column or sheet-catalog range; worksheet rows retain query windows and disk-backed indexing, and projected cells require memory admission. |
+| `spreadsheet.catalog_window` | None | items | unlimited | Load the complete column or sheet-catalog range; worksheet rows retain query windows and disk-backed indexing, and projected cells require memory admission. |
 
 ## xmind
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `xmind.title_bytes` | 16 KiB | bytes | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
+| `xmind.title_bytes` | None | bytes | unlimited | Prepare complete map content under memory admission; recursive nesting and format validity remain bounded separately. |
 | `xmind.nesting` | 64 | levels | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
-| `xmind.content_bytes` | 16 MiB | bytes | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
-| `xmind.topics` | 10,000 | items | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
+| `xmind.content_bytes` | None | bytes | unlimited | Prepare complete map content under memory admission; recursive nesting and format validity remain bounded separately. |
+| `xmind.topics` | None | items | unlimited | Prepare complete map content under memory admission; recursive nesting and format validity remain bounded separately. |
 | `xmind.input_bytes` | None | bytes | unlimited | Open the ZIP container from disk without a total file-size or entry-count gate. |
 | `xmind.archive_entries` | None | items | unlimited | Open the ZIP container from disk without a total file-size or entry-count gate. |
-| `xmind.sheets` | 100 | items | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
-| `xmind.relationships` | 10,000 | items | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
-| `xmind.note_bytes` | 64 KiB | bytes | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
-| `xmind.labels` | 128 | items | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
-| `xmind.xml_nodes` | 200,000 | items | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
+| `xmind.sheets` | None | items | unlimited | Prepare complete map content under memory admission; recursive nesting and format validity remain bounded separately. |
+| `xmind.relationships` | None | items | unlimited | Prepare complete map content under memory admission; recursive nesting and format validity remain bounded separately. |
+| `xmind.note_bytes` | None | bytes | unlimited | Prepare complete map content under memory admission; recursive nesting and format validity remain bounded separately. |
+| `xmind.labels` | None | items | unlimited | Prepare complete map content under memory admission; recursive nesting and format validity remain bounded separately. |
+| `xmind.xml_nodes` | None | items | unlimited | Prepare complete map content under memory admission; recursive nesting and format validity remain bounded separately. |
 | `xmind.xml_nesting` | 256 | levels | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
-| `xmind.link_bytes` | 16 KiB | bytes | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
-| `xmind.labels_bytes` | 16 KiB | bytes | fallback | Mind-map working budget. Exceeding it, including parser stack exhaustion, opens complete content.json/content.xml pages with cancellable on-demand decompression. |
+| `xmind.link_bytes` | None | bytes | unlimited | Prepare complete map content under memory admission; recursive nesting and format validity remain bounded separately. |
+| `xmind.labels_bytes` | None | bytes | unlimited | Prepare complete map content under memory admission; recursive nesting and format validity remain bounded separately. |
 
 ## archive
 
@@ -171,10 +171,10 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `geometry.input_bytes` | 16 MiB | bytes | fallback | Static mesh projection working budget; larger projections open complete source/hex pages rather than rejecting or silently cutting the file. |
-| `geometry.vertices` | 100,000 | items | fallback | Static mesh projection working budget; larger projections open complete source/hex pages rather than rejecting or silently cutting the file. |
-| `geometry.faces` | 100,000 | items | fallback | Static mesh projection working budget; larger projections open complete source/hex pages rather than rejecting or silently cutting the file. |
-| `geometry.polygon_vertices` | 256 | items | fallback | Static mesh projection working budget; larger projections open complete source/hex pages rather than rejecting or silently cutting the file. |
+| `geometry.input_bytes` | None | bytes | unlimited | Read complete geometry under memory admission; raster output and format-validity budgets still apply, with complete source fallback. |
+| `geometry.vertices` | None | items | unlimited | Read complete geometry under memory admission; raster output and format-validity budgets still apply, with complete source fallback. |
+| `geometry.faces` | None | items | unlimited | Read complete geometry under memory admission; raster output and format-validity budgets still apply, with complete source fallback. |
+| `geometry.polygon_vertices` | None | items | unlimited | Read complete geometry under memory admission; raster output and format-validity budgets still apply, with complete source fallback. |
 
 ## bdf
 
@@ -233,8 +233,8 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `markup.eager_layout_bytes` | 8 MiB | bytes | budget | Measure the complete preview before scrolling when both eager-layout budgets fit. Larger documents retain viewport layout and remain fully accessible; this does not limit file size. |
-| `markup.eager_layout_lines` | 32,768 | source lines | budget | Source-line working budget for complete preview measurement, including table rows and nested lists. Both eager-layout budgets must fit; larger documents retain viewport layout without truncation. |
+| `markup.eager_layout_bytes` | None | bytes | unlimited | Measure complete Markdown/markup layout without a byte or line-count switch to estimated heights; images and diagrams retain demand-driven decoding. |
+| `markup.eager_layout_lines` | None | source lines | unlimited | Measure complete Markdown/markup layout without a byte or line-count switch to estimated heights; images and diagrams retain demand-driven decoding. |
 | `markup.scan_bytes` | None | bytes | unlimited | Scan the current text for image references; large documents use source pages instead of a total reference-scan cutoff. |
 
 ## remote_image
@@ -274,12 +274,12 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `book.chapter_bytes` | 4 MiB | bytes | fallback | Structured chapter working budget. When exceeded, retain chapter navigation and provide complete UTF-8 source pages, with streamed transcoding for supported legacy encodings. No chapter is silently cut off. |
-| `book.xml_nodes` | 250,000 | nodes | fallback | Structured chapter working budget. When exceeded, retain chapter navigation and provide complete UTF-8 source pages, with streamed transcoding for supported legacy encodings. No chapter is silently cut off. |
+| `book.chapter_bytes` | None | bytes | unlimited | Read complete selected chapter/text/XML when memory permits; chapter navigation, nesting, embedded-image and output budgets remain separate. |
+| `book.xml_nodes` | None | nodes | unlimited | Read complete selected chapter/text/XML when memory permits; chapter navigation, nesting, embedded-image and output budgets remain separate. |
 | `book.resource_bytes` | None | bytes | unlimited | Requested archive images stream to a private file and use native thumbnail decoding; no source-resource byte or pixel-edge gate. Only the active chapter/page previews are retained. |
 | `book.preview_edge` | 2,400 | pixels | budget | Thumbnail resolution for the requested illustration/comic page; this does not reject the original image. |
 | `book.input_bytes` | None | bytes | unlimited | No application book/archive/chapter/catalog/metadata total gate. Structured parsing keeps a working budget; oversized metadata exposes every archive member as complete source or byte pages. |
-| `book.text_bytes` | 64 MiB | bytes | fallback | Structured chapter working budget. When exceeded, retain chapter navigation and provide complete UTF-8 source pages, with streamed transcoding for supported legacy encodings. No chapter is silently cut off. |
+| `book.text_bytes` | None | bytes | unlimited | Read complete selected chapter/text/XML when memory permits; chapter navigation, nesting, embedded-image and output budgets remain separate. |
 | `book.archive_entries` | None | items | unlimited | No application book/archive/chapter/catalog/metadata total gate. Structured parsing keeps a working budget; oversized metadata exposes every archive member as complete source or byte pages. |
 | `book.chapters` | None | items | unlimited | No application book/archive/chapter/catalog/metadata total gate. Structured parsing keeps a working budget; oversized metadata exposes every archive member as complete source or byte pages. |
 | `book.metadata_bytes` | None | bytes | unlimited | No application book/archive/chapter/catalog/metadata total gate. Structured parsing keeps a working budget; oversized metadata exposes every archive member as complete source or byte pages. |
@@ -288,7 +288,7 @@ This page is generated from the same policy. After editing it, run `python3 scri
 | `book.fb2_depth` | 64 | levels | fallback | Structured chapter working budget. When exceeded, retain chapter navigation and provide complete UTF-8 source pages, with streamed transcoding for supported legacy encodings. No chapter is silently cut off. |
 | `book.html_depth` | 128 | levels | fallback | Structured chapter working budget. When exceeded, retain chapter navigation and provide complete UTF-8 source pages, with streamed transcoding for supported legacy encodings. No chapter is silently cut off. |
 | `book.chapter_decoded_bytes` | 128 MiB | bytes | fallback | Structured chapter working budget. When exceeded, retain chapter navigation and provide complete UTF-8 source pages, with streamed transcoding for supported legacy encodings. No chapter is silently cut off. |
-| `book.chapter_images` | 128 | items | fallback | Structured chapter working budget. When exceeded, retain chapter navigation and provide complete UTF-8 source pages, with streamed transcoding for supported legacy encodings. No chapter is silently cut off. |
+| `book.chapter_images` | None | items | unlimited | Read complete selected chapter/text/XML when memory permits; chapter navigation, nesting, embedded-image and output budgets remain separate. |
 | `book.image_decoded_bytes` | None | bytes | unlimited | Requested archive images stream to a private file and use native thumbnail decoding; no source-resource byte or pixel-edge gate. Only the active chapter/page previews are retained. |
 | `book.image_edge` | None | pixels | unlimited | Requested archive images stream to a private file and use native thumbnail decoding; no source-resource byte or pixel-edge gate. Only the active chapter/page previews are retained. |
 
@@ -305,7 +305,7 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `geo.points` | 10,000 | items | page | Coordinates per table page; previous/next navigation covers all GPX/KML points and Source preserves the complete XML. |
+| `geo.points` | None | items | unlimited | Prepare all coordinate rows when memory permits; pressure can publish complete prefixes with continuation. |
 
 ## workspace
 
@@ -360,7 +360,7 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `drawio.xml_bytes` | 32 MiB | bytes | budget | Maximum source or expanded diagram XML per preview; larger documents fall back to source pages. |
+| `drawio.xml_bytes` | None | bytes | unlimited | Read complete source and decoded page XML under memory admission; raster-output and nesting budgets remain separate. |
 | `drawio.nesting` | 64 | levels | budget | Bound parent traversal and detect cyclic groups. |
 | `drawio.preview_bytes` | 128 MiB | bytes | budget | Aggregate encoded PNG page memory; larger documents fall back to source pages. |
 
@@ -368,8 +368,8 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `opml.xml_bytes` | 16 MiB | bytes | budget | OPML XML preview budget; fall back to source pages when exceeded. |
-| `opml.nodes` | 100,000 | items | budget | Maximum resident outline nodes. |
+| `opml.xml_bytes` | None | bytes | unlimited | Prepare the complete outline under parser memory admission; nesting and format validity remain separate. |
+| `opml.nodes` | None | items | unlimited | Prepare the complete outline under parser memory admission; nesting and format validity remain separate. |
 | `opml.nesting` | 256 | levels | budget | Maximum outline nesting depth. |
 
 ## watch
@@ -394,7 +394,9 @@ This page is generated from the same policy. After editing it, run `python3 scri
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
 | `resources.cache_bytes` | 256 MiB | bytes | budget | Process-wide budget for tracked reclaimable reader caches; evict background then least recently used unpinned values. Live state and active work are accounted separately and never discarded as cache. Framework allocations are outside this ledger. |
-| `resources.working_bytes` | 512 MiB | bytes | budget | Shared target for reader working buffers. Producers using atomic reservations adapt their output window to remaining capacity before allocation; reservations follow retained results. Legacy tracked allocations count against availability but are not yet constrained by admission. Protected editing state and opaque framework allocations are separate. |
+| `resources.working_bytes` | None | bytes | unlimited | Working allocations use live macOS memory headroom instead of a fixed byte budget. |
+| `resources.system_used_percent` | 95 | percent | budget | Emergency system memory use ceiling; reserve the remaining physical memory for macOS and other apps. |
+| `resources.memory_poll_ms` | 250 | milliseconds | budget | Background sampling interval for system memory admission. |
 
 ## remote
 

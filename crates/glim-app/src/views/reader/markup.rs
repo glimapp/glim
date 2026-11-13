@@ -671,6 +671,64 @@ mod tests {
     };
 
     #[gpui_kit::test]
+    fn scrollbar_drag_then_wheel_uses_the_dragged_position(cx: &mut TestAppContext) {
+        use gpui_kit::{
+            Entity, ParentElement,
+            component::text::{TextView, TextViewState},
+        };
+        struct ScrollExtentTestRoot {
+            text_view: Entity<TextViewState>,
+        }
+        impl Render for ScrollExtentTestRoot {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+                    .w(px(400.))
+                    .h(px(200.))
+                    .overflow_hidden()
+                    .child(TextView::new(&self.text_view).scrollable(true))
+            }
+        }
+        let document = (0..80)
+            .map(|i| format!("Block {i}: {}", "lorem ipsum dolor ".repeat(20)))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        cx.update(gpui_kit::init);
+        let (root, cx) = cx.add_window_view(|_, cx| ScrollExtentTestRoot {
+            text_view: cx.new(|cx| TextViewState::markdown(&document, cx)),
+        });
+        let draw = |cx: &mut VisualTestContext| {
+            cx.run_until_parked();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        };
+        draw(cx);
+        let list = root.read_with(cx, |root, cx| root.text_view.read(cx).list_state().clone());
+        let max = list.max_offset_for_scrollbar().y;
+        assert!(max > px(1000.));
+        for (offset, delta) in [(-max, px(40.)), (px(0.), px(-40.))] {
+            cx.update(|window, cx| {
+                list.scrollbar_drag_started();
+                list.set_offset_from_scrollbar(point(px(0.), offset));
+                list.scrollbar_drag_ended();
+                window.dispatch_event(
+                    gpui_kit::PlatformInput::ScrollWheel(gpui_kit::ScrollWheelEvent {
+                        position: point(px(100.), px(100.)),
+                        delta: gpui_kit::ScrollDelta::Pixels(point(px(0.), delta)),
+                        ..Default::default()
+                    }),
+                    cx,
+                );
+            });
+            draw(cx);
+            assert!(
+                (list.scroll_px_offset_for_scrollbar().y - (offset + delta)).abs() < px(2.),
+                "wheel after drag: {:?}, expected {:?}",
+                list.scroll_px_offset_for_scrollbar().y,
+                offset + delta
+            );
+        }
+    }
+
+    #[gpui_kit::test]
     fn visible_preview_scrolls_both_ways_after_drag(cx: &mut TestAppContext) {
         let cx = cx.add_empty_window();
         let state = ListState::new(10_000, ListAlignment::Top, px(100.));

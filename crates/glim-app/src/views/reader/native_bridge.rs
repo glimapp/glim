@@ -8,15 +8,19 @@ use std::{ffi::c_void, marker::PhantomData, ptr::NonNull, rc::Rc};
 
 // Native owners retain numeric handles, never Rust pointers. The registry may
 // be called by decode/OCR workers as well as the main-thread preview controller.
-extern "C" fn reader_resource(id: u64, bytes: u64) -> u64 {
-    use glim_services::resources::{self, ResourceClass, ResourceLease};
+extern "C" fn reader_resource(id: u64, bytes: u64, admit: bool) -> u64 {
+    use glim_services::resources::{self, ResourceClass, ResourceLease, WorkingReservation};
     use std::{
         collections::HashMap,
         sync::{Mutex, OnceLock},
     };
+    enum NativeResource {
+        Tracked { _lease: ResourceLease },
+        Admitted { _reservation: WorkingReservation },
+    }
     struct Registry {
         next: u64,
-        leases: HashMap<u64, ResourceLease>,
+        leases: HashMap<u64, NativeResource>,
     }
     static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
     let mut registry = REGISTRY
@@ -35,10 +39,20 @@ extern "C" fn reader_resource(id: u64, bytes: u64) -> u64 {
     let Some(id) = registry.next.checked_add(1) else {
         return 0;
     };
+    let resource = if admit {
+        let Ok(reservation) = resources::pool().reserve_working(bytes, bytes) else {
+            return 0;
+        };
+        NativeResource::Admitted {
+            _reservation: reservation,
+        }
+    } else {
+        NativeResource::Tracked {
+            _lease: resources::pool().track(bytes, ResourceClass::Working),
+        }
+    };
     registry.next = id;
-    registry
-        .leases
-        .insert(id, resources::pool().track(bytes, ResourceClass::Working));
+    registry.leases.insert(id, resource);
     id
 }
 
@@ -199,7 +213,7 @@ extern "C" fn pdf_reload_complete(context: *mut c_void, status: i32) {
 }
 
 unsafe extern "C" {
-    fn glim_set_reader_resources(callback: Option<extern "C" fn(u64, u64) -> u64>);
+    fn glim_set_reader_resources(callback: Option<extern "C" fn(u64, u64, bool) -> u64>);
     fn glim_set_telemetry_consent(usage: i32, diagnostics: i32);
     fn glim_set_reader_telemetry(
         callback: Option<extern "C" fn(i32, i32, i32, i32, u64, u64, u64, u64)>,

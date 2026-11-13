@@ -401,6 +401,11 @@ pub fn render_page(
         row_start < row_end && column_start < column_end,
         "Worksheet page is outside its dimensions"
     );
+    let projected_cells = (row_end - row_start).saturating_mul(column_end - column_start);
+    let projected_bytes = projected_cells
+        .saturating_mul((std::mem::size_of::<((u64, u64), (u64, u64))>() * 2) as u64);
+    let _page_memory =
+        crate::resources::pool().reserve_working(projected_bytes, projected_bytes)?;
     let mut cells: BTreeMap<(u64, u64), (u64, u64)> = BTreeMap::new();
     {
         let mut query=db.prepare("SELECT r,c,start,length FROM source_cells WHERE sheet=?1 AND r>?2 AND r<=?3 AND c>?4 AND c<=?5 ORDER BY r,c")?;
