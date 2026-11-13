@@ -13,6 +13,9 @@ use gpui_kit::{
     *,
 };
 
+const COLLAPSED_WORKSPACE_FONT_SIZE: f32 = 14.;
+const COLLAPSED_WORKSPACE_TEXT_PADDING: f32 = 4.;
+
 fn workspace_list_height(count: usize) -> f32 {
     (count as f32 * (super::WORKSPACE_ROW_HEIGHT + 4.) - 4.).max(0.)
 }
@@ -23,7 +26,7 @@ fn workspace_short_name(title: &str, window: &Window, cx: &App) -> String {
     font.weight = FontWeight::MEDIUM;
     let line = window.text_system().shape_line(
         title.to_owned().into(),
-        px(11.),
+        px(COLLAPSED_WORKSPACE_FONT_SIZE),
         &[TextRun {
             len: title.len(),
             font,
@@ -34,7 +37,8 @@ fn workspace_short_name(title: &str, window: &Window, cx: &App) -> String {
         }],
         None,
     );
-    title[..line.index_for_x(px(28.)).unwrap_or(title.len())].to_owned()
+    let text_width = super::COLLAPSED_WORKSPACE_ROW_WIDTH - 2. * COLLAPSED_WORKSPACE_TEXT_PADDING;
+    title[..line.index_for_x(px(text_width)).unwrap_or(title.len())].to_owned()
 }
 
 struct PinnedWorkspaceList {
@@ -325,6 +329,7 @@ impl Workspace {
                 .w(px(super::COLLAPSED_WORKSPACE_ROW_WIDTH))
                 .h(px(super::WORKSPACE_ROW_HEIGHT))
                 .p_0()
+                .px(px(COLLAPSED_WORKSPACE_TEXT_PADDING))
                 .flex_shrink_0()
                 .rounded(px(7.))
                 .when(selected && self.explorer_visible, |button| {
@@ -336,8 +341,8 @@ impl Workspace {
                         .w_full()
                         .text_center()
                         .font_family(cx.theme().font_family.clone())
-                        .text_size(px(11.))
-                        .line_height(px(14.))
+                        .text_size(px(COLLAPSED_WORKSPACE_FONT_SIZE))
+                        .line_height(px(18.))
                         .font_weight(FontWeight::MEDIUM)
                         .child(workspace_short_name(&title, window, cx)),
                 )
