@@ -42,8 +42,10 @@ struct EmbeddedPreviewTests {
         }
     }
     static func main() throws {
+        if CommandLine.arguments.contains("--pdf-controls-only") { readerPDFControls(); return }
         try readerActionState()
         if CommandLine.arguments.contains("--toolbar-only") { return }
+        readerPDFControls()
         readerResourceOwnership()
         try requestContract()
         _ = NSApplication.shared

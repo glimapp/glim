@@ -212,7 +212,7 @@ enum ReaderMenu {
             ("Copy Preview Text", "doc.on.doc"), ("Cut", "scissors"), ("Paste", "doc.on.clipboard"),
             ("Select All", "selection.pin.in.out"), ("Extract Text", "text.viewfinder"),
             ("Recognize Image Text", "text.viewfinder"), ("Fit width", "arrow.left.and.right"),
-            ("Fit page", "arrow.up.left.and.arrow.down.right"),
+            ("Fit page", "rectangle.arrowtriangle.2.inward"),
             ("Single Page", "doc"), ("Single Page Continuous", "doc.text"),
             ("Two Pages", "book"), ("Two Pages Continuous", "book.pages"),
             ("Fit image", "rectangle.arrowtriangle.2.inward"), ("Actual size", "1.magnifyingglass"),

@@ -20,7 +20,7 @@ private enum ResourceLedger {
 }
 
 func readerResourceOwnership() {
-    glimSetReaderResources { id, bytes in ResourceLedger.update(id, bytes) }
+    glimSetReaderResources { id, bytes, _ in ResourceLedger.update(id, bytes) }
     defer { glimSetReaderResources(nil) }
     let context = CGContext(data: nil, width: 19, height: 7, bitsPerComponent: 8,
                             bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),

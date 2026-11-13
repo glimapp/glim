@@ -535,6 +535,108 @@ final class ReaderPDFView: PDFView {
     private enum Fit { case width, page }
     private var fitting: Fit?
     private var applyingFit = false
+    private var panPoint: NSPoint?
+    private weak var panClip: NSClipView?
+    private var pointerTracking: NSTrackingArea?
+
+    private var pannableScroll: NSScrollView? {
+        guard let content = documentView, let scroll = content.enclosingScrollView else { return nil }
+        let size = content.convert(content.bounds, to: scroll.contentView).size
+        let viewport = scroll.contentView.bounds.size
+        let pixel = 1 / (window?.backingScaleFactor ?? 1)
+        return size.width - viewport.width > pixel || size.height - viewport.height > pixel ? scroll : nil
+    }
+
+    private func canPan(at point: NSPoint) -> Bool {
+        guard let scroll = pannableScroll,
+              scroll.contentView.bounds.contains(scroll.contentView.convert(point, from: self)) else { return false }
+        let interactive: PDFAreaOfInterest = [.annotationArea, .linkArea, .controlArea, .textFieldArea, .iconArea, .popupArea]
+        guard areaOfInterest(for: point).intersection(interactive).isEmpty else { return false }
+        if document?.allowsCopying == true, let page = page(for: point, nearest: false) {
+            let location = convert(point, to: page)
+            let index = page.characterIndex(at: location)
+            if index != NSNotFound, index >= 0, index < page.numberOfCharacters,
+               page.characterBounds(at: index).contains(location) { return false }
+        }
+        return true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        // Leave text, annotations, scrollers and modified clicks with PDFKit.
+        let modifiers: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
+        guard NSApp.currentEvent?.modifierFlags.intersection(modifiers).isEmpty != false,
+              let content = documentView, let clip = content.enclosingScrollView?.contentView,
+              hit === clip || hit === content || hit.isDescendant(of: content),
+              canPan(at: convert(point, from: superview)) else { return hit }
+        return self
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let pointerTracking = pointerTracking { removeTrackingArea(pointerTracking) }
+        let tracking = NSTrackingArea(rect: .zero, options: [.inVisibleRect, .activeInKeyWindow, .mouseMoved, .cursorUpdate], owner: self)
+        addTrackingArea(tracking)
+        pointerTracking = tracking
+    }
+
+    override func setCursorFor(_ area: PDFAreaOfInterest) {
+        if panPoint != nil { NSCursor.closedHand.set() }
+        else if NSEvent.pressedMouseButtons & 1 == 0, let window = window,
+                canPan(at: convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
+            NSCursor.openHand.set()
+        } else { super.setCursorFor(area) }
+    }
+
+    private func updatePointerCursor() {
+        guard let window = window, window.isKeyWindow, !isHiddenOrHasHiddenAncestor,
+              let root = window.contentView,
+              let hit = root.hitTest(root.superview?.convert(window.mouseLocationOutsideOfEventStream, from: nil) ?? window.mouseLocationOutsideOfEventStream),
+              let content = documentView, let clip = content.enclosingScrollView?.contentView,
+              hit === self || hit === clip || hit === content || hit.isDescendant(of: content) else { return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        setCursorFor(areaOfInterest(for: point))
+    }
+
+    override func cursorUpdate(with event: NSEvent) { updatePointerCursor() }
+    override func mouseMoved(with event: NSEvent) { super.mouseMoved(with: event); updatePointerCursor() }
+
+    override func mouseDown(with event: NSEvent) {
+        guard canPan(at: convert(event.locationInWindow, from: nil)), let clip = pannableScroll?.contentView else {
+            super.mouseDown(with: event); return
+        }
+        window?.makeFirstResponder(self)
+        panClip = clip
+        panPoint = clip.convert(event.locationInWindow, from: nil)
+        NSCursor.closedHand.set()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let previous = panPoint, let clip = panClip, let scroll = clip.enclosingScrollView else {
+            super.mouseDragged(with: event); return
+        }
+        let point = clip.convert(event.locationInWindow, from: nil)
+        var proposed = clip.bounds
+        proposed.origin.x -= point.x - previous.x
+        proposed.origin.y -= point.y - previous.y
+        clip.scroll(to: clip.constrainBoundsRect(proposed).origin)
+        scroll.reflectScrolledClipView(clip)
+        panPoint = clip.convert(event.locationInWindow, from: nil)
+        NSCursor.closedHand.set()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard panPoint != nil else { super.mouseUp(with: event); return }
+        panPoint = nil; panClip = nil
+        NSCursor.arrow.set()
+        updatePointerCursor()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        panPoint = nil; panClip = nil
+        super.viewWillMove(toWindow: newWindow)
+    }
+
     override func layout() {
         super.layout()
         if let scroll = documentView?.enclosingScrollView {
@@ -542,6 +644,7 @@ final class ReaderPDFView: PDFView {
             if scroll.scrollerStyle != .overlay { scroll.scrollerStyle = .overlay }
         }
         refit()
+        updatePointerCursor()
     }
     @objc func fitToWidth() { ReaderTelemetry.record(2, 4, 0); setFit(.width) }
     @objc func fitPage() { ReaderTelemetry.record(2, 4, 0); setFit(.page) }

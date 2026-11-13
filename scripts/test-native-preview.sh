@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-if [[ "${1:-}" != "" && "${1:-}" != --build-only && "${1:-}" != --toolbar-only ]]; then
-    echo 'Usage: scripts/test-native-preview.sh [--build-only|--toolbar-only]' >&2
+if [[ "${1:-}" != "" && "${1:-}" != --build-only && "${1:-}" != --toolbar-only && "${1:-}" != --pdf-controls-only ]]; then
+    echo 'Usage: scripts/test-native-preview.sh [--build-only|--toolbar-only|--pdf-controls-only]' >&2
     exit 1
 fi
 preview_test_dir=$(mktemp -d)
