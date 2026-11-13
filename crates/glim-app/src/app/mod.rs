@@ -4,6 +4,7 @@ mod assets;
 pub(crate) mod diagram_engine;
 pub(crate) mod document_session;
 pub(crate) mod edit_session;
+mod file_open;
 pub(crate) mod finder_integration;
 mod image_http;
 pub(crate) mod languages;
@@ -642,6 +643,9 @@ fn open_system_files(urls: Vec<String>, cx: &mut App) {
             && url.scheme() == "file"
             && let Ok(path) = url.to_file_path()
         {
+            if file_open::open_in_workspace(&path, cx) {
+                continue;
+            }
             if reveal_existing_file(&path, None, cx) {
                 continue;
             }

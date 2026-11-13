@@ -140,6 +140,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> bool {
         self.page = super::Page::Document;
+        self.select_workspace(self.recent_id.clone(), window, cx);
         // All Finder file types share one queue. Extension-based routing here
         // would split ordinary text/images and native formats across windows.
         if self.reveal_file_path(&path, window, cx) {

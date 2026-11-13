@@ -108,6 +108,39 @@ impl Workspace {
                 return;
             }
         };
+        let reader = self.take_tab(index, window, cx);
+        // The just-created window cannot close between these synchronous updates.
+        handle
+            .update(cx, |_, window, cx| {
+                destination.update(cx, |view, cx| view.receive_detached_tab(reader, window, cx));
+            })
+            .expect("Newly created tab window");
+    }
+
+    pub(crate) fn take_file_tab(
+        &mut self,
+        path: &std::path::Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Reader> {
+        if self.is_saving()
+            || self.loading
+            || self.incoming_file_task.is_some()
+            || self.confirm_task.is_some()
+            || crate::app::updates::busy(cx)
+        {
+            return None;
+        }
+        let index = self
+            .tabs
+            .iter()
+            .position(|reader| reader.document.path == path)?;
+        self.tabs[index]
+            .can_move_to_window(cx)
+            .then(|| self.take_tab(index, window, cx))
+    }
+
+    fn take_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) -> Reader {
         let reader = self.tabs.remove(index);
         reader.deactivate(cx);
         if let Some(editor) = reader.editor() {
@@ -128,12 +161,7 @@ impl Workspace {
         }
         self.sync_workspace(cx);
         cx.notify();
-        // The just-created window cannot close between these synchronous updates.
-        handle
-            .update(cx, |_, window, cx| {
-                destination.update(cx, |view, cx| view.receive_detached_tab(reader, window, cx));
-            })
-            .expect("Newly created tab window");
+        reader
     }
 
     fn receive_detached_tab(
@@ -162,13 +190,24 @@ impl Workspace {
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|| reader.title.to_string()),
         );
+        self.receive_system_tab(reader, window, cx);
+    }
+
+    pub(crate) fn receive_system_tab(
+        &mut self,
+        reader: Reader,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_workspace(self.recent_id.clone(), window, cx);
         reader.bind_window(window, cx);
         let editor = reader.editor();
         let autosave = reader.document.draft_directory.is_none() && reader.is_dirty();
+        let index = self.tabs.len();
         self.tabs.push(reader);
         self.observe_autosave(window, cx);
-        self.activate_tab(0, window, cx);
-        self.tabs[0].activate(cx);
+        self.activate_tab(index, window, cx);
+        self.tabs[index].activate(cx);
         self.watch_file_parent(window, cx);
         if let Some(editor) = editor {
             self.checkpoint_editor(editor.entity_id(), cx);

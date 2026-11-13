@@ -66,17 +66,25 @@ unsafe extern "C" {
     fn glim_reader_toolbar_release(handle: *mut c_void);
 }
 pub(super) struct NativeToolbar {
-    handle: NonNull<c_void>,
+    handle: Option<NonNull<c_void>>,
     // Rc also keeps this owner confined to the UI thread.
     _events: Box<Rc<RefCell<ToolbarEvents>>>,
 }
 impl NativeToolbar {
-    pub fn new(events: Rc<RefCell<ToolbarEvents>>) -> Self {
+    pub fn new(events: Rc<RefCell<ToolbarEvents>>, window: &Window) -> Self {
         let mut events = Box::new(events);
-        // SAFETY: stable boxed context remains owned until native release.
-        let handle = unsafe { glim_reader_toolbar_create((&raw mut *events).cast(), invoke) };
+        // Simulated GPUI windows have no AppKit host and cannot own native views.
+        let handle = HasWindowHandle::window_handle(window)
+            .ok()
+            .filter(|handle| matches!(handle.as_raw(), RawWindowHandle::AppKit(_)))
+            .map(|_| {
+                // SAFETY: stable boxed context remains owned until native release.
+                let handle =
+                    unsafe { glim_reader_toolbar_create((&raw mut *events).cast(), invoke) };
+                NonNull::new(handle).expect("Native toolbar")
+            });
         Self {
-            handle: NonNull::new(handle).expect("Native toolbar"),
+            handle,
             _events: events,
         }
     }
@@ -88,6 +96,9 @@ impl NativeToolbar {
         collapsed: bool,
         window: &Window,
     ) {
+        let Some(toolbar) = self.handle else {
+            return;
+        };
         let Ok(handle) = HasWindowHandle::window_handle(window) else {
             return;
         };
@@ -98,7 +109,7 @@ impl NativeToolbar {
         // Swift copies the serialized actions before returning.
         unsafe {
             glim_reader_toolbar_update(
-                self.handle.as_ptr(),
+                toolbar.as_ptr(),
                 handle.ns_view.as_ptr(),
                 f32::from(bounds.origin.x) as f64,
                 f32::from(bounds.origin.y) as f64,
@@ -114,7 +125,9 @@ impl NativeToolbar {
 }
 impl Drop for NativeToolbar {
     fn drop(&mut self) {
-        // SAFETY: detach native actions before dropping their callback context.
-        unsafe { glim_reader_toolbar_release(self.handle.as_ptr()) }
+        if let Some(handle) = self.handle {
+            // SAFETY: detach native actions before dropping their callback context.
+            unsafe { glim_reader_toolbar_release(handle.as_ptr()) }
+        }
     }
 }

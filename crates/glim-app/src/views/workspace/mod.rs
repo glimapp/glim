@@ -222,6 +222,7 @@ impl Workspace {
         ));
         let reader_toolbar = std::rc::Rc::new(super::native_toolbar_bridge::NativeToolbar::new(
             toolbar_events.clone(),
+            window,
         ));
         cx.on_release(|view, _| {
             view.flush_usage();
