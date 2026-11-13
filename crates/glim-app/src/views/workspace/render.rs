@@ -78,7 +78,7 @@ impl Workspace {
                                         ),
                                 )
                                 .on_click(cx.listener(|view, _, window, cx| {
-                                    view.changes_expanded = false;
+                                    view.set_changes_expanded(false);
                                     window.focus(&view.focus, cx);
                                     cx.notify();
                                 })),
@@ -132,7 +132,7 @@ impl Workspace {
             .cursor_pointer()
             .on_click(cx.listener(|view, _, window, cx| {
                 view.path_hint.hide();
-                view.changes_expanded = true;
+                view.set_changes_expanded(true);
                 window.focus(&view.focus, cx);
                 cx.notify();
             }))
@@ -176,7 +176,7 @@ impl Workspace {
                     .on_click(cx.listener(|view, _, window, cx| {
                         cx.stop_propagation();
                         view.path_hint.hide();
-                        view.changes_expanded = true;
+                        view.set_changes_expanded(true);
                         window.focus(&view.focus, cx);
                         cx.notify();
                     })),
@@ -517,7 +517,7 @@ impl Render for Workspace {
             .on_click(cx.listener(move |view, _, window, cx| {
                 if has_git {
                     view.path_hint.hide();
-                    view.changes_expanded = !view.changes_expanded;
+                    view.set_changes_expanded(!view.changes_expanded);
                     window.focus(&view.focus, cx);
                     cx.notify();
                 }
@@ -545,7 +545,7 @@ impl Render for Workspace {
                     .on_click(cx.listener(|view, _, window, cx| {
                         cx.stop_propagation();
                         view.path_hint.hide();
-                        view.changes_expanded = !view.changes_expanded;
+                        view.set_changes_expanded(!view.changes_expanded);
                         window.focus(&view.focus, cx);
                         cx.notify();
                     }))
@@ -747,6 +747,7 @@ impl Render for Workspace {
                                                 / f32::from(window.viewport_size().width))
                                             .min(0.35);
                                         }
+                                        view.record_layout("workspace_sidebar_resize");
                                         cx.notify();
                                     }
                                 },
@@ -791,6 +792,9 @@ impl Render for Workspace {
                                                 let _ = workspace.update(cx, |view, cx| {
                                                     view.sidebar_ratio = DEFAULT_SIDEBAR_RATIO;
                                                     view.sidebar_window_width = 0.;
+                                                    view.record_layout(
+                                                        "workspace_sidebar_width_reset",
+                                                    );
                                                     cx.notify();
                                                 });
                                                 layout.update(cx, |state, cx| {

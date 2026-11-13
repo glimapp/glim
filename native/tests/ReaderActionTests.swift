@@ -13,10 +13,18 @@ private final class PDFControlsWindow: NSWindow {
     override var mouseLocationOutsideOfEventStream: NSPoint { pointer }
 }
 
+private enum PDFUsageRecorder {
+    static var events: [(kind: Int32, action: Int32, source: Int32, x: UInt64, y: UInt64, token: UInt64)] = []
+}
+
 func readerPDFControls() {
     _ = NSApplication.shared
     let originalCursor = NSCursor.current
     defer { originalCursor.set() }
+    PDFUsageRecorder.events = []
+    glimSetReaderTelemetry { kind, action, _, source, x, y, token, _ in PDFUsageRecorder.events.append((kind, action, source, x, y, token)) }
+    glimSetTelemetryConsent(1, 0)
+    defer { glimSetTelemetryConsent(0, 0); glimSetReaderTelemetry(nil) }
     for title in ["Previous", "Next", "Zoom out", "Zoom in", "Fit page", "Fit width", "Actual size",
                   "Play Slideshow", "Copy Preview Text", "Extract Text", "Find in file · ⌘F"] {
         guard let symbol = ReaderMenu.toolbarSymbol(for: L(title)) else { preconditionFailure("Missing icon for \(title)") }
@@ -40,9 +48,10 @@ func readerPDFControls() {
     let pdf = ReaderPDFView(frame: window.contentView!.bounds)
     window.contentView!.addSubview(pdf)
     pdf.document = document; pdf.displayMode = .singlePage
-    pdf.fitPage(); pdf.layoutSubtreeIfNeeded()
+    pdf.fitInitialPage(); pdf.layoutSubtreeIfNeeded()
     func settle() { pdf.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05)) }
     settle()
+    precondition(PDFUsageRecorder.events.isEmpty, "Initial page fitting is not a user action")
     let clip = pdf.documentView!.enclosingScrollView!.contentView
     func show(_ point: NSPoint) -> NSPoint {
         let target = clip.convert(pdf.convert(point, from: page), from: pdf)
@@ -71,11 +80,32 @@ func readerPDFControls() {
     let startInClip = clip.convert(point, from: pdf), endInClip = clip.convert(dragged, from: pdf)
     pdf.mouseDragged(with: event(.leftMouseDragged, dragged))
     pdf.mouseUp(with: event(.leftMouseUp, dragged))
+    let pans = PDFUsageRecorder.events.filter { $0.action == 38 }
+    precondition(pans.count == 1 && pans[0].kind == 2 && pans[0].source == 1 && pans[0].x == 4500 && pans[0].y == 3500,
+                 "One completed drag must emit one event with actual viewport movement: \(pans)")
     pdf.setCursorFor(pdf.areaOfInterest(for: point))
     precondition(NSCursor.current == .openHand, "Releasing must leave the dragging cursor")
     precondition(abs(clip.bounds.origin.x - before.x + endInClip.x - startInClip.x) < 1 &&
                  abs(clip.bounds.origin.y - before.y + endInClip.y - startInClip.y) < 1,
                  "Panning must follow the pointer at viewport speed on both axes: \(before) → \(clip.bounds.origin)")
+    let again = show(blank)
+    pdf.mouseDown(with: event(.leftMouseDown, again))
+    glimSetTelemetryConsent(0, 0); glimSetTelemetryConsent(1, 0)
+    pdf.mouseDragged(with: event(.leftMouseDragged, NSPoint(x: again.x + 10, y: again.y)))
+    pdf.mouseUp(with: event(.leftMouseUp, again))
+    precondition(PDFUsageRecorder.events.filter { $0.action == 38 }.count == 1, "Consent changes must discard an unfinished interaction")
+    let shortcutEvent = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0,
+                                        windowNumber: window.windowNumber, context: nil, characters: "C", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8)!
+    ReaderTelemetry.shortcut(2, 7, event: shortcutEvent)
+    let shortcut = PDFUsageRecorder.events.last!
+    precondition(shortcut.action == 107 && shortcut.source == 2 && shortcut.y == 8 && shortcut.token == 99 && shortcut.x == UInt64(NSEvent.ModifierFlags([.command, .shift]).rawValue),
+                 "Shortcut metadata must come from the handled event without relying on NSApp.currentEvent")
+    let alternateLayout = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0,
+                                          windowNumber: window.windowNumber, context: nil, characters: "I", charactersIgnoringModifiers: "i", isARepeat: false, keyCode: 8)!
+    ReaderTelemetry.shortcut(2, 8, event: alternateLayout)
+    precondition(PDFUsageRecorder.events.last!.token == 105 && PDFUsageRecorder.events.last!.y == 8,
+                 "Recognized commands must retain their meaning when physical and logical keys differ")
+    precondition(ReaderTelemetry.action("fit") == 41 && ReaderTelemetry.action("fitToWidth") == 40 && ReaderTelemetry.action("actualSize") == 39)
     let character = page.characterBounds(at: 0)
     let textPoint = show(NSPoint(x: character.midX, y: character.midY))
     precondition(hit(textPoint) !== pdf, "Selectable text must remain with PDFKit")

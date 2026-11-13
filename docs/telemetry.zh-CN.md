@@ -85,9 +85,9 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 
 内存队列最多 256 条、每批最多 25 条、约两秒刷新；支持取消、有限退出等待和指数退避。没有磁盘发件箱或原始日志上传。断网、锁竞争、队列淘汰会丢事件，后续成功发送时用 health 事件披露。长时间运行每天轮换 Aptabase 会话，安装身份保持稳定；网络发送失败不会递归产生错误埋点。
 
-## 功能使用采集（schema 4）
+## 功能使用采集（schema 5）
 
-统计事件带 `schema_version=4`、`usage_statistics=true`、架构和操作系统 build，Aptabase 系统字段带 macOS 版本、应用版本/build、语言和 SDK 版本。常规上报不再采集硬件配置、CPU／内存／GPU 资源、缓存计数或逐任务排队耗时，停止发送 `reader_job`、`resource_sample`、`system_profile`。本地资源准入、缓存回收、取消机制和性能测量工具独立保留。
+统计事件带 `schema_version=5`、`usage_statistics=true`、架构和操作系统 build，Aptabase 系统字段带 macOS 版本、应用版本/build、语言和 SDK 版本。常规上报不再采集硬件配置、CPU／内存／GPU 资源、缓存计数或逐任务排队耗时，停止发送 `reader_job`、`resource_sample`、`system_profile`。本地资源准入、缓存回收、取消机制和性能测量工具独立保留。
 
 主动打开文件的覆盖率看成功的 `file_open`；阅读器可用能力看 `reader_opened`，包含恢复的标签。`reader_opened.trigger=open|restore` 区分新打开与恢复，`storage=local|ssh` 区分本地与 SSH，远端阅读器的 `can_edit=false`。SSH 的 `file_open` 记录主动打开的格式、结果和耗时；成功的自动／手动刷新不重复计为打开文件。带 `storage=ssh` 的 `workspace_open` 记录打开或恢复远端工作区，由 `trigger` 区分；恢复加载路径也用于最近工作区与外部请求。前台停留事件也标注存储类型。应用驻留时间与事件总数不等于使用时长；文档前台时间是占用时长，可能包含发呆。
 
@@ -100,6 +100,23 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 `shortcut_used` 收集 GPUI 已解析出的静态命令名、修饰键、固定白名单命令键标记及活动格式，覆盖应用操作、书籍翻页、文件树导航，以及编辑器已解析的复制/剪切/粘贴、撤销/重做、查找和光标命令。普通字符输入不上传文本；未知绑定键为 `other_bound_key`。命令键标记用于区分同一操作的 Space/PageDown 等绑定。GPUI 拦截器或原生视图提前消费的键不会进入这个观察器。
 
 `native_shortcut_used` 由已有原生快捷键处理路径收集，含静态阅读器/动作、Command/Control/Option/Shift 和已识别命令的物理 `key_code`；物理键码不代表当前键盘布局产生的字符。覆盖原生复制、全选、缩放、适配、实际大小、预览文本复制、OCR、外部打开和翻页。原生操作的 `input_source` 为 pointer/keyboard/menu/unknown；异步结果和状态观察不推断用户来源。系统自带菜单、Quick Look、WebKit 或 AVPlayerView 内部未经过这些处理路径的快捷键不保证覆盖。
+
+### 工作区与操作阶段（schema 5）
+
+快捷键增加可直接阅读的 `shortcut`，例如 `Cmd+G`、`Cmd+Shift+M`；`key_token` 覆盖全部带修饰键的拉丁字母命令，保留动作名和修饰键。GPUI 的 `key_basis=resolved_binding` 表示已解析绑定；原生在命令匹配后将组合键编码为固定数字枚举，`key_basis=recognized_command` 保留当前键盘布局下识别到的命令键，另存物理 `key_code`；无法识别的键和历史记录才以 `macos_virtual_key_us` 按美式物理键位解释。原生处理器直接传入已处理的按键事件，不依赖全局当前事件。多工作区共用窗口时，GPUI 上下文只取可见工作区。普通输入和未知键不会作为原文上报。历史 `other_bound_key` 无法反推实际组合。
+
+| 范围 | 事件与字段 |
+| --- | --- |
+| 三栏布局 | `workspace_layout_changed`：工作区栏与文件树的展开、收起、拖动结束及双击复位，变更面板展开／收起；包含可见状态、列宽占窗口百分比和 `layout_mode`。拖动宽度不逐帧上报。 |
+| 布局停留 | `foreground_segment` 及工作区上下文带 `layout_mode`、`workspace_sidebar_expanded`、`file_tree_visible`、`changes_expanded`、`file_fullscreen`；布局变化切分前台片段。`three_column` 表示工作区栏、文件树与阅读区同时展开；收起工作区栏、隐藏文件树及文件全屏分别统计。 |
+| 工作区动作 | `workspace_action`：选择工作区、从最近列表打开、重命名、关闭、搜索开关／重试／选中结果、阅读器工具栏显隐，以及删除后保留标签的数量。均不含工作区名称。 |
+| 文件树调用 | `explorer_action`：菜单、拖放、移动快捷键的调用，`input_source=menu|drag_drop|keyboard`、`storage=local|ssh` 和是否为文件夹。 |
+| 文件操作结果 | `file_operation`：本地新建文件夹、移动、废纸篓；SSH 新建文件／文件夹、重命名、移动、废纸篓。记录 `action`、存储类型、结果和已开始工作耗时；选择器／确认框取消记 `cancelled`。本地新文件沿用草稿创建与首次落盘事件；尚未通过校验的请求不视为已完成工作。 |
+| 工作区搜索 | `workspace_search_completed`：`search_mode=content|filename`、存储类型、结果、当前页数量／偏移、耗时；内容检索还带 `filename_fallback`。远端文件名结果只在完整页就绪时计完成，不按索引轮询计数，不上传搜索词。 |
+| Git 仓库检测 | `workspace_git_detected`：存储类型、结果、耗时与仓库数量；`semantic=observation`、`trigger=background`。当前没有 diff 内容使用事件；检测和变更面板展开不能当作看过 diff。 |
+| PDF／图片 | 原生动作区分 `fit_page`、`fit_width`、`fit_image`、`actual_size`；PDF 的 `layout` 带具体布局；原生查找增加上／下一个匹配、关闭、大小写开关，以及 `⌘F`、`⌘G`、`⇧⌘G`、Enter／Shift+Enter 和 Esc 的已处理快捷键。初次打开 PDF 的自动整页适配不记用户操作。`pan` 在实际移动后的鼠标松开时每次拖动只记一条，包含可视区 point×100 的横纵累计位移，排除边界上未移动的输入；统计开关在拖动中变化会丢弃该段。 |
+
+`semantic` 区分 `shortcut`（快捷键命中）、`invocation`（调用）、`state_change`（状态变化）、`outcome`（操作结果）和 `observation`（后台／原生状态观察）。同一次动作可能出现多个阶段，不能相加当作操作次数或保证一一对应。异步结果不猜测鼠标／键盘来源；现有未标注事件与旧数据的阶段、布局等缺失字段在报表中显示 `legacy_unknown`，不会推断或回填。
 
 ### 格式操作明细
 
@@ -132,7 +149,7 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 python3 scripts/telemetry-detail-report.py events.json --output-dir report
 ```
 
-生成 `timeline.csv`（逐条事件及完整安全属性）、`actions.csv`（事件/格式/阅读器/动作/来源/结果分组）、`shortcuts.csv`（命令与组合键排行）、`resources.csv`（活动格式下主进程指标的样本数、P50/P95/最大值）。支持与格式榜相同的 JSON/JSONL/CSV 输入；相同会话与序号的导出重复行只算一次。时间线保留导出顺序，可按会话与事件序号查看链路；不是可靠的全局因果排序。先在导出中筛选版本与时间范围，再比较报表。安装数缺失时不会伪造人数。
+生成 `timeline.csv`（逐条事件及完整安全属性）、`actions.csv`（事件/格式/阅读器/动作/来源/结果/schema/阶段/存储/布局/搜索模式分组）、`shortcuts.csv`（命令与可读组合键、键位来源排行）、`layouts.csv`（按存储与布局的去重安装数、正数前台片段秒数）、`resources.csv`（活动格式下主进程指标的样本数、P50/P95/最大值）。支持与格式榜相同的 JSON/JSONL/CSV 输入；相同会话与序号的导出重复行只算一次。时间线保留导出顺序，可按会话与事件序号查看链路；不是可靠的全局因果排序。先在导出中筛选版本与时间范围，再比较报表。安装数缺失时不会伪造人数。
 
 ## 命令行过滤与有效使用口径
 

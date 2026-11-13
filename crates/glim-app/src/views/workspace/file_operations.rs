@@ -36,10 +36,28 @@ impl Workspace {
             let result = match selection.await {
                 Ok(Ok(Some(path))) => {
                     cx.background_executor()
-                        .spawn(async move { glim_services::workspace::create_folder(&path) })
+                        .spawn(async move {
+                            let started = std::time::Instant::now();
+                            let result = glim_services::workspace::create_folder(&path);
+                            glim_services::telemetry::file_operation(
+                                "new_folder",
+                                "local",
+                                &path,
+                                started,
+                                &result,
+                            );
+                            result
+                        })
                         .await
                 }
-                Ok(Ok(None)) => Ok(()),
+                Ok(Ok(None)) => {
+                    glim_services::telemetry::file_operation_cancelled(
+                        "new_folder",
+                        "local",
+                        &directory,
+                    );
+                    Ok(())
+                }
                 other => Err(anyhow::anyhow!("Cannot choose folder: {other:?}")),
             };
             let _ = view.update_in(cx, |view, window, cx| {
@@ -142,6 +160,16 @@ impl Workspace {
                 view.confirm_task = None;
                 if accepted {
                     view.trash(path, window, cx);
+                } else {
+                    glim_services::telemetry::file_operation_cancelled(
+                        "trash",
+                        if glim_services::remote::is_remote_id(&view.recent_id) {
+                            "ssh"
+                        } else {
+                            "local"
+                        },
+                        &path,
+                    );
                 }
             });
         }));
@@ -183,7 +211,7 @@ impl Workspace {
                 }
                 glim_services::workspace::trash_entry(&target)
             })();
-            glim_services::telemetry::result("move_to_trash", Some(&target), started, &result);
+            glim_services::telemetry::file_operation("trash", "local", &target, started, &result);
             (result, std::sync::Arc::new(retained))
         });
         self.confirm_task = Some(cx.spawn_in(window, async move |view, cx| {
@@ -256,6 +284,7 @@ impl Workspace {
         }
         self.incoming_file_task = None;
         self.search_task = None;
+        let mut retained_tabs = 0;
         for reader in &mut self.tabs {
             if reader.document.draft_directory.is_none()
                 && !reader.document.trashed
@@ -268,6 +297,7 @@ impl Workspace {
                     .document
                     .mark_trashed(retained.get(&reader.document.path).cloned());
                 reader.retain_deleted_snapshot(cx);
+                retained_tabs += 1;
                 if let Some(editor) = reader.editor() {
                     let id = editor.entity_id();
                     if let Some((_, pending)) = self.autosave.get_mut(&id) {
@@ -276,6 +306,15 @@ impl Workspace {
                     self.save_queue.retain(|queued| *queued != id);
                 }
             }
+        }
+        if retained_tabs > 0 {
+            self.record_workspace_action(
+                "deleted_tabs_retained",
+                [
+                    ("semantic", glim_services::telemetry::text("state_change")),
+                    ("tab_count", glim_services::telemetry::number(retained_tabs)),
+                ],
+            );
         }
         if let Some(explorer) = &self.explorer {
             explorer.update(cx, |explorer, cx| explorer.did_trash(path, cx));

@@ -34,6 +34,8 @@ impl Workspace {
                     .timer(Duration::from_millis(limits::WORKSPACE_SEARCH_DEBOUNCE_MS))
                     .await;
             }
+            let started = std::time::Instant::now();
+            let storage = if remote.is_some() { "ssh" } else { "local" };
             let result = crate::app::reader_jobs::run(
                 cx.background_executor().clone(),
                 crate::app::reader_jobs::JobClass::ContentSearch,
@@ -45,6 +47,31 @@ impl Workspace {
                 },
             )
             .await;
+            glim_services::telemetry::result_with(
+                "workspace_search_completed",
+                None,
+                started,
+                &result,
+                [
+                    ("search_mode", glim_services::telemetry::text("content")),
+                    ("storage", glim_services::telemetry::text(storage)),
+                    ("semantic", glim_services::telemetry::text("outcome")),
+                    (
+                        "result_count",
+                        glim_services::telemetry::number(
+                            result.as_ref().map_or(0, |page| page.matches.len()) as u64,
+                        ),
+                    ),
+                    ("offset", glim_services::telemetry::number(offset as u64)),
+                    (
+                        "filename_fallback",
+                        glim_services::telemetry::flag(
+                            offset == 0
+                                && result.as_ref().map_or(true, |page| page.matches.is_empty()),
+                        ),
+                    ),
+                ],
+            );
             let _ = view.update_in(cx, |view, window, cx| {
                 if offset == 0
                     && match &result {
@@ -362,6 +389,7 @@ impl Workspace {
     }
 
     fn retry_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.record_workspace_action("retry_search", []);
         self.start_remote_search_index(true, window, cx);
         self.search_files(window, cx);
     }
@@ -371,6 +399,7 @@ impl Workspace {
             return;
         }
         if !self.search_visible {
+            self.record_workspace_action("open_search", []);
             self.search_previous_focus = window.focused(cx);
             self.search_visible = true;
             self.start_remote_search_index(false, window, cx);
@@ -384,6 +413,10 @@ impl Workspace {
         if !self.search_visible {
             return;
         }
+        self.record_workspace_action(
+            "close_search",
+            [("semantic", glim_services::telemetry::text("state_change"))],
+        );
         self.search_visible = false;
         self.search_task = None;
         self.search_loading = false;
@@ -431,6 +464,25 @@ impl Workspace {
             .get(index)
             .filter(|hit| hit.path == path)
             .map(|hit| hit.offset);
+        self.record_workspace_action(
+            "open_search_result",
+            [
+                (
+                    "result_kind",
+                    glim_services::telemetry::text(if location.is_some() {
+                        "content"
+                    } else if self.search.read(cx).value().trim().is_empty() {
+                        "recent"
+                    } else {
+                        "filename"
+                    }),
+                ),
+                (
+                    "result_position",
+                    glim_services::telemetry::number(index as u64 + 1),
+                ),
+            ],
+        );
         self.close_search(window, cx);
         self.search
             .update(cx, |input, cx| input.set_value("", window, cx));

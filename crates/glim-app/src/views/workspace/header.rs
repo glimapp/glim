@@ -156,6 +156,8 @@ impl Workspace {
                     .await;
             }
             let mut revision = None;
+            let started = std::time::Instant::now();
+            let storage = if remote.is_some() { "ssh" } else { "local" };
             let mut reported = false;
             let mut failure_reported = false;
             loop {
@@ -195,6 +197,23 @@ impl Workspace {
                                                 ),
                                             ),
                                             ("has_more", glim_services::telemetry::flag(page.more)),
+                                            (
+                                                "search_mode",
+                                                glim_services::telemetry::text("filename"),
+                                            ),
+                                            ("storage", glim_services::telemetry::text(storage)),
+                                            ("result", glim_services::telemetry::text("success")),
+                                            ("semantic", glim_services::telemetry::text("outcome")),
+                                            (
+                                                "offset",
+                                                glim_services::telemetry::number(offset as u64),
+                                            ),
+                                            (
+                                                "duration_ms",
+                                                glim_services::telemetry::number(
+                                                    started.elapsed().as_millis() as u64,
+                                                ),
+                                            ),
                                         ],
                                     );
                                 }
@@ -224,6 +243,32 @@ impl Workspace {
                                 revision = None;
                                 if !failure_reported {
                                     failure_reported = true;
+                                    glim_services::telemetry::track(
+                                        "workspace_search_completed",
+                                        [
+                                            (
+                                                "search_mode",
+                                                glim_services::telemetry::text("filename"),
+                                            ),
+                                            ("storage", glim_services::telemetry::text(storage)),
+                                            (
+                                                "result",
+                                                glim_services::telemetry::text(
+                                                    if error.is::<glim_services::work::Cancelled>()
+                                                    {
+                                                        "cancelled"
+                                                    } else {
+                                                        "failed"
+                                                    },
+                                                ),
+                                            ),
+                                            ("semantic", glim_services::telemetry::text("outcome")),
+                                            (
+                                                "offset",
+                                                glim_services::telemetry::number(offset as u64),
+                                            ),
+                                        ],
+                                    );
                                     glim_services::telemetry::operation_failed(
                                         "workspace_search",
                                         None,

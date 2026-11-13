@@ -54,7 +54,7 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
         caseButton.setButtonType(.toggle)
         configure(previous, label: L("Previous match · Shift+Enter"), symbol: "arrow.up", action: #selector(previousMatch))
         configure(next, label: L("Next match · Enter"), symbol: "arrow.down", action: #selector(nextMatch))
-        configure(dismiss, label: L("Close find · Esc"), symbol: "xmark", action: #selector(hide))
+        configure(dismiss, label: L("Close find · Esc"), symbol: "xmark", action: #selector(dismissFind))
         configure(button, label: L("Find in file · ⌘F"), symbol: "magnifyingglass", action: #selector(show))
         count.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         count.alignment = .center; count.textColor = .secondaryLabelColor
@@ -80,11 +80,21 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
                   responder === host || responder.isDescendant(of: host) else { return event }
             let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
             let key = event.charactersIgnoringModifiers?.lowercased()
-            if flags == .command && key == "f" { self.show(); return nil }
+            if flags == .command && key == "f" {
+                ReaderTelemetry.shortcut(self.telemetryKind, 37, event: event)
+                ReaderTelemetry.withSource(2) { self.show() }; return nil
+            }
             if !self.panel.isHidden {
-                if event.keyCode == 53 { self.hide(); return nil }
+                if event.keyCode == 53 {
+                    ReaderTelemetry.shortcut(self.telemetryKind, 45, event: event)
+                    ReaderTelemetry.withSource(2) { self.dismissFind() }; return nil
+                }
                 if key == "g" && (flags == .command || flags == [.command, .shift]) {
-                    self.run(backwards: flags.contains(.shift), changed: false); return nil
+                    ReaderTelemetry.shortcut(self.telemetryKind, flags.contains(.shift) ? 44 : 43, event: event)
+                    ReaderTelemetry.withSource(2) {
+                        ReaderTelemetry.record(self.telemetryKind, flags.contains(.shift) ? 44 : 43)
+                        self.run(backwards: flags.contains(.shift), changed: false)
+                    }; return nil
                 }
             }
             return event
@@ -124,9 +134,10 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
         // Background resets must not move focus out of another reader or settings.
         if restoreContentFocus { window?.makeFirstResponder(content) }
     }
-    @objc private func toggleCase() { run(backwards: false, changed: true) }
-    @objc private func previousMatch() { run(backwards: true, changed: pending != nil) }
-    @objc private func nextMatch() { run(backwards: false, changed: pending != nil) }
+    @objc private func dismissFind() { ReaderTelemetry.record(telemetryKind, 45); hide() }
+    @objc private func toggleCase() { ReaderTelemetry.record(telemetryKind, 46, value: caseButton.state == .on ? 1 : 0); run(backwards: false, changed: true) }
+    @objc private func previousMatch() { ReaderTelemetry.record(telemetryKind, 44); run(backwards: true, changed: pending != nil) }
+    @objc private func nextMatch() { ReaderTelemetry.record(telemetryKind, 43); run(backwards: false, changed: pending != nil) }
     func controlTextDidBeginEditing(_ notification: Notification) { panel.inputFocused = true }
     func controlTextDidEndEditing(_ notification: Notification) { panel.inputFocused = false }
     func controlTextDidChange(_ notification: Notification) {
@@ -137,6 +148,11 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
     }
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if selector == #selector(NSResponder.insertNewline(_:)) {
+            if let event = NSApp.currentEvent, event.type == .keyDown {
+                let action: Int32 = event.modifierFlags.contains(.shift) ? 44 : 43
+                ReaderTelemetry.shortcut(telemetryKind, action, event: event)
+                ReaderTelemetry.record(telemetryKind, action)
+            }
             run(backwards: NSApp.currentEvent?.modifierFlags.contains(.shift) == true, changed: pending != nil)
             return true
         }

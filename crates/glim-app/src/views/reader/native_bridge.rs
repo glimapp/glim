@@ -66,7 +66,7 @@ extern "C" fn reader_telemetry(
     count: u64,
     duration: u64,
 ) {
-    use glim_services::telemetry::{self, flag, number, text};
+    use glim_services::telemetry::{self, number, text};
     let shortcut = action >= 100;
     let action = if shortcut { action - 100 } else { action };
     let kind = match kind {
@@ -120,6 +120,15 @@ extern "C" fn reader_telemetry(
         35 => "playback_state_observed",
         36 => "mute_state_observed",
         37 => "find_opened",
+        38 => "pan",
+        39 => "actual_size",
+        40 => "fit_width",
+        41 => "fit_page",
+        42 => "fit_image",
+        43 => "find_next",
+        44 => "find_previous",
+        45 => "find_closed",
+        46 => "find_case_changed",
         _ => return,
     };
     let source = match source {
@@ -129,19 +138,28 @@ extern "C" fn reader_telemetry(
         _ => "unknown",
     };
     if shortcut {
-        telemetry::track(
-            "native_shortcut_used",
-            [
-                ("reader_kind", text(kind)),
-                ("action", text(action)),
-                ("input_source", text("keyboard")),
-                ("key_code", number(secondary)),
-                ("command", flag(value & (1 << 20) != 0)),
-                ("control", flag(value & (1 << 18) != 0)),
-                ("option", flag(value & (1 << 19) != 0)),
-                ("shift", flag(value & (1 << 17) != 0)),
-            ],
+        let token = telemetry::native_shortcut_token(count);
+        let mut props = telemetry::shortcut_properties(
+            token.unwrap_or_else(|| telemetry::native_shortcut_key(secondary)),
+            value & (1 << 20) != 0,
+            value & (1 << 18) != 0,
+            value & (1 << 19) != 0,
+            value & (1 << 17) != 0,
         );
+        props.extend([
+            ("reader_kind", text(kind)),
+            ("action", text(action)),
+            ("key_code", number(secondary)),
+            (
+                "key_basis",
+                text(if token.is_some() {
+                    "recognized_command"
+                } else {
+                    "macos_virtual_key_us"
+                }),
+            ),
+        ]);
+        telemetry::track("native_shortcut_used", props);
     } else if matches!(action, "scroll" | "scroll_lines") {
         telemetry::track(
             "reader_scroll",

@@ -1089,6 +1089,24 @@ impl Explorer {
                         if drag.accepts(&drop_path, &view.storage_key())
                             && !crate::app::workspace_editors_locked(cx)
                         {
+                            glim_services::telemetry::file_event(
+                                "explorer_action",
+                                &drag.path,
+                                [
+                                    ("action", glim_services::telemetry::text("move")),
+                                    ("input_source", glim_services::telemetry::text("drag_drop")),
+                                    (
+                                        "storage",
+                                        glim_services::telemetry::text(if view.remote.is_some() {
+                                            "ssh"
+                                        } else {
+                                            "local"
+                                        }),
+                                    ),
+                                    ("is_directory", glim_services::telemetry::flag(drag.is_dir)),
+                                    ("semantic", glim_services::telemetry::text("invocation")),
+                                ],
+                            );
                             cx.emit(ExplorerEvent::MoveEntry(
                                 drag.path.clone(),
                                 drop_path.clone(),
@@ -1520,7 +1538,7 @@ impl Explorer {
         };
         self.context_menu_task = Some(cx.spawn_in(window, async move |view, cx| {
             let selected = menu.choose(cx).await;
-            let _ = view.update_in(cx, |_, _, cx| {
+            let _ = view.update_in(cx, |view, _, cx| {
                 if let Some(action) = selected
                     .and_then(|index| items.get(index))
                     .and_then(|(_, action)| *action)
@@ -1545,6 +1563,16 @@ impl Explorer {
                         [
                             ("action", glim_services::telemetry::text(action_name)),
                             ("is_directory", glim_services::telemetry::flag(is_dir)),
+                            (
+                                "storage",
+                                glim_services::telemetry::text(if view.remote.is_some() {
+                                    "ssh"
+                                } else {
+                                    "local"
+                                }),
+                            ),
+                            ("input_source", glim_services::telemetry::text("menu")),
+                            ("semantic", glim_services::telemetry::text("invocation")),
                         ],
                     );
                     match action {
@@ -1640,6 +1668,20 @@ impl Render for Explorer {
                     && let Some(row) = view.selected.and_then(|index| view.rows.get(index))
                     && row.depth > 0
                 {
+                    glim_services::telemetry::file_event(
+                        "explorer_action",
+                        &row.entry.path,
+                        [
+                            ("action", glim_services::telemetry::text("move")),
+                            ("input_source", glim_services::telemetry::text("keyboard")),
+                            ("storage", glim_services::telemetry::text("local")),
+                            (
+                                "is_directory",
+                                glim_services::telemetry::flag(row.entry.is_dir),
+                            ),
+                            ("semantic", glim_services::telemetry::text("invocation")),
+                        ],
+                    );
                     cx.emit(ExplorerEvent::ChooseMoveEntry(row.entry.path.clone()));
                 }
             }))

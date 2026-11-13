@@ -64,9 +64,12 @@ pub(crate) fn start(
         .collect::<Vec<_>>();
     let target = directory.clone();
     let origin = source.clone();
-    let work = cx
-        .background_executor()
-        .spawn(async move { glim_services::workspace::move_entry(&origin, &target) });
+    let work = cx.background_executor().spawn(async move {
+        let started = std::time::Instant::now();
+        let result = glim_services::workspace::move_entry(&origin, &target);
+        glim_services::telemetry::file_operation("move", "local", &origin, started, &result);
+        result
+    });
     let task = cx.spawn(async move |cx| {
         let result = work.await;
         if let Ok(destination) = &result {

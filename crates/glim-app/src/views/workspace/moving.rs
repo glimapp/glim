@@ -43,7 +43,11 @@ impl Workspace {
                             });
                         }
                     }
-                    Ok(Ok(None)) => {}
+                    Ok(Ok(None)) => {
+                        glim_services::telemetry::file_operation_cancelled(
+                            "move", "local", &source,
+                        );
+                    }
                     error => {
                         view.error = Some(
                             format!(

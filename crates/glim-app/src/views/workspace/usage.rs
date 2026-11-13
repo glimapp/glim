@@ -6,7 +6,7 @@ use gpui_kit::*;
 use std::time::{Duration, Instant};
 
 pub(super) struct Segment {
-    key: (Page, Option<Target>, bool),
+    key: (Page, Option<Target>, bool, bool, bool, bool, bool),
     started: Instant,
     props: Vec<(&'static str, Property)>,
 }
@@ -18,12 +18,38 @@ impl Workspace {
         let mut props = vec![
             ("file_fullscreen", flag(self.file_fullscreen)),
             (
-                "storage",
-                text(if self.remote.is_some() || self.remote_restore.is_some() {
-                    "ssh"
+                "layout_mode",
+                text(if self.file_fullscreen {
+                    "file_fullscreen"
+                } else if self.page == Page::Start {
+                    "start"
                 } else {
-                    "local"
+                    match (self.workspace_sidebar_visible(), self.explorer_visible) {
+                        (true, true) => "three_column",
+                        (false, true) => "compact_workspace_tree_reader",
+                        (true, false) => "workspace_reader",
+                        (false, false) => "reader_with_workspace_rail",
+                    }
                 }),
+            ),
+            (
+                "workspace_sidebar_expanded",
+                flag(self.workspace_sidebar_visible()),
+            ),
+            ("file_tree_visible", flag(self.explorer_visible)),
+            ("changes_expanded", flag(self.changes_expanded)),
+            (
+                "storage",
+                text(
+                    if self.remote.is_some()
+                        || self.remote_restore.is_some()
+                        || glim_services::remote::is_remote_id(&self.recent_id)
+                    {
+                        "ssh"
+                    } else {
+                        "local"
+                    },
+                ),
             ),
             (
                 "page",
@@ -46,6 +72,43 @@ impl Workspace {
             ));
         }
         props
+    }
+
+    pub(crate) fn record_workspace_action(
+        &self,
+        action: &'static str,
+        extra: impl IntoIterator<Item = (&'static str, Property)>,
+    ) {
+        let mut props = self.usage_context();
+        props.push(("action", text(action)));
+        props.push(("semantic", text("invocation")));
+        props.extend(extra);
+        telemetry::track("workspace_action", props);
+    }
+
+    pub(super) fn record_layout(&mut self, action: &'static str) {
+        self.flush_usage();
+        let mut props = self.usage_context();
+        props.extend([
+            ("action", text(action)),
+            ("semantic", text("state_change")),
+            (
+                "workspace_width_percent",
+                number((self.sidebar_ratio * 100.).round() as u64),
+            ),
+            (
+                "file_tree_width_percent",
+                number((self.explorer_ratio * 100.).round() as u64),
+            ),
+        ]);
+        telemetry::track("workspace_layout_changed", props);
+    }
+
+    pub(super) fn set_changes_expanded(&mut self, expanded: bool) {
+        if self.changes_expanded != expanded {
+            self.changes_expanded = expanded;
+            self.record_layout("changes_panel");
+        }
     }
 
     pub(crate) fn reset_usage(&mut self) {
@@ -85,34 +148,20 @@ impl Workspace {
             None
         };
         let preview = reader.is_some_and(|r| r.mode() == glim_core::ReaderMode::Preview);
-        let key = (self.page, reader.map(Target::from_reader), preview);
+        let key = (
+            self.page,
+            reader.map(Target::from_reader),
+            preview,
+            self.workspace_sidebar_visible(),
+            self.explorer_visible,
+            self.changes_expanded,
+            self.file_fullscreen,
+        );
         if self.usage.as_ref().is_some_and(|s| s.key == key) {
             return;
         }
-        let mut props = vec![
-            (
-                "storage",
-                text(if self.remote.is_some() || self.remote_restore.is_some() {
-                    "ssh"
-                } else {
-                    "local"
-                }),
-            ),
-            (
-                "page",
-                text(match self.page {
-                    Page::Document => "document",
-                    Page::Settings => "settings",
-                    Page::Start => "start",
-                }),
-            ),
-            ("preview", flag(preview)),
-        ];
-        if let Some(reader) = reader {
-            props.extend(telemetry::file_properties(&reader.document.path));
-            props.push(("reader_kind", text(reader.telemetry_kind())));
-            props.push(("untitled", flag(reader.document.draft_directory.is_some())));
-        }
+        let mut props = self.usage_context();
+        props.push(("preview", flag(preview)));
         self.flush_usage();
         self.usage = Some(Segment {
             key,

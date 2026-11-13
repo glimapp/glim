@@ -295,6 +295,7 @@ impl Workspace {
         }
         self.sidebar_visible = !self.sidebar_visible;
         self.sidebar_window_width = 0.;
+        self.record_layout("workspace_sidebar_toggle");
         cx.notify();
     }
 
@@ -326,6 +327,7 @@ impl Workspace {
         self.path_hint.hide();
         self.explorer_visible = !self.explorer_visible;
         self.sidebar_window_width = 0.;
+        self.record_layout("file_tree_toggle");
         cx.notify();
     }
 
@@ -446,6 +448,7 @@ impl Workspace {
                                                 / f32::from(window.viewport_size().width))
                                             .min(0.35);
                                         }
+                                        view.record_layout("file_tree_resize");
                                         cx.notify();
                                     }
                                 },
@@ -470,6 +473,7 @@ impl Workspace {
                                                 let _ = workspace.update(cx, |view, cx| {
                                                     view.explorer_ratio = DEFAULT_EXPLORER_RATIO;
                                                     view.sidebar_window_width = 0.;
+                                                    view.record_layout("file_tree_width_reset");
                                                     cx.notify();
                                                 });
                                                 cx.stop_propagation();

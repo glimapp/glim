@@ -239,6 +239,7 @@ impl Workspace {
             return;
         }
         if let Some(host) = self.workspace_window.clone() {
+            self.record_workspace_action("open_recent_workspace", []);
             window.defer(cx, move |window, cx| {
                 let _ = host.update(cx, |host, cx| host.open(workspace, window, cx));
             });
@@ -255,6 +256,9 @@ impl Workspace {
 
     pub(super) fn select_workspace(&self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(host) = self.workspace_window.clone() {
+            if id != self.recent_id || self.page == Page::Start {
+                self.record_workspace_action("select_workspace", []);
+            }
             window.defer(cx, move |window, cx| {
                 let _ = host.update(cx, |host, cx| {
                     host.select(&id, window, cx);
@@ -483,6 +487,7 @@ impl Workspace {
         };
         let name = input.read(cx).value().trim().to_owned();
         if !name.is_empty() {
+            self.record_workspace_action("rename_workspace", []);
             if id == self.recent_id {
                 self.workspace_name = Some(name);
                 self.remember_current_workspace(cx);

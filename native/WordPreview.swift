@@ -72,7 +72,7 @@ final class WordPreview: NSObject, WKNavigationDelegate {
                   event.charactersIgnoringModifiers?.lowercased() == "c" else { return event }
             let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
             guard modifiers == .command || modifiers == .control else { return event }
-            ReaderTelemetry.record(3, 107)
+            ReaderTelemetry.shortcut(3, 7, event: event)
             self.copyGeneration += 1
             let generation = self.copyGeneration
             let changeCount = NSPasteboard.general.changeCount

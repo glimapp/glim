@@ -319,11 +319,11 @@ final class ReaderKeyboardShortcuts {
                     return ["fitImage", "increaseZoom"].contains(NSStringFromSelector(action))
                 }) { return event }
                 let action = NSSelectorFromString("copy:")
-                if NSApp.sendAction(action, to: nil, from: responder) { ReaderTelemetry.record(ReaderTelemetry.kind(controls), 107); return nil }
+                if NSApp.sendAction(action, to: nil, from: responder) { ReaderTelemetry.shortcut(ReaderTelemetry.kind(controls), 7, event: event); return nil }
                 return event
             }
             if modifiers == .command && key == "a" {
-                if NSApp.sendAction(NSSelectorFromString("selectAll:"), to: nil, from: responder) { ReaderTelemetry.record(ReaderTelemetry.kind(controls), 117); return nil }
+                if NSApp.sendAction(NSSelectorFromString("selectAll:"), to: nil, from: responder) { ReaderTelemetry.shortcut(ReaderTelemetry.kind(controls), 17, event: event); return nil }
                 return event
             }
             if let editor = responder as? NSTextView, editor.isEditable { return event }
@@ -352,8 +352,8 @@ final class ReaderKeyboardShortcuts {
             for entry in controls.entries where !entry.view.isHidden {
                 guard let button = entry.view as? NSButton, button.isEnabled,
                       let action = button.action, actions.contains(NSStringFromSelector(action)) else { continue }
-                ReaderTelemetry.record(ReaderTelemetry.kind(controls), 100 + ReaderTelemetry.action(NSStringFromSelector(action)))
-                button.performClick(nil); return nil
+                ReaderTelemetry.shortcut(ReaderTelemetry.kind(controls), ReaderTelemetry.action(NSStringFromSelector(action)), event: event)
+                ReaderTelemetry.withSource(2) { button.performClick(nil) }; return nil
             }
             return event
         }
@@ -398,7 +398,7 @@ enum ReaderTelemetry {
         body()
     }
     static func record(_ kind: Int32, _ action: Int32, _ error: Int32 = 0,
-                       value: UInt64 = 0, secondary: UInt64 = 0, count: UInt64 = 0, duration: UInt64 = 0) {
+                       value: UInt64 = 0, secondary: UInt64 = 0, count: UInt64 = 0, duration: UInt64 = 0, shortcutEvent: NSEvent? = nil) {
         readerTelemetryLock.lock()
         let enabled = error != 0 ? readerDiagnosticsEnabled : readerUsageEnabled
         let callback = readerTelemetryCallback
@@ -411,10 +411,41 @@ enum ReaderTelemetry {
         else if Thread.isMainThread, let event = NSApp.currentEvent, ProcessInfo.processInfo.systemUptime - event.timestamp < 0.5 {
             source = event.type == .keyDown ? 2 : [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .scrollWheel].contains(event.type) ? 1 : 0
         } else { source = 0 }
-        if action >= 100, Thread.isMainThread, let event = NSApp.currentEvent, event.type == .keyDown {
+        if action >= 100, Thread.isMainThread, let event = shortcutEvent ?? NSApp.currentEvent, event.type == .keyDown {
             let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
             callback?(kind, action, error, source, UInt64(modifiers.rawValue), UInt64(event.keyCode), count, duration)
         } else { callback?(kind, action, error, source, value, secondary, count, duration) }
+    }
+    static func shortcut(_ kind: Int32, _ action: Int32, event: NSEvent) {
+        // Only recognized commands reach here. Encode a fixed token alongside
+        // the physical key so non-US layouts keep their command meaning.
+        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        let letters = Array("abcdefghijklmnopqrstuvwxyz")
+        let token: UInt64
+        if let index = letters.firstIndex(where: { String($0) == key }) { token = UInt64(index + 97) }
+        else {
+            switch key {
+            case "+", "=": token = 1
+            case "-", "−": token = 2
+            case "0": token = 3
+            case "1": token = 4
+            default:
+                switch event.keyCode {
+                case 36, 76: token = 5
+                case 53: token = 6
+                case 116: token = 7
+                case 121: token = 8
+                case 48: token = 9
+                case 49: token = 10
+                case 123: token = 11
+                case 124: token = 12
+                case 126: token = 13
+                case 125: token = 14
+                default: token = 0
+                }
+            }
+        }
+        withSource(2) { record(kind, 100 + action, count: token, shortcutEvent: event) }
     }
     static func fileKind(_ source: URL) -> Int32 {
         switch source.pathExtension.lowercased() {
@@ -430,8 +461,11 @@ enum ReaderTelemetry {
         switch selector {
         case "zoomIn", "increaseZoom": return 1
         case "zoomOut", "decreaseZoom": return 2
-        case "resetZoom", "actualSize": return 3
-        case "fitImage", "fit": return 4
+        case "resetZoom": return 3
+        case "actualSize": return 39
+        case "fitImage": return 42
+        case "fit": return 41
+        case "fitToWidth": return 40
         case "nextPage", "next": return 5
         case "previousPage", "previous": return 6
         case "copyText", "copyImage": return 7

@@ -162,72 +162,27 @@ pub(crate) fn observe_commands(cx: &mut App) {
         };
         // Resolved compile-time command names only. Never log typed keys,
         // text, input context values or clipboard contents.
-        use glim_services::telemetry::{flag, text, track};
+        use glim_services::telemetry::{text, track};
         let modifiers = event.keystroke.modifiers;
-        let key = match event.keystroke.key.as_str() {
-            "left" => "left",
-            "right" => "right",
-            "up" => "up",
-            "down" => "down",
-            "pageup" => "pageup",
-            "pagedown" => "pagedown",
-            "home" => "home",
-            "end" => "end",
-            "backspace" => "backspace",
-            "delete" => "delete",
-            "enter" => "enter",
-            "escape" => "escape",
-            "tab" => "tab",
-            "space" => "space",
-            "f1" => "f1",
-            "," => "comma",
-            "/" => "slash",
-            "[" => "left_bracket",
-            "]" => "right_bracket",
-            "+" | "=" => "plus",
-            "-" => "minus",
-            "0" => "zero",
-            "1" => "one",
-            key if modifiers.platform || modifiers.control || modifiers.alt => match key {
-                "a" => "a",
-                "b" => "b",
-                "c" => "c",
-                "e" => "e",
-                "f" => "f",
-                "i" => "i",
-                "k" => "k",
-                "n" => "n",
-                "o" => "o",
-                "p" => "p",
-                "q" => "q",
-                "r" => "r",
-                "s" => "s",
-                "t" => "t",
-                "v" => "v",
-                "w" => "w",
-                "x" => "x",
-                "z" => "z",
-                _ => "other_bound_key",
-            },
-            _ => "other_bound_key",
-        };
         let mut props = Vec::new();
         for (view, handle) in super::OpenWorkspaces::windows(cx) {
             if handle.window_id() == window.window_handle().window_id()
                 && let Some(view) = view.upgrade()
+                && view.read(cx).is_visible_workspace(cx)
             {
                 props.extend(view.read(cx).usage_context());
                 break;
             }
         }
-        props.extend([
-            ("action", text(action.name())),
-            ("key_token", text(key)),
-            ("command", flag(modifiers.platform)),
-            ("control", flag(modifiers.control)),
-            ("option", flag(modifiers.alt)),
-            ("shift", flag(modifiers.shift)),
-        ]);
+        props.extend(glim_services::telemetry::shortcut_properties(
+            &event.keystroke.key,
+            modifiers.platform,
+            modifiers.control,
+            modifiers.alt,
+            modifiers.shift,
+        ));
+        props.push(("action", text(action.name())));
+        props.push(("key_basis", text("resolved_binding")));
         track("shortcut_used", props);
     })
     .detach();

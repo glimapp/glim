@@ -356,6 +356,13 @@ impl super::Workspace {
         match id {
             "hide-reader-toolbar" | "show-reader-toolbar" => {
                 self.reader_toolbar_collapsed = id == "hide-reader-toolbar";
+                self.record_workspace_action(
+                    "reader_toolbar_visibility",
+                    [(
+                        "collapsed",
+                        glim_services::telemetry::flag(self.reader_toolbar_collapsed),
+                    )],
+                );
                 cx.refresh_windows();
                 cx.notify();
             }
@@ -391,6 +398,7 @@ impl super::Workspace {
         }));
         let mut props = self.usage_context();
         props.push(("action", glim_services::telemetry::text(action.id())));
+        props.push(("semantic", glim_services::telemetry::text("invocation")));
         glim_services::telemetry::track("reader_action", props);
         match action {
             ToolbarAction::Extract => self.extract_archive(window, cx),

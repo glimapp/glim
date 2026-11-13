@@ -10,6 +10,14 @@ pub(crate) enum FileAction {
     Move,
 }
 impl FileAction {
+    fn telemetry_action(self) -> &'static str {
+        match self {
+            Self::NewFile => "new_file",
+            Self::NewFolder => "new_folder",
+            Self::Rename => "rename",
+            Self::Move => "move",
+        }
+    }
     fn label(self) -> &'static str {
         match self {
             Self::NewFile => "New File",
@@ -68,6 +76,13 @@ impl Workspace {
         let cancel_owner = owner.clone();
         let close_owner = owner.clone();
         self.picking = true;
+        self.record_workspace_action(
+            "remote_file_dialog",
+            [(
+                "file_action",
+                glim_services::telemetry::text(action.telemetry_action()),
+            )],
+        );
         window.open_dialog(cx, move |dialog, _, cx| {
             let validation = validation.clone();
             let submit = owner.clone();
@@ -75,6 +90,8 @@ impl Workspace {
             let close = close_owner.clone();
             let input = input.clone();
             let path = path.clone();
+            let cancelled_path = path.clone();
+            let closed_path = path.clone();
             let message = validation.borrow().clone();
             dialog
                 .title(tr(action.label()))
@@ -163,6 +180,13 @@ impl Workspace {
                 })
                 .on_cancel(move |_, _, cx| {
                     let _ = cancel.update(cx, |view, cx| {
+                        if view.picking {
+                            glim_services::telemetry::file_operation_cancelled(
+                                action.telemetry_action(),
+                                "ssh",
+                                &cancelled_path,
+                            );
+                        }
                         view.picking = false;
                         cx.notify();
                     });
@@ -170,6 +194,13 @@ impl Workspace {
                 })
                 .on_close(move |_, _, cx| {
                     let _ = close.update(cx, |view, cx| {
+                        if view.picking {
+                            glim_services::telemetry::file_operation_cancelled(
+                                action.telemetry_action(),
+                                "ssh",
+                                &closed_path,
+                            );
+                        }
                         view.picking = false;
                         cx.notify();
                     });
@@ -203,13 +234,26 @@ impl Workspace {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    match action {
+                    let started = std::time::Instant::now();
+                    let result = match action {
                         FileAction::NewFile => worker.create_entry(&destination, false, &cancel),
                         FileAction::NewFolder => worker.create_entry(&destination, true, &cancel),
                         FileAction::Rename | FileAction::Move => {
                             worker.move_entry(&source_copy, &destination, &cancel)
                         }
-                    }
+                    };
+                    glim_services::telemetry::file_operation(
+                        action.telemetry_action(),
+                        "ssh",
+                        if matches!(action, FileAction::NewFile | FileAction::NewFolder) {
+                            &destination
+                        } else {
+                            &source_copy
+                        },
+                        started,
+                        &result,
+                    );
+                    result
                 })
                 .await;
             let _ = view.update_in(cx, |view, window, cx| {
@@ -278,14 +322,21 @@ impl Workspace {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let mut retained = std::collections::HashMap::new();
-                    for (path, cached) in open {
-                        if let Some(file) = glim_services::files::RetainedFile::open(&cached)? {
-                            retained.insert(path, file);
+                    let started = std::time::Instant::now();
+                    let result = (|| {
+                        let mut retained = std::collections::HashMap::new();
+                        for (path, cached) in open {
+                            if let Some(file) = glim_services::files::RetainedFile::open(&cached)? {
+                                retained.insert(path, file);
+                            }
                         }
-                    }
-                    worker.trash_entry(&source, &cancel)?;
-                    Ok::<_, anyhow::Error>(retained)
+                        worker.trash_entry(&source, &cancel)?;
+                        Ok::<_, anyhow::Error>(retained)
+                    })();
+                    glim_services::telemetry::file_operation(
+                        "trash", "ssh", &source, started, &result,
+                    );
+                    result
                 })
                 .await;
             let _ = view.update_in(cx, |view, window, cx| {

@@ -12,6 +12,30 @@ filtered_records = helpers['filtered_records']
 percentile = helpers['percentile']
 
 
+# Legacy native events have only a physical macOS virtual key code.
+NATIVE_COMMAND_KEYS = {0: 'a', 3: 'f', 5: 'g', 8: 'c', 14: 'e', 18: 'one', 24: 'plus', 27: 'minus',
+                       29: 'zero', 34: 'i', 69: 'plus', 78: 'minus', 36: 'enter', 76: 'enter', 53: 'escape', 116: 'pageup', 121: 'pagedown'}
+KEY_LABELS = {'comma': ',', 'slash': '/', 'left_bracket': '[', 'right_bracket': ']',
+              'plus': '+', 'minus': '-', 'zero': '0', 'one': '1'}
+ACTION_DIMENSIONS = ['schema_version', 'semantic', 'storage', 'layout_mode', 'search_mode']
+
+
+def shortcut_details(props, name):
+    modifiers = '+'.join(label for key, label in [('command', 'Cmd'), ('control', 'Ctrl'), ('option', 'Option'), ('shift', 'Shift')]
+                         if props.get(key) in (True, 1, 'true', '1'))
+    key = props.get('key_token')
+    if not key:
+        code = props.get('key_code', 'unknown')
+        try:
+            code = int(code)
+        except (TypeError, ValueError):
+            pass
+        key = NATIVE_COMMAND_KEYS.get(code, 'keycode:' + str(code))
+    shortcut = props.get('shortcut') or '+'.join(filter(None, [modifiers, KEY_LABELS.get(key, key.upper())]))
+    basis = props.get('key_basis', 'macos_virtual_key_us' if name == 'native_shortcut_used' else 'resolved_binding')
+    return modifiers, key, shortcut, basis
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('export', type=Path)
@@ -24,10 +48,11 @@ def main():
     shortcuts = defaultdict(lambda: {'events': 0, 'people': set()})
     resources = defaultdict(lambda: defaultdict(list))
     activity = defaultdict(lambda: {'opens': 0, 'successful': 0, 'open_sessions': set(), 'foreground_ms': 0})
+    layouts = defaultdict(lambda: {'foreground_ms': 0, 'people': set(), 'segments': 0})
     peaks = {}
     with (args.output_dir / 'timeline.csv').open('w', newline='', encoding='utf-8-sig') as output:
         timeline = csv.writer(output)
-        timeline.writerow(['timestamp', 'installation_id', 'session_id', 'event_sequence', 'event', 'format', 'reader', 'action', 'source', 'result', 'duration_ms', 'os_version', 'app_version', 'properties_json', 'app_id'])
+        timeline.writerow(['timestamp', 'installation_id', 'session_id', 'event_sequence', 'event', 'format', 'reader', 'action', 'source', 'result', 'duration_ms', 'os_version', 'app_version', 'properties_json', 'app_id', *ACTION_DIMENSIONS])
         for event in filtered_records(args):
             props = event.get('props', event.get('properties', {})) or {}
             if isinstance(props, str):
@@ -44,9 +69,10 @@ def main():
             action = props.get('action', '')
             source = props.get('input_source', '')
             result = props.get('result', '')
+            dimensions = tuple(str(props.get(field, 'legacy_unknown')) for field in ACTION_DIMENSIONS)
             include_event = args.include_performance or name not in {'reader_job', 'resource_sample', 'system_profile'}
             if include_event:
-                timeline.writerow([event.get('timestamp', ''), identity, session, sequence, name, extension, reader, action, source, result, props.get('duration_ms', ''), system.get('osVersion', ''), system.get('appVersion', ''), json.dumps(props, ensure_ascii=False, separators=(',', ':')), event['appId']])
+                timeline.writerow([event.get('timestamp', ''), identity, session, sequence, name, extension, reader, action, source, result, props.get('duration_ms', ''), system.get('osVersion', ''), system.get('appVersion', ''), json.dumps(props, ensure_ascii=False, separators=(',', ':')), event['appId'], *dimensions])
             if name == 'file_open' or (name == 'foreground_segment' and props.get('page') == 'document'):
                 day = helpers['local_day'](event)
                 usage = activity[(event['appId'], identity, day)]
@@ -58,7 +84,7 @@ def main():
                 else:
                     usage['foreground_ms'] += props.get('duration_ms', 0)
             if include_event:
-                row = groups[(name, extension, reader, action, source, result)]
+                row = groups[(name, extension, reader, action, source, result, *dimensions)]
                 row['events'] += 1
                 if identity:
                     row['people'].add(identity)
@@ -68,12 +94,17 @@ def main():
                 if isinstance(duration, (int, float)) and duration >= 0:
                     row['duration'].append(duration)
             if name in {'shortcut_used', 'native_shortcut_used'}:
-                modifiers = '+'.join(key for key in ['command', 'control', 'option', 'shift'] if props.get(key) in (True, 1, 'true', '1'))
-                key = props.get('key_token', 'keycode:' + str(props.get('key_code', 'unknown')))
-                shortcut = shortcuts[(name, extension, reader, action, modifiers, key)]
+                modifiers, key, label, basis = shortcut_details(props, name)
+                shortcut = shortcuts[(name, extension, reader, action, modifiers, key, label, basis)]
                 shortcut['events'] += 1
                 if identity:
                     shortcut['people'].add(identity)
+            if name == 'foreground_segment' and isinstance(props.get('duration_ms'), (int, float)) and props['duration_ms'] > 0:
+                layout = layouts[(event['appId'], props.get('storage', 'legacy_unknown'), props.get('layout_mode', 'legacy_unknown'))]
+                layout['foreground_ms'] += props.get('duration_ms', 0)
+                layout['segments'] += 1
+                if identity:
+                    layout['people'].add(identity)
             if name == 'resource_sample':
                 for metric in ['resident_bytes', 'physical_footprint_bytes', 'compressed_bytes', 'metal_allocated_bytes', 'cpu_percent_x100', 'open_tabs']:
                     value = props.get(metric)
@@ -84,14 +115,19 @@ def main():
                             peaks[key] = (value, event.get('timestamp', ''), system.get('appVersion', ''), extension, reader, props.get('workspace_active', ''), props.get('open_tabs', ''), props.get('workspace_windows', ''))
     with (args.output_dir / 'actions.csv').open('w', newline='', encoding='utf-8-sig') as output:
         writer = csv.writer(output)
-        writer.writerow(['event', 'format', 'reader', 'action', 'source', 'result', 'events', 'unique_installations', 'sessions', 'duration_p50_ms', 'duration_p95_ms'])
+        writer.writerow(['event', 'format', 'reader', 'action', 'source', 'result', *ACTION_DIMENSIONS, 'events', 'unique_installations', 'sessions', 'duration_p50_ms', 'duration_p95_ms'])
         for key, value in sorted(groups.items(), key=lambda item: (-len(item[1]['people']), -item[1]['events'], item[0])):
             writer.writerow([*key, value['events'], len(value['people']), len(value['sessions']), percentile(value['duration'], .5), percentile(value['duration'], .95)])
     with (args.output_dir / 'shortcuts.csv').open('w', newline='', encoding='utf-8-sig') as output:
         writer = csv.writer(output)
-        writer.writerow(['event', 'format', 'reader', 'action', 'modifiers', 'key', 'uses', 'unique_installations'])
+        writer.writerow(['event', 'format', 'reader', 'action', 'modifiers', 'key', 'shortcut', 'key_basis', 'uses', 'unique_installations'])
         for key, value in sorted(shortcuts.items(), key=lambda item: (-item[1]['events'], item[0])):
             writer.writerow([*key, value['events'], len(value['people'])])
+    with (args.output_dir / 'layouts.csv').open('w', newline='', encoding='utf-8-sig') as output:
+        writer = csv.writer(output)
+        writer.writerow(['app_id', 'storage', 'layout_mode', 'unique_installations', 'foreground_seconds', 'segments'])
+        for key, value in sorted(layouts.items()):
+            writer.writerow([*key, len(value['people']), round(value['foreground_ms'] / 1000, 1), value['segments']])
     with (args.output_dir / 'resources.csv').open('w', newline='', encoding='utf-8-sig') as output:
         writer = csv.writer(output)
         writer.writerow(['active_format', 'active_reader', 'scope', 'metric', 'samples', 'p50', 'p95', 'max'])
@@ -108,7 +144,7 @@ def main():
         writer.writerow(['app_id', 'installation_id', 'metric', 'value', 'timestamp', 'app_version', 'active_format', 'active_reader', 'workspace_active', 'open_tabs', 'workspace_windows'])
         for key, values in sorted(peaks.items()):
             writer.writerow([*key, *values])
-    print('Created timeline.csv, actions.csv, shortcuts.csv, resources.csv, activity.csv, resource-peaks.csv in', args.output_dir)
+    print('Created timeline.csv, actions.csv, shortcuts.csv, resources.csv, activity.csv, resource-peaks.csv, layouts.csv in', args.output_dir)
 
 
 if __name__ == '__main__':

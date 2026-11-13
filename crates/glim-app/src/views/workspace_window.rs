@@ -207,6 +207,16 @@ impl WorkspaceWindow {
             return;
         };
         let was_active = self.active == index;
+        self.slots[index].view.read(cx).record_workspace_action(
+            "close_workspace",
+            [
+                ("semantic", glim_services::telemetry::text("outcome")),
+                (
+                    "remaining_workspaces",
+                    glim_services::telemetry::number(self.slots.len().saturating_sub(1) as u64),
+                ),
+            ],
+        );
         let removed = self.slots.remove(index);
         removed
             .view

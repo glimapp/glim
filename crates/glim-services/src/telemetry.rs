@@ -71,6 +71,193 @@ pub fn integer(value: i64) -> Property {
 pub fn flag(value: bool) -> Property {
     Property(value.into())
 }
+
+/// Called only for resolved commands; the raw key never becomes a property.
+pub fn shortcut_properties(
+    key: &str,
+    command: bool,
+    control: bool,
+    option: bool,
+    shift: bool,
+) -> Vec<(&'static str, Property)> {
+    let normalized = key.to_ascii_lowercase();
+    let key = match normalized.as_str() {
+        "left" => "left",
+        "right" => "right",
+        "up" => "up",
+        "down" => "down",
+        "pageup" => "pageup",
+        "pagedown" => "pagedown",
+        "home" => "home",
+        "end" => "end",
+        "backspace" => "backspace",
+        "delete" => "delete",
+        "enter" => "enter",
+        "escape" => "escape",
+        "tab" => "tab",
+        "space" => "space",
+        "f1" => "f1",
+        "," | "comma" => "comma",
+        "/" | "slash" => "slash",
+        "[" | "left_bracket" => "left_bracket",
+        "]" | "right_bracket" => "right_bracket",
+        "+" | "=" | "plus" => "plus",
+        "-" | "minus" => "minus",
+        "0" | "zero" => "zero",
+        "1" | "one" => "one",
+        key if command || control || option => match key {
+            "a" => "a",
+            "b" => "b",
+            "c" => "c",
+            "d" => "d",
+            "e" => "e",
+            "f" => "f",
+            "g" => "g",
+            "h" => "h",
+            "i" => "i",
+            "j" => "j",
+            "k" => "k",
+            "l" => "l",
+            "m" => "m",
+            "n" => "n",
+            "o" => "o",
+            "p" => "p",
+            "q" => "q",
+            "r" => "r",
+            "s" => "s",
+            "t" => "t",
+            "u" => "u",
+            "v" => "v",
+            "w" => "w",
+            "x" => "x",
+            "y" => "y",
+            "z" => "z",
+            _ => "other_bound_key",
+        },
+        _ => "other_bound_key",
+    };
+    let mut parts = Vec::new();
+    for (enabled, label) in [
+        (command, "Cmd"),
+        (control, "Ctrl"),
+        (option, "Option"),
+        (shift, "Shift"),
+    ] {
+        if enabled {
+            parts.push(label.to_owned());
+        }
+    }
+    parts.push(match key {
+        "comma" => ",".into(),
+        "slash" => "/".into(),
+        "left_bracket" => "[".into(),
+        "right_bracket" => "]".into(),
+        "plus" => "+".into(),
+        "minus" => "-".into(),
+        "zero" => "0".into(),
+        "one" => "1".into(),
+        _ => key.to_ascii_uppercase(),
+    });
+    vec![
+        ("key_token", text(key)),
+        ("shortcut", identifier(&parts.join("+"))),
+        ("command", flag(command)),
+        ("control", flag(control)),
+        ("option", flag(option)),
+        ("shift", flag(shift)),
+        ("input_source", text("keyboard")),
+        ("semantic", text("shortcut")),
+    ]
+}
+
+/// Finite tokens sent only after a native command has matched.
+pub fn native_shortcut_token(token: u64) -> Option<&'static str> {
+    const LETTERS: [&str; 26] = [
+        "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r",
+        "s", "t", "u", "v", "w", "x", "y", "z",
+    ];
+    match token {
+        97..=122 => LETTERS.get((token - 97) as usize).copied(),
+        1 => Some("+"),
+        2 => Some("-"),
+        3 => Some("0"),
+        4 => Some("1"),
+        5 => Some("enter"),
+        6 => Some("escape"),
+        7 => Some("pageup"),
+        8 => Some("pagedown"),
+        9 => Some("tab"),
+        10 => Some("space"),
+        11 => Some("left"),
+        12 => Some("right"),
+        13 => Some("up"),
+        14 => Some("down"),
+        _ => None,
+    }
+}
+
+/// Fallback for commands without a recognized token; never treat this as typed text.
+pub fn native_shortcut_key(code: u64) -> &'static str {
+    match code {
+        0 => "a",
+        1 => "s",
+        2 => "d",
+        3 => "f",
+        4 => "h",
+        5 => "g",
+        6 => "z",
+        7 => "x",
+        8 => "c",
+        9 => "v",
+        11 => "b",
+        12 => "q",
+        13 => "w",
+        14 => "e",
+        15 => "r",
+        16 => "y",
+        17 => "t",
+        18 => "1",
+        19 => "2",
+        20 => "3",
+        21 => "4",
+        22 => "6",
+        23 => "5",
+        24 | 69 => "+",
+        25 => "9",
+        26 => "7",
+        27 | 78 => "-",
+        28 => "8",
+        29 => "0",
+        30 => "]",
+        31 => "o",
+        32 => "u",
+        33 => "[",
+        34 => "i",
+        35 => "p",
+        36 | 76 => "enter",
+        37 => "l",
+        38 => "j",
+        40 => "k",
+        43 => ",",
+        44 => "/",
+        45 => "n",
+        46 => "m",
+        48 => "tab",
+        49 => "space",
+        51 => "backspace",
+        53 => "escape",
+        115 => "home",
+        116 => "pageup",
+        117 => "delete",
+        119 => "end",
+        121 => "pagedown",
+        123 => "left",
+        124 => "right",
+        125 => "down",
+        126 => "up",
+        _ => "other_bound_key",
+    }
+}
 fn identifier(value: &str) -> Property {
     Property(serde_json::Value::String(value.chars().take(180).collect()))
 }
@@ -181,7 +368,7 @@ pub fn track(name: &'static str, props: impl IntoIterator<Item = (&'static str, 
         session.started.elapsed().as_secs().into(),
     );
     props.insert("architecture", std::env::consts::ARCH.into());
-    props.insert("schema_version", 4.into());
+    props.insert("schema_version", 5.into());
     props.insert("usage_statistics", session.consent.usage.into());
     props.insert("telemetry_environment", environment().into());
     let urgent = is_error_event(name) || name == "app_exited";
@@ -321,6 +508,39 @@ pub fn result<T>(event: &'static str, path: Option<&Path>, started: Instant, out
     result_with(event, path, started, outcome, []);
 }
 
+pub fn file_operation<T>(
+    action: &'static str,
+    storage: &'static str,
+    path: &Path,
+    started: Instant,
+    outcome: &Result<T>,
+) {
+    result_with(
+        "file_operation",
+        Some(path),
+        started,
+        outcome,
+        [
+            ("action", text(action)),
+            ("storage", text(storage)),
+            ("semantic", text("outcome")),
+        ],
+    );
+}
+
+pub fn file_operation_cancelled(action: &'static str, storage: &'static str, path: &Path) {
+    file_event(
+        "file_operation",
+        path,
+        [
+            ("action", text(action)),
+            ("storage", text(storage)),
+            ("semantic", text("outcome")),
+            ("result", text("cancelled")),
+        ],
+    );
+}
+
 pub fn result_with<T>(
     event: &'static str,
     path: Option<&Path>,
@@ -416,6 +636,21 @@ pub fn native_event(
             }),
         )),
         "zoom_changed" => props.push(("zoom_percent", number(value))),
+        "find_case_changed" => props.push(("case_sensitive", flag(value != 0))),
+        "pan" => props.extend([
+            ("horizontal_points_x100", number(value)),
+            ("vertical_points_x100", number(secondary)),
+        ]),
+        "layout" if kind == "pdf" => props.push((
+            "layout_mode",
+            text(match value {
+                0 => "single_page",
+                1 => "single_page_continuous",
+                2 => "two_pages",
+                3 => "two_pages_continuous",
+                _ => "unknown",
+            }),
+        )),
         _ => {}
     }
     if error_code != 0 {
@@ -1206,6 +1441,30 @@ mod distribution_policy;
 mod tests {
     use super::installation_id_in;
     use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn shortcut_contract_distinguishes_new_commands_and_scrubs_input() {
+        let props = |key, command, shift| {
+            super::shortcut_properties(key, command, false, false, shift)
+                .into_iter()
+                .map(|(key, value)| (key, value.0))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        assert_eq!(props("g", true, false)["shortcut"], "Cmd+G");
+        assert_eq!(props("m", true, true)["shortcut"], "Cmd+Shift+M");
+        assert_eq!(props("M", true, true)["shortcut"], "Cmd+Shift+M");
+        assert_eq!(
+            props("用户输入及路径/secret.txt", true, false)["key_token"],
+            "other_bound_key"
+        );
+        assert_eq!(props("g", false, false)["key_token"], "other_bound_key");
+        assert_eq!(props("space", false, true)["shortcut"], "Shift+SPACE");
+        let key = super::native_shortcut_key(8);
+        assert_eq!(props(key, true, true)["shortcut"], "Cmd+Shift+C");
+        assert_eq!(super::native_shortcut_key(u64::MAX), "other_bound_key");
+        assert_eq!(super::native_shortcut_token(u64::from(b'i')), Some("i"));
+        assert_eq!(super::native_shortcut_token(u64::MAX), None);
+    }
 
     #[test]
     fn installation_identity_survives_schema_upgrade_and_restarts() -> anyhow::Result<()> {

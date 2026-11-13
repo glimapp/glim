@@ -30,6 +30,8 @@ private final class CenteredImageClipView: NSClipView {
 private final class PannableImageView: NSImageView {
     override var acceptsFirstResponder: Bool { true }
     private var dragPoint: NSPoint?
+    private var panDistance = NSSize.zero
+    private var panGeneration: UInt64?
     var allowsPan = false {
         didSet { window?.invalidateCursorRects(for: self) }
     }
@@ -47,6 +49,7 @@ private final class PannableImageView: NSImageView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         guard canPan, let clip = enclosingScrollView?.contentView else { super.mouseDown(with: event); return }
+        panDistance = .zero; panGeneration = ReaderTelemetry.generation
         dragPoint = clip.convert(event.locationInWindow, from: nil)
         NSCursor.closedHand.set()
     }
@@ -57,13 +60,24 @@ private final class PannableImageView: NSImageView {
         var proposed = clip.bounds
         proposed.origin.x -= point.x - previous.x
         proposed.origin.y -= point.y - previous.y
+        let before = clip.bounds.origin
         clip.scroll(to: clip.constrainBoundsRect(proposed).origin)
+        let travel = scroll.convert(NSRect(x: 0, y: 0, width: abs(clip.bounds.origin.x - before.x), height: abs(clip.bounds.origin.y - before.y)), from: clip).size
+        panDistance.width += travel.width
+        panDistance.height += travel.height
         scroll.reflectScrolledClipView(clip)
         dragPoint = clip.convert(event.locationInWindow, from: nil)
         NSCursor.closedHand.set()
     }
     override func mouseUp(with event: NSEvent) {
         guard dragPoint != nil else { super.mouseUp(with: event); return }
+        if panGeneration != nil, panGeneration == ReaderTelemetry.generation,
+           panDistance.width > 0 || panDistance.height > 0 {
+            ReaderTelemetry.withSource(1) {
+                ReaderTelemetry.record(1, 38, value: ReaderTelemetry.counter((panDistance.width * 100).rounded()), secondary: ReaderTelemetry.counter((panDistance.height * 100).rounded()))
+            }
+        }
+        panGeneration = nil
         dragPoint = nil
         window?.invalidateCursorRects(for: self)
         (canPan ? NSCursor.openHand : NSCursor.arrow).set()
@@ -274,7 +288,7 @@ final class ImagePreview: NSObject {
                       let responder = event.window?.firstResponder as? NSView,
                       responder === self.view || responder.isDescendant(of: self.view) else { return event }
                 if let editor = responder as? NSTextView, editor.isEditable { return event }
-                ReaderTelemetry.record(1, 107)
+                ReaderTelemetry.shortcut(1, 7, event: event)
                 self.copySelectionOrImage()
                 return nil
             }
@@ -435,11 +449,11 @@ final class ImagePreview: NSObject {
     }
     @objc private func zoomOut() { ReaderTelemetry.record(1, 2, 0); if svgPreview != nil { svgAction("out") } else { changeZoom(1 / sqrt(2)) } }
     @objc private func zoomIn() { ReaderTelemetry.record(1, 1, 0); if svgPreview != nil { svgAction("in") } else { changeZoom(sqrt(2)) } }
-    @objc private func fitImage() { ReaderTelemetry.record(1, 4, 0);
+    @objc private func fitImage() { ReaderTelemetry.record(1, 42);
         if svgPreview != nil { svgAction("fit"); return }
         fitting = true; needsInitialFit = true; fitWhenReady()
     }
-    @objc private func actualSize() { ReaderTelemetry.record(1, 3, 0);
+    @objc private func actualSize() { ReaderTelemetry.record(1, 39);
         if svgPreview != nil { svgAction("actual"); return }
         fitting = false; requestedMagnification = 1
         if !original { original = true; load() } else { needsInitialFit = true; fitWhenReady() }

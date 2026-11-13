@@ -507,10 +507,29 @@ impl Workspace {
         let remote = self.remote.clone();
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let work = cx.background_executor().spawn(async move {
+            let started = std::time::Instant::now();
+            let storage = if remote.is_some() { "ssh" } else { "local" };
             let repositories = match remote {
                 Some(remote) => remote.discover_git_roots(&roots, &cancel),
                 None => glim_services::workspace::discover_git_roots(&roots, &cancel),
             };
+            glim_services::telemetry::result_with(
+                "workspace_git_detected",
+                None,
+                started,
+                &repositories,
+                [
+                    ("storage", glim_services::telemetry::text(storage)),
+                    ("semantic", glim_services::telemetry::text("observation")),
+                    ("trigger", glim_services::telemetry::text("background")),
+                    (
+                        "repository_count",
+                        glim_services::telemetry::number(
+                            repositories.as_ref().map_or(0, |roots| roots.len()) as u64,
+                        ),
+                    ),
+                ],
+            );
             (roots, repositories)
         });
         self.git_discovery_task = Some(cx.spawn(async move |view, cx| {

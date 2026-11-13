@@ -536,6 +536,8 @@ final class ReaderPDFView: PDFView {
     private var fitting: Fit?
     private var applyingFit = false
     private var panPoint: NSPoint?
+    private var panDistance = NSSize.zero
+    private var panGeneration: UInt64?
     private weak var panClip: NSClipView?
     private var pointerTracking: NSTrackingArea?
 
@@ -607,6 +609,7 @@ final class ReaderPDFView: PDFView {
         }
         window?.makeFirstResponder(self)
         panClip = clip
+        panDistance = .zero; panGeneration = ReaderTelemetry.generation
         panPoint = clip.convert(event.locationInWindow, from: nil)
         NSCursor.closedHand.set()
     }
@@ -619,7 +622,11 @@ final class ReaderPDFView: PDFView {
         var proposed = clip.bounds
         proposed.origin.x -= point.x - previous.x
         proposed.origin.y -= point.y - previous.y
+        let before = clip.bounds.origin
         clip.scroll(to: clip.constrainBoundsRect(proposed).origin)
+        let travel = scroll.convert(NSRect(x: 0, y: 0, width: abs(clip.bounds.origin.x - before.x), height: abs(clip.bounds.origin.y - before.y)), from: clip).size
+        panDistance.width += travel.width
+        panDistance.height += travel.height
         scroll.reflectScrolledClipView(clip)
         panPoint = clip.convert(event.locationInWindow, from: nil)
         NSCursor.closedHand.set()
@@ -627,6 +634,13 @@ final class ReaderPDFView: PDFView {
 
     override func mouseUp(with event: NSEvent) {
         guard panPoint != nil else { super.mouseUp(with: event); return }
+        if panGeneration != nil, panGeneration == ReaderTelemetry.generation,
+           panDistance.width > 0 || panDistance.height > 0 {
+            ReaderTelemetry.withSource(1) {
+                ReaderTelemetry.record(2, 38, value: ReaderTelemetry.counter((panDistance.width * 100).rounded()), secondary: ReaderTelemetry.counter((panDistance.height * 100).rounded()))
+            }
+        }
+        panGeneration = nil
         panPoint = nil; panClip = nil
         NSCursor.arrow.set()
         updatePointerCursor()
@@ -646,8 +660,9 @@ final class ReaderPDFView: PDFView {
         refit()
         updatePointerCursor()
     }
-    @objc func fitToWidth() { ReaderTelemetry.record(2, 4, 0); setFit(.width) }
-    @objc func fitPage() { ReaderTelemetry.record(2, 4, 0); setFit(.page) }
+    @objc func fitToWidth() { ReaderTelemetry.record(2, 40); setFit(.width) }
+    @objc func fitPage() { ReaderTelemetry.record(2, 41); setFit(.page) }
+    func fitInitialPage() { setFit(.page) }
     private func setFit(_ fit: Fit) {
         fitting = fit; autoScales = false; needsLayout = true; refit()
     }
@@ -740,8 +755,8 @@ final class ReaderPDFView: PDFView {
         add("Previous page", #selector(PDFView.goToPreviousPage(_:)), enabled: canGoToPreviousPage)
         return menu
     }
-    @objc private func actualSize() { ReaderTelemetry.record(2, 3, 0); fitting = nil; autoScales = false; scaleFactor = 1 }
-    @objc private func changeLayout(_ sender: NSMenuItem) { ReaderTelemetry.record(2, 12, 0);
+    @objc private func actualSize() { ReaderTelemetry.record(2, 39); fitting = nil; autoScales = false; scaleFactor = 1 }
+    @objc private func changeLayout(_ sender: NSMenuItem) { ReaderTelemetry.record(2, 12, value: UInt64(sender.tag));
         if let mode = PDFDisplayMode(rawValue: sender.tag) { displayMode = mode; needsLayout = true; refit() }
     }
 }
@@ -1043,7 +1058,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 pdfUnlockPassword = password.stringValue
                 password.stringValue = ""
             }
-            pdfView.document = document; pdfView.displayMode = .singlePageContinuous; pdfView.fitPage()
+            pdfView.document = document; pdfView.displayMode = .singlePageContinuous; pdfView.fitInitialPage()
             let search = PDFReaderFind(view: pdfView); pdfFind = search
             let find = ReaderFindBar(host: host, content: pdfView, telemetryKind: 2, search: { query, sensitive, backwards, changed, completion in
                 search.search(query, sensitive: sensitive, backwards: backwards, changed: changed, completion: completion)
