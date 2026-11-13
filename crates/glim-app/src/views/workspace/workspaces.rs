@@ -539,7 +539,16 @@ impl Workspace {
                 .w_full()
                 .h(px(super::WORKSPACE_ROW_HEIGHT))
                 .flex_shrink_0()
-                .child(Input::new(input))
+                .child(
+                    Input::new(input)
+                        .appearance(false)
+                        .bordered(false)
+                        .focus_bordered(false)
+                        .bg(cx.theme().background)
+                        .rounded(px(6.))
+                        .h(px(super::WORKSPACE_ROW_HEIGHT))
+                        .aria_label(glim_services::locale::tr("Rename Workspace…")),
+                )
                 .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
                     if event.keystroke.key == "escape" {
                         view.workspace_rename = None;
