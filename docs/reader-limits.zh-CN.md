@@ -241,6 +241,9 @@
 
 | Key | 当前值 | 单位 | 超限效果 | 实际行为 |
 | --- | ---: | --- | --- | --- |
+| `remote_image.frame_cache_bytes` | 64 MiB | bytes | 处理／内存预算 | 进程内离屏远程内嵌图片像素 LRU 缓存；淘汰时释放像素与纹理，再次访问从会话缩略图缓存解码，未命中时重新下载。 |
+| `remote_image.preview_cache_bytes` | 256 MiB | bytes | 处理／内存预算 | 进程内使用临时文件保存的远程内嵌图片缩略图 LRU 缓存，计入 URL 键；淘汰或正常退出时删除，不限制源文件大小。 |
+| `remote_image.preview_cache_entries` | 512 | items | 处理／内存预算 | 远程缩略图缓存匿名文件句柄预算；按最近最少使用淘汰，不限制文档图片总数。 |
 | `remote_image.input_bytes` | 取消 | bytes | 无应用层总量门槛 | HTTP 下载流式写入临时文件，再生成有界缩略图，不以源输入总大小拒绝文件。 |
 | `remote_image.timeout_seconds` | 20 | seconds | 超时 | 空闲／无进度超时，持续有进度的下载不设固定总耗时上限。 |
 | `remote_image.first_attempt_seconds` | 8 | seconds | 超时 | 连接建立时间预算，包括 GitHub 原始 URL 首次尝试后转用 API 的连接等待。 |

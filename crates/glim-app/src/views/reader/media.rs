@@ -11,7 +11,7 @@ use gpui_kit::{
     },
     *,
 };
-use std::{path::Path, sync::Arc};
+use std::{collections::VecDeque, path::Path, sync::Arc};
 
 pub(super) struct ImageReader {
     pages: Vec<Entity<PreparedImage>>,
@@ -150,6 +150,47 @@ fn release_image(frame: ManagedFrame, cx: &mut App) {
     });
 }
 
+/// Only inactive remote stills live here; visible images keep their reader owner.
+#[derive(Default)]
+struct InlineFrameCache(VecDeque<(EntityId, ManagedFrame)>);
+impl Global for InlineFrameCache {}
+impl InlineFrameCache {
+    fn take(id: EntityId, cx: &mut App) -> Option<ManagedFrame> {
+        if glim_services::resources::available_memory() == 0 {
+            let entries = std::mem::take(&mut cx.default_global::<Self>().0);
+            for (_, frame) in entries {
+                release_image(frame, cx);
+            }
+            return None;
+        }
+        let entries = &mut cx.default_global::<Self>().0;
+        let index = entries.iter().position(|(key, _)| *key == id)?;
+        entries.remove(index).map(|(_, frame)| frame)
+    }
+
+    fn remember(id: EntityId, frame: ManagedFrame, cx: &mut App) {
+        let budget = reader_limits::REMOTE_IMAGE_FRAME_CACHE_BYTES;
+        if frame._lease.bytes() > budget || glim_services::resources::available_memory() == 0 {
+            release_image(frame, cx);
+            return;
+        }
+        let entries = &mut cx.default_global::<Self>().0;
+        entries.push_back((id, frame));
+        let mut used: u64 = entries.iter().map(|(_, frame)| frame._lease.bytes()).sum();
+        let mut evicted = Vec::new();
+        while used > budget {
+            let Some((_, frame)) = entries.pop_front() else {
+                break;
+            };
+            used = used.saturating_sub(frame._lease.bytes());
+            evicted.push(frame);
+        }
+        for frame in evicted {
+            release_image(frame, cx);
+        }
+    }
+}
+
 /// Encoded preview data and its on-demand raster have the same reader owner.
 pub(super) struct PreparedImage {
     encoded: Arc<Image>,
@@ -229,7 +270,7 @@ impl PreparedImage {
     }
 }
 
-/// A bounded inline preview that releases pixels and texture when no longer requested.
+/// A bounded inline preview; inactive remote pixels enter the shared LRU.
 pub(super) struct InlineImageReader {
     url: url::Url,
     frame: Option<ManagedFrame>,
@@ -242,10 +283,14 @@ pub(super) struct InlineImageReader {
 
 impl InlineImageReader {
     pub fn new(url: url::Url, cx: &mut Context<Self>) -> Self {
-        cx.on_release(|view, cx| {
+        let id = cx.entity_id();
+        cx.on_release(move |view, cx| {
             view.task = None;
             view.refresh_task = None;
             if let Some(frame) = view.frame.take() {
+                release_image(frame, cx);
+            }
+            if let Some(frame) = InlineFrameCache::take(id, cx) {
                 release_image(frame, cx);
             }
         })
@@ -271,12 +316,19 @@ impl InlineImageReader {
             self.refresh_task = None;
             self.error = None;
             if let Some(frame) = self.frame.take() {
-                release_image(frame, cx);
+                if matches!(self.url.scheme(), "http" | "https") {
+                    InlineFrameCache::remember(cx.entity_id(), frame, cx);
+                } else {
+                    release_image(frame, cx);
+                }
             }
             cx.notify();
             return;
         }
-        self.start_load(cx);
+        self.frame = InlineFrameCache::take(cx.entity_id(), cx);
+        if self.frame.is_none() {
+            self.start_load(cx);
+        }
     }
 
     // Workspace change notifications also cover referenced local image files.

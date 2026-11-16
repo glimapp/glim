@@ -1015,6 +1015,30 @@
       }
     },
     "remote_image": {
+      "frame_cache_bytes": {
+        "value": 67108864,
+        "type": "u64",
+        "unit": "bytes",
+        "effect": "budget",
+        "description": "Process-wide LRU for inactive remote inline-image pixels. Eviction releases pixels and textures; revisiting decodes the session thumbnail cache or downloads again on a miss.",
+        "description_zh": "进程内离屏远程内嵌图片像素 LRU 缓存；淘汰时释放像素与纹理，再次访问从会话缩略图缓存解码，未命中时重新下载。"
+      },
+      "preview_cache_bytes": {
+        "value": 268435456,
+        "type": "u64",
+        "unit": "bytes",
+        "effect": "budget",
+        "description": "Process-wide disk-backed LRU of prepared remote inline-image thumbnails, including URL keys. Temporary files are removed on eviction or normal process exit; source file sizes remain unrestricted.",
+        "description_zh": "进程内使用临时文件保存的远程内嵌图片缩略图 LRU 缓存，计入 URL 键；淘汰或正常退出时删除，不限制源文件大小。"
+      },
+      "preview_cache_entries": {
+        "value": 512,
+        "type": "usize",
+        "unit": "items",
+        "effect": "budget",
+        "description": "Open anonymous-file budget for cached remote thumbnails. Evict least recently used entries; this does not limit the document image count.",
+        "description_zh": "远程缩略图缓存匿名文件句柄预算；按最近最少使用淘汰，不限制文档图片总数。"
+      },
       "input_bytes": {
         "value": null,
         "type": "usize",

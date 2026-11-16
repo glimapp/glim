@@ -1,4 +1,5 @@
 //! HTML picture selection and bounded remote image preparation, independent of UI.
+mod preview_cache;
 use crate::limits as reader_limits;
 use anyhow::{Context, Result, ensure};
 use html5ever::{parse_document, tendril::TendrilSink};
@@ -240,8 +241,17 @@ pub fn fetch_inline_image_cancellable(
     url: &str,
     cancel: &crate::work::Cancellation,
 ) -> Result<crate::media::RasterFrame> {
+    cancel.check()?;
+    let key = download_url(url)?.to_string();
+    if let Some(png) = preview_cache::load(&key) {
+        return crate::media::decode_png(&png, cancel);
+    }
     let file = fetch_image_file(url, cancel)?;
-    crate::inline_images::from_file_cancellable(file.path(), cancel)
+    let png = crate::inline_images::png_from_file_cancellable(file.path(), cancel)?;
+    let frame = crate::media::decode_png(&png, cancel)?;
+    cancel.check()?;
+    preview_cache::remember(key, &png);
+    Ok(frame)
 }
 pub fn fetch_image_file(
     url: &str,

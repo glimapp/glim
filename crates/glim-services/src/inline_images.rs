@@ -15,20 +15,20 @@ pub fn from_file_cancellable(
     path: &Path,
     cancel: &crate::work::Cancellation,
 ) -> Result<crate::media::RasterFrame> {
+    let png = png_from_file_cancellable(path, cancel)?;
+    crate::media::decode_png(&png, cancel)
+}
+
+pub(crate) fn png_from_file_cancellable(
+    path: &Path,
+    cancel: &crate::work::Cancellation,
+) -> Result<Vec<u8>> {
     cancel.check()?;
     let _guard = PREPARATION
         .lock()
         .map_err(|_| anyhow::anyhow!("Image preparation was interrupted"))?;
     cancel.check()?;
-    native_thumbnail(path, cancel)
-}
-
-fn native_thumbnail(
-    path: &Path,
-    cancel: &crate::work::Cancellation,
-) -> Result<crate::media::RasterFrame> {
-    let png = thumbnail_png_cancellable(path, MAX_EDGE, cancel)?;
-    crate::media::decode_png(&png, cancel)
+    thumbnail_png_cancellable(path, MAX_EDGE, cancel)
 }
 
 pub(crate) fn thumbnail_png(path: &Path, max_edge: u32) -> Result<Vec<u8>> {
