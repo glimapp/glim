@@ -13,7 +13,7 @@ Glim 是免费开源的 Mac 文件查看器。在同一工作区阅读带 Mermai
 <p align="center"><sub>Mac 下载包目前尚未经过 Apple 公证，首次打开可能需要在系统设置中放行。<a href="#macos">查看步骤</a></sub></p>
 
 <p align="center">
-  <a href="https://github.com/glimapp/glim/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fglimapp%2Fglim%2Frefs%2Fheads%2Fcodex%2Fdownload-stats%2Fdownloads-badge.json&amp;style=flat-square&amp;label=DMG%20%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="DMG 安装包下载量" /></a>
+  <a href="https://github.com/glimapp/glim/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fglimapp%2Fglim%2Frefs%2Fheads%2Fmain%2Fdocs%2Fdownload-stats%2Fdownloads-badge.json&amp;style=flat-square&amp;label=DMG%20%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="DMG 安装包下载量" /></a>
   <a href="https://github.com/glimapp/glim/actions/workflows/ci.yml"><img src="https://github.com/glimapp/glim/actions/workflows/ci.yml/badge.svg" alt="桌面版构建状态" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT 许可证" /></a>
   <a href="https://github.com/glimapp/glim/stargazers"><img src="https://img.shields.io/github/stars/glimapp/glim?style=social" alt="GitHub Star 数量" /></a>
@@ -129,12 +129,12 @@ Glim 是免费开源的 Mac 文件查看器。在同一工作区阅读带 Mermai
 
 ## 下载量增长曲线
 
-<a href="https://github.com/glimapp/glim/tree/codex/download-stats">
+<a href="https://github.com/glimapp/glim/tree/main/docs/download-stats">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/glimapp/glim/refs/heads/codex/download-stats/downloads-dark.svg" />
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/glimapp/glim/refs/heads/codex/download-stats/downloads.svg" />
-    <img src="https://raw.githubusercontent.com/glimapp/glim/refs/heads/codex/download-stats/downloads.svg" alt="Glim DMG 安装包累计下载量曲线" width="100%" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/glimapp/glim/refs/heads/main/docs/download-stats/downloads-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/glimapp/glim/refs/heads/main/docs/download-stats/downloads.svg" />
+    <img src="https://raw.githubusercontent.com/glimapp/glim/refs/heads/main/docs/download-stats/downloads.svg" alt="Glim DMG 安装包累计下载量曲线" width="100%" />
   </picture>
 </a>
 
-仅统计 GitHub 公开 Release（含预发布）中 **.dmg 安装包**的累计下载次数，徽标与曲线使用同一份每日快照。纯 DMG 曲线从 **2026-10-30** 开始记录，累计值包含旧版本 DMG 至今的下载次数。此前的全附件合计无法按文件类型还原，已[单独归档](https://github.com/glimapp/glim/blob/codex/download-stats/downloads-all-assets-legacy.json)。不计更新清单、校验文件、ZIP 等附件；下载次数不等于独立用户数或安装量。
+仅统计 GitHub 公开 Release（含预发布）中 **.dmg 安装包**的累计下载次数，徽标与曲线使用同一份每日快照。纯 DMG 曲线从 **2026-10-30** 开始记录，累计值包含旧版本 DMG 至今的下载次数。此前的全附件合计无法按文件类型还原，已[单独归档](https://github.com/glimapp/glim/blob/main/docs/download-stats/downloads-all-assets-legacy.json)。不计更新清单、校验文件、ZIP 等附件；下载次数不等于独立用户数或安装量。
