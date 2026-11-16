@@ -209,6 +209,8 @@ impl Render for ImageDetail {
                     if matches!(view.presentation, Presentation::Fullscreen { .. }) {
                         window.remove_window();
                         cx.stop_propagation();
+                    } else {
+                        cx.propagate();
                     }
                 }),
             )
