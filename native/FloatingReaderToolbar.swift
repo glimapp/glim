@@ -15,7 +15,7 @@ final class FloatingReaderToolbar: NSView, NSPopoverDelegate {
     private var measuredSizes: [NSSize] = []
     private var measuredViews: [ObjectIdentifier] = []
     private let viewport = NSView()
-    private var bottomInset: CGFloat = 16
+    private var bottomInset: CGFloat = 8
     private static let iconWidth: CGFloat = 28
     private static let spacing: CGFloat = 4
     private static let horizontalPadding: CGFloat = 10
@@ -297,7 +297,7 @@ final class FloatingReaderToolbar: NSView, NSPopoverDelegate {
         super.viewDidMoveToWindow()
         if let window = window { WorkspaceReaderToolbar.refresh(in: window) }
     }
-    func install(in host: NSView, bottomInset: CGFloat = 16, managesContextMenu: Bool = true) {
+    func install(in host: NSView, bottomInset: CGFloat = 8, managesContextMenu: Bool = true) {
         self.bottomInset = bottomInset
         frame = host.bounds
         autoresizingMask = [.width, .height]

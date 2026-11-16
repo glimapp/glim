@@ -142,7 +142,7 @@ fn capsule(controls: AnyElement, collapsed: bool, trailing_inset: Pixels, cx: &A
         .absolute()
         .left(px(16.))
         .right(px(16.) + trailing_inset)
-        .bottom(px(16.))
+        .bottom(px(8.))
         .flex()
         .justify_center()
         .when(!collapsed, |view| {

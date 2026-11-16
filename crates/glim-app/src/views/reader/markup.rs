@@ -392,7 +392,7 @@ impl MarkupReader {
             .style(
                 style
                     .with_table(table_style)
-                    .with_scroll_bottom_padding(px(40.)),
+                    .with_scroll_bottom_padding(px(64.)),
             )
             .scrollable(true)
             .size_full()

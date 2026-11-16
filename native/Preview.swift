@@ -1132,7 +1132,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
             play(0, autoplay: autoplay)
         }
         // Leave AVKit's timeline clear when its own playback controls appear.
-        FloatingReaderToolbar(profile: pdf ? "pdf" : "media", items: toolbar).install(in: host, bottomInset: pdf ? 16 : 80, managesContextMenu: !pdf)
+        FloatingReaderToolbar(profile: pdf ? "pdf" : "media", items: toolbar).install(in: host, bottomInset: pdf ? 8 : 80, managesContextMenu: !pdf)
     }
     func showOffice(_ url: URL, wordReading: String? = nil, wordImagePages: Bool = false) {
         if ["doc", "docx", "rtf"].contains(url.pathExtension.lowercased()) {
