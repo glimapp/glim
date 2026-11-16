@@ -1,5 +1,9 @@
+mod browser;
+mod controls;
+mod panel;
+use browser::Section;
 use glim_services::{
-    git::{self, Area, Change, Repository},
+    git::{self, Area, Catalog, Change, Commit, Comparison, Operation, Repository},
     locale::tr,
     work::{CancelOnDrop, Cancellation},
 };
@@ -8,7 +12,9 @@ use gpui_kit::{
         ActiveTheme, Disableable, Selectable, Sizable,
         button::{Button, ButtonVariants},
         diff::{Diff, DiffFile, DiffMode, DiffState},
-        h_flex, v_flex,
+        h_flex,
+        input::{InputState, TextareaState},
+        v_flex,
     },
     prelude::FluentBuilder,
     *,
@@ -23,11 +29,48 @@ pub(super) struct ShowDiff;
 impl EventEmitter<ShowDiff> for Changes {}
 
 enum Prepared {
-    Diff(Vec<DiffFile>, glim_services::resources::WorkingReservation),
+    Diff(
+        Vec<DiffFile>,
+        glim_services::resources::WorkingReservation,
+        Arc<String>,
+    ),
     Raw(glim_services::paged::TextPage),
 }
 
-pub(super) struct Changes {
+pub(crate) struct Changes {
+    section: Section,
+    available: bool,
+    active_root: Option<PathBuf>,
+    catalog: Arc<Catalog>,
+    commits: Arc<Vec<Commit>>,
+    history_page: usize,
+    history_reflog: bool,
+    history_more: bool,
+    history_path: Option<PathBuf>,
+    search_open: bool,
+    search: Entity<InputState>,
+    message: Entity<TextareaState>,
+    amend: bool,
+    message_root: Option<PathBuf>,
+    drafts: std::collections::HashMap<PathBuf, (String, bool)>,
+    form_values: std::collections::HashMap<String, Vec<String>>,
+    comparison: Option<(PathBuf, Comparison)>,
+    selected_commit: Option<Commit>,
+    selected_reference: Option<usize>,
+    selected_stash: Option<usize>,
+    patch_source: Option<Arc<String>>,
+    browsing: bool,
+    browse_generation: u64,
+    browse_task: Option<Task<()>>,
+    browse_cancel: Option<CancelOnDrop>,
+    operation_busy: bool,
+    operation_error: Option<SharedString>,
+    browser_error: Option<SharedString>,
+    operation_label: Option<SharedString>,
+    operation_task: Option<Task<()>>,
+    clear_message: Option<String>,
+    notice_task: Option<Task<()>>,
+    _subscriptions: Vec<Subscription>,
     roots: Vec<PathBuf>,
     remote: Option<glim_services::remote::Session>,
     repositories: Vec<Repository>,
@@ -52,6 +95,10 @@ pub(super) struct Changes {
 impl Changes {
     pub(super) fn cancel(&mut self, cx: &mut Context<Self>) {
         self.generation += 1;
+        self.browse_generation += 1;
+        self.browse_cancel = None;
+        self.browse_task = None;
+        self.browsing = false;
         self.status_cancel = None;
         self.patch_cancel = None;
         self.status_task = None;
@@ -63,6 +110,7 @@ impl Changes {
 
     pub(super) fn unavailable(&mut self, cx: &mut Context<Self>) {
         self.cancel(cx);
+        self.available = false;
         self.repositories.clear();
         self.rows = Arc::default();
         self.selection = None;
@@ -70,8 +118,53 @@ impl Changes {
         self.errors = vec![tr("Connect to the remote workspace to view changes").into()];
         cx.notify();
     }
-    pub(super) fn new(cx: &mut Context<Self>) -> Self {
+    pub(super) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let message = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .rows(3)
+                .placeholder(tr("Commit message"))
+        });
+        let search =
+            cx.new(|cx| InputState::new(window, cx).placeholder(tr("Search commit messages")));
+        let diff = cx.new(|cx| DiffState::new([], cx));
+        let subscriptions = vec![
+            cx.observe(&message, |_, _, cx| cx.notify()),
+            cx.observe(&diff, |_, _, cx| cx.notify()),
+        ];
         Self {
+            section: Section::Changes,
+            available: true,
+            active_root: None,
+            catalog: Arc::default(),
+            commits: Arc::default(),
+            history_page: 0,
+            history_reflog: false,
+            history_more: false,
+            history_path: None,
+            search_open: false,
+            search,
+            message,
+            amend: false,
+            message_root: None,
+            drafts: Default::default(),
+            form_values: Default::default(),
+            comparison: None,
+            selected_commit: None,
+            selected_reference: None,
+            selected_stash: None,
+            patch_source: None,
+            browsing: false,
+            browse_generation: 0,
+            browse_task: None,
+            browse_cancel: None,
+            operation_busy: false,
+            operation_error: None,
+            browser_error: None,
+            operation_label: None,
+            operation_task: None,
+            clear_message: None,
+            notice_task: None,
+            _subscriptions: subscriptions,
             roots: Vec::new(),
             remote: None,
             repositories: Vec::new(),
@@ -80,7 +173,7 @@ impl Changes {
             errors: Vec::new(),
             loading: false,
             selection: None,
-            diff: cx.new(|cx| DiffState::new([], cx)),
+            diff,
             memory: None,
             raw: None,
             patch_loading: false,
@@ -100,6 +193,7 @@ impl Changes {
         remote: Option<glim_services::remote::Session>,
         cx: &mut Context<Self>,
     ) {
+        self.available = true;
         self.status_cancel = None;
         self.status_task = None;
         self.patch_cancel = None;
@@ -112,6 +206,16 @@ impl Changes {
                 != remote.as_ref().map(|r| &r.connection.id)
         {
             self.selection = None;
+            self.active_root = None;
+            self.comparison = None;
+            self.catalog = Arc::default();
+            self.commits = Arc::default();
+            self.selected_commit = None;
+            self.selected_reference = None;
+            self.selected_stash = None;
+            self.history_page = 0;
+            self.history_path = None;
+            self.cancel_browse();
             self.repositories.clear();
             self.rows = Arc::default();
             self.clear_patch(cx);
@@ -159,24 +263,39 @@ impl Changes {
                     }
                 }
                 view.rows = Arc::new(rows);
-                let selection = view
-                    .selection
+                if view
+                    .active_root
                     .as_ref()
-                    .filter(|(root, selected)| {
-                        view.repositories.iter().any(|repository| {
-                            &repository.root == root && repository.changes.contains(selected)
+                    .is_none_or(|root| !view.roots.contains(root))
+                {
+                    view.active_root = view.roots.first().cloned();
+                }
+                let selection =
+                    view.selection
+                        .as_ref()
+                        .filter(|(root, selected)| {
+                            Some(root) == view.active_root.as_ref()
+                                && view.repositories.iter().any(|repo| {
+                                    &repo.root == root && repo.changes.contains(selected)
+                                })
                         })
-                    })
-                    .cloned()
-                    .or_else(|| {
-                        view.repositories.iter().find_map(|repository| {
-                            repository
-                                .changes
-                                .first()
-                                .map(|change| (repository.root.clone(), change.clone()))
-                        })
-                    });
-                if let Some((root, change)) = selection {
+                        .cloned()
+                        .or_else(|| {
+                            view.repositories
+                                .iter()
+                                .filter(|repo| Some(&repo.root) == view.active_root.as_ref())
+                                .find_map(|repo| {
+                                    repo.changes
+                                        .first()
+                                        .map(|change| (repo.root.clone(), change.clone()))
+                                })
+                        });
+                if view.section != Section::Changes {
+                    view.browse(cx);
+                    if let Some((root, comparison)) = view.comparison.clone() {
+                        view.load_patch(root, None, Some(comparison), cx);
+                    }
+                } else if let Some((root, change)) = selection {
                     view.select(root, change, cx);
                 } else {
                     view.selection = None;
@@ -193,21 +312,56 @@ impl Changes {
         self.raw = None;
         self.memory = None;
         self.patch_error = None;
+        self.patch_source = None;
     }
 
     fn select(&mut self, root: PathBuf, change: Change, cx: &mut Context<Self>) {
+        if self.active_root.as_ref() != Some(&root) && self.busy(cx) {
+            return;
+        }
+        self.cancel_browse();
+        self.section = Section::Changes;
+        self.active_root = Some(root.clone());
+        self.comparison = None;
+        self.selection = Some((root.clone(), change.clone()));
+        self.load_patch(root, Some(change), None, cx);
+    }
+
+    fn load_patch(
+        &mut self,
+        root: PathBuf,
+        change: Option<Change>,
+        comparison: Option<Comparison>,
+        cx: &mut Context<Self>,
+    ) {
         self.patch_cancel = None;
         self.patch_task = None;
         self.clear_patch(cx);
-        self.selection = Some((root.clone(), change.clone()));
         self.patch_loading = true;
         let generation = self.generation;
         let selection = self.selection.clone();
+        let comparison_guard = self.comparison.clone();
         let remote = self.remote.clone();
         let (cancel, guard) = Cancellation::task();
         self.patch_cancel = Some(guard);
         let work = cx.background_executor().spawn(async move {
-            let patch = git::patch(&root, &change, remote.as_ref(), &cancel)?;
+            let conflict = change.as_ref().is_some_and(|c| c.status == 'U');
+            let patch = match (&change, &comparison) {
+                (Some(change), _) if conflict => {
+                    git::conflict_source(&root, remote.as_ref(), &change.path, &cancel)?
+                }
+                (Some(change), _) => git::patch(&root, change, remote.as_ref(), &cancel)?,
+                (_, Some(comparison)) => {
+                    git::comparison_patch(&root, remote.as_ref(), comparison, &cancel)?
+                }
+                _ => anyhow::bail!("Missing Git diff selection"),
+            };
+            if comparison.as_ref().is_some_and(Comparison::is_raw) {
+                return Ok(Prepared::Raw(glim_services::paged::generated(
+                    &PathBuf::from("git-details.txt"),
+                    patch,
+                )?));
+            }
             let bytes = patch.as_file().metadata()?.len();
             let mut input = patch.reopen()?;
             let mut buffer = vec![0; glim_services::limits::IO_BUFFER_BYTES];
@@ -236,9 +390,20 @@ impl Changes {
                     Ok(text) => match String::from_utf8(text) {
                         Ok(text) => {
                             cancel.check()?;
-                            let files = DiffFile::parse(&text)?;
+                            let files = if conflict {
+                                vec![DiffFile::parse_conflicts(
+                                    change.as_ref().unwrap().path.to_string_lossy().into_owned(),
+                                    &text,
+                                )?]
+                            } else {
+                                DiffFile::parse(&text)?
+                            };
                             cancel.check()?;
-                            return Ok::<_, anyhow::Error>(Prepared::Diff(files, memory));
+                            return Ok::<_, anyhow::Error>(Prepared::Diff(
+                                files,
+                                memory,
+                                Arc::new(text),
+                            ));
                         }
                         Err(_) => binary = true,
                     },
@@ -249,7 +414,10 @@ impl Changes {
                 }
             }
             cancel.check()?;
-            let path = change.path.with_extension("diff");
+            let path = change
+                .as_ref()
+                .map(|c| c.path.with_extension("diff"))
+                .unwrap_or_else(|| PathBuf::from("comparison.diff"));
             Ok(Prepared::Raw(if binary {
                 glim_services::paged::generated_binary(&path, patch)?
             } else {
@@ -259,12 +427,16 @@ impl Changes {
         self.patch_task = Some(cx.spawn(async move |view, cx| {
             let result = work.await;
             let _ = view.update(cx, |view, cx| {
-                if view.generation != generation || view.selection != selection {
+                if view.generation != generation
+                    || view.selection != selection
+                    || view.comparison != comparison_guard
+                {
                     return;
                 }
                 view.patch_loading = false;
                 match result {
-                    Ok(Prepared::Diff(files, memory)) => {
+                    Ok(Prepared::Diff(files, memory, source)) => {
+                        view.patch_source = Some(source);
                         view.diff.update(cx, |state, cx| state.set_files(files, cx));
                         view.memory = Some(memory);
                     }
@@ -336,7 +508,11 @@ impl Changes {
                             .py_2()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(tr("No changes")),
+                            .child(tr(if view.repositories.is_empty() {
+                                "No Git repository"
+                            } else {
+                                "No changes"
+                            })),
                     )
                 },
             )
@@ -347,7 +523,21 @@ impl Changes {
                         .map(|index| {
                             let (root, change) = &rows[index];
                             match change {
-                                None => div()
+                                None => Button::new(("git-repository", index))
+                                    .ghost()
+                                    .w_full()
+                                    .justify_start()
+                                    .selected(view.active_root.as_ref() == Some(root))
+                                    .on_click({
+                                        let root = root.clone();
+                                        let owner = owner.clone();
+                                        move |_, _, cx| {
+                                            owner.update(cx, |view, cx| {
+                                                view.activate_root(root.clone(), cx);
+                                                cx.emit(ShowDiff);
+                                            });
+                                        }
+                                    })
                                     .h(px(32.))
                                     .px_3()
                                     .flex()
@@ -445,8 +635,8 @@ impl Changes {
     }
 }
 
-impl Render for Changes {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl Changes {
+    fn diff_view(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let mode = self.diff.read(cx).mode();
         let ready = !self.patch_loading && !self.diff.read(cx).files().is_empty();
         let toolbar = h_flex()
@@ -456,12 +646,22 @@ impl Render for Changes {
             .flex_shrink_0()
             .px_2()
             .gap_1()
-            .child(div().flex_1().min_w_0().truncate().text_sm().child(
-                self.selection.as_ref().map_or_else(
-                    || tr("Changes").to_owned(),
-                    |(_, change)| change.path.to_string_lossy().into_owned(),
+            .child(
+                div().flex_1().min_w_0().truncate().text_sm().child(
+                    self.selection
+                        .as_ref()
+                        .filter(|_| self.comparison.is_none())
+                        .map_or_else(
+                            || {
+                                self.comparison
+                                    .as_ref()
+                                    .map(|(_, c)| c.title())
+                                    .unwrap_or_else(|| tr("Changes"))
+                            },
+                            |(_, change)| change.path.to_string_lossy().into_owned(),
+                        ),
                 ),
-            ))
+            )
             .child(
                 Button::new("diff-open-file")
                     .ghost()
@@ -470,9 +670,11 @@ impl Render for Changes {
                     .tooltip(tr("Open File"))
                     .accessibility_label(tr("Open File"))
                     .disabled(
-                        self.selection
-                            .as_ref()
-                            .is_none_or(|(_, change)| change.status == 'D'),
+                        self.comparison.is_some()
+                            || self
+                                .selection
+                                .as_ref()
+                                .is_none_or(|(_, change)| change.status == 'D'),
                     )
                     .on_click(cx.listener(|view, _, _, cx| {
                         if let Some((root, change)) = &view.selection {
@@ -607,7 +809,13 @@ impl Render for Changes {
                         .py_1()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(tr("Showing patch source")),
+                        .child(tr(
+                            if self.comparison.as_ref().is_some_and(|(_, c)| c.is_raw()) {
+                                "Git details"
+                            } else {
+                                "Showing patch source"
+                            },
+                        )),
                 )
                 .child(raw.clone())
                 .into_any_element()
@@ -631,6 +839,7 @@ impl Render for Changes {
             .min_h_0()
             .child(toolbar)
             .child(div().flex_1().min_h_0().w_full().child(content))
+            .into_any_element()
     }
 }
 

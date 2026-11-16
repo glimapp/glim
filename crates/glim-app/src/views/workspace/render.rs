@@ -72,7 +72,7 @@ impl Workspace {
                                                 .truncate()
                                                 .text_sm()
                                                 .font_weight(FontWeight::MEDIUM)
-                                                .child(glim_services::locale::tr("Changes")),
+                                                .child(glim_services::locale::tr("Git")),
                                         ),
                                 )
                                 .on_click(cx.listener(|view, _, window, cx| {
@@ -127,7 +127,7 @@ impl Workspace {
                                     .truncate()
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .child(glim_services::locale::tr("Changes")),
+                                    .child(glim_services::locale::tr("Git")),
                             )
                             .child(
                                 Icon::new(gpui_kit::assets::IconName::ChevronRight)
@@ -420,7 +420,7 @@ impl Render for Workspace {
             )
             .child(self.workspace_navigation(&outline, cx))
             .id("workspace-sidebar");
-        let has_git = !self.git_repositories.is_empty();
+        let has_git = !self.roots.is_empty() || !self.git_repositories.is_empty();
         let show_changes = has_git && self.changes_expanded;
         let files_heading = h_flex()
             .w_full()

@@ -1,4 +1,4 @@
-mod changes;
+pub(crate) mod changes;
 mod editing;
 mod file_actions;
 mod file_operations;
@@ -312,7 +312,7 @@ impl Workspace {
             git_repositories: Vec::new(),
             git_discovery_task: None,
             changes_expanded: false,
-            changes: cx.new(changes::Changes::new),
+            changes: cx.new(|cx| changes::Changes::new(window, cx)),
             page: Page::Start,
             file_fullscreen: false,
             reader_toolbar_collapsed: false,

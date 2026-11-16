@@ -1,6 +1,10 @@
-//! Read-only Git queries. Output is spooled to disk before parsing on a worker.
+//! Git queries and serialized mutations. Call only on background workers.
+mod operations;
+mod query;
 use crate::{locale::tr, remote::Session, work::Cancellation};
 use anyhow::{Context, Result, ensure};
+pub use operations::*;
+pub use query::*;
 use std::{
     ffi::OsString,
     io::{BufRead, BufReader, Read},
@@ -27,6 +31,7 @@ pub struct Change {
 pub struct Repository {
     pub root: PathBuf,
     pub changes: Vec<Change>,
+    pub metadata: Metadata,
 }
 
 fn command(root: &Path, remote: Option<&Session>, args: &[OsString]) -> Result<Command> {
@@ -50,7 +55,13 @@ fn command(root: &Path, remote: Option<&Session>, args: &[OsString]) -> Result<C
     match remote {
         None => {
             let mut command = Command::new("/usr/bin/git");
-            command.args(arguments).env("GIT_OPTIONAL_LOCKS", "0");
+            command
+                .args(arguments)
+                .env("GIT_OPTIONAL_LOCKS", "0")
+                .env("LC_ALL", "C")
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .env("GIT_EDITOR", "true")
+                .env("GIT_SEQUENCE_EDITOR", "true");
             Ok(command)
         }
         Some(session) => session.git_command(&arguments),
@@ -58,15 +69,27 @@ fn command(root: &Path, remote: Option<&Session>, args: &[OsString]) -> Result<C
 }
 
 fn run(
+    command: Command,
+    different: bool,
+    cancel: &Cancellation,
+) -> Result<tempfile::NamedTempFile> {
+    run_input(command, different, None, cancel)
+}
+
+fn run_input(
     mut command: Command,
     different: bool,
+    input: Option<&tempfile::NamedTempFile>,
     cancel: &Cancellation,
 ) -> Result<tempfile::NamedTempFile> {
     cancel.check()?;
     let output = tempfile::NamedTempFile::new()?;
     let errors = tempfile::NamedTempFile::new()?;
     command
-        .stdin(Stdio::null())
+        .stdin(match input {
+            Some(input) => Stdio::from(input.reopen()?),
+            None => Stdio::null(),
+        })
         .stdout(output.reopen()?)
         .stderr(errors.reopen()?);
     let status = crate::work::run(&mut command, cancel).context(tr("Cannot run Git"))?;
@@ -76,7 +99,18 @@ fn run(
             .reopen()?
             .take(crate::limits::TEXT_PAGE_BYTES)
             .read_to_string(&mut message)?;
-        anyhow::bail!("{}: {}", tr("Git query failed"), message.trim());
+        let mut stdout = String::new();
+        output
+            .reopen()?
+            .take(crate::limits::TEXT_PAGE_BYTES)
+            .read_to_string(&mut stdout)
+            .ok();
+        anyhow::bail!(
+            "{}: {}\n{}",
+            tr("Git command failed"),
+            message.trim(),
+            stdout.trim()
+        );
     }
     cancel.check()?;
     Ok(output)
@@ -151,6 +185,7 @@ pub fn changes(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> 
     Ok(Repository {
         root: root.to_owned(),
         changes,
+        metadata: metadata(root, remote, cancel)?,
     })
 }
 

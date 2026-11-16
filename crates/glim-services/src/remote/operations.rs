@@ -22,6 +22,11 @@ fn entry_path(transport: &mut Sftp, path: &Path, cancel: &Cancellation) -> Resul
     Ok(parent.join(name))
 }
 impl Session {
+    pub(crate) fn git_path_exists(&self, path: &Path, cancel: &Cancellation) -> Result<bool> {
+        self.with_transport(cancel, |transport| {
+            Ok(transport.stat_optional(path, cancel)?.is_some())
+        })
+    }
     pub fn discover_git_roots(
         &self,
         roots: &[PathBuf],

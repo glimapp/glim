@@ -7,6 +7,7 @@ pub(crate) mod edit_session;
 pub(crate) mod file_move;
 mod file_open;
 pub(crate) mod finder_integration;
+pub(crate) mod git_operation;
 mod image_http;
 pub(crate) mod languages;
 pub(crate) mod media_prepare;
