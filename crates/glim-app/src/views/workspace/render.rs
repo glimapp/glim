@@ -10,7 +10,7 @@ use crate::{
 use gpui_kit::{
     base::InteractiveElementExt as _,
     component::{
-        ActiveTheme, Disableable, Icon, Sizable,
+        ActiveTheme, Disableable, Icon, Sizable, WindowExt,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         resizable::{h_resizable, resizable_panel},
@@ -832,6 +832,9 @@ impl Render for Workspace {
             .bg(cx.theme().sidebar)
             .text_color(cx.theme().foreground)
             .capture_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
+                if window.has_active_dialog(cx) || window.has_active_sheet(cx) {
+                    return;
+                }
                 if view.search_visible {
                     view.search_key_down(event, window, cx);
                 } else if view.file_fullscreen && event.keystroke.key == "escape" {
