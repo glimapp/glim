@@ -82,7 +82,7 @@ pub fn run() -> Result<()> {
                     json!({
                         "protocolVersion":version,
                         "capabilities":{"tools":{}},
-                        "serverInfo":{"name":"glim", "version":env!("CARGO_PKG_VERSION")},
+                        "serverInfo":{"name":"glim", "version":glim_core::VERSION},
                         "instructions":"Use open_in_glim only when the user asks to view a local file or folder in Glim. This tool opens the viewer; it does not read or upload file contents."
                     }),
                 )

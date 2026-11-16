@@ -33,15 +33,11 @@ jobs:
       BOOTSTRAP: ${{ inputs.bootstrap }}
       GLIM_UPDATE_PUBLIC_KEY: ${{ vars.GLIM_UPDATE_PUBLIC_KEY }}
     steps:
-      - name: Validate tag
-        run: |
-          python3 - <<'PY'
-          import os, re
-          assert re.fullmatch(r'v\d+\.\d+\.\d+', os.environ['RELEASE_TAG']), 'Invalid stable tag'
-          PY
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
+      - name: Validate stable or hotfix tag
+        run: python3 scripts/release_version.py "$RELEASE_TAG"
       - name: Download successful builds for this exact commit
         run: |
           commit=$(git rev-parse HEAD)

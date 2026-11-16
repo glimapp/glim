@@ -36,7 +36,9 @@ cargo build --locked
 
 ## 打包
 
-保持 Cargo 工作区版本、lockfile 中工作区包版本与 `CFBundleShortVersionString` 一致。每次正式发布递增 `CFBundleVersion`，不替换已发布的同版本包。
+`CFBundleShortVersionString` 是产品版本，供界面、诊断与更新源共用。普通版本使用三段，热修复增加第四段，例如 `0.2.26.1`。Cargo 要求 SemVer，因此 Cargo 与 lockfile 中对应的包版本写作 `0.2.26+hotfix.1`；core 构建和打包检查会校验映射关系。每次正式发布递增 `CFBundleVersion`，Sparkle 通过该构建号判断更新，四段热修复版本同样适用。不替换已发布的同版本包。
+
+XZ 解码器静态链接随源码编译的 liblzma。打包时检查所有 Mach-O 可执行文件与框架，拒绝非系统绝对路径的动态库依赖和搜索路径，并通过 `--build-info` 启动主程序和渲染辅助程序。生成更新源时，对两个挂载的 DMG 再次检查动态依赖。运行 Glim 无需安装 Homebrew。
 
 ```sh
 scripts/bundle-macos.sh release
@@ -75,7 +77,7 @@ GLIM_ENABLE_UPDATER=1 GLIM_UPDATE_PUBLIC_KEY='<public-key>' scripts/package-dmg.
 
 ### 准备与发布版本
 
-1. 提交最终源码及一致版本，推送稳定 `vX.Y.Z` tag。
+1. 提交最终源码及一致版本，推送稳定 `vX.Y.Z` 或热修复 `vX.Y.Z.N` tag。热修复从上一发布标签切出分支，避免将 main 中未发布的改动带入补丁包。
 2. 等待同一提交、同一版本标签的两个 `macOS builds` 工作全部成功。ARM 与 Intel 分别构建 release，并校验安装包架构、签名和发行元数据；打包流程不编译或运行测试，也不运行 Clippy。
 3. 从发布 tag 手动运行 `Prepare signed release draft`，输入同一 tag 和含 `## English`／`## 中文` 的等价说明，并批准受保护环境。`bootstrap` 只用于前一版没有 appcast 的首次更新器发布，后续关闭。
 4. 工作流下载同一提交的成功产物，核对全部 SHA-256、两种 DMG 的身份／公钥／feed／架构／build，验证上一版 feed，保留兼容历史并生成、验证新签名 feed 与安装包。

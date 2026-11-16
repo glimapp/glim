@@ -847,7 +847,7 @@ fn error_payload(
         "platform": "macOS",
         "osName": "macOS",
         "osVersion": os_version,
-        "appVersion": env!("CARGO_PKG_VERSION"),
+        "appVersion": glim_core::VERSION,
         "sdkVersion": "glim@4",
         "sessionId": session_id,
         "severity": if source == "app_panicked" { "fatal" } else { "error" },
@@ -995,7 +995,7 @@ impl Worker {
         let system = serde_json::json!({
             "osName": "macOS", "osVersion": os_version,
             "engineName": "GPUI", "engineVersion": "0.7.1",
-            "appVersion": env!("CARGO_PKG_VERSION"), "isDebug": is_debug(),
+            "appVersion": glim_core::VERSION, "isDebug": is_debug(),
             "appBuildNumber": self.session.build_number,
             "sdkVersion": "glim@4", "locale": crate::locale::code(),
         });

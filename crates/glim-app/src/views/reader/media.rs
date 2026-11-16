@@ -668,7 +668,7 @@ impl UnavailableReader {
             .unwrap_or("unknown");
         let mut url = url::Url::parse("https://github.com/glimapp/glim/issues/new").unwrap();
         url.query_pairs_mut().append_pair("title", &format!("Unsupported file format: {extension}"))
-            .append_pair("body", &format!("Format: {extension}\nGlim: {}\nPlatform: {} / {}\n\nWhat happened:\nCould not display this file.\n\nExpected behavior:\n\nAdditional details (optional):\n", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH));
+            .append_pair("body", &format!("Format: {extension}\nGlim: {}\nPlatform: {} / {}\n\nWhat happened:\nCould not display this file.\n\nExpected behavior:\n\nAdditional details (optional):\n", glim_core::VERSION, std::env::consts::OS, std::env::consts::ARCH));
         Self {
             issue_url: url.into(),
             reason,
@@ -911,7 +911,7 @@ mod tests {
             .query_pairs()
             .collect::<std::collections::HashMap<_, _>>();
         assert!(query["body"].contains("Format: pdf"));
-        assert!(query["body"].contains(env!("CARGO_PKG_VERSION")));
+        assert!(query["body"].contains(glim_core::VERSION));
         assert!(!issue.issue_url.contains("customer"));
         assert!(!issue.issue_url.contains("private"));
     }
