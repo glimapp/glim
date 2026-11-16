@@ -187,7 +187,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "git"))]
 mod git_tests {
     use super::*;
     #[test]
