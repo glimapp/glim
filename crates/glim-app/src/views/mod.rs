@@ -75,7 +75,7 @@ fn primary_button(
 
 fn icon_button(
     id: impl Into<gpui_kit::ElementId>,
-    icon: gpui_kit::assets::IconName,
+    icon: impl Into<gpui_kit::component::Icon>,
     label: String,
 ) -> gpui_kit::component::button::Button {
     use gpui_kit::{

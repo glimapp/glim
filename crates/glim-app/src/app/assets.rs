@@ -62,7 +62,6 @@ gpui_kit::assets::icon_assets!(
         Copy,
         Check,
         Globe,
-        Maximize,
         RotateCcw,
         RotateCw,
         ZoomIn,
@@ -101,6 +100,11 @@ impl AssetSource for Assets {
             "navigation/appearance.svg" => {
                 return Ok(Some(Cow::Borrowed(include_bytes!(
                     "../../../../assets/navigation/appearance.svg"
+                ))));
+            }
+            "navigation/fit-window.svg" => {
+                return Ok(Some(Cow::Borrowed(include_bytes!(
+                    "../../../../assets/navigation/fit-window.svg"
                 ))));
             }
             "navigation/file-fullscreen.svg" => {

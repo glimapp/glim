@@ -107,8 +107,8 @@ impl Render for ImageDetail {
                     .child(
                         crate::views::icon_button(
                             "image-fit",
-                            gpui_kit::assets::IconName::Maximize,
-                            tr("Fit"),
+                            gpui_kit::component::Icon::empty().path("navigation/fit-window.svg"),
+                            tr("Fit image"),
                         )
                         .on_click(cx.listener(|view, _, _, cx| {
                             view.zoom = 1.;
