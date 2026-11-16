@@ -12,6 +12,7 @@ import tempfile
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
+from release_version import parse_version, validate_tag
 
 SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
 REPOSITORY = 'https://github.com/glimapp/glim'
@@ -59,6 +60,7 @@ def validate_bundle(archive, stage, version, arch, public_key):
         if run('lipo', '-archs', binary).strip() != arch:
             raise ValueError('Bundle architecture does not match its feed')
         run('codesign', '--verify', '--deep', '--strict', bundle)
+        run('python3', Path(__file__).with_name('check-macos-dependencies.py'), bundle)
         build = int(info['CFBundleVersion'])
         if build < 1 or not info.get('LSMinimumSystemVersion'):
             raise ValueError('Invalid build or minimum OS version')
@@ -68,15 +70,13 @@ def validate_bundle(archive, stage, version, arch, public_key):
 
 
 def create_feeds(archives, tag, notes, tools, key_file, public_key, bootstrap=False):
-    if not re.fullmatch(r'v\d+\.\d+\.\d+', tag):
-        raise ValueError('A stable vMAJOR.MINOR.PATCH tag is required')
+    version = validate_tag(tag)
     if not re.search(r'^## English\s*$', notes, re.M) or not re.search(r'^## 中文\s*$', notes, re.M):
         raise ValueError('Release notes must include ## English and ## 中文 sections')
     # The secret stays in a protected file. Confirm it matches the key embedded by CI.
     derived = run('xcrun', 'swift', Path(__file__).with_name('update-key-public.swift'), key_file).strip()
     if derived != public_key.strip():
         raise ValueError('Release signing key does not match GLIM_UPDATE_PUBLIC_KEY')
-    version = tag[1:]
     required = [f'Glim-{version}-macos-{arch}.dmg' for arch in ('arm64', 'x86_64')]
     archives.mkdir(parents=True, exist_ok=True)
     allowed = set(required) | {name + '.sha256' for name in required} | {
@@ -109,7 +109,11 @@ def create_feeds(archives, tag, notes, tools, key_file, public_key, bootstrap=Fa
                     raise
             previous = []
             if feed.exists():
-                previous = [int(item.findtext(SPARKLE + 'version', '0')) for item in ET.parse(feed).findall('./channel/item')]
+                previous_items = ET.parse(feed).findall('./channel/item')
+                previous = [int(item.findtext(SPARKLE + 'version', '0')) for item in previous_items]
+                if any(parse_version(version) <= parse_version(item.findtext(SPARKLE + 'shortVersionString', ''))
+                       for item in previous_items):
+                    raise ValueError('Product version must increase beyond every published version')
             shutil.copy2(archive, stage / archive.name)
             (stage / archive.with_suffix('.md').name).write_text(notes)
             run(tools / 'generate_appcast', '--ed-key-file', key_file,

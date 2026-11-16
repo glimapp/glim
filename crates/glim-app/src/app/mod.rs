@@ -342,7 +342,7 @@ pub fn print_build_info() {
     println!(
         "{}",
         serde_json::json!({
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": glim_core::VERSION,
             "build": env!("GLIM_BUILD_NUMBER"),
             "telemetry_environment": glim_services::telemetry::environment(),
             "is_debug": glim_services::telemetry::is_debug(),

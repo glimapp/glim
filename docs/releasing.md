@@ -36,7 +36,9 @@ The user performs UI acceptance; run automated smoke checks only when explicitly
 
 ## Packaging
 
-Keep the workspace Cargo version, lockfile workspace-package versions and `CFBundleShortVersionString` aligned. Increase `CFBundleVersion` for every public release; never replace a published same-version package.
+Use `CFBundleShortVersionString` as the product version, shared by the UI, diagnostics and update feeds. Stable versions have three components; hotfixes add a fourth, such as `0.2.26.1`. Cargo and lockfile package versions encode that hotfix as `0.2.26+hotfix.1` because Cargo requires SemVer. The core build and packaging checks enforce this mapping. Increase `CFBundleVersion` for every public release; Sparkle compares this build number, including for four-component hotfixes. Never replace a published same-version package.
+
+The XZ decoder statically links its bundled liblzma. Bundling audits every Mach-O executable and framework for non-system absolute dylib dependencies and search paths; packaging also starts the main executable and renderer with `--build-info`. Release feed generation repeats the dependency audit on both mounted DMGs. No Homebrew installation is required to run Glim.
 
 ```sh
 scripts/bundle-macos.sh release
@@ -75,7 +77,7 @@ The bundle script enables `macos-updater`, embeds Sparkle and its license, write
 
 ### Prepare and publish a release
 
-1. Commit final sources and aligned versions; push a stable `vX.Y.Z` tag.
+1. Commit final sources and aligned versions; push a stable `vX.Y.Z` or hotfix `vX.Y.Z.N` tag. Branch hotfixes from the preceding release tag to keep unreleased main changes out of the patch.
 2. Wait for both `macOS builds` jobs from the exact commit and version tag to succeed. ARM and Intel each build an optimized release and verify the packaged architecture, signature and distribution metadata. This packaging workflow does not compile or run tests or Clippy.
 3. Dispatch `Prepare signed release draft` from the release tag, provide that tag and equivalent notes under `## English` and `## 中文`, and approve the protected environment. Enable `bootstrap` only for the first updater release whose predecessor has no appcast; leave it off thereafter.
 4. The workflow downloads successful same-commit artifacts, checks all archive SHA-256 files and both DMGs' identity/key/feed/architecture/build metadata, verifies predecessor feeds, retains compatible history, and signs/verifies the new feeds and packages.

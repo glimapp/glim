@@ -15,11 +15,13 @@ esac
 release_bundle="$PWD/dist/release-$release_arch/Glim.app"
 GLIM_BUILD_CHANNEL=release GLIM_BUNDLE_DIR="$release_bundle" scripts/bundle-macos.sh release "$release_target"
 version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$release_bundle/Contents/Info.plist")
-cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; d=json.load(sys.stdin); v=sys.argv[1]; assert all(p["version"] == v for p in d["packages"]), "Bundle/Cargo version mismatch"' "$version"
+cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; sys.path.insert(0, "scripts"); from release_version import cargo_version; d=json.load(sys.stdin); v=cargo_version(sys.argv[1]); assert all(p["version"] == v for p in d["packages"]), "Bundle/Cargo version mismatch"' "$version"
 [[ "$(lipo -archs "$release_bundle/Contents/MacOS/glim")" == "$release_arch" ]]
 # Ad-hoc signing provides local integrity, not Developer ID trust or notarization.
 codesign --verify --deep --strict "$release_bundle"
 plutil -lint "$release_bundle/Contents/Info.plist"
+"$release_bundle/Contents/MacOS/glim" --build-info
+"$release_bundle/Contents/Helpers/GlimRenderer.app/Contents/MacOS/glim-renderer" --build-info
 dmg_name="Glim-$version-macos-$release_arch.dmg"
 python3 - "$release_bundle" "$PWD/dist/$dmg_name" "$version" "$release_arch" <<'PY'
 import pathlib, shutil, subprocess, sys, tempfile

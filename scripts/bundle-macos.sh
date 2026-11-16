@@ -48,5 +48,6 @@ if [[ "${GLIM_ENABLE_UPDATER:-0}" == 1 ]]; then
 fi
 python3 scripts/configure-updater.py "$bundle_dir"
 python3 scripts/bundle-finder.py "$bundle_dir"
+python3 scripts/check-macos-dependencies.py "$bundle_dir"
 python3 scripts/sign-macos.py "$bundle_dir"
 printf 'Created %s\n' "$bundle_dir"

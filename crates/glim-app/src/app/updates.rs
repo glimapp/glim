@@ -366,7 +366,7 @@ pub(crate) fn init(cx: &mut App) {
 
     #[cfg(not(feature = "macos-updater"))]
     let snapshot = UpdateSnapshot {
-        current_version: env!("CARGO_PKG_VERSION").into(),
+        current_version: glim_core::VERSION.into(),
         mode: glim_core::update::UpdateMode::Manual,
         phase: "disabled".into(),
         message:

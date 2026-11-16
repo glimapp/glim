@@ -1,5 +1,7 @@
 //! UI-independent values shared by the application and its services.
 
+pub const VERSION: &str = env!("GLIM_VERSION");
+
 pub mod books;
 mod document;
 pub mod formats;

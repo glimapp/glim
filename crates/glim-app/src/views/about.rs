@@ -75,7 +75,7 @@ impl Render for About {
                                     .child("Glim"),
                             ),
                     )
-                    .child(env!("CARGO_PKG_VERSION"))
+                    .child(glim_core::VERSION)
                     .child(
                         Button::new("about-check-update")
                             .label(glim_services::locale::tr("Check for Updates…"))

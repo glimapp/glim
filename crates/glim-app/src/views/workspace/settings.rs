@@ -195,11 +195,11 @@ impl Workspace {
         let version = if local_build {
             format!(
                 "{} · {}",
-                env!("CARGO_PKG_VERSION"),
+                glim_core::VERSION,
                 glim_services::locale::tr("Local build")
             )
         } else {
-            env!("CARGO_PKG_VERSION").to_owned()
+            glim_core::VERSION.to_owned()
         };
         let mut about = group().py_2().child(information("Version", version));
         if local_build {

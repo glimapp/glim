@@ -207,7 +207,7 @@ pub fn initialize() -> io::Result<()> {
     enqueue(
         format!(
             "INFO startup version={} pid={} arch={} logs={} max_files={MAX_FILES} max_bytes_per_file={MAX_BYTES}",
-            env!("CARGO_PKG_VERSION"),
+            glim_core::VERSION,
             std::process::id(),
             std::env::consts::ARCH,
             self::directory().display()
