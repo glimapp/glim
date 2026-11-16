@@ -284,6 +284,9 @@ pub struct DiagramImage {
 }
 pub mod cache;
 mod disk_cache;
+pub(crate) fn migrate_legacy_cache() -> std::io::Result<()> {
+    disk_cache::migrate_legacy()
+}
 static IMAGE_CACHE: OnceLock<Mutex<cache::ImageCache>> = OnceLock::new();
 fn image_cache() -> &'static Mutex<cache::ImageCache> {
     IMAGE_CACHE.get_or_init(|| {

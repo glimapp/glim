@@ -24,6 +24,34 @@ fn json<T: serde::de::DeserializeOwned>(
         })
         .transpose()
 }
+pub(super) fn import_residual_preferences(db: &Connection, directory: &Path) -> Result<()> {
+    for name in ["workbench.json", "git-diff-view"] {
+        let payload = match std::fs::read_to_string(directory.join(name)) {
+            Ok(payload) => payload,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                log::warn!("Cannot read retired preference {name}; source preserved: {error}");
+                continue;
+            }
+        };
+        if name == "workbench.json" && serde_json::from_str::<serde_json::Value>(&payload).is_err()
+        {
+            log::warn!("Invalid retired workbench preferences left in place");
+            continue;
+        }
+        // These retired controls no longer affect the interface. Preserve their values verbatim.
+        if let Some(previous) = record(db, "legacy-preference", name)?
+            && previous != payload
+        {
+            log::warn!("Changed legacy preference {name} left in place");
+            continue;
+        }
+        set_record(db, "legacy-preference", name, &payload)?;
+        set_record(db, "migration-source", name, "")?;
+    }
+    Ok(())
+}
+
 pub(super) fn import(db: &Connection, directory: &Path) -> Result<()> {
     for key in [
         "word-wrap",

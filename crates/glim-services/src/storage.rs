@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub(crate) mod cache;
 mod migration;
 pub(crate) mod sessions;
 
@@ -13,8 +14,18 @@ pub fn initialize() -> Result<()> {
     let directory = crate::preferences::directory()?;
     let mut connection = open_at(&directory)?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    migration::import_residual_preferences(&tx, &directory)?;
+    tx.commit()?;
+    let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     migration::archive_sources(&tx, &directory)?;
     tx.commit()?;
+    for name in ["Books", "Drafts"] {
+        // Only remove empty retired containers; live sessions and unknown files survive.
+        let _ = std::fs::remove_dir(directory.join(name));
+    }
+    if let Err(error) = crate::markdown_preview::migrate_legacy_cache() {
+        log::warn!("Cannot migrate legacy diagram cache; source files preserved: {error:#}");
+    }
     Ok(())
 }
 pub(crate) fn open() -> Result<Connection> {
@@ -125,6 +136,43 @@ mod tests {
     use super::*;
     use glim_core::session::{SessionTab, WorkspaceSession};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn residual_preferences_commit_before_archival_and_preserve_original_bytes() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let source = directory.path().join("workbench.json");
+        let original = "{\"autosave\":true, \"reading_size\":17}\n";
+        std::fs::write(&source, original)?;
+        let mut db = open_at(directory.path())?;
+        {
+            let tx = db.transaction()?;
+            migration::import_residual_preferences(&tx, directory.path())?;
+            // Dropping an uncommitted transaction leaves both records and source untouched.
+        }
+        assert!(record(&db, "legacy-preference", "workbench.json")?.is_none());
+        assert_eq!(std::fs::read_to_string(&source)?, original);
+        {
+            let tx = db.transaction()?;
+            migration::import_residual_preferences(&tx, directory.path())?;
+            tx.commit()?;
+        }
+        assert!(source.exists());
+        migration::archive_sources(&db, directory.path())?;
+        assert!(!source.exists());
+        assert_eq!(
+            record(&db, "legacy-preference", "workbench.json")?.as_deref(),
+            Some(original)
+        );
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("LegacyMigration/workbench.json"))?,
+            original
+        );
+        std::fs::write(&source, "invalid JSON")?;
+        migration::import_residual_preferences(&db, directory.path())?;
+        migration::archive_sources(&db, directory.path())?;
+        assert_eq!(std::fs::read_to_string(source)?, "invalid JSON");
+        Ok(())
+    }
 
     #[test]
     fn version_two_sessions_gain_selection_without_changing_tabs_or_recent_order() -> Result<()> {

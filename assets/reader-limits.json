@@ -1020,24 +1020,16 @@
         "type": "u64",
         "unit": "bytes",
         "effect": "budget",
-        "description": "Process-wide LRU for inactive remote inline-image pixels. Eviction releases pixels and textures; revisiting decodes the session thumbnail cache or downloads again on a miss.",
-        "description_zh": "进程内离屏远程内嵌图片像素 LRU 缓存；淘汰时释放像素与纹理，再次访问从会话缩略图缓存解码，未命中时重新下载。"
+        "description": "Process-wide LRU for inactive remote inline-image pixels. Eviction releases pixels and textures but keeps the persistent SQLite thumbnail; revisiting decodes that thumbnail without downloading again.",
+        "description_zh": "进程内离屏远程内嵌图片像素 LRU 缓存；淘汰只释放像素与纹理，保留 SQLite 持久缩略图，再次访问从缩略图解码，无需重复下载。"
       },
       "preview_cache_bytes": {
-        "value": 268435456,
+        "value": null,
         "type": "u64",
         "unit": "bytes",
-        "effect": "budget",
-        "description": "Process-wide disk-backed LRU of prepared remote inline-image thumbnails, including URL keys. Temporary files are removed on eviction or normal process exit; source file sizes remain unrestricted.",
-        "description_zh": "进程内使用临时文件保存的远程内嵌图片缩略图 LRU 缓存，计入 URL 键；淘汰或正常退出时删除，不限制源文件大小。"
-      },
-      "preview_cache_entries": {
-        "value": 512,
-        "type": "usize",
-        "unit": "items",
-        "effect": "budget",
-        "description": "Open anonymous-file budget for cached remote thumbnails. Evict least recently used entries; this does not limit the document image count.",
-        "description_zh": "远程缩略图缓存匿名文件句柄预算；按最近最少使用淘汰，不限制文档图片总数。"
+        "effect": "unlimited",
+        "description": "Prepared remote inline-image thumbnails persist in SQLite across reader disposal and app restarts without automatic age, capacity or exit cleanup. Each lookup reads one bounded thumbnail; source file sizes remain unrestricted.",
+        "description_zh": "远程内嵌图片缩略图持久保存到 SQLite，关闭阅读器或重启应用均保留，不按时间、容量或退出自动清理；每次只读取一张有界缩略图，不限制源文件大小。"
       },
       "input_bytes": {
         "value": null,
@@ -1098,12 +1090,12 @@
     },
     "diagram": {
       "disk_cache_bytes": {
-        "value": 536870912,
+        "value": null,
         "type": "u64",
         "unit": "bytes",
-        "effect": "budget",
-        "description": "Persistent diagram result cache capacity. Evict least recently used results; misses, invalid entries and unavailable storage regenerate diagrams through the normal background path.",
-        "description_zh": "图表结果磁盘缓存容量；淘汰最久未使用的结果。未命中、条目损坏或存储不可用时，沿用正常后台路径重新生成图表。"
+        "effect": "unlimited",
+        "description": "Diagram results persist in SQLite without automatic age, capacity or exit cleanup. Source, renderer, fonts and resolution still identify valid results; misses or invalid entries regenerate through the normal background path.",
+        "description_zh": "图表结果持久保存到 SQLite，不按时间、容量或退出自动清理；源文、渲染器、字体与分辨率仍决定结果有效性，未命中或损坏时沿正常后台路径重新生成。"
       },
       "blocks": {
         "value": 8,

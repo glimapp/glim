@@ -241,9 +241,8 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `remote_image.frame_cache_bytes` | 64 MiB | bytes | budget | Process-wide LRU for inactive remote inline-image pixels. Eviction releases pixels and textures; revisiting decodes the session thumbnail cache or downloads again on a miss. |
-| `remote_image.preview_cache_bytes` | 256 MiB | bytes | budget | Process-wide disk-backed LRU of prepared remote inline-image thumbnails, including URL keys. Temporary files are removed on eviction or normal process exit; source file sizes remain unrestricted. |
-| `remote_image.preview_cache_entries` | 512 | items | budget | Open anonymous-file budget for cached remote thumbnails. Evict least recently used entries; this does not limit the document image count. |
+| `remote_image.frame_cache_bytes` | 64 MiB | bytes | budget | Process-wide LRU for inactive remote inline-image pixels. Eviction releases pixels and textures but keeps the persistent SQLite thumbnail; revisiting decodes that thumbnail without downloading again. |
+| `remote_image.preview_cache_bytes` | None | bytes | unlimited | Prepared remote inline-image thumbnails persist in SQLite across reader disposal and app restarts without automatic age, capacity or exit cleanup. Each lookup reads one bounded thumbnail; source file sizes remain unrestricted. |
 | `remote_image.input_bytes` | None | bytes | unlimited | HTTP downloads stream to a temporary file and prepare bounded thumbnails; source input size is not an application rejection gate. |
 | `remote_image.timeout_seconds` | 20 | seconds | timeout | Idle/no-progress timeout; active downloads have no fixed total elapsed-time ceiling. |
 | `remote_image.first_attempt_seconds` | 8 | seconds | timeout | Connection establishment allowance, including the first GitHub raw URL attempt before API fallback. |
@@ -256,7 +255,7 @@ This page is generated from the same policy. After editing it, run `python3 scri
 
 | Key | Value | Unit | Effect | Behavior |
 | --- | ---: | --- | --- | --- |
-| `diagram.disk_cache_bytes` | 512 MiB | bytes | budget | Persistent diagram result cache capacity. Evict least recently used results; misses, invalid entries and unavailable storage regenerate diagrams through the normal background path. |
+| `diagram.disk_cache_bytes` | None | bytes | unlimited | Diagram results persist in SQLite without automatic age, capacity or exit cleanup. Source, renderer, fonts and resolution still identify valid results; misses or invalid entries regenerate through the normal background path. |
 | `diagram.blocks` | 8 | items | budget | Maximum diagrams per background render batch. Visible blocks queue automatically; this does not limit total document formulas or require manual paging. |
 | `diagram.source_bytes` | 256 KiB | bytes | fallback | Per-diagram structured-render working budget; failures preserve the complete block source. Other blocks remain available on demand. |
 | `diagram.svg_bytes` | 8 MiB | bytes | fallback | Per-diagram structured-render working budget; failures preserve the complete block source. Other blocks remain available on demand. |
