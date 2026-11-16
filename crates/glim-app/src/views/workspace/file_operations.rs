@@ -146,7 +146,8 @@ impl Workspace {
             return;
         }
         self.set_editing_locked(true, cx);
-        let open = crate::app::open_document_paths(cx)
+        let open = self
+            .all_open_document_paths(cx)
             .into_iter()
             .filter(|open| open.starts_with(&path))
             .collect::<std::collections::HashSet<_>>();

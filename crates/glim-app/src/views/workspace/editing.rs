@@ -87,6 +87,11 @@ impl Workspace {
             .map(|reader| reader.document.path.clone())
             .collect()
     }
+    pub(crate) fn all_open_document_paths(&self, cx: &Context<Self>) -> Vec<std::path::PathBuf> {
+        let mut paths = self.open_document_paths();
+        paths.extend(crate::app::open_document_paths(Some(cx.entity_id()), cx));
+        paths
+    }
     pub(crate) fn report_recovery_error(&mut self, message: String, cx: &mut Context<Self>) {
         self.error = Some(message.into());
         cx.notify();
@@ -436,7 +441,7 @@ impl Workspace {
             let outcome = match selection.await {
                 Ok(Ok(Some(path))) => {
                     let open = cx
-                        .update(|_, cx| crate::app::open_document_paths(cx))
+                        .update(|_, cx| crate::app::open_document_paths(None, cx))
                         .unwrap_or_default();
                     Some(
                         cx.background_executor()
@@ -594,7 +599,7 @@ impl Workspace {
                             }
                             break None;
                         }
-                        let open = cx.update(|_, cx| crate::app::open_document_paths(cx)).unwrap_or_default();
+                        let open = cx.update(|_, cx| crate::app::open_document_paths(None, cx)).unwrap_or_default();
                         let preparation = cancel.clone();
                         let destination = cx.background_executor().spawn(async move {
                             let result = glim_services::files::prepare_draft_destination(&path, &open, &preparation);

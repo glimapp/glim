@@ -130,7 +130,7 @@ mod tests {
         });
         cx.run_until_parked();
         cx.update(|cx| {
-            assert_eq!(crate::app::open_document_paths(cx), [path]);
+            assert_eq!(crate::app::open_document_paths(None, cx), [path]);
         });
     }
 
@@ -169,6 +169,52 @@ mod tests {
                 host.slots[1].view.read(cx).open_document_paths(),
                 [retained]
             );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn collecting_paths_during_trash_skips_the_borrowed_workspace(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let archive = root.join("opened.zip");
+        let same_window = root.join("same-window.txt");
+        let other_window = root.join("other-window.txt");
+        // An empty ZIP end-of-central-directory record is a valid archive.
+        let mut zip = [0u8; 22];
+        zip[..4].copy_from_slice(b"PK\x05\x06");
+        std::fs::write(&archive, zip).unwrap();
+        std::fs::write(&same_window, "same window").unwrap();
+        std::fs::write(&other_window, "other window").unwrap();
+        let (handle, host) = workspaces(&[archive.clone(), same_window.clone()], cx);
+        let (_, second_host) = cx.update(|cx| {
+            gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+                let host = cx.new(WorkspaceWindow::new);
+                host.update(cx, |host, cx| {
+                    host.append(Some(other_window.clone()), None, window, cx);
+                });
+                host
+            })
+            .unwrap()
+        });
+        cx.run_until_parked();
+        let current = cx.update(|cx| host.read(cx).slots[0].view.clone());
+        cx.update_window(handle, |_, _, cx| {
+            current.update(cx, |view, cx| {
+                let mut paths = view.all_open_document_paths(cx);
+                paths.sort();
+                let mut expected = vec![archive.clone(), same_window.clone(), other_window.clone()];
+                expected.sort();
+                assert_eq!(paths, expected);
+            });
+        })
+        .unwrap();
+        cx.update(|cx| {
+            assert_eq!(second_host.read(cx).slots.len(), 1);
+            let mut paths = crate::app::open_document_paths(None, cx);
+            paths.sort();
+            let mut expected = vec![archive, same_window, other_window];
+            expected.sort();
+            assert_eq!(paths, expected);
         });
     }
 }

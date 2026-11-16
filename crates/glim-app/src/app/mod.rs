@@ -854,10 +854,11 @@ impl OpenWorkspaces {
     }
 }
 
-pub(crate) fn open_document_paths(cx: &App) -> Vec<std::path::PathBuf> {
+pub(crate) fn open_document_paths(exclude: Option<EntityId>, cx: &App) -> Vec<std::path::PathBuf> {
     OpenWorkspaces::windows(cx)
         .into_iter()
         .filter_map(|(view, _)| view.upgrade())
+        .filter(|view| Some(view.entity_id()) != exclude)
         .flat_map(|view| view.read(cx).open_document_paths())
         .collect()
 }
