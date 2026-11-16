@@ -130,6 +130,47 @@ impl Workspace {
             .accessibility_label(glim_services::locale::tr("Keyboard Shortcuts…"))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(KeyboardShortcuts), cx))
             .into_any_element();
+        let git_state = cx.try_global::<crate::app::git_operation::GitPreference>();
+        let git_saving = git_state.is_some_and(|state| state.saving);
+        let git_error = git_state.and_then(|state| state.error.clone());
+        let git = h_flex()
+            .w(px(110.))
+            .h(px(30.))
+            .justify_end()
+            .gap_2()
+            .child(
+                Switch::new("settings-git")
+                    .small()
+                    .checked(glim_services::git::enabled())
+                    .disabled(
+                        !glim_services::git::AVAILABLE
+                            || git_saving
+                            || crate::app::git_operation::busy(cx)
+                            || crate::app::workspace_editors_locked(cx),
+                    )
+                    .accessibility_label(glim_services::locale::tr("Enable Git"))
+                    .on_click(|enabled, _, cx| {
+                        crate::app::git_operation::set_enabled(*enabled, cx)
+                    }),
+            )
+            .when(git_saving, |row| {
+                row.child(div().text_xs().child(glim_services::locale::tr("Saving…")))
+            })
+            .when_some(git_error, |row, error| {
+                row.child(
+                    Button::new("git-setting-retry")
+                        .small()
+                        .label(glim_services::locale::tr("Retry"))
+                        .tooltip(error)
+                        .on_click(|_, _, cx| {
+                            crate::app::git_operation::set_enabled(
+                                glim_services::git::enabled(),
+                                cx,
+                            )
+                        }),
+                )
+            })
+            .into_any_element();
         let consent = cx.global::<crate::app::telemetry::Telemetry>().consent;
         let usage = Switch::new("settings-usage-statistics")
             .small()
@@ -263,6 +304,8 @@ impl Workspace {
                         .child(heading("Application").mt_3())
                         .child(
                             group()
+                                .child(row("Git", if glim_services::git::AVAILABLE { "Show Git tools and enable repository operations." } else { "Git is unavailable in this build" }, git))
+                                .child(divider())
                                 .child(row("Check for Updates…", "", updates))
                                 .child(divider())
                                 .child(row("Keyboard Shortcuts…", "", shortcuts)),

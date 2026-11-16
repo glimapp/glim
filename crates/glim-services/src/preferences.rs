@@ -155,6 +155,20 @@ fn get(key: &str) -> Result<Option<String>> {
 fn set(key: &str, value: &str) -> Result<()> {
     set_setting(&storage::open()?, key, value)
 }
+pub fn git_enabled() -> bool {
+    match get("git-enabled") {
+        Ok(None) => true,
+        Ok(Some(value)) => value.trim() == "true",
+        Err(error) => {
+            log::error!("Cannot load Git preference: {error:#}");
+            false
+        }
+    }
+}
+pub fn save_git_enabled(enabled: bool) -> Result<()> {
+    set("git-enabled", &enabled.to_string())
+}
+
 pub fn word_wrap() -> bool {
     get("word-wrap")
         .ok()

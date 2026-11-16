@@ -447,6 +447,7 @@ pub fn conflict_source(
     path: &Path,
     cancel: &Cancellation,
 ) -> Result<tempfile::NamedTempFile> {
+    ensure_enabled()?;
     relative(path.as_os_str().as_bytes().to_vec())?;
     let source = match remote {
         Some(session) => session.download(&root.join(path), cancel)?,

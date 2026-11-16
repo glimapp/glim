@@ -13,6 +13,24 @@ use std::{
     process::{Command, Stdio},
 };
 
+static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+pub const AVAILABLE: bool = cfg!(feature = "git");
+
+pub fn enabled() -> bool {
+    AVAILABLE && ENABLED.load(std::sync::atomic::Ordering::Acquire)
+}
+
+pub fn set_enabled(enabled: bool) {
+    ENABLED.store(enabled, std::sync::atomic::Ordering::Release);
+}
+
+pub fn ensure_enabled() -> Result<()> {
+    ensure!(AVAILABLE, tr("Git is unavailable in this build"));
+    ensure!(enabled(), tr("Git is disabled"));
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Area {
     Working,
@@ -35,6 +53,7 @@ pub struct Repository {
 }
 
 fn command(root: &Path, remote: Option<&Session>, args: &[OsString]) -> Result<Command> {
+    ensure_enabled()?;
     let mut arguments = vec![
         OsString::from("--no-pager"),
         OsString::from("--literal-pathspecs"),
@@ -82,6 +101,7 @@ fn run_input(
     input: Option<&tempfile::NamedTempFile>,
     cancel: &Cancellation,
 ) -> Result<tempfile::NamedTempFile> {
+    ensure_enabled()?;
     cancel.check()?;
     let output = tempfile::NamedTempFile::new()?;
     let errors = tempfile::NamedTempFile::new()?;

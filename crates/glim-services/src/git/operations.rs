@@ -304,6 +304,7 @@ pub fn execute(
     operation: &Operation,
     cancel: &Cancellation,
 ) -> Result<()> {
+    ensure_enabled()?;
     // Share the file-save lock with local editors and filesystem operations.
     let _save = operation
         .requires_editor_lock()

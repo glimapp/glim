@@ -181,6 +181,8 @@ Workspace 管理标签、Explorer 实体、导航历史及异步加载。新打�
 
 ### Git 工作区
 
+Git 使用统一服务层能力门控：Cargo 的 `git` feature 决定构建是否提供能力，持久化的 `git-enabled` 偏好决定可用版本中是否启用，默认包含 Git。使用 `cargo build -p glim-app --no-default-features --locked` 或 `GLIM_ENABLE_GIT=0 scripts/bundle-macos.sh release` 构建关闭版，即使修改偏好，Git 服务仍拒绝执行。设置中的开关会隐藏所有窗口的 Git 入口、取消查询／仓库发现并释放保留结果；进行中的 Git 写操作完成前不能切换。`--build-info` 的 `git_available` 独立报告构建能力。此处区分功能打包与使用偏好，尚未实现支付或许可证校验；后续 StoreKit／签名许可证必须以已验证的授权控制能力，不能把偏好本身当作付费凭据。
+
 `services/git` 负责本地仓库与 SSH 工作区的后台 Git I/O。`git/query` 查询分支、上游、领先／落后数量、进行中的操作、分页历史／引用日志、引用、远端、Stash、Worktree、版本比较与逐行追溯。`git/operations` 提供类型化写操作，覆盖暂存、提交／修改上次提交、分支／标签、合并／变基／拣选／撤销／重置、远端同步、Stash、Worktree、建库、提交身份、忽略规则和子模块更新。历史每页 100 条，只限制活动窗口，不限制历史总量。文件路径保持字面语义及原始字节；版本输入先解析为提交 ID。恢复／删除 Stash 前核对界面显示的 Stash ID。
 
 `remote/git` 逐项引用 shell 参数，使用非交互 OpenSSH 认证。Git 标准输出、错误和 patch／提交说明输入均使用临时文件。禁用外部 diff、文本转换驱动及交互式 Git 编辑器。查询支持取消；写操作由应用全局任务保留至完成。远端操作依赖服务器 Git 及已有非交互凭据；签名、Hook、Git/LFS 工具和凭据助手沿用用户的 Git 安装。

@@ -420,7 +420,8 @@ impl Render for Workspace {
             )
             .child(self.workspace_navigation(&outline, cx))
             .id("workspace-sidebar");
-        let has_git = !self.roots.is_empty() || !self.git_repositories.is_empty();
+        let has_git = glim_services::git::enabled()
+            && (!self.roots.is_empty() || !self.git_repositories.is_empty());
         let show_changes = has_git && self.changes_expanded;
         let files_heading = h_flex()
             .w_full()

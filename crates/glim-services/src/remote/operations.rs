@@ -32,6 +32,7 @@ impl Session {
         roots: &[PathBuf],
         cancel: &Cancellation,
     ) -> Result<Vec<PathBuf>> {
+        crate::git::ensure_enabled()?;
         self.with_transport(cancel, |transport| {
             let mut repositories = Vec::new();
             let mut inspected = std::collections::HashMap::new();

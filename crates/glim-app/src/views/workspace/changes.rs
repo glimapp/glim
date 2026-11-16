@@ -108,6 +108,18 @@ impl Changes {
         self.clear_patch(cx);
     }
 
+    pub(super) fn disable(&mut self, cx: &mut Context<Self>) {
+        self.cancel(cx);
+        self.repositories.clear();
+        self.catalog = Arc::default();
+        self.commits = Arc::default();
+        self.rows = Arc::default();
+        self.selection = None;
+        self.comparison = None;
+        self.errors.clear();
+        cx.notify();
+    }
+
     pub(super) fn unavailable(&mut self, cx: &mut Context<Self>) {
         self.cancel(cx);
         self.available = false;
@@ -193,6 +205,10 @@ impl Changes {
         remote: Option<glim_services::remote::Session>,
         cx: &mut Context<Self>,
     ) {
+        if !git::enabled() {
+            self.disable(cx);
+            return;
+        }
         self.available = true;
         self.status_cancel = None;
         self.status_task = None;

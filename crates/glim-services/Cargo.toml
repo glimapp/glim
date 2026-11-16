@@ -21,6 +21,10 @@ name = "diagram_cache"
 path = "benches/diagram_cache.rs"
 harness = false
 
+[features]
+default = ["git"]
+git = []
+
 [dependencies]
 chrono = "=0.4.45"
 log = { version = "0.4", features = ["std"] }

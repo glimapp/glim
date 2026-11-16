@@ -4,6 +4,16 @@ use gpui_kit::component::input::Textarea;
 
 impl Render for Changes {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !git::enabled() {
+            return message(
+                tr(if git::AVAILABLE {
+                    "Git is disabled"
+                } else {
+                    "Git is unavailable in this build"
+                }),
+                cx,
+            );
+        }
         if self.message_root != self.active_root {
             if let Some(root) = self.message_root.take() {
                 self.drafts.insert(
@@ -398,5 +408,6 @@ impl Render for Changes {
             .child(tabs)
             .child(status)
             .child(content)
+            .into_any_element()
     }
 }

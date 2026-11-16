@@ -65,7 +65,8 @@ impl Form {
 
 impl Changes {
     pub(super) fn busy(&self, cx: &App) -> bool {
-        !self.available
+        !git::enabled()
+            || !self.available
             || self.operation_busy
             || self.operation_task.is_some()
             || crate::app::workspace_editors_locked(cx)

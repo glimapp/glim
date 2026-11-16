@@ -348,6 +348,7 @@ pub fn print_build_info() {
             "telemetry_environment": glim_services::telemetry::environment(),
             "is_debug": glim_services::telemetry::is_debug(),
             "debug_assertions": cfg!(debug_assertions),
+            "git_available": glim_services::git::AVAILABLE,
         })
     );
 }
@@ -388,6 +389,7 @@ pub fn run() -> Result<()> {
         log::error!("Cannot restore workspace windows: {error:#}");
         Default::default()
     });
+    let git_enabled = glim_services::preferences::git_enabled();
     let word_wrap = glim_services::preferences::word_wrap();
     let appearance = glim_services::preferences::appearance();
     let html_preview = glim_services::preferences::preview_mode("html");
@@ -425,6 +427,7 @@ pub fn run() -> Result<()> {
             startup.observe(cx);
         }
         gpui_kit::init(cx);
+        git_operation::initialize(git_enabled, cx);
         remote::init(remote_catalog, cx);
         finder_integration::init(cx);
         remote_open::init(cx);

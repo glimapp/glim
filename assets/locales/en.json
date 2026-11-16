@@ -924,5 +924,9 @@
   "Delete remote tag": "Delete remote tag",
   "Delete remote branch": "Delete remote branch",
   "Expected remote commit": "Expected remote commit",
-  "Replace remote history only if the remote still points to this commit.": "Replace remote history only if the remote still points to this commit."
+  "Replace remote history only if the remote still points to this commit.": "Replace remote history only if the remote still points to this commit.",
+  "Git is unavailable in this build": "Git is unavailable in this build",
+  "Git is disabled": "Git is disabled",
+  "Enable Git": "Enable Git",
+  "Show Git tools and enable repository operations.": "Show Git tools and enable repository operations."
 }

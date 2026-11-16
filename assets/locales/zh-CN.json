@@ -924,5 +924,9 @@
   "Delete remote tag": "删除远端标签",
   "Delete remote branch": "删除远端分支",
   "Expected remote commit": "预期远端提交",
-  "Replace remote history only if the remote still points to this commit.": "仅当远端仍指向此提交时才替换远端历史。"
+  "Replace remote history only if the remote still points to this commit.": "仅当远端仍指向此提交时才替换远端历史。",
+  "Git is unavailable in this build": "此版本不提供 Git 功能",
+  "Git is disabled": "Git 已关闭",
+  "Enable Git": "启用 Git",
+  "Show Git tools and enable repository operations.": "显示 Git 工具并允许操作仓库。"
 }

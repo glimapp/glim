@@ -17,6 +17,7 @@ pub fn discover_git_roots(
     roots: &[PathBuf],
     cancel: &crate::work::Cancellation,
 ) -> Result<Vec<PathBuf>> {
+    crate::git::ensure_enabled()?;
     let mut repositories = Vec::new();
     for root in roots {
         for directory in root.ancestors() {

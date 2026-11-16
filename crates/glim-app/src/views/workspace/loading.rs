@@ -487,7 +487,7 @@ impl Workspace {
 
     pub(super) fn discover_git_repositories(&mut self, cx: &mut Context<Self>) {
         self.git_discovery_task = None;
-        if self.roots.is_empty() {
+        if self.roots.is_empty() || !glim_services::git::enabled() {
             self.git_repositories.clear();
             self.changes_expanded = false;
             return;
@@ -530,7 +530,7 @@ impl Workspace {
             let _guard = guard;
             let (roots, result) = work.await;
             let _ = view.update(cx, |view, cx| {
-                if view.roots != roots {
+                if view.roots != roots || !glim_services::git::enabled() {
                     return;
                 }
                 if let Ok(repositories) = result {
