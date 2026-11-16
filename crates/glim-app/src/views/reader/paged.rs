@@ -11,13 +11,13 @@ type PreviewAction = std::rc::Rc<dyn Fn(&mut App)>;
 
 /// Virtual rows contain slices into one buffer, not one allocation per line.
 /// Paging replaces the buffer, so browsing an unbounded file stays bounded.
-pub(super) struct PagedReader {
+pub(crate) struct PagedReader {
     memory: glim_core::resources::ResourceLease,
     suspended: bool,
     retained: bool,
     expanded: bool,
     resume_scroll: Point<Pixels>,
-    pub source_editor: Option<super::source::SourceReader>,
+    pub(super) source_editor: Option<super::source::SourceReader>,
     pub return_to_preview: Option<PreviewAction>,
     pub saving: std::rc::Rc<std::cell::Cell<bool>>,
     page: TextPage,

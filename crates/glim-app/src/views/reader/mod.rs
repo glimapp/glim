@@ -27,7 +27,7 @@ mod text;
 mod native_bridge;
 mod openapi;
 mod opml;
-mod paged;
+pub(crate) mod paged;
 mod pictures;
 mod projection;
 mod refresh;

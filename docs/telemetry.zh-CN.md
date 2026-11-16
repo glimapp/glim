@@ -113,7 +113,7 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 | 文件树调用 | `explorer_action`：菜单、拖放、移动快捷键的调用，`input_source=menu|drag_drop|keyboard`、`storage=local|ssh` 和是否为文件夹。 |
 | 文件操作结果 | `file_operation`：本地与 SSH 文件树的新建文件／文件夹、重命名、移动、废纸篓。记录 `action`、存储类型、结果和已开始工作耗时；选择器／确认框取消记 `cancelled`。本地 ⌘N 新文件沿用草稿创建与首次落盘事件；尚未通过校验的请求不视为已完成工作。 |
 | 工作区搜索 | `workspace_search_completed`：`search_mode=content|filename`、存储类型、结果、当前页数量／偏移、耗时；内容检索还带 `filename_fallback`。远端文件名结果只在完整页就绪时计完成，不按索引轮询计数，不上传搜索词。 |
-| Git 仓库检测 | `workspace_git_detected`：存储类型、结果、耗时与仓库数量；`semantic=observation`、`trigger=background`。当前没有 diff 内容使用事件；检测和变更面板展开不能当作看过 diff。 |
+| Git 仓库检测 | `workspace_git_detected`：存储类型、结果、耗时与仓库数量；`semantic=observation`、`trigger=background`。变更页面展示 patch，不发送路径或正文；当前没有专门的 patch 查看事件，检测和变更面板展开不能当作看过 diff。 |
 | PDF／图片 | 原生动作区分 `fit_page`、`fit_width`、`fit_image`、`actual_size`；PDF 的 `layout` 带具体布局；原生查找增加上／下一个匹配、关闭、大小写开关，以及 `⌘F`、`⌘G`、`⇧⌘G`、Enter／Shift+Enter 和 Esc 的已处理快捷键。初次打开 PDF 的自动整页适配不记用户操作。`pan` 在实际移动后的鼠标松开时每次拖动只记一条，包含可视区 point×100 的横纵累计位移，排除边界上未移动的输入；统计开关在拖动中变化会丢弃该段。 |
 
 `semantic` 区分 `shortcut`（快捷键命中）、`invocation`（调用）、`state_change`（状态变化）、`outcome`（操作结果）和 `observation`（后台／原生状态观察）。同一次动作可能出现多个阶段，不能相加当作操作次数或保证一一对应。异步结果不猜测鼠标／键盘来源；现有未标注事件与旧数据的阶段、布局等缺失字段在报表中显示 `legacy_unknown`，不会推断或回填。

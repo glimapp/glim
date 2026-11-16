@@ -536,7 +536,11 @@ impl Workspace {
                 if let Ok(repositories) = result {
                     view.git_repositories = repositories;
                     if view.git_repositories.is_empty() {
-                        view.changes_expanded = false;
+                        view.set_changes_expanded(false, cx);
+                    } else if view.changes_expanded {
+                        view.changes.update(cx, |changes, cx| {
+                            changes.load(view.git_repositories.clone(), view.remote.clone(), cx)
+                        });
                     }
                     cx.notify();
                 }

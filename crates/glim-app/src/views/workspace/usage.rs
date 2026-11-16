@@ -55,6 +55,7 @@ impl Workspace {
                 "page",
                 text(match self.page {
                     Page::Document => "document",
+                    Page::Changes => "changes",
                     Page::Start => "start",
                     Page::Settings => "settings",
                 }),
@@ -104,10 +105,28 @@ impl Workspace {
         telemetry::track("workspace_layout_changed", props);
     }
 
-    pub(super) fn set_changes_expanded(&mut self, expanded: bool) {
+    pub(super) fn set_changes_expanded(&mut self, expanded: bool, cx: &mut Context<Self>) {
         if self.changes_expanded != expanded {
             self.changes_expanded = expanded;
             self.record_layout("changes_panel");
+        }
+        if expanded {
+            self.page = Page::Changes;
+            self.changes.update(cx, |view, cx| {
+                if self.remote_disconnected
+                    || (glim_services::remote::is_remote_id(&self.recent_id)
+                        && self.remote.is_none())
+                {
+                    view.unavailable(cx);
+                } else {
+                    view.load(self.git_repositories.clone(), self.remote.clone(), cx);
+                }
+            });
+        } else {
+            if self.page == Page::Changes {
+                self.page = Page::Document;
+            }
+            self.changes.update(cx, |view, cx| view.cancel(cx));
         }
     }
 

@@ -1,5 +1,6 @@
 //! SSH connection records and SFTP access. Call on background workers.
 mod content_search;
+mod git;
 mod operations;
 mod search_index;
 mod sftp;

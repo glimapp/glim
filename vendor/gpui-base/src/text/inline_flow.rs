@@ -24,7 +24,7 @@ use super::{
 };
 
 const IMAGE_LEN: usize = 1;
-pub(super) const INLINE_CODE_PADDING: f32 = 2.;
+pub(super) const INLINE_CODE_PADDING: f32 = 4.;
 
 pub(super) struct InlineFlow {
     id: ElementId,
@@ -1255,6 +1255,12 @@ fn line_ranges(
                     step = step * 2.;
                 }
             }
+            // The wrapper can also break a rest that fits: kerning makes a
+            // shaped run narrower than its summed characters. A table column
+            // sized to its measured text would drop its last character.
+            if end < hard_line.end && spans_width(&spans, start..hard_line.end) <= wrap_width {
+                end = hard_line.end;
+            }
             ranges.push(start..end);
             start = end;
         }
@@ -1707,7 +1713,10 @@ mod tests {
             draw(cx);
             let before = layouts();
 
-            answer.update(cx, |answer, _| answer.width = px(120.));
+            answer.update(cx, |answer, cx| {
+                answer.width = px(120.);
+                cx.notify();
+            });
             draw(cx);
 
             assert!(layouts() > before, "a narrower flow wraps differently");

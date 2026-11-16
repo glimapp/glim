@@ -1,3 +1,4 @@
+mod changes;
 mod editing;
 mod file_actions;
 mod file_operations;
@@ -33,6 +34,7 @@ use super::{explorer::Explorer, reader::Reader};
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Document,
+    Changes,
     Start,
     Settings,
 }
@@ -119,6 +121,7 @@ pub struct Workspace {
     git_repositories: Vec<PathBuf>,
     git_discovery_task: Option<Task<()>>,
     changes_expanded: bool,
+    changes: Entity<changes::Changes>,
     subscriptions: Vec<Subscription>,
     tabs: Vec<Reader>,
     active: Option<usize>,
@@ -198,6 +201,7 @@ impl Workspace {
     }
 
     pub(crate) fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.changes.update(cx, |view, cx| view.cancel(cx));
         self.close_search(window, cx);
         glim_services::telemetry::track("settings_opened", []);
         self.page = Page::Settings;
@@ -308,6 +312,7 @@ impl Workspace {
             git_repositories: Vec::new(),
             git_discovery_task: None,
             changes_expanded: false,
+            changes: cx.new(changes::Changes::new),
             page: Page::Start,
             file_fullscreen: false,
             reader_toolbar_collapsed: false,
@@ -395,6 +400,23 @@ impl Workspace {
         };
         workspace
             .subscriptions
+            .push(cx.observe(&workspace.changes, |_, _, cx| cx.notify()));
+        workspace.subscriptions.push(cx.subscribe_in(
+            &workspace.changes,
+            window,
+            |view, _, event: &changes::OpenFile, window, cx| {
+                view.open_path(event.0.clone(), window, cx);
+            },
+        ));
+        workspace.subscriptions.push(cx.subscribe(
+            &workspace.changes,
+            |view, _, _: &changes::ShowDiff, cx| {
+                view.page = Page::Changes;
+                cx.notify();
+            },
+        ));
+        workspace
+            .subscriptions
             .push(cx.observe_window_bounds(window, |view, window, cx| {
                 if !view.file_fullscreen {
                     return;
@@ -448,6 +470,7 @@ impl Workspace {
     }
 
     pub(crate) fn show_home(&mut self, cx: &mut Context<Self>) {
+        self.changes.update(cx, |view, cx| view.cancel(cx));
         self.page = Page::Start;
         self.sidebar_window_width = 0.;
         if let Some(explorer) = &self.explorer {

@@ -13,7 +13,7 @@ repository = "https://github.com/glimapp/glim"
 [workspace.dependencies]
 glim-core = { path = "crates/glim-core" }
 glim-services = { path = "crates/glim-services" }
-gpui-kit = { version = "=0.7.1", features = [
+gpui-kit = { version = "=0.7.2", features = [
     "tree-sitter-rust", "tree-sitter-javascript", "tree-sitter-typescript",
     "tree-sitter-tsx", "tree-sitter-toml", "tree-sitter-python", "tree-sitter-go",
     "tree-sitter-c", "tree-sitter-cpp", "tree-sitter-css", "tree-sitter-html",

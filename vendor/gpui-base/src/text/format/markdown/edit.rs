@@ -184,7 +184,7 @@ fn shift_block(block: &mut BlockNode, delta: isize) -> Option<()> {
         BlockNode::Break { span, .. }
         | BlockNode::HorizontalRule { span }
         | BlockNode::Definition { span, .. } => shift_span(span, delta)?,
-        BlockNode::Custom(_) | BlockNode::Unknown => return None,
+        BlockNode::Custom { .. } | BlockNode::Unknown => return None,
     }
     Some(())
 }

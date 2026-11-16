@@ -1,28 +1,30 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     ops::Range,
     sync::{Arc, Mutex, OnceLock, Weak},
 };
 
 use gpui::{
-    AnyElement, App, Axis, DefiniteLength, Div, ElementId, FontStyle, FontWeight, HighlightStyle,
-    Hsla, Image, ImageFormat, ImageSource, InteractiveElement as _, IntoElement, IsZero as _,
-    Length, ObjectFit, Overflow, ParentElement, Pixels, Rems, ScrollHandle, SharedString,
-    SharedUri, StatefulInteractiveElement, StyleRefinement, Styled, StyledImage as _, WhiteSpace,
-    Window, div, img, prelude::FluentBuilder as _, px, relative, rems,
+    AnyElement, App, Axis, Bounds, DefiniteLength, Div, Element, ElementId, FontStyle, FontWeight,
+    GlobalElementId, HighlightStyle, Hsla, Image, ImageFormat, ImageSource, InspectorElementId,
+    InteractiveElement as _, IntoElement, IsZero as _, LayoutId, ObjectFit, Overflow,
+    ParentElement, Pixels, Point, Refineable as _, Rems, ScrollHandle, SharedString, SharedUri,
+    StatefulInteractiveElement, StyleRefinement, Styled, StyledImage as _, TextStyleRefinement,
+    WhiteSpace, Window, div, img, prelude::FluentBuilder as _, px, relative, rems,
 };
 use markdown::mdast;
 
 use crate::{
-    ScrollableMask, Scrollbar, StyledExt, h_flex,
+    GlobalState, ScrollableMask, Scrollbar, StyledExt, h_flex,
     scrollable_mask::horizontal_scroll_area,
     text::{
         CodeBlockActionsFn, CodeBlockHighlighterFn, LinkClickHandlerFn, MarkdownExtensions,
         MarkdownNode, TableActionsFn,
-        document::NodeRenderOptions,
+        document::{NodeRenderOptions, PrevBlock, flow_position},
         inline::{
-            Inline, InlineHighlight, InlineState, combine_highlights, fade_highlights, text_runs,
-            text_size_ranges,
+            Inline, InlineHighlight, InlineState, combine_highlights, fade_highlights,
+            point_in_text_selection, text_runs, text_size_ranges,
         },
         inline_flow::{InlineFlow, InlineFlowItem, slice_ranges},
         range_highlight::{RangeHighlightFrame, RevealAt, RevealRequest},
@@ -75,7 +77,10 @@ pub(crate) enum BlockNode {
     },
     CodeBlock(CodeBlock),
     /// A custom Markdown node produced by [`MarkdownExtensions`].
-    Custom(MarkdownNode),
+    Custom {
+        node: MarkdownNode,
+        state: BlockState,
+    },
     Table(Table),
     Break {
         html: bool,
@@ -92,6 +97,180 @@ pub(crate) enum BlockNode {
         span: Option<Span>,
     },
     Unknown,
+}
+
+/// Retained block interaction state, shared with its rendered element.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct BlockState {
+    // None is unobserved, allowing virtualized copy to include enclosed blocks.
+    selection: Arc<Mutex<Option<BlockSelection>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlockSelection {
+    Empty,
+    Full,
+}
+
+impl BlockState {
+    fn selection(&self) -> Option<BlockSelection> {
+        self.selection.lock().ok().and_then(|selection| *selection)
+    }
+
+    fn set_selection(&self, value: Option<BlockSelection>) {
+        if let Ok(mut selection) = self.selection.lock() {
+            *selection = value;
+        }
+    }
+
+    fn is_selected(&self) -> bool {
+        self.selection() == Some(BlockSelection::Full)
+    }
+
+    fn has_selection_observation(&self) -> bool {
+        self.selection().is_some()
+    }
+
+    fn clear_selection(&self) {
+        self.set_selection(None);
+    }
+}
+
+impl PartialEq for BlockState {
+    fn eq(&self, _: &Self) -> bool {
+        // Runtime selection does not change parsed document identity.
+        true
+    }
+}
+
+/// Observe the plugin's own bounds without changing its layout or listeners.
+struct CustomBlockElement {
+    content: AnyElement,
+    state: BlockState,
+}
+
+impl IntoElement for CustomBlockElement {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for CustomBlockElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        (self.content.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.content.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let view = GlobalState::global(cx).text_view_state();
+        let selection = view.as_ref().and_then(|view| {
+            let state = view.read(cx);
+            if !state.is_selectable() {
+                return None;
+            }
+            if state.is_all_selected() {
+                return Some(BlockSelection::Full);
+            }
+            if state.preserve_inline_selection {
+                return self.state.selection();
+            }
+            let (start, end) = state.selection_points(cx)?;
+            // Selection uses the full content bounds, not the visible clip or
+            // the paragraph gap outside this element.
+            if bounds.size.width <= Pixels::ZERO
+                || bounds.size.height <= Pixels::ZERO
+                || bounds.bottom() <= start.y.min(end.y)
+                || bounds.top() > start.y.max(end.y)
+            {
+                return None;
+            }
+            Some(if custom_block_is_selected(bounds, start, end) {
+                BlockSelection::Full
+            } else {
+                BlockSelection::Empty
+            })
+        });
+        self.state.set_selection(selection);
+        if let Some(view) = &view {
+            let visible = bounds.intersect(&window.content_mask().bounds);
+            if view.read(cx).is_selectable()
+                && visible.size.width > Pixels::ZERO
+                && visible.size.height > Pixels::ZERO
+            {
+                view.read(cx)
+                    .selection_adapter
+                    .register_inline(vec![visible]);
+            }
+        }
+        self.content.paint(window, cx);
+        if selection == Some(BlockSelection::Full) {
+            let color = view.as_ref().unwrap().read(cx).text_view_style.selection();
+            window.paint_quad(gpui::fill(bounds, color));
+        }
+    }
+}
+
+/// A block is atomic: the selection takes it whole once it crosses the block's
+/// edge, and never from a gesture that stays inside it. A press and release
+/// within one block is a click on its content — often an interactive card —
+/// and the pointer commonly travels a few pixels during a quick click, so
+/// counting that travel as a drag would paint the whole block as selected.
+fn custom_block_is_selected(
+    bounds: Bounds<Pixels>,
+    start: Point<Pixels>,
+    end: Point<Pixels>,
+) -> bool {
+    let (start_inside, end_inside) = (bounds.contains(&start), bounds.contains(&end));
+    start != end
+        && !(start_inside && end_inside)
+        && (start_inside
+            || end_inside
+            || point_in_text_selection(
+                bounds.origin,
+                bounds.size.width,
+                start,
+                end,
+                bounds.size.height,
+            ))
 }
 
 #[derive(Clone, Copy)]
@@ -126,7 +305,7 @@ impl BlockNode {
             BlockNode::List { span, .. } => *span,
             BlockNode::ListItem { span, .. } => *span,
             BlockNode::CodeBlock(code_block) => code_block.span,
-            BlockNode::Custom(el) => el.span,
+            BlockNode::Custom { node, .. } => node.span,
             BlockNode::Table(table) => table.span,
             BlockNode::Break { span, .. } => *span,
             BlockNode::HorizontalRule { span, .. } => *span,
@@ -171,8 +350,14 @@ impl BlockNode {
                 }
             }
             BlockNode::CodeBlock(code_block) => selected = code_block.selected_source_range(),
-            BlockNode::Custom(_)
-            | BlockNode::Definition { .. }
+            BlockNode::Custom { node, state } => {
+                if state.is_selected() {
+                    selected = node
+                        .source_range()
+                        .map_or(SourceRangeSelection::Unmapped, SourceRangeSelection::Mapped);
+                }
+            }
+            BlockNode::Definition { .. }
             | BlockNode::Break { .. }
             | BlockNode::HorizontalRule { .. }
             | BlockNode::Unknown => {}
@@ -304,11 +489,14 @@ impl BlockNode {
                     text.push('\n');
                 }
             }
-            BlockNode::Custom(node) => {
-                if let BlockTextKind::All = kind {
-                    let content = node.as_text();
+            BlockNode::Custom { node, state } => {
+                if matches!(kind, BlockTextKind::All) || state.is_selected() {
+                    let content = match kind {
+                        BlockTextKind::SelectedSource => Cow::Owned(node.to_markdown()),
+                        _ => Cow::Borrowed(node.as_text()),
+                    };
                     if !content.is_empty() {
-                        text.push_str(content);
+                        text.push_str(&content);
                         text.push('\n');
                     }
                 }
@@ -357,8 +545,11 @@ impl BlockNode {
                     .any(|cell| cell.children.has_selection())
             }),
             BlockNode::CodeBlock(code_block) => code_block.has_selection(),
-            BlockNode::Custom { .. }
-            | BlockNode::Definition { .. }
+            BlockNode::Custom { state, .. } => {
+                // An observed empty endpoint must suppress virtualized copy fallback.
+                state.has_selection_observation()
+            }
+            BlockNode::Definition { .. }
             | BlockNode::Break { .. }
             | BlockNode::HorizontalRule { .. }
             | BlockNode::Unknown { .. } => false,
@@ -385,8 +576,10 @@ impl BlockNode {
                 }
             }
             BlockNode::CodeBlock(code_block) => code_block.clear_selection(),
-            BlockNode::Custom { .. }
-            | BlockNode::Definition { .. }
+            BlockNode::Custom { state, .. } => {
+                state.clear_selection();
+            }
+            BlockNode::Definition { .. }
             | BlockNode::Break { .. }
             | BlockNode::HorizontalRule { .. }
             | BlockNode::Unknown { .. } => {}
@@ -1209,10 +1402,7 @@ impl Paragraph {
                 let mut highlight = mark_highlight(style, node_cx, cx);
                 if let Some(link_mark) = style.link.clone() {
                     highlight.style.color = Some(node_cx.style.link());
-                    highlight.style.underline = Some(gpui::UnderlineStyle {
-                        thickness: gpui::px(1.),
-                        ..Default::default()
-                    });
+                    highlight.style.underline = Some(link_underline(&node_cx.style));
                     links.push((inner_range.clone(), link_mark));
                 }
                 node_highlights.push((inner_range, highlight));
@@ -1570,13 +1760,57 @@ impl std::fmt::Debug for TableColumnWidthsCache {
 
 struct TableColumnWidths {
     text_system: Weak<gpui::WindowTextSystem>,
-    text_style: gpui::TextStyle,
+    /// The styles the header row and the body rows render with.
+    text_styles: TableTextStyles,
     rem_size: Pixels,
     mono_family: SharedString,
     inline_code: HighlightStyle,
     /// Maxima from ordinary text only. Custom cells may shrink after an update.
     widths: Vec<f32>,
     custom_cells: Vec<(usize, usize)>,
+}
+
+/// The text styles table rows render with: the window's, refined by
+/// `style.table` on the frame, `style.table_head` on the header row and
+/// `style.table_cell` on every cell, in the order the elements apply them.
+#[derive(Clone, PartialEq)]
+struct TableTextStyles {
+    head: gpui::TextStyle,
+    body: gpui::TextStyle,
+    head_refinement: TextStyleRefinement,
+    body_refinement: TextStyleRefinement,
+}
+
+impl TableTextStyles {
+    fn new(style: &TextViewStyle, window: &Window) -> Self {
+        let mut body_refinement = style.table().text.clone();
+        let mut head_refinement = body_refinement.clone();
+        head_refinement.refine(&style.table_head().text);
+        head_refinement.refine(&style.table_cell().text);
+        body_refinement.refine(&style.table_cell().text);
+        let mut head = window.text_style();
+        let mut body = head.clone();
+        head.refine(&head_refinement);
+        body.refine(&body_refinement);
+        Self {
+            head,
+            body,
+            head_refinement,
+            body_refinement,
+        }
+    }
+
+    fn row(&self, row_ix: usize) -> &gpui::TextStyle {
+        if row_ix == 0 { &self.head } else { &self.body }
+    }
+
+    fn row_refinement(&self, row_ix: usize) -> &TextStyleRefinement {
+        if row_ix == 0 {
+            &self.head_refinement
+        } else {
+            &self.body_refinement
+        }
+    }
 }
 
 /// Plain snapshot of a rendered Markdown table, passed to the
@@ -1963,14 +2197,41 @@ impl CodeBlock {
     ) -> AnyElement {
         let style = &node_cx.style;
         let leaf_key = self.span.map(|span| TextLeafKey::block(span.start));
+        // The language sits quietly in the top-right corner, where custom
+        // actions go instead when the caller provides them; the top padding
+        // keeps the first line clear of it. Like the actions, it stays out of
+        // the scrolled content so it holds its corner.
+        let lang_label = self
+            .lang()
+            .filter(|lang| !lang.is_empty() && node_cx.code_block_actions.is_none())
+            .map(|lang| {
+                div()
+                    .absolute()
+                    .top(px(7.))
+                    .right_3()
+                    .font_family(cx.theme().tokens.typography.sans.clone())
+                    .text_size(cx.theme().tokens.typography.xs.size)
+                    .line_height(px(16.))
+                    .text_color(style.muted_foreground())
+                    .child(lang)
+            });
 
         let block = div()
             .w_full()
             .min_w_0()
-            .p_3()
+            .px_4()
+            .pt(if lang_label.is_some() {
+                px(28.)
+            } else {
+                px(14.)
+            })
+            .pb(px(14.))
             .bg(style.code_background())
+            .border_1()
+            .border_color(style.border())
             .font_family(cx.theme().tokens.typography.mono.clone())
             .text_size(cx.theme().tokens.typography.mono_md.size)
+            .line_height(relative(1.6))
             .relative()
             .refine_style(&style.code_block())
             .child(
@@ -2035,12 +2296,13 @@ impl CodeBlock {
                         .child(Scrollbar::vertical(&scroll_handle)),
                 )
                 .children(actions)
+                .children(lang_label)
                 .into_any_element()
         } else {
             // Without actions nothing under the block needs element state.
             match actions {
                 Some(actions) => block.id(id).child(actions).into_any_element(),
-                None => block.into_any_element(),
+                None => block.children(lang_label).into_any_element(),
             }
         };
 
@@ -2077,6 +2339,9 @@ pub(crate) struct NodeContext {
     pub(crate) range_highlights: Option<Arc<RangeHighlightFrame>>,
     /// The line being scrolled into view, when there is one.
     pub(crate) reveal: Option<RevealRequest>,
+    /// The font size the text view inherits this frame, or zero when not
+    /// resolved; read it through `body_font_size`.
+    pub(crate) body_font_size: Pixels,
 }
 
 impl NodeContext {
@@ -2095,11 +2360,19 @@ impl NodeContext {
             if follow && let Some(link) = &original_link {
                 handle_link_click(&link_handler, link.url.clone(), event.clone(), window, cx);
             } else {
-                let source = resolver.as_ref().map_or_else(|| image.source(), |resolve| resolve(&image.url));
+                let source = resolver
+                    .as_ref()
+                    .map_or_else(|| image.source(), |resolve| resolve(&image.url));
                 handler(source, window, cx);
             }
         });
-        (Some(LinkMark { url: url.into(), ..Default::default() }), Some(click))
+        (
+            Some(LinkMark {
+                url: url.into(),
+                ..Default::default()
+            }),
+            Some(click),
+        )
     }
 
     fn image_source(&self, image: &ImageNode) -> ImageSource {
@@ -2355,10 +2628,7 @@ impl Paragraph {
 
                     if let Some(mut link_mark) = style.link.clone() {
                         highlight.style.color = Some(node_cx.style.link());
-                        highlight.style.underline = Some(gpui::UnderlineStyle {
-                            thickness: gpui::px(1.),
-                            ..Default::default()
-                        });
+                        highlight.style.underline = Some(link_underline(&node_cx.style));
 
                         // convert link references, replace link
                         if let Some(identifier) = link_mark.identifier.as_ref() {
@@ -2474,10 +2744,7 @@ impl Paragraph {
                                 .clone(),
                         );
                         object_style.color = Some(node_cx.style.link());
-                        object_style.underline = Some(gpui::UnderlineStyle {
-                            thickness: px(1.),
-                            ..Default::default()
-                        });
+                        object_style.underline = Some(link_underline(&node_cx.style));
                     }
                 }
                 let rendered_node = node.clone();
@@ -2545,10 +2812,7 @@ impl Paragraph {
 
                     if let Some(mut link_mark) = style.link.clone() {
                         highlight.style.color = Some(node_cx.style.link());
-                        highlight.style.underline = Some(gpui::UnderlineStyle {
-                            thickness: gpui::px(1.),
-                            ..Default::default()
-                        });
+                        highlight.style.underline = Some(link_underline(&node_cx.style));
 
                         if let Some(identifier) = link_mark.identifier.as_ref()
                             && let Some(mark) = node_cx.link_refs.get(identifier)
@@ -2607,6 +2871,71 @@ fn leaf_element_id(fade_key: Option<TextLeafKey>) -> ElementId {
     fade_key.map_or_else(|| ElementId::from("p"), ElementId::from)
 }
 
+/// A link's underline: a hairline in a translucent link color, so a run of
+/// links reads as text first and as links second.
+fn link_underline(style: &TextViewStyle) -> gpui::UnderlineStyle {
+    gpui::UnderlineStyle {
+        thickness: px(1.),
+        color: Some(style.link().opacity(0.4)),
+        ..Default::default()
+    }
+}
+
+/// The font size the blocks inherit, which heading sizes and the spacing of
+/// lists, tables and rules are proportional to (like CSS `em`), so a compact
+/// 14px view and a 16px document keep the same rhythm.
+///
+/// Resolved once per frame into the context; a context built without it
+/// (as in tests) resolves it from the window.
+fn body_font_size(node_cx: &NodeContext, window: &Window) -> Pixels {
+    if node_cx.body_font_size > Pixels::ZERO {
+        node_cx.body_font_size
+    } else {
+        window.text_style().font_size.to_pixels(window.rem_size())
+    }
+}
+
+/// A heading's `(size scale, line height, section gap)`, the size relative to
+/// the body text and the gap above it relative to the heading itself.
+/// Hierarchy comes from weight rather than size: every level is semibold and
+/// the sizes step down gently from the body.
+fn heading_metrics(level: u8) -> (f32, f32, f32) {
+    match level {
+        1 => (1.8, 1.25, 1.1),
+        2 => (4. / 3., 1.35, 1.6),
+        3 => (17. / 15., 1.35, 1.4),
+        4 => (1., 1.35, 1.4),
+        5 => (14. / 15., 1.35, 1.4),
+        _ => (13. / 15., 1.35, 1.4),
+    }
+}
+
+/// The gap below a heading, relative to the heading's size.
+const HEADING_BOTTOM_GAP: f32 = 0.35;
+
+/// The size a heading renders at, including one a caller's heading
+/// refinement pins, which its gaps follow.
+fn heading_size(level: u8, node_cx: &NodeContext, window: &Window) -> Pixels {
+    node_cx.style.heading(level).text.font_size.map_or_else(
+        || body_font_size(node_cx, window) * heading_metrics(level).0,
+        |size| size.to_pixels(window.rem_size()),
+    )
+}
+
+/// The room above and below a horizontal rule.
+fn rule_space(body_font_size: Pixels) -> Pixels {
+    body_font_size * 1.6
+}
+
+/// The gap below a block: a paragraph gap, unless nothing follows it.
+fn block_gap(options: &NodeRenderOptions, style: &TextViewStyle) -> Rems {
+    if options.in_list || options.is_last {
+        rems(0.)
+    } else {
+        style.paragraph_gap()
+    }
+}
+
 /// `block` with `gap` below it. The box only exists to hold the padding,
 /// so a block with no gap below it is returned as is.
 fn gapped(block: AnyElement, gap: Rems) -> AnyElement {
@@ -2636,7 +2965,27 @@ fn slice_backgrounds(
     slice_ranges(backgrounds, start, end, |range, color| (range, *color))
 }
 
-const CELL_PAD_PX: f32 = 16.0; // px_2 horizontal padding
+/// A table column's cell widths for layout, excluding the divider after it.
+struct TableColumn {
+    /// The width that fits the content on its widest line.
+    max: f32,
+    /// The width below which the column stops shrinking.
+    min: f32,
+    divider: f32,
+}
+
+/// Horizontal padding of a table cell: `px_3` unless `style.table_cell`
+/// sets it.
+fn table_cell_padding_x(style: &TextViewStyle, rem_size: Pixels) -> f32 {
+    let padding = &style.table_cell().padding;
+    let side = |length: Option<DefiniteLength>| match length {
+        Some(DefiniteLength::Absolute(length)) => f32::from(length.to_pixels(rem_size)),
+        _ => CELL_PAD_PX / 2.,
+    };
+    side(padding.left) + side(padding.right)
+}
+
+const CELL_PAD_PX: f32 = 24.0; // px_3 horizontal padding
 const CELL_MIN_PX: f32 = 48.0;
 const CELL_BORDER_PX: f32 = 1.0; // border_r_1 drawn by every column but the last
 
@@ -2651,7 +3000,7 @@ fn measure_table_columns(
     window: &mut Window,
     cx: &mut App,
 ) -> Vec<f32> {
-    let text_style = window.text_style();
+    let text_styles = TableTextStyles::new(&node_cx.style, window);
     let rem_size = window.rem_size();
     let mono_family = cx.theme().tokens.typography.mono.clone();
     let inline_code = node_cx.style.inline_code_highlight();
@@ -2660,7 +3009,7 @@ fn measure_table_columns(
             .as_ref()
             .filter(|cached| {
                 cached.widths.len() == col_count
-                    && cached.text_style == text_style
+                    && cached.text_styles == text_styles
                     && cached.rem_size == rem_size
                     && cached.mono_family == mono_family
                     && cached.inline_code == inline_code
@@ -2673,10 +3022,10 @@ fn measure_table_columns(
     });
     let measured = cached.unwrap_or_else(|| {
         let (widths, custom_cells) =
-            measure_table_text_columns(table, col_count, node_cx, window, cx);
+            measure_table_text_columns(table, col_count, &text_styles, node_cx, window, cx);
         let measured = Arc::new(TableColumnWidths {
             text_system: Arc::downgrade(window.text_system()),
-            text_style,
+            text_styles: text_styles.clone(),
             rem_size,
             mono_family,
             inline_code,
@@ -2696,7 +3045,10 @@ fn measure_table_columns(
     for &(row_ix, ix) in &measured.custom_cells {
         let cell = &table.children[row_ix].children[ix];
         let items = cell.children.inline_flow_items(None, &[], &[], node_cx, cx);
-        let width = super::inline_flow::intrinsic_width(&items, window, cx);
+        let style = text_styles.row_refinement(row_ix).clone();
+        let width = window.with_text_style(Some(style), |window| {
+            super::inline_flow::intrinsic_width(&items, window, cx)
+        });
         let border = if ix + 1 < col_count {
             CELL_BORDER_PX
         } else {
@@ -2712,15 +3064,16 @@ fn measure_table_columns(
 fn measure_table_text_columns(
     table: &Table,
     col_count: usize,
+    text_styles: &TableTextStyles,
     node_cx: &NodeContext,
     window: &mut Window,
     cx: &mut App,
 ) -> (Vec<f32>, Vec<(usize, usize)>) {
-    let text_style = window.text_style();
-    let font_size = text_style.font_size.to_pixels(window.rem_size());
     let mut col_w = vec![CELL_MIN_PX; col_count];
     let mut custom_cells = Vec::new();
     for (row_ix, row) in table.children.iter().enumerate() {
+        let text_style = text_styles.row(row_ix);
+        let font_size = text_style.font_size.to_pixels(window.rem_size());
         for (ix, cell) in row.children.iter().enumerate() {
             let Some(slot) = col_w.get_mut(ix) else {
                 continue;
@@ -2770,7 +3123,7 @@ fn measure_table_text_columns(
                     if highlights.iter().any(|(_, h)| h.font_size_scale.is_some()) {
                         line_w += px(crate::text::inline_flow::INLINE_CODE_PADDING * 2.);
                     }
-                    let runs = text_runs(range.len(), &text_style, &highlights);
+                    let runs = text_runs(range.len(), text_style, &highlights);
                     line_w += window
                         .text_system()
                         .layout_line(&line[range], font_size * scale, &runs, None)
@@ -2938,7 +3291,7 @@ impl BlockNode {
                 }
             }
             BlockNode::HorizontalRule { .. } => "---".to_string(),
-            BlockNode::Custom(node) => node.to_markdown(),
+            BlockNode::Custom { node, .. } => node.to_markdown(),
             BlockNode::Definition {
                 identifier,
                 url,
@@ -2967,6 +3320,7 @@ impl BlockNode {
         task: Option<(Range<usize>, Arc<super::text_view::TaskToggleHandlerFn>)>,
         style: &TextViewStyle,
         line_height: Pixels,
+        indent: Pixels,
     ) -> Div {
         h_flex()
             .w_full()
@@ -2975,12 +3329,27 @@ impl BlockNode {
             .items_start()
             .content_start()
             .when(!options.todo && checked.is_none(), |this| {
-                this.child(list_item_prefix(
-                    ix,
-                    options.list_start,
-                    options.ordered,
-                    options.depth,
-                ))
+                // The marker hangs in an indent column, right-aligned against
+                // the text like an outside list marker, and steps back in
+                // color so the item text leads.
+                this.child(
+                    div()
+                        .flex_none()
+                        .min_w(indent)
+                        .pr(indent * 0.3)
+                        .text_right()
+                        .text_color(style.muted_foreground())
+                        .child(
+                            list_item_prefix(
+                                ix,
+                                options.list_start,
+                                options.ordered,
+                                options.depth,
+                            )
+                            .trim_end()
+                            .to_string(),
+                        ),
+                )
             })
             .when_some(checked, |this, checked| {
                 // Todo list checkbox
@@ -3037,7 +3406,17 @@ impl BlockNode {
                     this.child(visual)
                 }
             })
-            .child(div().flex_1().min_w_0().overflow_hidden().child(content))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    // A done task steps back so the open ones stand out.
+                    .when(checked == Some(true), |this| {
+                        this.text_color(style.muted_foreground())
+                    })
+                    .child(content),
+            )
     }
 
     fn render_list_item(
@@ -3054,99 +3433,59 @@ impl BlockNode {
                 spread,
                 checked,
                 ..
-            } => div()
-                .w_full()
-                .min_w_0()
-                .when(*spread, |this| this.child(div()))
-                .children({
-                    let mut items: Vec<Div> = Vec::with_capacity(children.len());
+            } => {
+                let body = body_font_size(node_cx, window);
+                let indent = body * 1.4;
+                div()
+                    .w_full()
+                    .min_w_0()
+                    // Items breathe a little apart, less than paragraphs do.
+                    .when(ix > 0, |this| this.pt(body * 0.25))
+                    .when(*spread, |this| this.child(div()))
+                    .children({
+                        let mut items: Vec<Div> = Vec::with_capacity(children.len());
 
-                    for (child_ix, child) in children.iter().enumerate() {
-                        match child {
-                            BlockNode::Paragraph { .. } => {
-                                let last_not_list = child_ix > 0
-                                    && !matches!(children[child_ix - 1], BlockNode::List { .. });
-
-                                let text = child.render_block(
-                                    NodeRenderOptions {
-                                        depth: options.depth + 1,
-                                        todo: checked.is_some(),
-                                        is_last: true,
-                                        ..options
-                                    },
-                                    node_cx,
-                                    window,
-                                    cx,
-                                );
-
-                                // Continuation paragraph — stack vertically below
-                                // the previous row, indented to align with the text
-                                // column (past bullet/number prefix).
-                                if last_not_list {
-                                    if let Some(preceding_row) = items.pop() {
-                                        items.push(
-                                            div().child(preceding_row).child(
-                                                div()
-                                                    .w_full()
-                                                    .pl(rems(1.))
-                                                    .overflow_hidden()
-                                                    .child(text),
-                                            ),
+                        for (child_ix, child) in children.iter().enumerate() {
+                            match child {
+                                BlockNode::Paragraph { .. } => {
+                                    let last_not_list = child_ix > 0
+                                        && !matches!(
+                                            children[child_ix - 1],
+                                            BlockNode::List { .. }
                                         );
-                                        continue;
+
+                                    let text = child.render_block(
+                                        NodeRenderOptions {
+                                            depth: options.depth + 1,
+                                            todo: checked.is_some(),
+                                            is_last: true,
+                                            ..options
+                                        },
+                                        node_cx,
+                                        window,
+                                        cx,
+                                    );
+
+                                    // Continuation paragraph — stack vertically below
+                                    // the previous row, indented to align with the text
+                                    // column (past bullet/number prefix).
+                                    if last_not_list {
+                                        if let Some(preceding_row) = items.pop() {
+                                            items.push(
+                                                div().child(preceding_row).child(
+                                                    div()
+                                                        .w_full()
+                                                        .pl(indent)
+                                                        .overflow_hidden()
+                                                        .child(text),
+                                                ),
+                                            );
+                                            continue;
+                                        }
                                     }
-                                }
 
-                                items.push(Self::render_list_item_row(
-                                    text,
-                                    ix,
-                                    options,
-                                    *checked,
-                                    (child_ix == 0)
-                                        .then(|| {
-                                            item.span().zip(node_cx.task_toggle_handler.clone())
-                                        })
-                                        .flatten()
-                                        .map(|(span, handler)| (span.start..span.end, handler)),
-                                    &node_cx.style,
-                                    window.line_height(),
-                                ));
-                            }
-                            BlockNode::List { .. } => {
-                                items.push(div().ml(rems(1.)).child(child.render_block(
-                                    NodeRenderOptions {
-                                        depth: options.depth + 1,
-                                        todo: checked.is_some(),
-                                        is_last: true,
-                                        ..options
-                                    },
-                                    node_cx,
-                                    window,
-                                    cx,
-                                )));
-                            }
-                            BlockNode::Root { .. }
-                            | BlockNode::Heading { .. }
-                            | BlockNode::Blockquote { .. }
-                            | BlockNode::CodeBlock(_)
-                            | BlockNode::Custom(_)
-                            | BlockNode::Table(_)
-                            | BlockNode::HorizontalRule { .. } => {
-                                let block = child.render_block(
-                                    NodeRenderOptions {
-                                        depth: options.depth + 1,
-                                        todo: checked.is_some(),
-                                        is_last: true,
-                                        ..options
-                                    },
-                                    node_cx,
-                                    window,
-                                    cx,
-                                );
-
-                                if child_ix == 0 {
                                     items.push(Self::render_list_item_row(
-                                        block,
+                                        text,
                                         ix,
                                         options,
                                         *checked,
@@ -3158,229 +3497,232 @@ impl BlockNode {
                                             .map(|(span, handler)| (span.start..span.end, handler)),
                                         &node_cx.style,
                                         window.line_height(),
+                                        indent,
                                     ));
-                                } else {
-                                    // Indent continuation blocks to align with a
-                                    // nested sub-list (`ml(rems(1.))`) and with
-                                    // continuation paragraphs.
-                                    items.push(
-                                        div()
-                                            .w_full()
-                                            .min_w_0()
-                                            .pl(rems(1.))
-                                            .overflow_hidden()
-                                            .child(block),
-                                    );
                                 }
+                                BlockNode::List { .. } => {
+                                    items.push(div().ml(indent).child(child.render_block(
+                                        NodeRenderOptions {
+                                            depth: options.depth + 1,
+                                            todo: checked.is_some(),
+                                            is_last: true,
+                                            ..options
+                                        },
+                                        node_cx,
+                                        window,
+                                        cx,
+                                    )));
+                                }
+                                BlockNode::Root { .. }
+                                | BlockNode::Heading { .. }
+                                | BlockNode::Blockquote { .. }
+                                | BlockNode::CodeBlock(_)
+                                | BlockNode::Custom { .. }
+                                | BlockNode::Table(_)
+                                | BlockNode::HorizontalRule { .. } => {
+                                    let block = child.render_block(
+                                        NodeRenderOptions {
+                                            depth: options.depth + 1,
+                                            todo: checked.is_some(),
+                                            is_last: true,
+                                            ..options
+                                        },
+                                        node_cx,
+                                        window,
+                                        cx,
+                                    );
+
+                                    if child_ix == 0 {
+                                        items.push(Self::render_list_item_row(
+                                            block,
+                                            ix,
+                                            options,
+                                            *checked,
+                                            item.span()
+                                                .zip(node_cx.task_toggle_handler.clone())
+                                                .map(|(span, handler)| {
+                                                    (span.start..span.end, handler)
+                                                }),
+                                            &node_cx.style,
+                                            window.line_height(),
+                                            indent,
+                                        ));
+                                    } else {
+                                        // Indent continuation blocks to align with a
+                                        // nested sub-list (`ml(indent)`) and with
+                                        // continuation paragraphs.
+                                        items.push(
+                                            div()
+                                                .w_full()
+                                                .min_w_0()
+                                                .pl(indent)
+                                                .overflow_hidden()
+                                                .child(block),
+                                        );
+                                    }
+                                }
+                                BlockNode::ListItem { .. }
+                                | BlockNode::Break { .. }
+                                | BlockNode::Definition { .. }
+                                | BlockNode::Unknown => {}
                             }
-                            BlockNode::ListItem { .. }
-                            | BlockNode::Break { .. }
-                            | BlockNode::Definition { .. }
-                            | BlockNode::Unknown => {}
                         }
-                    }
-                    items
-                })
-                .into_any_element(),
+                        items
+                    })
+                    .into_any_element()
+            }
             _ => div().into_any_element(),
         }
     }
 
-    /// Render a Markdown table. Dispatches to a horizontally scrollable layout
-    /// when `style.table` opts in with overflow-x: scroll, otherwise to the
-    /// default layout that fits the container width and wraps cell content.
+    /// Render a Markdown table.
+    ///
+    /// Columns are sized from the measured max-content width of their cells,
+    /// so they line up and fit their content on proportional fonts and mixed
+    /// scripts alike. The layout adapts to the frame:
+    ///
+    /// - Wider than the content: every column fits its content and the spare
+    ///   width is shared in proportion to it.
+    /// - Narrower: the narrow columns keep their full content width and only
+    ///   the widest ones shrink and wrap, all down to one common width (see
+    ///   [`Self::render_table_rows`]). Shrinking every column by the same
+    ///   ratio would wrap the last word or character of a column that nearly
+    ///   fits onto a line of its own.
+    /// - Narrower than the column floors: the default layout clips, while
+    ///   `style.table` overflow-x: scroll keeps the floors and scrolls
+    ///   horizontally, so no content ever becomes unreachable.
+    ///
+    /// `white_space: nowrap` on `style.table_cell` composes like in CSS: the
+    /// refinement keeps cell text on a single line, and the scroll layout
+    /// raises the floors to the full content widths so the single-line
+    /// columns never shrink.
     fn render_table(
         item: &BlockNode,
         options: &NodeRenderOptions,
         node_cx: &NodeContext,
+        text_size: Pixels,
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
-        const DEFAULT_LENGTH: usize = 5;
+        // A scrolling column stops shrinking (and the table starts to scroll)
+        // at a floor scaled to its content: roughly the width at which the
+        // text wraps to `CELL_WRAP_MAX_LINES` lines, clamped between the two
+        // bounds so moderate columns can still wrap meaningfully while one
+        // huge column cannot push the scroll threshold arbitrarily high.
+        const CELL_WRAP_MAX_LINES: f32 = 2.0;
+        const CELL_WRAP_MIN_PX: f32 = 160.0;
+        const CELL_WRAP_MAX_PX: f32 = 480.0;
+        const TABLE_BORDER_PX: f32 = 2.0; // the frame's border_1, left + right
 
         let table = match item {
             BlockNode::Table(table) => table,
             _ => return div().into_any_element(),
         };
 
-        // Scroll mode is opted in via `style.table` overflow-x: scroll.
-        if matches!(node_cx.style.table().overflow.x, Some(Overflow::Scroll)) {
-            let col_count = table
-                .children
-                .iter()
-                .map(|row| row.children.len())
-                .max()
-                .unwrap_or(0);
-            return Self::render_scroll_table(table, col_count, options, node_cx, window, cx);
-        }
-
-        // Per-column max text length (in chars), used to proportion the columns
-        // in the default (wrap) layout.
-        let mut col_lens: Vec<usize> = vec![];
-        for row in table.children.iter() {
-            for (ix, cell) in row.children.iter().enumerate() {
-                if col_lens.len() <= ix {
-                    col_lens.push(DEFAULT_LENGTH);
-                }
-                col_lens[ix] = col_lens[ix].max(cell.children.text_len());
-            }
-        }
-
-        Self::render_wrap_table(table, &col_lens, options, node_cx, window, cx)
-    }
-
-    /// Horizontally scrollable table layout (opt-in via `style.table`
-    /// overflow-x: scroll).
-    ///
-    /// Column widths come from the **measured** shaped text of each cell (the
-    /// widest per column across all rows), so columns line up and fit their
-    /// content exactly — char-count heuristics are inaccurate on proportional
-    /// fonts. The layout adapts to the frame like CSS auto table layout:
-    ///
-    /// - Wider than the content: cells `flex_grow` proportionally to fill.
-    /// - Narrower: columns shrink and their text wraps, but not below a
-    ///   per-column floor.
-    /// - Narrower than the floors: the table keeps the floor widths and
-    ///   scrolls horizontally, so no content ever becomes unreachable.
-    ///
-    /// `white_space: nowrap` on `style.table_cell` composes like in CSS: the
-    /// refinement keeps cell text on a single line, and the floors are raised
-    /// to the full content widths so the single-line columns never shrink —
-    /// the table scrolls as soon as the content is wider than the frame.
-    fn render_scroll_table(
-        table: &Table,
-        col_count: usize,
-        options: &NodeRenderOptions,
-        node_cx: &NodeContext,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> AnyElement {
-        // Shrinking columns stop (and the table starts to scroll) at a floor
-        // scaled to their content: roughly the width at which the text wraps
-        // to `CELL_WRAP_MAX_LINES` lines, clamped between the two bounds so
-        // moderate columns can still wrap meaningfully while one huge column
-        // cannot push the scroll threshold arbitrarily high.
-        const CELL_WRAP_MAX_LINES: f32 = 2.0;
-        const CELL_WRAP_MIN_PX: f32 = 160.0;
-        const CELL_WRAP_MAX_PX: f32 = 480.0;
-        const TABLE_BORDER_PX: f32 = 2.0; // the track's border_1, left + right
-
-        let col_w = measure_table_columns(table, col_count, node_cx, window, cx);
         let style = &node_cx.style;
-        // Nowrap cells (via the `table_cell` refinement, which cascades to
-        // the cell text) must never shrink below their single-line content,
-        // so their floor is the content width itself.
+        let col_count = table
+            .children
+            .iter()
+            .map(|row| row.children.len())
+            .max()
+            .unwrap_or(0);
+        let col_w = measure_table_columns(table, col_count, node_cx, window, cx);
+        let scroll = matches!(style.table().overflow.x, Some(Overflow::Scroll));
         let nowrap = style.table_cell().text.white_space == Some(WhiteSpace::Nowrap);
-        let col_min_w: Vec<f32> = if nowrap {
-            col_w.clone()
-        } else {
-            col_w
-                .iter()
-                .map(|w| {
+        let rem_size = window.rem_size();
+        let wrap_min_px = f32::from(rems(4.).to_pixels(rem_size));
+        // Widths were measured with the default cell padding.
+        let padding_delta = table_cell_padding_x(style, rem_size) - CELL_PAD_PX;
+        // Lengths are rounded to device pixels for layout. Round the content
+        // widths up, or a column can lose the fraction of a pixel that keeps
+        // its text on one line.
+        let scale_factor = window.scale_factor();
+        let device_ceil = |width: f32| (width * scale_factor).ceil() / scale_factor;
+        let columns: Vec<TableColumn> = col_w
+            .iter()
+            .enumerate()
+            .map(|(ix, &w)| {
+                let w = w + padding_delta;
+                let floor = if scroll && nowrap {
+                    w
+                } else if scroll {
                     (w / CELL_WRAP_MAX_LINES)
                         .clamp(CELL_WRAP_MIN_PX, CELL_WRAP_MAX_PX)
-                        .min(*w)
-                })
-                .collect()
-        };
-        let min_total_w: f32 = col_min_w.iter().sum::<f32>() + TABLE_BORDER_PX;
+                        .min(w)
+                } else {
+                    w.min(wrap_min_px)
+                };
+                let divider = if ix + 1 < col_count {
+                    CELL_BORDER_PX
+                } else {
+                    0.
+                };
+                let max = device_ceil(w - divider);
+                TableColumn {
+                    min: device_ceil(floor - divider).min(max),
+                    max,
+                    divider,
+                }
+            })
+            .collect();
 
-        let scroll_handle = window
-            .use_keyed_state(
-                block_element_id("table-scroll", table.span, options.ix),
-                cx,
-                |_, _| ScrollHandle::default(),
+        let rows = Self::render_table_rows(table, &columns, node_cx, window, cx);
+        let frame = StyleRefinement::default()
+            .text_size(text_size)
+            .bg(style
+                .table_background()
+                .unwrap_or(cx.theme().tokens.colors.surface))
+            .border_1()
+            .border_color(style.border())
+            .refine_style(style.table());
+        let body = if scroll {
+            let scroll_handle = window
+                .use_keyed_state(
+                    block_element_id("table-scroll", table.span, options.ix),
+                    cx,
+                    |_, _| ScrollHandle::default(),
+                )
+                .read(cx)
+                .clone();
+            let min_total_w = columns
+                .iter()
+                .map(|column| column.min + column.divider)
+                .sum::<f32>()
+                + TABLE_BORDER_PX;
+            // Scroll viewport owns the visible frame, including any
+            // caller-provided radius. Keeping the border here makes the
+            // rounded frame stable while the wider row track moves below it.
+            //
+            // `horizontal_scroll_area` clips with `overflow_hidden` and
+            // delegates the wheel to a sibling `ScrollableMask`, so the
+            // gesture is locked to its starting axis and a horizontal swipe
+            // is consumed before an ancestor scroller (`gpui::list` under
+            // `TextView::scrollable`) can take its vertical component.
+            horizontal_scroll_area(
+                block_element_id("table", table.span, options.ix),
+                &scroll_handle,
+                &frame,
+                // Row track sized to `max(viewport, column floors)`:
+                // `min_w_full` fills the frame while the columns can still
+                // shrink-to-fit (their text wrapping), the definite
+                // `w(min_total_w)` keeps the floors once they are reached,
+                // letting the track exceed the viewport and scroll.
+                div().min_w_full().w(px(min_total_w)).children(rows),
             )
-            .read(cx)
-            .clone();
-        let row_count = table.children.len();
-        let mut rows = Vec::with_capacity(row_count);
-        let mut cell_ordinal = 0;
-        for (row_ix, row) in table.children.iter().enumerate() {
-            let mut cells = Vec::with_capacity(row.children.len());
-            for (ix, cell) in row.children.iter().enumerate() {
-                let fade_key = table
-                    .span
-                    .map(|span| TextLeafKey::table_cell(span.start, cell_ordinal));
-                cell_ordinal += 1;
-                let align = table.column_align(ix);
-                let is_last_col = ix == row.children.len() - 1;
-                let width = col_w.get(ix).copied().unwrap_or(CELL_MIN_PX);
-                let min_width = col_min_w.get(ix).copied().unwrap_or(CELL_MIN_PX);
-                cells.push(
-                    div()
-                        // Measured max-content width is the flex-basis;
-                        // `flex_grow` (proportional to it) distributes extra
-                        // space so a narrow table still fills the frame, while
-                        // shrinking is clamped at `min_w` — the flex engine
-                        // squeezes columns (their text wraps) down to the
-                        // floors before the track starts to scroll.
-                        .flex_basis(px(width))
-                        .flex_grow(width)
-                        .flex_shrink(1.)
-                        .min_w(px(min_width))
-                        .overflow_hidden()
-                        .when(align == ColumnumnAlign::Center, |this| this.text_center())
-                        .when(align == ColumnumnAlign::Right, |this| this.text_right())
-                        .px_2()
-                        .py_1()
-                        .when(!is_last_col, |this| {
-                            this.border_r_1().border_color(style.border())
-                        })
-                        .refine_style(&style.table_cell())
-                        .child(cell.children.render(fade_key, node_cx, window, cx)),
-                );
-            }
-            rows.push(
-                div()
-                    .w_full()
-                    .when(row_ix < row_count - 1, |this| this.border_b_1())
-                    .border_color(style.border())
-                    .flex()
-                    .flex_row()
-                    // The first row is the header, as everywhere else that
-                    // reads a table (`table_data`, `to_markdown`). The
-                    // refinement comes last so it can override the defaults.
-                    .when(row_ix == 0, |this| {
-                        this.bg(style.code_background())
-                            .text_color(style.foreground())
-                            .refine_style(&style.table_head())
-                    })
-                    .children(cells),
-            );
-        }
+            .into_any_element()
+        } else {
+            div()
+                .w_full()
+                .overflow_hidden()
+                .refine_style(&frame)
+                .children(rows)
+                .into_any_element()
+        };
 
         div()
-            .pb(rems(1.))
+            .pb(block_gap(options, style))
             .w_full()
-            .child(
-                // Scroll viewport owns the visible frame, including any
-                // caller-provided radius. Keeping the border here makes the
-                // rounded frame stable while the wider row track moves below it.
-                //
-                // `horizontal_scroll_area` clips with `overflow_hidden` and
-                // delegates the wheel to a sibling `ScrollableMask`, so the
-                // gesture is locked to its starting axis and a horizontal swipe
-                // is consumed before an ancestor scroller (`gpui::list` under
-                // `TextView::scrollable`) can take its vertical component.
-                horizontal_scroll_area(
-                    block_element_id("table", table.span, options.ix),
-                    &scroll_handle,
-                    &StyleRefinement::default()
-                        .bg(style
-                            .table_background()
-                            .unwrap_or(cx.theme().tokens.colors.surface))
-                        .border_1()
-                        .border_color(style.border())
-                        .refine_style(style.table()),
-                    // Row track sized to `max(viewport, column floors)`:
-                    // `min_w_full` fills the frame while the columns can still
-                    // shrink-to-fit (their text wrapping), the definite
-                    // `w(min_total_w)` keeps the floors once they are reached,
-                    // letting the track exceed the viewport and scroll.
-                    div().min_w_full().w(px(min_total_w)).children(rows),
-                ),
-            )
+            .child(body)
             // Custom actions row (e.g. copy / download) rendered below the
             // table. The hook's element spans full width; alignment is up to
             // the caller (e.g. `h_flex().justify_end()`). The gap keeps hover
@@ -3396,54 +3738,126 @@ impl BlockNode {
             .into_any_element()
     }
 
-    /// Default table layout: a flex grid whose columns are proportioned by
-    /// content length and shrink to fit the container width (cell text wraps).
-    fn render_wrap_table(
+    /// Corner radii for the first and last table rows, derived from the
+    /// frame radius in `style.table()`.
+    ///
+    /// GPUI clips children with a rectangular content mask, so a square row
+    /// background (e.g. the header fill) pokes out of a rounded table frame
+    /// at the corners. Rounding the first row's top and the last row's
+    /// bottom corners to the frame radius — inset by the frame's 1px border
+    /// sitting between frame and rows — keeps the row fills inside the
+    /// frame. (A horizontally scrolled track can still meet the viewport
+    /// corner with a square edge mid-scroll; only a rounded content mask
+    /// could clip that, and gpui masks are rectangular.)
+    fn table_row_corner_radii(style: &TextViewStyle, window: &Window) -> [Option<Pixels>; 4] {
+        let rem_size = window.rem_size();
+        let inset = |radius: Option<gpui::AbsoluteLength>| {
+            radius.map(|radius| (radius.to_pixels(rem_size) - px(1.)).max(px(0.)))
+        };
+        let radii = &style.table().corner_radii;
+        [
+            inset(radii.top_left),
+            inset(radii.top_right),
+            inset(radii.bottom_left),
+            inset(radii.bottom_right),
+        ]
+    }
+
+    /// The table rows, each a flex row laid out on the same column grid.
+    ///
+    /// Every column is a cell plus slack beside it. A cell grows from zero up
+    /// to its content width `max` and never below its floor `min`:
+    /// flex layout grows all cells equally and freezes each one that reaches
+    /// its content width, so the narrow columns fit their content and the
+    /// widest ones share what is left. The slack grows only after every cell
+    /// is frozen, so a frame wider than the content spreads the extra width
+    /// in proportion to the columns, placed after, around or before the cell
+    /// to follow the column alignment.
+    ///
+    /// A row with fewer cells than the table keeps empty cells in their
+    /// place, so its columns line up with the other rows.
+    fn render_table_rows(
         table: &Table,
-        col_lens: &[usize],
-        options: &NodeRenderOptions,
+        columns: &[TableColumn],
         node_cx: &NodeContext,
         window: &mut Window,
         cx: &mut App,
-    ) -> AnyElement {
-        const MAX_LENGTH: usize = 150;
+    ) -> Vec<AnyElement> {
+        // The slack's share of the frame while any cell is still growing is
+        // `SLACK_GROW / (cells * CELL_GROW)`, a negligible fraction of a
+        // pixel. The slack factors still add up to `SLACK_GROW`: flex layout
+        // hands out only that fraction of the free space when the factors
+        // sum to less than one, and the slack must take all of it.
+        const CELL_GROW: f32 = 1e6;
+        const SLACK_GROW: f32 = 1.0;
 
         let style = &node_cx.style;
+        let col_count = columns.len();
+        let total_w = columns.iter().map(|column| column.max).sum::<f32>().max(1.);
+        // The slack is part of the column, so it carries the cell's fill and
+        // the column divider in the cell's border color.
+        let mut slack_style = StyleRefinement::default();
+        slack_style.background = style.table_cell().background.clone();
+        slack_style.border_color = style.table_cell().border_color;
+        let slack = |grow: f32| {
+            div()
+                .flex_basis(px(0.))
+                .flex_grow(grow)
+                .flex_shrink(0.)
+                .border_color(style.border())
+                .refine_style(&slack_style)
+        };
+
         let row_count = table.children.len();
+        let [top_left, top_right, bottom_left, bottom_right] =
+            Self::table_row_corner_radii(style, window);
         let mut rows = Vec::with_capacity(row_count);
         let mut cell_ordinal = 0;
         for (row_ix, row) in table.children.iter().enumerate() {
-            let mut cells = Vec::with_capacity(row.children.len());
-            for (ix, cell) in row.children.iter().enumerate() {
-                let fade_key = table
-                    .span
-                    .map(|span| TextLeafKey::table_cell(span.start, cell_ordinal));
-                cell_ordinal += 1;
+            let mut cells = Vec::with_capacity(col_count * 2);
+            for (ix, column) in columns.iter().enumerate() {
+                let is_last_col = ix + 1 == col_count;
                 let align = table.column_align(ix);
-                let is_last_col = ix == row.children.len() - 1;
-                let len = col_lens
-                    .get(ix)
-                    .copied()
-                    .unwrap_or(MAX_LENGTH)
-                    .min(MAX_LENGTH);
+                let content = row.children.get(ix).map(|cell| {
+                    let fade_key = table
+                        .span
+                        .map(|span| TextLeafKey::table_cell(span.start, cell_ordinal));
+                    cell_ordinal += 1;
+                    cell.children.render(fade_key, node_cx, window, cx)
+                });
 
+                let grow = SLACK_GROW * column.max / total_w;
+                let (lead, trail) = match align {
+                    ColumnumnAlign::Left => (0., grow),
+                    ColumnumnAlign::Center => (grow / 2., grow / 2.),
+                    ColumnumnAlign::Right => (grow, 0.),
+                };
+                if lead > 0. {
+                    cells.push(slack(lead).into_any_element());
+                }
                 cells.push(
                     div()
+                        .flex_basis(px(0.))
+                        .flex_grow(CELL_GROW)
+                        .min_w(px(column.min))
+                        .max_w(px(column.max))
                         .overflow_hidden()
                         .when(align == ColumnumnAlign::Center, |this| this.text_center())
                         .when(align == ColumnumnAlign::Right, |this| this.text_right())
-                        .min_w_16()
-                        .w(Length::Definite(relative(len as f32)))
-                        .px_2()
-                        .py_1()
-                        .when(!is_last_col, |this| {
-                            this.border_r_1().border_color(style.border())
-                        })
+                        .px_3()
+                        .py(px(7.))
                         .refine_style(&style.table_cell())
-                        .child(cell.children.render(fade_key, node_cx, window, cx)),
+                        .children(content)
+                        .into_any_element(),
                 );
+                if trail > 0. || !is_last_col {
+                    cells.push(
+                        slack(trail)
+                            .when(!is_last_col, |this| this.border_r_1())
+                            .into_any_element(),
+                    );
+                }
             }
-
             rows.push(
                 div()
                     .w_full()
@@ -3457,40 +3871,19 @@ impl BlockNode {
                     .when(row_ix == 0, |this| {
                         this.bg(style.code_background())
                             .text_color(style.foreground())
+                            .when_some(top_left, |this, radius| this.rounded_tl(radius))
+                            .when_some(top_right, |this, radius| this.rounded_tr(radius))
                             .refine_style(&style.table_head())
                     })
-                    .children(cells),
+                    .when(row_ix + 1 == row_count, |this| {
+                        this.when_some(bottom_left, |this, radius| this.rounded_bl(radius))
+                            .when_some(bottom_right, |this, radius| this.rounded_br(radius))
+                    })
+                    .children(cells)
+                    .into_any_element(),
             );
         }
-
-        div()
-            .pb(rems(1.))
-            .w_full()
-            .child(
-                div()
-                    .w_full()
-                    .bg(style
-                        .table_background()
-                        .unwrap_or(cx.theme().tokens.colors.surface))
-                    .border_1()
-                    .border_color(style.border())
-                    .overflow_hidden()
-                    .children(rows)
-                    .refine_style(&style.table()),
-            )
-            // Custom actions row (e.g. copy / download) rendered below the
-            // table. The hook's element spans full width; alignment is up to
-            // the caller (e.g. `h_flex().justify_end()`). The gap keeps hover
-            // backgrounds of the action buttons off the table border, and the
-            // id scopes the caller's element ids per table, so plain ids like
-            // `"copy"` don't collide across tables (same as code blocks).
-            .children(node_cx.table_actions.clone().map(|f| {
-                div()
-                    .id(block_element_id("table-actions", table.span, options.ix))
-                    .mt_1()
-                    .child(f(&table.cached_table_data(), window, cx))
-            }))
-            .into_any_element()
+        rows
     }
 
     pub(crate) fn render_block(
@@ -3500,16 +3893,30 @@ impl BlockNode {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        let mb = if options.in_list || options.is_last {
-            rems(0.)
-        } else {
-            node_cx.style.paragraph_gap()
-        };
+        let mb = block_gap(&options, &node_cx.style);
 
         match self {
             BlockNode::Root { children, .. } => div()
                 .children(children.into_iter().enumerate().map(move |(ix, node)| {
-                    node.render_block(NodeRenderOptions { ix, ..options }, node_cx, window, cx)
+                    // A nested root (an HTML block container) continues the
+                    // flow around it: until it shows a block of its own, it
+                    // stands where the container stands.
+                    let (is_first, prev) = match flow_position(children, ix) {
+                        (true, _) => (options.is_first, options.prev),
+                        (false, prev) => (false, prev),
+                    };
+                    node.render_block(
+                        NodeRenderOptions {
+                            ix,
+                            is_first,
+                            prev,
+                            is_last: options.is_last && ix + 1 == children.len(),
+                            ..options
+                        },
+                        node_cx,
+                        window,
+                        cx,
+                    )
                 }))
                 .into_any_element(),
             BlockNode::Paragraph(paragraph) => gapped(
@@ -3526,24 +3933,44 @@ impl BlockNode {
                 children,
                 span,
             } => {
-                let (text_size, font_weight) = match level {
-                    1 => (rems(2.), FontWeight::BOLD),
-                    2 => (rems(1.5), FontWeight::SEMIBOLD),
-                    3 => (rems(1.25), FontWeight::SEMIBOLD),
-                    4 => (rems(1.125), FontWeight::SEMIBOLD),
-                    5 => (rems(1.), FontWeight::SEMIBOLD),
-                    6 => (rems(1.), FontWeight::MEDIUM),
-                    _ => (rems(1.), FontWeight::NORMAL),
+                let (_, line_height, section_gap) = heading_metrics(*level);
+                let refinement = node_cx.style.heading(*level);
+                let text_size = heading_size(*level, node_cx, window);
+                // The previous block already leaves a gap below itself, so
+                // only the rest of the section gap is added here -- the two
+                // collapse like CSS margins. A heading right after another one
+                // belongs to the same section and stays close. Nested in a
+                // list item, a heading sits flush with the item.
+                let top = if options.is_first || options.depth > 0 {
+                    px(0.)
+                } else {
+                    match options.prev {
+                        PrevBlock::Heading(_) => text_size * 0.25,
+                        PrevBlock::Rule => (text_size * section_gap
+                            - rule_space(body_font_size(node_cx, window)))
+                        .max(px(0.)),
+                        PrevBlock::Other => (text_size * section_gap
+                            - node_cx.style.paragraph_gap().to_pixels(window.rem_size()))
+                        .max(px(0.)),
+                    }
+                };
+                let bottom = if options.is_last {
+                    px(0.)
+                } else {
+                    text_size * HEADING_BOTTOM_GAP
                 };
 
-                let text_size = text_size.to_pixels(px(14.));
-
                 div()
-                    .pb(rems(0.3))
+                    .pt(top)
+                    .pb(bottom)
                     .whitespace_normal()
                     .text_size(text_size)
-                    .font_weight(font_weight)
-                    .refine_style(&node_cx.style.heading(*level))
+                    .line_height(relative(line_height))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .when(*level >= 6, |this| {
+                        this.text_color(node_cx.style.muted_foreground())
+                    })
+                    .refine_style(&refinement)
                     .child(children.render(
                         span.map(|span| TextLeafKey::block(span.start)),
                         node_cx,
@@ -3556,14 +3983,24 @@ impl BlockNode {
                 div()
                     .w_full()
                     .text_color(node_cx.style.muted_foreground())
-                    .border_l_3()
+                    .border_l_2()
                     .border_color(node_cx.style.border())
-                    .px_4()
+                    .pl(body_font_size(node_cx, window) * 0.9)
                     .children({
                         let children_len = children.len();
                         children.into_iter().enumerate().map(move |(index, c)| {
                             let is_last = index == children_len - 1;
-                            c.render_block(options.is_last(is_last), node_cx, window, cx)
+                            let (is_first, prev) = flow_position(children, index);
+                            c.render_block(
+                                NodeRenderOptions {
+                                    is_first,
+                                    prev,
+                                    ..options.is_last(is_last)
+                                },
+                                node_cx,
+                                window,
+                                cx,
+                            )
                         })
                     })
                     .into_any_element(),
@@ -3606,24 +4043,62 @@ impl BlockNode {
                 })
                 .into_any_element(),
             BlockNode::CodeBlock(code_block) => code_block.render(&options, node_cx, window, cx),
-            BlockNode::Custom(node) => {
+            BlockNode::Custom { node, state } => {
                 let inner = match node_cx.markdown_extensions.render_block(node, window, cx) {
                     Some(rendered) => rendered,
                     None => div().child(node.as_text().to_string()).into_any_element(),
                 };
 
-                div().pb(mb).child(inner).into_any_element()
+                div()
+                    .pb(mb)
+                    .child(CustomBlockElement {
+                        content: inner,
+                        state: state.clone(),
+                    })
+                    .into_any_element()
             }
             BlockNode::Table { .. } => {
-                Self::render_table(self, &options, node_cx, window, cx).into_any_element()
+                // Tables are data and read a step denser than the body. The
+                // columns are measured while rendering, so they are measured
+                // at the same size the cells are laid out with; the actions
+                // row below keeps the body size.
+                let text_size = body_font_size(node_cx, window) * (14. / 15.);
+                window.with_text_style(
+                    Some(TextStyleRefinement {
+                        font_size: Some(text_size.into()),
+                        ..Default::default()
+                    }),
+                    |window| {
+                        Self::render_table(self, &options, node_cx, text_size, window, cx)
+                            .into_any_element()
+                    },
+                )
             }
-            BlockNode::HorizontalRule { .. } => gapped(
+            BlockNode::HorizontalRule { .. } => {
+                // A section break: a hairline with more room around it than
+                // a paragraph gap. The previous block's own gap counts toward
+                // the space above, as with headings.
+                let space = rule_space(body_font_size(node_cx, window));
+                let top = if options.is_first || options.depth > 0 {
+                    px(0.)
+                } else {
+                    let above = match options.prev {
+                        PrevBlock::Rule => space,
+                        PrevBlock::Heading(level) => {
+                            heading_size(level, node_cx, window) * HEADING_BOTTOM_GAP
+                        }
+                        PrevBlock::Other => {
+                            node_cx.style.paragraph_gap().to_pixels(window.rem_size())
+                        }
+                    };
+                    (space - above).max(px(0.))
+                };
                 div()
-                    .bg(node_cx.style.border())
-                    .h(px(2.))
-                    .into_any_element(),
-                mb,
-            ),
+                    .pt(top)
+                    .when(!options.is_last, |this| this.pb(space))
+                    .child(div().bg(node_cx.style.border()).h(px(1.)))
+                    .into_any_element()
+            }
             BlockNode::Break { .. } => div().into_any_element(),
             BlockNode::Unknown { .. } | BlockNode::Definition { .. } => div().into_any_element(),
             _ => {
@@ -3640,6 +4115,112 @@ impl BlockNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn block_plugin_selection_copies_both_formats_and_clears_synchronously() {
+        let source = "$$\nx\n$$";
+        let mut node = MarkdownNode::new("math", ()).text("x").markdown(source);
+        node.set_span(Some(Span {
+            start: 0,
+            end: source.len(),
+        }));
+        let state = BlockState::default();
+        let same_content = BlockNode::Custom {
+            node: node.clone(),
+            state: BlockState::default(),
+        };
+        let block = BlockNode::Custom {
+            node,
+            state: state.clone(),
+        };
+        let document = crate::text::document::ParsedDocument {
+            source: source.into(),
+            blocks: Arc::new(vec![block.clone()]),
+        };
+        assert!(!block.has_selection());
+        state.set_selection(Some(BlockSelection::Full));
+        // Runtime selection does not affect parsed content equality.
+        assert_eq!(block, same_content);
+        for blocks in [None, Some(0..=0)] {
+            assert_eq!(
+                document.selected_text(SelectionFormat::Plain, blocks.clone()),
+                "x\n"
+            );
+            assert_eq!(
+                document.selected_text(SelectionFormat::Source, blocks),
+                source
+            );
+        }
+        assert_eq!(document.selected_source_range(), Some(0..source.len()));
+
+        // A clone shares the retained state, including clearing before repaint.
+        block.clear_selection();
+        assert!(!document.blocks[0].has_selection());
+        assert_eq!(
+            document.selected_text(SelectionFormat::Plain, Some(0..=0)),
+            ""
+        );
+        assert_eq!(document.selected_source_range(), None);
+    }
+
+    #[test]
+    fn block_plugin_empty_endpoint_suppresses_virtualized_copy_fallback() {
+        let state = BlockState::default();
+        let block = BlockNode::Custom {
+            node: MarkdownNode::new("math", ())
+                .text("formula")
+                .markdown("$$formula$$"),
+            state: state.clone(),
+        };
+        let after = CodeBlock::from_code("after", None::<SharedString>);
+        after.set_selection(0..5);
+        let document = crate::text::document::ParsedDocument {
+            blocks: Arc::new(vec![block, BlockNode::CodeBlock(after)]),
+            ..Default::default()
+        };
+        assert!(
+            document
+                .selected_text(SelectionFormat::Plain, Some(0..=1))
+                .contains("formula")
+        );
+        state.set_selection(Some(BlockSelection::Empty));
+        assert!(document.blocks[0].has_selection());
+        for format in [SelectionFormat::Plain, SelectionFormat::Source] {
+            let text = document.selected_text(format, Some(0..=1));
+            assert!(text.contains("after"));
+            assert!(!text.contains("formula"));
+        }
+    }
+
+    #[test]
+    fn block_plugin_geometry_selects_whole_blocks_in_both_drag_directions() {
+        let bounds = Bounds::new(gpui::point(px(10.), px(20.)), gpui::size(px(100.), px(40.)));
+        let inside = bounds.center();
+        let above = gpui::point(px(0.), px(0.));
+        let below = gpui::point(px(0.), px(80.));
+        for (start, end) in [(above, inside), (inside, below), (above, below)] {
+            assert!(custom_block_is_selected(bounds, start, end));
+            assert!(custom_block_is_selected(bounds, end, start));
+        }
+        assert!(!custom_block_is_selected(bounds, inside, inside));
+        // Pointer travel during a click, and any drag that never leaves the
+        // block, select nothing.
+        for (start, end) in [
+            (inside, inside + gpui::point(px(1.), px(0.))),
+            (
+                bounds.origin,
+                bounds.bottom_right() - gpui::point(px(1.), px(1.)),
+            ),
+        ] {
+            assert!(!custom_block_is_selected(bounds, start, end));
+            assert!(!custom_block_is_selected(bounds, end, start));
+        }
+        assert!(!custom_block_is_selected(
+            bounds,
+            gpui::point(px(150.), px(30.)),
+            gpui::point(px(160.), px(40.))
+        ));
+    }
 
     #[test]
     fn selected_inline_objects_coalesce_surrounding_emphasis() {
@@ -3852,7 +4433,7 @@ mod tests {
                     let (widths, shaped) = record_shaped_lines(|| {
                         measure_table_columns(&table, 2, &node_cx, window, cx)
                     });
-                    assert_eq!(widths, vec![40960. + CELL_PAD_PX + CELL_BORDER_PX, 176.]);
+                    assert_eq!(widths, vec![40960. + CELL_PAD_PX + CELL_BORDER_PX, 184.]);
                     assert!(shaped.iter().any(|line| line == &long));
                     assert_eq!(
                         table, uncached,
@@ -3891,7 +4472,7 @@ mod tests {
         in_prepaint(&mut app, move |window, cx| {
             window.set_rem_size(cached.rem_size);
             window.with_text_style(
-                Some(cached.text_style.subtract(&Default::default())),
+                Some(cached.text_styles.body.subtract(&Default::default())),
                 |window| {
                     measure_table_columns(&table, 2, &node_cx, window, cx);
                     assert!(!Arc::ptr_eq(&cached, &cached_column_widths(&table)));
@@ -3940,15 +4521,15 @@ mod tests {
         in_prepaint(&mut app, move |window, cx| {
             let mut previous = None;
             for (style, rem_size, family, inline_code, expected) in [
-                (base.clone(), 20., MONO, normal_code, [117., 195.]),
-                (base.clone(), 30., MONO, normal_code, [167., 282.5]),
-                (larger, 20., MONO, normal_code, [217., 370.]),
-                (bold, 20., MONO, normal_code, [167., 238.75]),
-                (mono, 20., MONO, normal_code, [217., 195.]),
-                (base.clone(), 20., MONO, normal_code, [117., 195.]),
-                (base.clone(), 20., BODY, normal_code, [117., 107.5]),
-                (base.clone(), 20., MONO, normal_code, [117., 195.]),
-                (base, 20., MONO, bold_code, [117., 238.75]),
+                (base.clone(), 20., MONO, normal_code, [125., 207.]),
+                (base.clone(), 30., MONO, normal_code, [175., 294.5]),
+                (larger, 20., MONO, normal_code, [225., 382.]),
+                (bold, 20., MONO, normal_code, [175., 250.75]),
+                (mono, 20., MONO, normal_code, [225., 207.]),
+                (base.clone(), 20., MONO, normal_code, [125., 207.]),
+                (base.clone(), 20., BODY, normal_code, [125., 119.5]),
+                (base.clone(), 20., MONO, normal_code, [125., 207.]),
+                (base, 20., MONO, bold_code, [125., 250.75]),
             ] {
                 let mut theme = crate::Theme::default();
                 theme.tokens.typography.mono = family.into();
@@ -3994,7 +4575,7 @@ mod tests {
             };
             window.with_text_style(Some(style.subtract(&Default::default())), |window| {
                 let mut previous = None;
-                for (text, expected) in [("longer cell", 126.), ("x", CELL_MIN_PX)] {
+                for (text, expected) in [("longer cell", 134.), ("x", CELL_MIN_PX)] {
                     let source = format!("| h |\n| - |\n| {text} |\n");
                     let document = markdown::parse(&source, &mut node_cx).unwrap();
                     let BlockNode::Table(table) = &document.blocks[0] else {

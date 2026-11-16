@@ -38,7 +38,6 @@ impl Workspace {
                 .w_full()
                 .flex_1()
                 .min_h_0()
-                .overflow_y_scroll()
                 .child(
                     h_flex()
                         .w_full()
@@ -77,49 +76,14 @@ impl Workspace {
                                         ),
                                 )
                                 .on_click(cx.listener(|view, _, window, cx| {
-                                    view.set_changes_expanded(false);
+                                    view.set_changes_expanded(false, cx);
                                     window.focus(&view.focus, cx);
                                     cx.notify();
                                 })),
                         )
                         .child(self.file_tree_toggle(cx).w(px(24.))),
                 )
-                .children(self.git_repositories.iter().map(|repository| {
-                    h_flex()
-                        .w_full()
-                        .min_w_0()
-                        .h(px(34.))
-                        .flex_shrink_0()
-                        .pl_3()
-                        .pr_1()
-                        .gap_2()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(
-                            Icon::new(gpui_kit::assets::IconName::FolderGit2)
-                                .size(px(14.))
-                                .flex_shrink_0(),
-                        )
-                        .child(
-                            div().flex_1().min_w_0().truncate().child(
-                                repository
-                                    .file_name()
-                                    .unwrap_or(repository.as_os_str())
-                                    .to_string_lossy()
-                                    .into_owned(),
-                            ),
-                        )
-                }))
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_h_0()
-                        .justify_center()
-                        .items_center()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(glim_services::locale::tr("Changes preview")),
-                )
+                .child(super::changes::Changes::navigation(&self.changes, cx))
                 .into_any_element();
         }
         h_flex()
@@ -131,7 +95,7 @@ impl Workspace {
             .cursor_pointer()
             .on_click(cx.listener(|view, _, window, cx| {
                 view.path_hint.hide();
-                view.set_changes_expanded(true);
+                view.set_changes_expanded(true, cx);
                 window.focus(&view.focus, cx);
                 cx.notify();
             }))
@@ -175,7 +139,7 @@ impl Workspace {
                     .on_click(cx.listener(|view, _, window, cx| {
                         cx.stop_propagation();
                         view.path_hint.hide();
-                        view.set_changes_expanded(true);
+                        view.set_changes_expanded(true, cx);
                         window.focus(&view.focus, cx);
                         cx.notify();
                     })),
@@ -192,7 +156,7 @@ impl Render for Workspace {
         let native_toolbar = std::rc::Rc::downgrade(&self.reader_toolbar);
         crate::views::reader::set_toolbar_host(
             crate::views::reader::ReaderToolbarHost::new(
-                self.reader_toolbar_collapsed,
+                self.reader_toolbar_collapsed && self.page == Page::Document,
                 std::rc::Rc::new(move |controls, window, cx| {
                     if let Some(owner) = owner.upgrade() {
                         owner.update(cx, |view, cx| view.content_toolbar(controls, window, cx))
@@ -300,6 +264,7 @@ impl Render for Workspace {
                 });
             });
         let content = match self.page {
+            Page::Changes => self.changes.clone().into_any_element(),
             Page::Settings => self.settings_page(cx),
             Page::Start => welcome(self, cx.entity_id(), cx).into_any_element(),
             Page::Document => match self.active.and_then(|i| self.tabs.get_mut(i)) {
@@ -496,7 +461,7 @@ impl Render for Workspace {
             .on_click(cx.listener(move |view, _, window, cx| {
                 if has_git {
                     view.path_hint.hide();
-                    view.set_changes_expanded(!view.changes_expanded);
+                    view.set_changes_expanded(!view.changes_expanded, cx);
                     window.focus(&view.focus, cx);
                     cx.notify();
                 }
@@ -524,7 +489,7 @@ impl Render for Workspace {
                     .on_click(cx.listener(|view, _, window, cx| {
                         cx.stop_propagation();
                         view.path_hint.hide();
-                        view.set_changes_expanded(!view.changes_expanded);
+                        view.set_changes_expanded(!view.changes_expanded, cx);
                         window.focus(&view.focus, cx);
                         cx.notify();
                     }))

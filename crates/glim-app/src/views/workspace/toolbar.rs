@@ -56,6 +56,15 @@ impl Workspace {
             .active_reader()
             .map_or("unavailable", |reader| reader.toolbar_profile());
         let mut candidates: std::collections::HashMap<_, _> = controls.into_iter().collect();
+        let profile = if self.page == Page::Changes {
+            "paged"
+        } else {
+            profile
+        };
+        if self.page == Page::Changes {
+            candidates.remove("hide-reader-toolbar");
+            candidates.remove("cancel-file-save");
+        }
         let sidebar = if !self.file_fullscreen {
             self.navigation_width()
         } else {
