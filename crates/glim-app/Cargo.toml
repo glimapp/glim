@@ -21,7 +21,7 @@ path = "benches/minimap_edit.rs"
 harness = false
 
 [features]
-default = ["git"]
+default = []
 git = ["glim-services/git"]
 macos-updater = []
 reader-measurements = ["gpui-kit/profiler"]

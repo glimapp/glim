@@ -32,6 +32,7 @@ jobs:
       CARGO_PROFILE_RELEASE_LTO: 'false'
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
       CARGO_INCREMENTAL: '0'
+      GLIM_ENABLE_GIT: '0'
       GLIM_ENABLE_UPDATER: '1'
       GLIM_BUILD_CHANNEL: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.intel-cross-compile) && 'release' || 'local' }}
       GLIM_DISTRIBUTION: ${{ github.repository == 'glimapp/glim' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'github-release' || 'development' }}
@@ -64,8 +65,8 @@ jobs:
         run: |
           glim_stage_started=$(date +%s)
           trap 'glim_stage_status=$?; printf "\n**Release executable**: %s seconds (exit %s)\n" "$(( $(date +%s) - glim_stage_started ))" "$glim_stage_status" >> "$GITHUB_STEP_SUMMARY"; exit "$glim_stage_status"' EXIT
-          cargo build --release --target ${{ matrix.target }} --features macos-updater --locked
-      - name: Verify telemetry distribution
+          cargo build --release --no-default-features --target ${{ matrix.target }} --features macos-updater --locked
+      - name: Verify build capabilities and distribution
         if: ${{ !inputs.intel-cross-compile }}
         env:
           DYLD_FRAMEWORK_PATH: ${{ env.GLIM_SPARKLE_DIR }}
@@ -74,6 +75,7 @@ jobs:
           import json, os, sys
           info = json.load(sys.stdin)
           expected = "release" if os.environ["GLIM_DISTRIBUTION"] == "github-release" else "debug"
+          assert info["git_available"] is False, info
           assert info["telemetry_environment"] == expected, info
           assert info["is_debug"] == (expected == "debug"), info
           print("Verified telemetry environment:", expected)
@@ -133,6 +135,7 @@ jobs:
           "$glim_bundle/Contents/MacOS/glim" --build-info | python3 -c '
           import json, sys
           info = json.load(sys.stdin)
+          assert info["git_available"] is False, info
           assert info["telemetry_environment"] == "debug", info
           assert info["is_debug"], info
           print(json.dumps(info, indent=2))

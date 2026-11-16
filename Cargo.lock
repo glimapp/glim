@@ -2556,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "glim-app"
-version = "0.2.26+hotfix.1"
+version = "0.2.27"
 dependencies = [
  "anyhow",
  "futures-channel",
@@ -2574,14 +2574,14 @@ dependencies = [
 
 [[package]]
 name = "glim-core"
-version = "0.2.26+hotfix.1"
+version = "0.2.27"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "glim-services"
-version = "0.2.26+hotfix.1"
+version = "0.2.27"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

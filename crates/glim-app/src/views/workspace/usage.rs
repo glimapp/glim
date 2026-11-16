@@ -105,18 +105,6 @@ impl Workspace {
         telemetry::track("workspace_layout_changed", props);
     }
 
-    pub(crate) fn git_capability_changed(&mut self, cx: &mut Context<Self>) {
-        self.git_discovery_task = None;
-        if glim_services::git::enabled() {
-            self.discover_git_repositories(cx);
-        } else {
-            self.git_repositories.clear();
-            self.set_changes_expanded(false, cx);
-            self.changes.update(cx, |view, cx| view.disable(cx));
-        }
-        cx.notify();
-    }
-
     pub(super) fn set_changes_expanded(&mut self, expanded: bool, cx: &mut Context<Self>) {
         let expanded = expanded && glim_services::git::enabled();
         if self.changes_expanded != expanded {

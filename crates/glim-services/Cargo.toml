@@ -22,7 +22,7 @@ path = "benches/diagram_cache.rs"
 harness = false
 
 [features]
-default = ["git"]
+default = []
 git = []
 
 [dependencies]

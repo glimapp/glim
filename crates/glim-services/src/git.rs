@@ -13,21 +13,14 @@ use std::{
     process::{Command, Stdio},
 };
 
-static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-
 pub const AVAILABLE: bool = cfg!(feature = "git");
 
 pub fn enabled() -> bool {
-    AVAILABLE && ENABLED.load(std::sync::atomic::Ordering::Acquire)
-}
-
-pub fn set_enabled(enabled: bool) {
-    ENABLED.store(enabled, std::sync::atomic::Ordering::Release);
+    AVAILABLE
 }
 
 pub fn ensure_enabled() -> Result<()> {
     ensure!(AVAILABLE, tr("Git is unavailable in this build"));
-    ensure!(enabled(), tr("Git is disabled"));
     Ok(())
 }
 
