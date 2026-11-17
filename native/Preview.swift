@@ -445,7 +445,7 @@ final class NativePreviewHost: NSView {
         layer?.mask = findMask
     }
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if let rect = findOverlay, rect.contains(convert(point, from: superview)) { return nil }
+        if !presentingSlides, let rect = findOverlay, rect.contains(convert(point, from: superview)) { return nil }
         return super.hitTest(point)
     }
     override func layout() { super.layout(); updateFindMask() }
