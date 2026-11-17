@@ -1,29 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="430" viewBox="0 0 960 430" role="img" aria-labelledby="title desc">
 <title id="title">glimapp/glim DMG installer download history</title>
-<desc id="desc">Daily observed totals for published GitHub DMG installers. Tracking began 2026-10-30. Latest: 398 on 2026-11-17. No earlier history is estimated.</desc>
+<desc id="desc">Daily observed totals for published GitHub DMG installers. Tracking began 2026-10-30. Latest: 403 on 2026-11-18. No earlier history is estimated.</desc>
 <rect x=".5" y=".5" width="959" height="429" rx="16" fill="#0d1117" stroke="#26313c"/>
 <g font-family="-apple-system, BlinkMacSystemFont, Arial, sans-serif">
 <text x="32" y="43" fill="#e6edf3" font-size="21" font-weight="650">DMG download history</text>
 <text x="32" y="69" fill="#919ba7" font-size="13">glimapp/glim · Daily snapshots · Asia/Shanghai</text>
-<text x="916" y="47" text-anchor="end" fill="#64d9bd" font-size="32" font-weight="700">398</text>
+<text x="916" y="47" text-anchor="end" fill="#64d9bd" font-size="32" font-weight="700">403</text>
 <text x="916" y="70" text-anchor="end" fill="#919ba7" font-size="12">DMG installer downloads</text>
 <path d="M78 354H912" stroke="#26313c"/>
 <text x="66" y="358" text-anchor="end" fill="#919ba7" font-size="12">0</text>
 <path d="M78 297.5H912" stroke="#26313c"/>
-<text x="66" y="301.5" text-anchor="end" fill="#919ba7" font-size="12">100</text>
+<text x="66" y="301.5" text-anchor="end" fill="#919ba7" font-size="12">200</text>
 <path d="M78 241H912" stroke="#26313c"/>
-<text x="66" y="245" text-anchor="end" fill="#919ba7" font-size="12">200</text>
+<text x="66" y="245" text-anchor="end" fill="#919ba7" font-size="12">400</text>
 <path d="M78 184.5H912" stroke="#26313c"/>
-<text x="66" y="188.5" text-anchor="end" fill="#919ba7" font-size="12">300</text>
+<text x="66" y="188.5" text-anchor="end" fill="#919ba7" font-size="12">600</text>
 <path d="M78 128H912" stroke="#26313c"/>
-<text x="66" y="132" text-anchor="end" fill="#919ba7" font-size="12">400</text>
-<path d="M78.00 215.57 L124.33 213.88 L170.67 207.67 L217.00 206.53 L263.33 199.75 L309.67 194.67 L356.00 190.15 L402.33 184.50 L448.67 177.16 L495.00 172.63 L541.33 168.68 L587.67 164.72 L634.00 161.33 L680.33 160.77 L726.67 148.91 L773.00 142.12 L819.33 140.43 L865.67 132.52 L912.00 129.13 L912.00 354 L78.00 354Z" fill="#64d9bd" fill-opacity=".08"/>
-<path d="M78.00 215.57 L124.33 213.88 L170.67 207.67 L217.00 206.53 L263.33 199.75 L309.67 194.67 L356.00 190.15 L402.33 184.50 L448.67 177.16 L495.00 172.63 L541.33 168.68 L587.67 164.72 L634.00 161.33 L680.33 160.77 L726.67 148.91 L773.00 142.12 L819.33 140.43 L865.67 132.52 L912.00 129.13" fill="none" stroke="#64d9bd" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="66" y="132" text-anchor="end" fill="#919ba7" font-size="12">800</text>
+<path d="M78.00 284.79 L121.89 283.94 L165.79 280.83 L209.68 280.27 L253.58 276.88 L297.47 274.34 L341.37 272.07 L385.26 269.25 L429.16 265.58 L473.05 263.32 L516.95 261.34 L560.84 259.36 L604.74 257.67 L648.63 257.38 L692.53 251.45 L736.42 248.06 L780.32 247.22 L824.21 243.26 L868.11 241.56 L912.00 240.15 L912.00 354 L78.00 354Z" fill="#64d9bd" fill-opacity=".08"/>
+<path d="M78.00 284.79 L121.89 283.94 L165.79 280.83 L209.68 280.27 L253.58 276.88 L297.47 274.34 L341.37 272.07 L385.26 269.25 L429.16 265.58 L473.05 263.32 L516.95 261.34 L560.84 259.36 L604.74 257.67 L648.63 257.38 L692.53 251.45 L736.42 248.06 L780.32 247.22 L824.21 243.26 L868.11 241.56 L912.00 240.15" fill="none" stroke="#64d9bd" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
 <text x="78.00" y="381" text-anchor="middle" fill="#919ba7" font-size="12">2026-10-30</text>
-<text x="263.33" y="381" text-anchor="middle" fill="#919ba7" font-size="12">2026-11-03</text>
-<text x="495.00" y="381" text-anchor="middle" fill="#919ba7" font-size="12">2026-11-08</text>
-<text x="726.67" y="381" text-anchor="middle" fill="#919ba7" font-size="12">2026-11-13</text>
-<text x="912.00" y="381" text-anchor="middle" fill="#919ba7" font-size="12">2026-11-17</text>
-<circle cx="912.00" cy="129.13" r="9" fill="#64d9bd" fill-opacity=".15"/><circle cx="912.00" cy="129.13" r="4.5" fill="#64d9bd"/>
+<text x="297.47" y="381" text-anchor="middle" fill="#919ba7" font-size="12">2026-11-04</text>
+<text x="516.95" y="381" text-anchor="middle" fill="#919ba7" font-size="12">2026-11-09</text>
+<text x="692.53" y="381" text-anchor="middle" fill="#919ba7" font-size="12">2026-11-13</text>
+<text x="912.00" y="381" text-anchor="middle" fill="#919ba7" font-size="12">2026-11-18</text>
+<circle cx="912.00" cy="240.15" r="9" fill="#64d9bd" fill-opacity=".15"/><circle cx="912.00" cy="240.15" r="4.5" fill="#64d9bd"/>
 <text x="32" y="409" fill="#919ba7" font-size="11">Recorded since 2026-10-30 · DMG installers only · Not unique users or installs</text>
 </g></svg>
