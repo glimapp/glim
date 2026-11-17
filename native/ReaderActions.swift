@@ -474,7 +474,7 @@ enum ReaderTelemetry {
         case "resetZoom": return 3
         case "actualSize": return 39
         case "fitImage": return 42
-        case "fit": return 41
+        case "fit": return 40
         case "fitToWidth": return 40
         case "nextPage", "next": return 5
         case "previousPage", "previous": return 6

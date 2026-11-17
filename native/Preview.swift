@@ -686,7 +686,7 @@ final class ReaderPDFView: PDFView {
     }
     @objc func fitToWidth() { ReaderTelemetry.record(2, 40); setFit(.width) }
     @objc func fitPage() { ReaderTelemetry.record(2, 41); setFit(.page) }
-    func fitInitialPage() { setFit(.page) }
+    func fitInitialWidth() { setFit(.width) }
     private func setFit(_ fit: Fit) {
         fitting = fit; autoScales = false; needsLayout = true; refit()
     }
@@ -1065,7 +1065,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         if pdf {
             toolbar.addArrangedSubview(button("−", #selector(zoomOut)).readerAction("zoom-out"))
             toolbar.addArrangedSubview(button("+", #selector(zoomIn)).readerAction("zoom-in"))
-            toolbar.addArrangedSubview(button(L("Fit page"), #selector(fit)).readerAction("fit"))
+            toolbar.addArrangedSubview(button(L("Fit width"), #selector(fit)).readerAction("fit"))
             let slideshow = button(L("Play Slideshow"), #selector(presentPDF))
             slideshow.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: L("Play Slideshow"))
             slideshow.imagePosition = .imageLeading
@@ -1087,7 +1087,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 pdfUnlockPassword = password.stringValue
                 password.stringValue = ""
             }
-            pdfView.document = document; pdfView.displayMode = .singlePageContinuous; pdfView.fitInitialPage()
+            pdfView.document = document; pdfView.displayMode = .singlePageContinuous; pdfView.fitInitialWidth()
             let search = PDFReaderFind(view: pdfView); pdfFind = search
             let find = ReaderFindSession(host: host, content: pdfView, telemetryKind: 2, search: { query, sensitive, backwards, changed, completion in
                 search.search(query, sensitive: sensitive, backwards: backwards, changed: changed, completion: completion)
@@ -1551,7 +1551,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     @objc func togglePlay() { ReaderTelemetry.record(5, 10, 0); if player.rate == 0 { player.play() } else { player.pause() } }
     @objc func zoomIn() { pdfView.zoomIn(nil) }
     @objc func zoomOut() { pdfView.zoomOut(nil) }
-    @objc func fit() { pdfView.fitPage() }
+    @objc func fit() { pdfView.fitToWidth() }
     // The workspace owns file watching; this controller only replaces its document.
     var canReloadPDF: Bool { !closed && pdf && !urls.isEmpty && pdfView.document != nil }
     func startPDFReload(completion: @escaping (PDFReloadOutcome) -> Void) {

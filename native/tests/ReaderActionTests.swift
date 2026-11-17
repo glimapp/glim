@@ -48,10 +48,9 @@ func readerPDFControls() {
     let pdf = ReaderPDFView(frame: window.contentView!.bounds)
     window.contentView!.addSubview(pdf)
     pdf.document = document; pdf.displayMode = .singlePage
-    pdf.fitInitialPage(); pdf.layoutSubtreeIfNeeded()
+    pdf.fitPage(); pdf.layoutSubtreeIfNeeded()
     func settle() { pdf.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05)) }
     settle()
-    precondition(PDFUsageRecorder.events.isEmpty, "Initial page fitting is not a user action")
     let clip = pdf.documentView!.enclosingScrollView!.contentView
     func show(_ point: NSPoint) -> NSPoint {
         let target = clip.convert(pdf.convert(point, from: page), from: pdf)
@@ -105,7 +104,7 @@ func readerPDFControls() {
     ReaderTelemetry.shortcut(2, 8, event: alternateLayout)
     precondition(PDFUsageRecorder.events.last!.token == 105 && PDFUsageRecorder.events.last!.y == 8,
                  "Recognized commands must retain their meaning when physical and logical keys differ")
-    precondition(ReaderTelemetry.action("fit") == 41 && ReaderTelemetry.action("fitToWidth") == 40 && ReaderTelemetry.action("actualSize") == 39)
+    precondition(ReaderTelemetry.action("fit") == 40 && ReaderTelemetry.action("fitToWidth") == 40 && ReaderTelemetry.action("actualSize") == 39)
     let character = page.characterBounds(at: 0)
     let textPoint = show(NSPoint(x: character.midX, y: character.midY))
     precondition(hit(textPoint) !== pdf, "Selectable text must remain with PDFKit")
@@ -175,7 +174,26 @@ func readerPDFControls() {
     nativeHost.findOverlay = nil
     precondition(nativeHost.layer!.mask == nil)
     nativeHost.removeFromSuperview()
-    pdf.removeFromSuperview(); window.close()
+    pdf.removeFromSuperview()
+    let widthPDF = ReaderPDFView(frame: window.contentView!.bounds)
+    window.contentView!.addSubview(widthPDF)
+    page.rotation = 0
+    widthPDF.document = document; widthPDF.displayMode = .singlePageContinuous
+    let recorded = PDFUsageRecorder.events.count
+    widthPDF.fitInitialWidth()
+    func checkWidthFit(_ width: CGFloat) {
+        widthPDF.frame.size.width = width
+        widthPDF.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let displayed = widthPDF.convert(page.bounds(for: widthPDF.displayBox), from: page)
+        let widthClip = widthPDF.documentView!.enclosingScrollView!.contentView
+        let viewport = widthPDF.convert(widthClip.bounds, from: widthClip)
+        precondition(displayed.width > viewport.width * 0.9 && displayed.width <= viewport.width,
+                     "Width fitting must fill the viewport horizontally: \(displayed) in \(viewport)")
+        precondition(displayed.height > viewport.height, "Width fitting must allow vertical scrolling on a tall page")
+    }
+    checkWidthFit(700); checkWidthFit(520); checkWidthFit(700)
+    precondition(PDFUsageRecorder.events.count == recorded, "Initial and automatic width fitting are not user actions")
+    widthPDF.removeFromSuperview(); widthPDF.document = nil; window.close()
     print("PDF controls, scrolling, native search backend and shared Find overlay routing: passed")
 }
 
