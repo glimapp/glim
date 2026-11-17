@@ -1224,7 +1224,8 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         preview.layer?.cornerRadius = 0
         preview.layer?.masksToBounds = true
         preview.translatesAutoresizingMaskIntoConstraints = false
-        preview.shouldCloseWithWindow = true
+        // The reader owns cleanup even when its window closes first.
+        preview.shouldCloseWithWindow = false
         preview.autostarts = true
         host.addSubview(preview)
         NSLayoutConstraint.activate([
@@ -1650,6 +1651,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     }
     func tableViewSelectionDidChange(_ notification: Notification) { if table.selectedRow >= 0 && table.selectedRow != index { play(table.selectedRow) } }
     func close() {
+        guard !closed else { return }
         closed = true
         pdfUnlockPassword = nil
         pdfReloadGeneration += 1; pdfReloadWork?.cancel(); pdfReloadWork = nil
@@ -1665,8 +1667,8 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         htmlPreview?.close()
         workbookPreview?.close()
         wordPreview?.close()
-        officeView?.previewItem = nil
         officeView?.close()
+        officeView = nil
         if !host.isHidden {
             host.isHidden = true
             host.updateAccessibility()

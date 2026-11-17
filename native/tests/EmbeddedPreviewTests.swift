@@ -42,6 +42,7 @@ struct EmbeddedPreviewTests {
         }
     }
     static func main() throws {
+        if CommandLine.arguments.contains("--quicklook-lifecycle-only") { try quickLookLifecycle(); return }
         if CommandLine.arguments.contains("--pdf-controls-only") { readerPDFControls(); return }
         try readerActionState()
         if CommandLine.arguments.contains("--toolbar-only") { return }
@@ -170,5 +171,41 @@ struct EmbeddedPreviewTests {
         glimPreviewRelease(invalid)
         precondition(NSApp.windows.filter { $0.isVisible }.count == visibleWindows)
         print("Embedded preview: layout, page retention, accessibility, playback lifecycle, release, cancelled load and error isolation passed")
+    }
+
+    static func quickLookLifecycle() throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("preview.pdf")
+        let document = PDFDocument()
+        let image = NSImage(size: NSSize(width: 300, height: 400), flipped: false) { rect in
+            NSColor.white.setFill(); rect.fill(); return true
+        }
+        document.insert(PDFPage(image: image)!, at: 0)
+        precondition(document.write(to: url))
+
+        for windowClosesFirst in [false, true] {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                                  styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let reader = NativePreviewController()
+            reader.urls = [url]
+            reader.host.frame = window.contentView!.bounds
+            window.contentView!.addSubview(reader.host)
+            // Exercise the Office Quick Look path with a local, generated document.
+            reader.showOffice(url)
+            guard let preview = reader.officeView else { preconditionFailure("Quick Look preview was not created") }
+            precondition(!preview.shouldCloseWithWindow, "The reader must be the sole owner of Quick Look cleanup")
+            pump()
+            if windowClosesFirst { window.close(); pump() }
+            reader.close()
+            precondition(reader.closed && reader.officeView == nil)
+            reader.close()
+            if !windowClosesFirst { window.close() }
+            pump()
+        }
+        print("Quick Look lifecycle: tab-first, window-first and repeated reader cleanup passed")
     }
 }
