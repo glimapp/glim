@@ -7,6 +7,59 @@ func glimPreviewFind(_ handle: UnsafeMutableRawPointer, _ show: Bool) -> Bool {
     if show && preview.canFind { preview.showFind() }
     return preview.canFind
 }
+@_cdecl("glim_preview_find_toggle")
+func glimPreviewFindToggle(_ handle: UnsafeMutableRawPointer) {
+    precondition(Thread.isMainThread)
+    let preview = Unmanaged<NativePreviewController>.fromOpaque(handle).takeUnretainedValue()
+    preview.findSession?.toggle()
+}
+
+@_cdecl("glim_preview_find_update")
+func glimPreviewFindUpdate(_ handle: UnsafeMutableRawPointer, _ open: Bool, _ focus: Bool) {
+    precondition(Thread.isMainThread)
+    let preview = Unmanaged<NativePreviewController>.fromOpaque(handle).takeUnretainedValue()
+    guard !open || preview.canFind else { return }
+    preview.findSession?.applyOpen(open)
+    if !open { preview.host.findOverlay = nil }
+    if focus {
+        if open { preview.host.window?.makeFirstResponder(preview.host.gpuiView) }
+        else { preview.findSession?.focusContent() }
+    }
+}
+
+@_cdecl("glim_preview_find_search")
+func glimPreviewFindSearch(_ handle: UnsafeMutableRawPointer, _ bytes: UnsafePointer<UInt8>, _ length: Int,
+                           _ sensitive: Bool, _ backwards: Bool, _ changed: Bool) {
+    precondition(Thread.isMainThread)
+    let preview = Unmanaged<NativePreviewController>.fromOpaque(handle).takeUnretainedValue()
+    preview.findSession?.run(String(decoding: UnsafeBufferPointer(start: bytes, count: length), as: UTF8.self),
+                             sensitive: sensitive, backwards: backwards, changed: changed)
+}
+
+@_cdecl("glim_preview_find_event")
+func glimPreviewFindEvent(_ handle: UnsafeMutableRawPointer) -> UnsafeMutablePointer<CChar>? {
+    precondition(Thread.isMainThread)
+    let preview = Unmanaged<NativePreviewController>.fromOpaque(handle).takeUnretainedValue()
+    if preview.findSession?.isOpen != true { preview.host.findOverlay = nil }
+    guard let event = preview.findSession?.takeEvent(),
+          let data = try? JSONSerialization.data(withJSONObject: event),
+          let text = String(data: data, encoding: .utf8) else { return nil }
+    return strdup(text)
+}
+
+@_cdecl("glim_preview_find_overlay")
+func glimPreviewFindOverlay(_ handle: UnsafeMutableRawPointer, _ parentPointer: UnsafeMutableRawPointer,
+                            _ x: Double, _ y: Double, _ width: Double, _ height: Double, _ radius: Double) {
+    precondition(Thread.isMainThread)
+    let preview = Unmanaged<NativePreviewController>.fromOpaque(handle).takeUnretainedValue()
+    guard preview.findSession?.isOpen == true else { preview.host.findOverlay = nil; return }
+    let gpui = Unmanaged<NSView>.fromOpaque(parentPointer).takeUnretainedValue()
+    let rect = NSRect(x: gpui.bounds.minX + x,
+                      y: gpui.isFlipped ? gpui.bounds.minY + y : gpui.bounds.maxY - y - height,
+                      width: width, height: height)
+    preview.host.findCornerRadius = radius
+    preview.host.findOverlay = preview.host.convert(rect, from: gpui)
+}
 
 // Opaque handles are retained by one Rust reader, and used only on the UI thread.
 @_cdecl("glim_preview_create")

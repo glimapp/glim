@@ -23,7 +23,7 @@ final class WordPreview: NSObject, WKNavigationDelegate {
     private var closed = false
     private var copyMonitor: Any?
     private var copyGeneration = 0
-    private(set) var findBar: ReaderFindBar?
+    private(set) var findBar: ReaderFindSession?
     var canFind: Bool { readingMode && !readingFailed }
     init(source: URL, imagePages _: Bool = false, reading: URL?, extraControls: [NSView]) {
         self.source = source; self.reading = reading
@@ -54,7 +54,7 @@ final class WordPreview: NSObject, WKNavigationDelegate {
         reset.target = self; reset.action = #selector(resetZoom)
         zoomLabel.alignment = .center; zoomLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         zoomLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 60).isActive = true
-        let find = ReaderFindBar.web(host: view, web: web, telemetryKind: 3); findBar = find
+        let find = ReaderFindSession.web(host: view, web: web, telemetryKind: 3); findBar = find
         let controls = ReaderControls([
             ReaderControl.find(find),
             ReaderControl("word-mode", mode),

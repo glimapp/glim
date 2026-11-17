@@ -2,34 +2,24 @@ import Cocoa
 import WebKit
 import PDFKit
 
-private final class ReaderFindPanel: NSView {
-    var inputFocused = false { didSet { needsDisplay = true } }
-    override var wantsUpdateLayer: Bool { true }
-    override func updateLayer() {
-        layer?.borderColor = (inputFocused ? NSColor.keyboardFocusIndicatorColor.withAlphaComponent(0.5) : NSColor.separatorColor).cgColor
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-    }
-}
-
-// Each native reader owns its search surface; it never changes document layout.
-final class ReaderFindBar: NSObject, NSTextFieldDelegate {
-    private let panel = ReaderFindPanel()
-    private let field = NSTextField()
-    private let caseButton = ReaderActionButton()
-    private let count = NSTextField(labelWithString: "")
-    private let previous = ReaderActionButton()
-    private let next = ReaderActionButton()
-    private let dismiss = ReaderActionButton()
+// The shared GPUI FindBar owns all search controls. Native readers retain only
+// backend state and route their toolbar/keyboard requests to that component.
+final class ReaderFindSession: NSObject {
     private weak var host: NSView?
     private weak var content: NSView?
     private var monitor: Any?
-    private var pending: DispatchWorkItem?
     private var generation = 0
+    private var revision = 0
+    private var polledRevision = -1
+    private var command = 0
+    private var label = ""
+    private var found = false
+    private var searching = false
     private let search: (String, Bool, Bool, Bool, @escaping (String, Bool) -> Void) -> Void
     private let cancel: () -> Void
     private let telemetryKind: Int32
     let button = ReaderActionButton()
-    var isOpen: Bool { !panel.isHidden }
+    private(set) var isOpen = false
 
     init(host: NSView, content: NSView, telemetryKind: Int32,
          search: @escaping (String, Bool, Bool, Bool, @escaping (String, Bool) -> Void) -> Void,
@@ -37,45 +27,11 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
         self.host = host; self.content = content; self.search = search; self.cancel = cancel
         self.telemetryKind = telemetryKind
         super.init()
-        panel.wantsLayer = true
-        panel.layer?.cornerRadius = 7; panel.layer?.borderWidth = 1
-        panel.layer?.borderColor = NSColor.separatorColor.cgColor
-        panel.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        panel.layer?.shadowOpacity = 0.08; panel.layer?.shadowRadius = 3
-        panel.layer?.shadowOffset = NSSize(width: 0, height: -2)
-        panel.translatesAutoresizingMaskIntoConstraints = false
-        panel.isHidden = true; host.addSubview(panel)
-        field.placeholderString = L("Find"); field.setAccessibilityLabel(L("Find"))
-        field.font = .systemFont(ofSize: 12); field.delegate = self
-        field.isBordered = false; field.drawsBackground = false; field.focusRingType = .none
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        configure(caseButton, label: L("Match case"), symbol: "textformat", action: #selector(toggleCase))
-        caseButton.selection = false
-        configure(previous, label: L("Previous match · Shift+Enter"), symbol: "chevron.up", action: #selector(previousMatch))
-        configure(next, label: L("Next match · Enter"), symbol: "chevron.down", action: #selector(nextMatch))
-        configure(dismiss, label: L("Close find · Esc"), symbol: "xmark", action: #selector(dismissFind))
-        configure(button, label: L("Find in file · ⌘F"), symbol: "magnifyingglass", action: #selector(toggle))
-        button.selection = false
-        count.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        count.alignment = .center; count.textColor = .secondaryLabelColor
-        count.widthAnchor.constraint(equalToConstant: 60).isActive = true
-        count.lineBreakMode = .byTruncatingTail
-        let row = NSStackView(views: [field, caseButton, count, previous, next, dismiss])
-        row.orientation = .horizontal; row.alignment = .centerY
-        row.spacing = 2; row.translatesAutoresizingMaskIntoConstraints = false
-        panel.addSubview(row)
-        let width = panel.widthAnchor.constraint(equalToConstant: 360); width.priority = .defaultHigh
-        NSLayoutConstraint.activate([
-            width, panel.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -12),
-            panel.leadingAnchor.constraint(greaterThanOrEqualTo: host.leadingAnchor, constant: 12),
-            panel.topAnchor.constraint(equalTo: host.topAnchor, constant: 12),
-            row.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 10),
-            row.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -5),
-            row.topAnchor.constraint(equalTo: panel.topAnchor, constant: 4),
-            row.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -4),
-            field.heightAnchor.constraint(equalToConstant: 20)
-        ])
+        let title = L("Find in file · ⌘F")
+        button.title = title; button.toolTip = title; button.setAccessibilityLabel(title)
+        button.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: title)
+        button.imagePosition = .imageOnly; button.isBordered = false; button.selection = false
+        button.target = self; button.action = #selector(toggle)
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self, let host = self.host, !host.isHiddenOrHasHiddenAncestor,
                   event.window === host.window,
@@ -85,129 +41,70 @@ final class ReaderFindBar: NSObject, NSTextFieldDelegate {
             let key = event.charactersIgnoringModifiers?.lowercased()
             if flags == .command && key == "f" {
                 ReaderTelemetry.shortcut(self.telemetryKind, 37, event: event)
-                ReaderTelemetry.withSource(2) { self.show() }; return nil
+                self.show(); return nil
             }
-            if !self.panel.isHidden {
-                if event.keyCode == 53 {
-                    ReaderTelemetry.shortcut(self.telemetryKind, 45, event: event)
-                    ReaderTelemetry.withSource(2) { self.dismissFind() }; return nil
-                }
-                if key == "g" && (flags == .command || flags == [.command, .shift]) {
-                    ReaderTelemetry.shortcut(self.telemetryKind, flags.contains(.shift) ? 44 : 43, event: event)
-                    ReaderTelemetry.withSource(2) {
-                        ReaderTelemetry.record(self.telemetryKind, flags.contains(.shift) ? 44 : 43)
-                        self.run(backwards: flags.contains(.shift), changed: false)
-                    }; return nil
-                }
+            if self.isOpen && event.keyCode == 53 { self.requestClose(); return nil }
+            if self.isOpen && key == "g" && (flags == .command || flags == [.command, .shift]) {
+                self.command = flags.contains(.shift) ? 4 : 3
+                self.revision += 1; return nil
             }
             return event
         }
     }
 
-    private func configure(_ button: NSButton, label: String, symbol: String, action: Selector) {
-        let toolbar = button === self.button
-        button.title = toolbar ? label : ""; button.toolTip = label; button.setAccessibilityLabel(label)
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
-            .withSymbolConfiguration(.init(pointSize: toolbar ? 16 : 12, weight: .medium))
-        button.imagePosition = .imageOnly; button.bezelStyle = .rounded
-        button.isBordered = false
-        button.target = self; button.action = action
-        button.widthAnchor.constraint(equalToConstant: toolbar ? 28 : 24).isActive = true
-        button.heightAnchor.constraint(equalToConstant: toolbar ? 28 : 24).isActive = true
-    }
-
-    @objc private func toggle() {
-        if isOpen { dismissFind() } else { show() }
-    }
-    @objc func show() {
+    @objc func toggle() { if isOpen { requestClose() } else { show() } }
+    func show() {
         guard content?.isHiddenOrHasHiddenAncestor == false else { return }
+        applyOpen(true); command = 1; revision += 1
         ReaderTelemetry.record(telemetryKind, 37)
-        panel.isHidden = false
-        button.selection = true
-        host?.addSubview(panel, positioned: .above, relativeTo: nil)
-        field.selectText(nil)
-        run(backwards: false, changed: true)
     }
-    @objc func hide() {
-        let window = host?.window
-        let restoreContentFocus: Bool
-        if !panel.isHiddenOrHasHiddenAncestor, let responder = window?.firstResponder {
-            restoreContentFocus = responder === field.currentEditor()
-                || (responder as? NSView)?.isDescendant(of: panel) == true
-        } else {
-            restoreContentFocus = false
-        }
-        generation += 1; pending?.cancel(); pending = nil; cancel()
-        panel.isHidden = true
-        button.selection = false
-        // Background resets must not move focus out of another reader or settings.
-        if restoreContentFocus { window?.makeFirstResponder(content) }
+    private func requestClose() {
+        hide(); command = 2; revision += 1
+        ReaderTelemetry.record(telemetryKind, 45)
     }
-    @objc private func dismissFind() { ReaderTelemetry.record(telemetryKind, 45); hide() }
-    @objc private func toggleCase() {
-        caseButton.selection = caseButton.selection != true
-        ReaderTelemetry.record(telemetryKind, 46, value: caseButton.selection == true ? 1 : 0)
-        run(backwards: false, changed: true)
+    func applyOpen(_ open: Bool) {
+        isOpen = open; button.selection = open; revision += 1
+        if !open { command = 0; resetSearch() }
     }
-    @objc private func previousMatch() { ReaderTelemetry.record(telemetryKind, 44); run(backwards: true, changed: pending != nil) }
-    @objc private func nextMatch() { ReaderTelemetry.record(telemetryKind, 43); run(backwards: false, changed: pending != nil) }
-    func controlTextDidBeginEditing(_ notification: Notification) { panel.inputFocused = true }
-    func controlTextDidEndEditing(_ notification: Notification) { panel.inputFocused = false }
-    func controlTextDidChange(_ notification: Notification) {
-        generation += 1; pending?.cancel(); cancel()
-        previous.isEnabled = false; next.isEnabled = false; count.stringValue = "…"
-        let work = DispatchWorkItem { [weak self] in self?.run(backwards: false, changed: true) }
-        pending = work; DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
-    }
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        if selector == #selector(NSResponder.insertNewline(_:)) {
-            if let event = NSApp.currentEvent, event.type == .keyDown {
-                let action: Int32 = event.modifierFlags.contains(.shift) ? 44 : 43
-                ReaderTelemetry.shortcut(telemetryKind, action, event: event)
-                ReaderTelemetry.record(telemetryKind, action)
-            }
-            run(backwards: NSApp.currentEvent?.modifierFlags.contains(.shift) == true, changed: pending != nil)
-            return true
-        }
-        if selector == #selector(NSResponder.cancelOperation(_:)) { hide(); return true }
-        return false
-    }
-    private func run(backwards: Bool, changed: Bool) {
-        let changed = changed || pending != nil
-        pending?.cancel(); pending = nil; generation += 1
+    func hide() { applyOpen(false) }
+    func focusContent() { host?.window?.makeFirstResponder(content) }
+    func run(_ query: String, sensitive: Bool, backwards: Bool, changed: Bool) {
+        generation += 1; cancel()
         let current = generation
-        let query = field.stringValue
-        if query.isEmpty {
-            cancel(); count.stringValue = ""; previous.isEnabled = false; next.isEnabled = false; return
-        }
-        count.stringValue = "…"; count.textColor = .secondaryLabelColor
-        previous.isEnabled = false; next.isEnabled = false
-        search(query, caseButton.state == .on, backwards, changed) { [weak self] label, found in
-            guard let self = self, self.generation == current, !self.panel.isHidden else { return }
-            self.count.stringValue = label
-            self.count.toolTip = label
-            self.count.textColor = label == L("No matches") ? .systemRed : .secondaryLabelColor
-            self.previous.isEnabled = found; self.next.isEnabled = found
+        label = query.isEmpty ? "" : "…"; found = false; searching = !query.isEmpty; revision += 1
+        guard isOpen, !query.isEmpty else { return }
+        search(query, sensitive, backwards, changed) { [weak self] label, found in
+            guard let self = self, self.generation == current, self.isOpen else { return }
+            self.label = label; self.found = found
+            self.searching = label == "…" || label.hasSuffix("+")
+            self.revision += 1
         }
     }
-    // Reset document-specific search without destroying the live keyboard monitor.
-    func prepareForDocumentReplacement() {
-        hide()
-        count.stringValue = ""; previous.isEnabled = false; next.isEnabled = false
+    private func resetSearch() {
+        generation += 1; cancel(); label = ""; found = false; searching = false
     }
+    func takeEvent() -> [String: Any]? {
+        guard polledRevision != revision else { return nil }
+        polledRevision = revision
+        let event: [String: Any] = ["command": command, "open": isOpen, "label": label,
+                                    "found": found, "searching": searching]
+        command = 0
+        return event
+    }
+    func prepareForDocumentReplacement() { hide(); command = 0; revision += 1 }
     func close() {
-        generation += 1; pending?.cancel(); pending = nil; cancel()
+        hide()
         if let monitor = monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
     }
     deinit { if let monitor = monitor { NSEvent.removeMonitor(monitor) } }
 
-    static func web(host: NSView, web: WKWebView, telemetryKind: Int32 = 7) -> ReaderFindBar {
-        ReaderFindBar(host: host, content: web, telemetryKind: telemetryKind, search: { [weak web] query, sensitive, backwards, _, completion in
+    static func web(host: NSView, web: WKWebView, telemetryKind: Int32 = 7) -> ReaderFindSession {
+        ReaderFindSession(host: host, content: web, telemetryKind: telemetryKind, search: { [weak web] query, sensitive, backwards, _, completion in
             guard let web = web else { return }
             let config = WKFindConfiguration()
             config.caseSensitive = sensitive; config.backwards = backwards; config.wraps = true
             web.find(query, configuration: config) { result in
-                // WebKit exposes match presence, not a total. Do not invent a count.
+                // WebKit exposes match presence, not a total.
                 completion(result.matchFound ? "" : L("No matches"), result.matchFound)
             }
         }, cancel: { [weak web] in web?.find("", configuration: WKFindConfiguration(), completionHandler: { _ in }) })

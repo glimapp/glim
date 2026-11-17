@@ -81,6 +81,8 @@ PDF 通过现有工作区文件监听参与刷新，经 `glim_preview_reload_pdf
 
 `reader/editing` 将文档会话接到现有保存流程，`reader/text` 处理源码／预览切换，`reader/projection` 持有一个可选表格或 JSON 投影。结构操作控件在装配时创建并持续保留，render 不再创建它们。Workspace 协调导航、标签排序、保存和持久化；工具栏／右键菜单继续通过 `workspace/reader_actions` 和原生 `ReaderActions`，数据投影不另建保存通道。
 
+`reader/find` 为源码、Markdown、PDF、HTML 和 Word 阅读模式提供同一个页内查找组件，统一输入框、计数、导航、焦点和关闭行为；工具栏按钮切换展开状态，⌘F 打开或聚焦。源码与 Markdown 继续使用 `SearchMatcher`，支持大小写、整词、正则及可编辑源码替换。`native/ReaderFind.swift` 只保留搜索会话和入口请求：WebKit 执行字面查找，PDFKit 异步计数、只保留当前选择并在跳转时重扫。共享组件按后端能力隐藏整词、正则和替换选项。`NativeReader` 保留组件，隐藏时取消事件任务；组件对后端使用弱引用，不延长准备数据的生命周期。面板将实际边界交给原生宿主，仅在该区域让出绘制和点击，正文视口不重新布局。分页编辑仍标明当前页范围；Quick Look、结构化表格／树和书籍预览不声明查找能力。
+
 ### 阅读后台任务
 
 `services/work/scheduler` 提供跨窗口、跨工作区共享的进程级异步准入。SQLite 显式接收调度器；生产注入全局实例，隔离测试宿主按同一策略创建独立实例。`app/reader_jobs` 先取得配额再启动后台工作，配额由真正执行阻塞操作的任务持有；丢弃排队 future 会移除等待项，取消运行中的 UI 任务只发出协作取消信号，不会提前释放仍在计算的配额。各优先级内保持 FIFO；视口、交互、视口、后台按加权周期推进，跳过空队列。可见图片、GIF 和图表批次使用视口优先级；运行中的解析器不被抢占。

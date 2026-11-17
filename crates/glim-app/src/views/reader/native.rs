@@ -8,7 +8,7 @@ use gpui_kit::{
     prelude::FluentBuilder,
     *,
 };
-use std::path::PathBuf;
+use std::{path::PathBuf, rc::Rc};
 
 pub(super) struct NativeReader {
     path: PathBuf,
@@ -18,7 +18,9 @@ pub(super) struct NativeReader {
     task: Option<Task<()>>,
     pdf_refresh_task: Option<Task<()>>,
     // Drop the native controller before its prepared data (including SQLite snapshots).
-    preview: Option<super::native_bridge::NativePreview>,
+    preview: Option<Rc<super::native_bridge::NativePreview>>,
+    find_bar: Option<Entity<super::find::FindBar>>,
+    find_events: Option<Task<()>>,
     prepared: Option<glim_services::preview::PreparedPreview>,
     error: Option<String>,
     obscured: bool,
@@ -31,6 +33,48 @@ pub(super) struct NativeReader {
     _html_navigation: Option<Task<()>>,
 }
 impl NativeReader {
+    pub(super) fn toggle_find(&self) {
+        if let Some(preview) = &self.preview {
+            preview.toggle_find();
+        }
+    }
+    fn start_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.find_events.is_some() {
+            return;
+        }
+        self.find_events = Some(cx.spawn_in(window, async move |reader, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(100))
+                    .await;
+                if reader
+                    .update_in(cx, |reader, window, cx| {
+                        let Some(preview) = &reader.preview else {
+                            return;
+                        };
+                        if reader.find_bar.is_none() && preview.find(false) {
+                            reader.find_bar = Some(cx.new(|cx| {
+                                super::find::FindBar::new(
+                                    super::find::Target::Native(Rc::downgrade(preview)),
+                                    window,
+                                    cx,
+                                )
+                            }));
+                            cx.notify();
+                        }
+                        if let Some(event) = preview.take_find_event()
+                            && let Some(find) = &reader.find_bar
+                        {
+                            find.update(cx, |find, cx| find.native_event(event, window, cx));
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
+    }
     pub(super) fn find(&self, show: bool) -> bool {
         self.preview
             .as_ref()
@@ -46,7 +90,9 @@ impl NativeReader {
     }
     pub fn openapi(path: PathBuf, configuration: &[u8]) -> Self {
         let mut reader = Self::browser(path, Some(String::new()));
-        reader.preview = Some(super::native_bridge::NativePreview::new(configuration));
+        reader.preview = Some(Rc::new(super::native_bridge::NativePreview::new(
+            configuration,
+        )));
         reader
     }
     fn browser(path: PathBuf, text: Option<String>) -> Self {
@@ -59,6 +105,8 @@ impl NativeReader {
             task: None,
             pdf_refresh_task: None,
             preview: None,
+            find_bar: None,
+            find_events: None,
             prepared: None,
             error: None,
             obscured: false,
@@ -116,7 +164,11 @@ impl NativeReader {
         });
         match request.encode() {
             Ok(configuration) => {
-                self.preview = Some(super::native_bridge::NativePreview::new(&configuration));
+                self.find_events = None;
+                self.find_bar = None;
+                self.preview = Some(Rc::new(super::native_bridge::NativePreview::new(
+                    &configuration,
+                )));
                 self.error = None;
             }
             Err(error) => self.error = Some(format!("{error:#}")),
@@ -263,6 +315,8 @@ impl NativeReader {
             task: None,
             pdf_refresh_task: None,
             preview: None,
+            find_bar: None,
+            find_events: None,
             prepared: None,
             error: None,
             obscured: false,
@@ -320,9 +374,11 @@ impl NativeReader {
                 v.task = None;
                 match result {
                     Ok(prepared) => {
-                        v.preview = Some(super::native_bridge::NativePreview::new(
+                        v.find_events = None;
+                        v.find_bar = None;
+                        v.preview = Some(Rc::new(super::native_bridge::NativePreview::new(
                             &prepared.configuration,
-                        ));
+                        )));
                         v.prepared = Some(prepared);
                     }
                     Err(e) => {
@@ -337,7 +393,9 @@ impl NativeReader {
     }
     pub(super) fn hide(&mut self) {
         self._html_navigation = None;
+        self.find_events = None;
         if let Some(preview) = &self.preview {
+            preview.update_find(false, false);
             preview.hide();
         }
     }
@@ -395,6 +453,7 @@ impl Render for NativeReader {
             && !glim_services::preview::is_image(&self.path)
             && !glim_services::preview::is_iwork(&self.path);
         if self.preview.is_some() {
+            self.start_find(window, cx);
             self.start_html_navigation(window, cx);
             let view = cx.entity();
             let surface = canvas(
@@ -406,11 +465,16 @@ impl Render for NativeReader {
                 |_, _, _, _| {},
             )
             .size_full();
-            return v_flex()
+            let content = v_flex()
                 .size_full()
                 .min_h_0()
                 .child(div().flex_1().min_h_0().w_full().child(surface))
                 .into_any_element();
+            return if let Some(find) = &self.find_bar {
+                super::find::wrap(content, find, 0.)
+            } else {
+                content
+            };
         }
         v_flex()
             .size_full()
@@ -457,6 +521,9 @@ impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntit
     }
     fn find(&self, _: &mut Window, cx: &mut App) {
         self.read(cx).find(true);
+    }
+    fn toggle_find(&self, _: &mut Window, cx: &mut App) {
+        self.read(cx).toggle_find();
     }
     fn kind(&self) -> &'static str {
         "native"

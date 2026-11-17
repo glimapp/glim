@@ -429,6 +429,26 @@ private final class SlideshowInput {
 }
 
 final class NativePreviewHost: NSView {
+    var findCornerRadius: CGFloat = 0
+    var findOverlay: NSRect? { didSet { if oldValue != findOverlay { updateFindMask() } } }
+    private let findMask = CAShapeLayer()
+    private func updateFindMask() {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard let rect = findOverlay, !rect.isEmpty, !presentingSlides else { layer?.mask = nil; return }
+        let path = CGMutablePath()
+        path.addRect(bounds)
+        path.addRoundedRect(in: rect, cornerWidth: findCornerRadius, cornerHeight: findCornerRadius)
+        findMask.frame = bounds; findMask.contentsScale = window?.backingScaleFactor ?? 1
+        findMask.path = path; findMask.fillRule = .evenOdd
+        findMask.fillColor = NSColor.black.cgColor
+        layer?.mask = findMask
+    }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let rect = findOverlay, rect.contains(convert(point, from: superview)) { return nil }
+        return super.hitTest(point)
+    }
+    override func layout() { super.layout(); updateFindMask() }
     var roundTopCorners = false {
         didSet {
             layer?.maskedCorners = roundTopCorners
@@ -895,9 +915,14 @@ enum PDFReloadOutcome {
 }
 
 final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-    private var findBar: ReaderFindBar?
+    private var findBar: ReaderFindSession?
     private var pdfFind: PDFReaderFind?
     var canFind: Bool { htmlPreview != nil || pdfFind != nil || wordPreview?.canFind == true }
+    var findSession: ReaderFindSession? {
+        if let html = htmlPreview { return html.findBar }
+        if let word = wordPreview { return word.findBar }
+        return findBar
+    }
     func showFind() {
         if let html = htmlPreview { html.findBar?.show() }
         else if let word = wordPreview, word.canFind { word.findBar?.show() }
@@ -1064,7 +1089,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
             }
             pdfView.document = document; pdfView.displayMode = .singlePageContinuous; pdfView.fitInitialPage()
             let search = PDFReaderFind(view: pdfView); pdfFind = search
-            let find = ReaderFindBar(host: host, content: pdfView, telemetryKind: 2, search: { query, sensitive, backwards, changed, completion in
+            let find = ReaderFindSession(host: host, content: pdfView, telemetryKind: 2, search: { query, sensitive, backwards, changed, completion in
                 search.search(query, sensitive: sensitive, backwards: backwards, changed: changed, completion: completion)
             }, cancel: { search.cancel() })
             findBar = find; toolbar.insertArrangedSubview(ReaderControl.find(find).view, at: 0)

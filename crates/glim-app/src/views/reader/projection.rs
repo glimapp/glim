@@ -33,6 +33,11 @@ impl Projection {
     pub fn find(&self, show: bool, cx: &App) -> bool {
         matches!(&self.view, View::OpenApi(view) if self.visible && view.read(cx).find(show, cx))
     }
+    pub fn toggle_find(&self, cx: &App) {
+        if let View::OpenApi(view) = &self.view {
+            view.read(cx).toggle_find(cx);
+        }
+    }
     pub fn new(presentation: &TextPresentation, file: Option<&Path>, cx: &mut App) -> Option<Self> {
         let view = if let Some(format) = presentation.table {
             View::Table {

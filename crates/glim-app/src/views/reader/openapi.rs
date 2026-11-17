@@ -120,6 +120,11 @@ impl OpenApiReader {
             .as_ref()
             .is_some_and(|browser| browser.read(cx).find(show))
     }
+    pub fn toggle_find(&self, cx: &App) {
+        if let Some(browser) = &self.browser {
+            browser.read(cx).toggle_find();
+        }
+    }
 }
 impl Render for OpenApiReader {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

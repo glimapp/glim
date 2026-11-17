@@ -139,35 +139,44 @@ func readerPDFControls() {
 
     let host = window.contentView!
     var sensitive = false
-    let find = ReaderFindBar(host: host, content: pdf, telemetryKind: 2, search: { _, matchCase, _, _, completion in
-        sensitive = matchCase; completion("1/3", true)
+    let subviewCount = host.subviews.count
+    var lateResult: ((String, Bool) -> Void)?
+    let find = ReaderFindSession(host: host, content: pdf, telemetryKind: 2, search: { _, matchCase, _, _, completion in
+        sensitive = matchCase; lateResult = completion; completion("1/3", true)
     })
     defer { find.close() }
     find.button.performClick(nil)
     precondition(find.isOpen && find.button.selection == true, "The toolbar must open and select Find")
     find.show()
     precondition(find.isOpen, "Repeated Command-F must keep Find open")
-    let panel = host.subviews.last!
-    let row = panel.subviews.first as! NSStackView
-    let input = row.arrangedSubviews.first as! NSTextField
-    input.stringValue = "text"; find.show()
-    let matchCase = row.arrangedSubviews[1] as! ReaderActionButton
-    matchCase.performClick(nil)
-    precondition(sensitive && matchCase.selection == true, "Match case must own its selected state")
-    matchCase.performClick(nil)
-    precondition(!sensitive && matchCase.selection == false)
-    for appearance in [NSAppearance.Name.aqua, .darkAqua] {
-        host.appearance = NSAppearance(named: appearance)
-        window.setContentSize(NSSize(width: 280, height: 500))
-        host.layoutSubtreeIfNeeded()
-        precondition(panel.frame.width <= host.bounds.width - 24 && panel.frame.height == 32,
-                     "Find must stay compact and inside a narrow reader")
-        precondition(input.frame.width > 40 && row.arrangedSubviews.allSatisfy { $0.frame.height > 0 })
-    }
+    precondition(host.subviews.count == subviewCount, "The native backend must not create another search UI")
+    precondition(find.takeEvent()?["command"] as? Int == 1)
+    find.run("text", sensitive: true, backwards: false, changed: true)
+    precondition(sensitive && find.takeEvent()?["label"] as? String == "1/3")
+    find.run("text", sensitive: false, backwards: true, changed: false)
+    precondition(!sensitive && find.takeEvent()?["found"] as? Bool == true)
     find.button.performClick(nil)
     precondition(!find.isOpen && find.button.selection == false, "The second toolbar click must close Find")
+    precondition(find.takeEvent()?["command"] as? Int == 2)
+    find.show(); find.hide()
+    precondition(find.takeEvent()?["command"] as? Int == 0, "Hiding a reader must discard a queued open request")
+    lateResult?("stale", true)
+    precondition(find.takeEvent() == nil, "A late backend result must not reopen or update closed Find")
+    let nativeHost = NativePreviewHost(frame: host.bounds)
+    nativeHost.wantsLayer = true; host.addSubview(nativeHost)
+    nativeHost.findCornerRadius = 6
+    nativeHost.findOverlay = NSRect(x: 100, y: 100, width: 200, height: 40)
+    let mask = nativeHost.layer!.mask as! CAShapeLayer
+    precondition(mask.frame == nativeHost.bounds, "The mask must cover the native viewport")
+    precondition(!mask.path!.contains(NSPoint(x: 150, y: 120), using: .evenOdd), "The shared GPUI panel must remain visible above native content")
+    precondition(mask.path!.contains(NSPoint(x: 50, y: 50), using: .evenOdd), "Document content outside Find must stay visible")
+    precondition(nativeHost.hitTest(host.convert(NSPoint(x: 150, y: 120), from: nativeHost)) == nil,
+                 "Search input must reach the shared GPUI controls")
+    nativeHost.findOverlay = nil
+    precondition(nativeHost.layer!.mask == nil)
+    nativeHost.removeFromSuperview()
     pdf.removeFromSuperview(); window.close()
-    print("PDF controls, text/link/form hit testing, scanned/rotated pages, panning, wheel scrolling and Find toggling/layout: passed")
+    print("PDF controls, scrolling, native search backend and shared Find overlay routing: passed")
 }
 
 private final class ActionRecorder: NSObject {

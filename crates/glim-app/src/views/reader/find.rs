@@ -15,11 +15,13 @@ use gpui_kit::{
 };
 
 actions!(reader_find, [NextMatch, PreviousMatch]);
+const PANEL_RADIUS: f32 = 6.;
 
 #[derive(Clone)]
 pub(super) enum Target {
     Editor(Entity<EditorState>),
     Preview(Entity<TextViewState>),
+    Native(std::rc::Weak<super::native_bridge::NativePreview>),
 }
 
 pub(super) struct FindBar {
@@ -34,6 +36,10 @@ pub(super) struct FindBar {
     error: bool,
     matcher: SearchMatcher,
     rendered: Option<RenderedText>,
+    native_label: String,
+    native_found: bool,
+    native_searching: bool,
+    hint: crate::views::path_hint::PathHint,
     pending: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -70,6 +76,7 @@ impl FindBar {
                     view.schedule(cx);
                 }
             })),
+            Target::Native(_) => {}
         }
         Self {
             target,
@@ -83,6 +90,10 @@ impl FindBar {
             error: false,
             matcher: SearchMatcher::new(),
             rendered: None,
+            native_label: String::new(),
+            native_found: false,
+            native_searching: false,
+            hint: Default::default(),
             pending: None,
             _subscriptions: subscriptions,
         }
@@ -92,6 +103,12 @@ impl FindBar {
         let selected = match &self.target {
             Target::Editor(editor) => editor.read(cx).selected_text().to_string(),
             Target::Preview(text) => text.read(cx).selected_text(),
+            Target::Native(preview) => {
+                if let Some(preview) = preview.upgrade() {
+                    preview.update_find(true, true);
+                }
+                String::new()
+            }
         };
         self.open = true;
         self.replace = replace && self.replaceable(cx);
@@ -109,6 +126,50 @@ impl FindBar {
         self.refresh(true, cx);
     }
 
+    pub fn toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open {
+            self.close(window, cx);
+        } else {
+            self.show(false, window, cx);
+        }
+    }
+
+    pub fn native_event(
+        &mut self,
+        event: super::native_bridge::FindEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event.command {
+            1 => {
+                self.show(false, window, cx);
+                return;
+            }
+            2 => {
+                self.close(window, cx);
+                return;
+            }
+            3 | 4 => {
+                self.step(event.command == 4, cx);
+                return;
+            }
+            _ => {}
+        }
+        if !event.open {
+            self.hint.hide();
+            if self.open && self.input.read(cx).focus_handle(cx).is_focused(window) {
+                self.close(window, cx);
+                return;
+            }
+            self.open = false;
+            self.pending = None;
+        }
+        self.native_label = event.label;
+        self.native_found = event.found;
+        self.native_searching = event.searching;
+        cx.notify();
+    }
+
     pub fn current_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.input.update(cx, |input, cx| {
             input.set_placeholder(tr("Find in current page"), window, cx)
@@ -116,6 +177,7 @@ impl FindBar {
     }
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.hint.hide();
         self.open = false;
         self.pending = None;
         match &self.target {
@@ -127,11 +189,21 @@ impl FindBar {
                 text.clear_range_highlights(cx);
                 text.focus_handle().focus(window, cx);
             }),
+            Target::Native(preview) => {
+                if let Some(preview) = preview.upgrade() {
+                    preview.update_find(false, true);
+                }
+            }
         }
         cx.notify();
     }
 
     fn schedule(&mut self, cx: &mut Context<Self>) {
+        if let Target::Native(preview) = &self.target
+            && let Some(preview) = preview.upgrade()
+        {
+            preview.search("", self.case_sensitive, false, true);
+        }
         self.pending = Some(cx.spawn(async move |view, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(120))
@@ -172,6 +244,14 @@ impl FindBar {
                     .is_err();
                 self.rendered = Some(rendered);
                 self.paint_preview(reveal, cx);
+            }
+            Target::Native(preview) => {
+                self.native_label.clear();
+                self.native_found = false;
+                self.native_searching = !query.is_empty();
+                if let Some(preview) = preview.upgrade() {
+                    preview.search(&query, self.case_sensitive, false, true);
+                }
             }
         }
         cx.notify();
@@ -223,6 +303,18 @@ impl FindBar {
                 }
                 self.paint_preview(true, cx);
             }
+            Target::Native(preview) => {
+                self.native_found = false;
+                self.native_searching = true;
+                if let Some(preview) = preview.upgrade() {
+                    preview.search(
+                        &self.input.read(cx).value(),
+                        self.case_sensitive,
+                        previous,
+                        false,
+                    );
+                }
+            }
         }
         cx.notify();
     }
@@ -264,31 +356,52 @@ impl FindBar {
             match &self.target {
                 Target::Editor(_) => "source",
                 Target::Preview(_) => "text_preview",
+                Target::Native(_) => "native",
             },
             action,
             extra,
         );
     }
 
-    fn control(id: &'static str, label: &str, icon: IconName) -> Button {
+    fn control(id: &'static str, label: &str, icon: IconName, cx: &mut Context<Self>) -> Button {
+        let label = tr(label);
+        let bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::default()));
+        let painted = bounds.clone();
         Button::new(id)
             .ghost()
             .small()
             .w(px(28.))
             .h(px(28.))
             .icon(Icon::new(icon).size(px(18.)))
-            .tooltip(tr(label))
-            .accessibility_label(tr(label))
+            .accessibility_label(label.clone())
+            .child(
+                canvas(move |rect, _, _| painted.set(rect), |_, _, _, _| {})
+                    .absolute()
+                    .inset_0(),
+            )
+            .on_hover(cx.listener(move |view, hovered: &bool, window, _| {
+                if *hovered {
+                    view.hint.show(&label, "", false, bounds.get(), window);
+                } else {
+                    view.hint.hide_for("", bounds.get());
+                }
+            }))
     }
 
-    fn option(id: &'static str, label: &str, icon: IconName, enabled: bool, cx: &App) -> Button {
+    fn option(
+        id: &'static str,
+        label: &str,
+        icon: IconName,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> Button {
         let accent = crate::views::accent(cx);
         let background = if enabled {
             cx.theme().popover.blend(accent.opacity(0.20))
         } else {
             cx.theme().transparent
         };
-        Self::control(id, label, icon)
+        Self::control(id, label, icon, cx)
             .toggled(enabled)
             .custom(
                 ButtonCustomVariant::new(cx)
@@ -320,12 +433,16 @@ impl Render for FindBar {
         if !self.open {
             return Empty.into_any_element();
         }
-        let matcher = match &self.target {
-            Target::Editor(editor) => &editor.read(cx).search_session().matcher,
-            Target::Preview(_) => &self.matcher,
+        let native = matches!(self.target, Target::Native(_));
+        let (label, is_empty) = match &self.target {
+            Target::Editor(editor) => {
+                let matcher = &editor.read(cx).search_session().matcher;
+                (matcher.label(), matcher.is_empty())
+            }
+            Target::Preview(_) => (self.matcher.label(), self.matcher.is_empty()),
+            Target::Native(_) => (self.native_label.clone(), !self.native_found),
         };
-        let label = matcher.label();
-        let empty = matcher.is_empty() || self.pending.is_some() || self.error;
+        let empty = is_empty || self.pending.is_some() || self.error || self.native_searching;
         let query_empty = self.input.read(cx).value().is_empty();
         let status = if self.error {
             div()
@@ -369,32 +486,35 @@ impl Render for FindBar {
                     view.refresh(true, cx);
                 })),
             )
-            .child(
-                Self::option(
-                    "find-word",
-                    "Match whole word",
-                    IconName::WholeWord,
-                    self.whole_word,
-                    cx,
-                )
-                .on_click(cx.listener(|view, _, _, cx| {
-                    view.whole_word = !view.whole_word;
-                    view.refresh(true, cx);
-                })),
-            )
-            .child(
-                Self::option(
-                    "find-regex",
-                    "Use regular expression",
-                    IconName::Regex,
-                    self.regex,
-                    cx,
-                )
-                .on_click(cx.listener(|view, _, _, cx| {
-                    view.regex = !view.regex;
-                    view.refresh(true, cx);
-                })),
-            );
+            .when(!native, |options| {
+                options
+                    .child(
+                        Self::option(
+                            "find-word",
+                            "Match whole word",
+                            IconName::WholeWord,
+                            self.whole_word,
+                            cx,
+                        )
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.whole_word = !view.whole_word;
+                            view.refresh(true, cx);
+                        })),
+                    )
+                    .child(
+                        Self::option(
+                            "find-regex",
+                            "Use regular expression",
+                            IconName::Regex,
+                            self.regex,
+                            cx,
+                        )
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.regex = !view.regex;
+                            view.refresh(true, cx);
+                        })),
+                    )
+            });
         let controls = h_flex()
             .flex_shrink_0()
             .gap(px(1.))
@@ -403,18 +523,20 @@ impl Render for FindBar {
                     "find-prev",
                     "Previous match · Shift+Enter",
                     IconName::ArrowUp,
+                    cx,
                 )
                 .disabled(empty)
                 .on_click(cx.listener(|view, _, _, cx| view.step(true, cx))),
             )
             .child(
-                Self::control("find-next", "Next match · Enter", IconName::ArrowDown)
+                Self::control("find-next", "Next match · Enter", IconName::ArrowDown, cx)
                     .disabled(empty)
                     .on_click(cx.listener(|view, _, _, cx| view.step(false, cx))),
             )
             .child(options);
         let panel = v_flex()
             .id("reader-find")
+            .relative()
             .w(px(400.))
             .max_w(relative(1.))
             .p(px(6.))
@@ -426,7 +548,7 @@ impl Render for FindBar {
             .text_size(px(13.))
             .border_1()
             .border_color(cx.theme().border)
-            .rounded(px(6.))
+            .rounded(px(PANEL_RADIUS))
             .shadow_sm()
             .on_action(cx.listener(|view, _: &Escape, window, cx| view.close(window, cx)))
             .on_action(cx.listener(|view, _: &Search, window, cx| view.show(false, window, cx)))
@@ -448,6 +570,7 @@ impl Render for FindBar {
                                 } else {
                                     IconName::ChevronRight
                                 },
+                                cx,
                             )
                             .on_click(cx.listener(|view, _, _, cx| {
                                 view.replace = !view.replace;
@@ -470,9 +593,10 @@ impl Render for FindBar {
                                         .text_center()
                                         .text_color(
                                             if self.error
-                                                || (matcher.is_empty()
+                                                || (is_empty
                                                     && !query_empty
-                                                    && self.pending.is_none())
+                                                    && self.pending.is_none()
+                                                    && !self.native_searching)
                                             {
                                                 cx.theme().danger
                                             } else {
@@ -485,7 +609,7 @@ impl Render for FindBar {
                     )
                     .child(controls)
                     .child(
-                        Self::control("find-close", "Close find · Esc", IconName::X)
+                        Self::control("find-close", "Close find · Esc", IconName::X, cx)
                             .on_click(cx.listener(|view, _, window, cx| view.close(window, cx))),
                     ),
             )
@@ -511,17 +635,25 @@ impl Render for FindBar {
                                 .flex_shrink_0()
                                 .gap(px(4.))
                                 .child(
-                                    Self::control("find-replace-one", "Replace", IconName::Replace)
-                                        .disabled(empty)
-                                        .on_click(cx.listener(|view, _, window, cx| {
+                                    Self::control(
+                                        "find-replace-one",
+                                        "Replace",
+                                        IconName::Replace,
+                                        cx,
+                                    )
+                                    .disabled(empty)
+                                    .on_click(cx.listener(
+                                        |view, _, window, cx| {
                                             view.replace_matches(false, window, cx)
-                                        })),
+                                        },
+                                    )),
                                 )
                                 .child(
                                     Self::control(
                                         "find-replace-all",
                                         "Replace all",
                                         IconName::ReplaceAll,
+                                        cx,
                                     )
                                     .disabled(empty)
                                     .on_click(cx.listener(
@@ -531,6 +663,24 @@ impl Render for FindBar {
                                     )),
                                 ),
                         ),
+                )
+            })
+            .when(native, |panel| {
+                let Target::Native(preview) = &self.target else {
+                    unreachable!()
+                };
+                let preview = preview.clone();
+                panel.child(
+                    canvas(
+                        move |bounds, window, _| {
+                            if let Some(preview) = preview.upgrade() {
+                                preview.find_overlay(bounds, PANEL_RADIUS, window);
+                            }
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .inset_0(),
                 )
             })
             .into_any_element();

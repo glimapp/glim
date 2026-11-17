@@ -41,6 +41,9 @@ pub trait ReaderView {
         false
     }
     fn find(&self, _window: &mut Window, _cx: &mut App) {}
+    fn toggle_find(&self, window: &mut Window, cx: &mut App) {
+        self.find(window, cx);
+    }
     fn kind(&self) -> &'static str;
     fn render(&mut self, cx: &mut App) -> AnyElement;
     fn operations(&self) -> ReaderOperations<'_> {

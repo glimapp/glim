@@ -432,7 +432,7 @@ impl super::Workspace {
             ToolbarAction::Extract => self.extract_archive(window, cx),
             ToolbarAction::Find => {
                 if let Some(reader) = self.active_reader() {
-                    reader.find(window, cx);
+                    reader.toggle_find(window, cx);
                 }
             }
             ToolbarAction::CancelExtract => {

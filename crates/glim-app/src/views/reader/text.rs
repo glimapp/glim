@@ -24,7 +24,10 @@ impl Reader {
     }
 
     pub fn find(&self, window: &mut Window, cx: &mut App) {
-        self.show_find(false, window, cx);
+        self.show_find(false, false, window, cx);
+    }
+    pub fn toggle_find(&self, window: &mut Window, cx: &mut App) {
+        self.show_find(false, true, window, cx);
     }
     pub fn replace(&self, window: &mut Window, cx: &mut App) {
         if self.mode() == glim_core::ReaderMode::Source
@@ -32,27 +35,39 @@ impl Reader {
                 .editor()
                 .is_some_and(|editor| editor.read(cx).is_replaceable())
         {
-            self.show_find(true, window, cx);
+            self.show_find(true, false, window, cx);
         }
     }
-    fn show_find(&self, replace: bool, window: &mut Window, cx: &mut App) {
+    fn show_find(&self, replace: bool, toggle: bool, window: &mut Window, cx: &mut App) {
         if !self.can_find(cx) {
             return;
         }
         if let Some(view) = &self.projection
             && view.visible()
         {
-            view.find(true, cx);
+            if toggle {
+                view.toggle_find(cx);
+            } else {
+                view.find(true, cx);
+            }
             return;
         }
         match &self.renderer {
             Renderer::Surface(view) => {
-                view.find(window, cx);
+                if toggle {
+                    view.toggle_find(window, cx);
+                } else {
+                    view.find(window, cx);
+                }
                 return;
             }
             Renderer::Markup(m) if m.preview && m.html => {
                 if let Some(view) = &m.browser {
-                    view.read(cx).find(true);
+                    if toggle {
+                        view.read(cx).toggle_find();
+                    } else {
+                        view.read(cx).find(true);
+                    }
                 }
                 return;
             }
@@ -60,13 +75,23 @@ impl Reader {
                 html: Some((view, true)),
                 ..
             } => {
-                view.read(cx).find(true);
+                if toggle {
+                    view.read(cx).toggle_find();
+                } else {
+                    view.read(cx).find(true);
+                }
                 return;
             }
             Renderer::Paged { view, .. } => {
                 if let Some(editor) = &view.read(cx).source_editor {
                     let find = editor.find.clone();
-                    find.update(cx, |find, cx| find.show(replace, window, cx));
+                    find.update(cx, |find, cx| {
+                        if toggle {
+                            find.toggle(window, cx);
+                        } else {
+                            find.show(replace, window, cx);
+                        }
+                    });
                 }
                 return;
             }
@@ -76,7 +101,13 @@ impl Reader {
             Renderer::Markup(m) if m.preview && !m.html => &m.find,
             _ => &self.source().expect("searchable source").find,
         };
-        find.update(cx, |find, cx| find.show(replace, window, cx));
+        find.update(cx, |find, cx| {
+            if toggle {
+                find.toggle(window, cx);
+            } else {
+                find.show(replace, window, cx);
+            }
+        });
     }
     pub fn preview_text_state(&self) -> Option<Entity<gpui_kit::base::TextViewState>> {
         match &self.renderer {

@@ -37,7 +37,7 @@ flowchart TD
 
 ## 新增格式
 
-正文查找通过可选的 `ReaderView::can_find`／`find` 能力暴露，入口复用共享阅读器操作；查找界面、取消与匹配状态由持久阅读器拥有。源码和 Markdown 使用 `reader/find`，原生 HTML、PDF 和 Word 阅读模式使用 `ReaderFind.swift`。后端无法查找的模式不应声明该能力。
+正文查找通过可选的 `ReaderView::can_find`／`find`／`toggle_find` 能力暴露，入口复用共享阅读器操作，持久阅读器拥有查找状态。源码、Markdown 以及原生 HTML／PDF／Word 阅读模式均组合 `reader/find`。原生 `ReaderFind.swift` 只提供后端状态和操作请求，不再创建查找界面；原生宿主按共享面板的实际边界让出绘制与点击区域。按后端能力隐藏不支持的选项，无法查找的模式不应声明该能力。
 
 1. 在 `assets/format-catalog.json` 更新后缀集合、提供者及相关关联／图标预期，运行 `python3 scripts/generate-format-catalog.py --write`。文件名语言规则和内容探测保留代码实现，目录声明不授予编辑权限。
 2. 在服务层实现识别与准备，保留容器路由顺序、取消及完整源后备；适合时复用 `documents::Content`／`TextPresentation`。

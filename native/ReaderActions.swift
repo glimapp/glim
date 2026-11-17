@@ -85,7 +85,7 @@ struct ReaderControl {
         guard let id = view.identifier?.rawValue else { preconditionFailure("Reader control requires an action ID") }
         self.init(id, view)
     }
-    static func find(_ bar: ReaderFindBar) -> ReaderControl { ReaderControl("find-in-file", bar.button) }
+    static func find(_ bar: ReaderFindSession) -> ReaderControl { ReaderControl("find-in-file", bar.button) }
 }
 
 final class ReaderControls {

@@ -107,7 +107,7 @@ final class HTMLPreview: NSObject, WKNavigationDelegate {
     private var anchor: String?
     var pendingNavigation: String?
     var didLoad: (() -> Void)?
-    private(set) var findBar: ReaderFindBar?
+    private(set) var findBar: ReaderFindSession?
     init(document: URL, contents: String?, apiDatabase: String? = nil) {
         self.document = document.standardizedFileURL
         var components = URLComponents()
@@ -163,7 +163,7 @@ final class HTMLPreview: NSObject, WKNavigationDelegate {
             DispatchQueue.main.async { [weak gpui] in gpui?.keyDown(with: event) }
             return nil
         }
-        findBar = ReaderFindBar.web(host: view, web: web)
+        findBar = ReaderFindSession.web(host: view, web: web)
         web.load(URLRequest(url: documentURL))
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {

@@ -252,6 +252,26 @@ unsafe extern "C" {
         complete: extern "C" fn(*mut c_void, i32),
     ) -> bool;
     fn glim_preview_find(handle: *mut c_void, show: bool) -> bool;
+    fn glim_preview_find_toggle(handle: *mut c_void);
+    fn glim_preview_find_update(handle: *mut c_void, open: bool, focus: bool);
+    fn glim_preview_find_search(
+        handle: *mut c_void,
+        bytes: *const u8,
+        length: usize,
+        sensitive: bool,
+        backwards: bool,
+        changed: bool,
+    );
+    fn glim_preview_find_event(handle: *mut c_void) -> *mut std::ffi::c_char;
+    fn glim_preview_find_overlay(
+        handle: *mut c_void,
+        parent: *mut c_void,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        radius: f64,
+    );
     fn glim_preview_release(handle: *mut c_void);
     fn glim_preview_take_navigation(handle: *mut c_void) -> *mut std::ffi::c_char;
     fn glim_preview_free_string(string: *mut std::ffi::c_char);
@@ -264,7 +284,79 @@ pub(super) struct NativePreview {
     // owner from ever being moved into a background task.
     _main_thread: PhantomData<Rc<()>>,
 }
+
+pub(super) struct FindEvent {
+    pub command: i32,
+    pub open: bool,
+    pub label: String,
+    pub found: bool,
+    pub searching: bool,
+}
 impl NativePreview {
+    pub fn toggle_find(&self) {
+        // SAFETY: main-thread retained controller; the call queues a UI request.
+        unsafe { glim_preview_find_toggle(self.handle.as_ptr()) }
+    }
+    pub fn update_find(&self, open: bool, focus: bool) {
+        // SAFETY: the retained controller and its view are main-thread owned.
+        unsafe { glim_preview_find_update(self.handle.as_ptr(), open, focus) }
+    }
+    pub fn search(&self, query: &str, sensitive: bool, backwards: bool, changed: bool) {
+        // SAFETY: Swift copies the query before returning; no Rust pointer escapes.
+        unsafe {
+            glim_preview_find_search(
+                self.handle.as_ptr(),
+                query.as_ptr(),
+                query.len(),
+                sensitive,
+                backwards,
+                changed,
+            )
+        }
+    }
+    pub fn take_find_event(&self) -> Option<FindEvent> {
+        // SAFETY: Swift returns an owned UTF-8 string freed through the matching API.
+        unsafe {
+            let pointer = glim_preview_find_event(self.handle.as_ptr());
+            if pointer.is_null() {
+                return None;
+            }
+            let event = serde_json::from_slice::<serde_json::Value>(
+                std::ffi::CStr::from_ptr(pointer).to_bytes(),
+            )
+            .ok();
+            glim_preview_free_string(pointer);
+            event.and_then(|value| {
+                Some(FindEvent {
+                    command: value.get("command")?.as_i64()?.try_into().ok()?,
+                    open: value.get("open")?.as_bool()?,
+                    label: value.get("label")?.as_str()?.to_owned(),
+                    found: value.get("found")?.as_bool()?,
+                    searching: value.get("searching")?.as_bool()?,
+                })
+            })
+        }
+    }
+    pub fn find_overlay(&self, bounds: Bounds<Pixels>, radius: f32, window: &Window) {
+        let Ok(handle) = HasWindowHandle::window_handle(window) else {
+            return;
+        };
+        let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+            return;
+        };
+        // SAFETY: both views belong to this live window; the rectangle is copied.
+        unsafe {
+            glim_preview_find_overlay(
+                self.handle.as_ptr(),
+                handle.ns_view.as_ptr(),
+                f32::from(bounds.origin.x) as f64,
+                f32::from(bounds.origin.y) as f64,
+                f32::from(bounds.size.width) as f64,
+                f32::from(bounds.size.height) as f64,
+                radius as f64,
+            )
+        }
+    }
     pub fn start_pdf_reload(&self) -> Option<futures_channel::oneshot::Receiver<PdfReloadResult>> {
         // The channel carries exactly one completion. Swift owns the boxed sender
         // only after acceptance, including when Rust drops the receiving task.
