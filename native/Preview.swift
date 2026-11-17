@@ -565,6 +565,10 @@ final class ReaderPDFView: PDFView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let hit = super.hitTest(point) else { return nil }
+        // Panning only owns left-button input. Wheel and gesture events must
+        // reach PDFKit's document/scroll view, including over page whitespace.
+        if let event = NSApp.currentEvent,
+           ![NSEvent.EventType.leftMouseDown, .leftMouseDragged, .leftMouseUp].contains(event.type) { return hit }
         // Leave text, annotations, scrollers and modified clicks with PDFKit.
         let modifiers: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
         guard NSApp.currentEvent?.modifierFlags.intersection(modifiers).isEmpty != false,

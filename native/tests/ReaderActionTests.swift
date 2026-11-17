@@ -126,8 +126,48 @@ func readerPDFControls() {
     let scanned = PDFDocument(); scanned.insert(PDFPage(image: image)!, at: 0)
     pdf.document = scanned; pdf.scaleFactor = 2; settle()
     precondition(hit(NSPoint(x: pdf.bounds.midX, y: pdf.bounds.midY)) === pdf, "Scanned pages must support panning")
+    let wheel = NSEvent(cgEvent: CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                                       wheel1: -100, wheel2: 0, wheel3: 0)!)!
+    NSApp.postEvent(wheel, atStart: true)
+    let received = NSApp.nextEvent(matching: .scrollWheel, until: Date(timeIntervalSinceNow: 1), inMode: .default, dequeue: true)!
+    let scrollHit = hit(NSPoint(x: pdf.bounds.midX, y: pdf.bounds.midY))!
+    precondition(scrollHit !== pdf, "Wheel events over scanned/blank pages must reach PDFKit's scroll view")
+    let scrollClip = pdf.documentView!.enclosingScrollView!.contentView
+    let scrollBefore = scrollClip.bounds.origin
+    scrollHit.scrollWheel(with: received)
+    precondition(scrollClip.bounds.origin != scrollBefore, "Wheel input must actually move the PDF viewport")
+
+    let host = window.contentView!
+    var sensitive = false
+    let find = ReaderFindBar(host: host, content: pdf, telemetryKind: 2, search: { _, matchCase, _, _, completion in
+        sensitive = matchCase; completion("1/3", true)
+    })
+    defer { find.close() }
+    find.button.performClick(nil)
+    precondition(find.isOpen && find.button.selection == true, "The toolbar must open and select Find")
+    find.show()
+    precondition(find.isOpen, "Repeated Command-F must keep Find open")
+    let panel = host.subviews.last!
+    let row = panel.subviews.first as! NSStackView
+    let input = row.arrangedSubviews.first as! NSTextField
+    input.stringValue = "text"; find.show()
+    let matchCase = row.arrangedSubviews[1] as! ReaderActionButton
+    matchCase.performClick(nil)
+    precondition(sensitive && matchCase.selection == true, "Match case must own its selected state")
+    matchCase.performClick(nil)
+    precondition(!sensitive && matchCase.selection == false)
+    for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+        host.appearance = NSAppearance(named: appearance)
+        window.setContentSize(NSSize(width: 280, height: 500))
+        host.layoutSubtreeIfNeeded()
+        precondition(panel.frame.width <= host.bounds.width - 24 && panel.frame.height == 32,
+                     "Find must stay compact and inside a narrow reader")
+        precondition(input.frame.width > 40 && row.arrangedSubviews.allSatisfy { $0.frame.height > 0 })
+    }
+    find.button.performClick(nil)
+    precondition(!find.isOpen && find.button.selection == false, "The second toolbar click must close Find")
     pdf.removeFromSuperview(); window.close()
-    print("PDF controls, text/link/form hit testing, scanned/rotated pages and panning: passed")
+    print("PDF controls, text/link/form hit testing, scanned/rotated pages, panning, wheel scrolling and Find toggling/layout: passed")
 }
 
 private final class ActionRecorder: NSObject {
