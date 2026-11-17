@@ -778,18 +778,12 @@ fn parse_paragraph(
             text.push_str(&parse_inline_children(source, paragraph, &val.children, cx));
         }
         Node::Text(val) => {
-            // A CommonMark *soft* break lives inside this value as a plain
-            // line ending. The renderer treats a newline in a text run as a
-            // line break, so a paragraph hard-wrapped in the source would
-            // render one visual line per source line instead of reflowing to
-            // the available width. Collapse soft breaks to spaces; *hard*
-            // breaks never reach here, they arrive as their own Node::Break.
-            //
-            // mdast hands the line ending over exactly as the source wrote it,
-            // so a CRLF document still carries its carriage return here. Take
-            // the CR with the newline: dropping only the newline would strand
-            // the CR in the middle of the reflowed line.
-            text = val.value.replace("\r\n", " ").replace(['\n', '\r'], " ");
+            // Normalize source line endings before choosing how soft breaks render.
+            text = if cx.markdown_extensions.preserve_soft_breaks {
+                val.value.replace("\r\n", "\n").replace('\r', "\n")
+            } else {
+                val.value.replace("\r\n", " ").replace(['\n', '\r'], " ")
+            };
             paragraph.push(mapped_inline(source, text.clone(), node, cx))
         }
         Node::Emphasis(val) => {

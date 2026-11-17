@@ -514,6 +514,7 @@ impl Drop for DiagramPreview {
 
 fn extensions(snapshot: Snapshot, owner: WeakEntity<DiagramPreview>) -> MarkdownExtensions {
     MarkdownExtensions::default()
+        .preserve_soft_breaks()
         .frontmatter()
         .parser_revision(REVISION.fetch_add(1, Ordering::Relaxed))
         .plugin(DiagramPlugin {

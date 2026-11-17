@@ -246,6 +246,7 @@ impl PartialEq for MarkdownNode {
 pub struct MarkdownExtensions {
     enable_mdx: bool,
     enable_frontmatter: bool,
+    pub(crate) preserve_soft_breaks: bool,
     block_parsers: Vec<Arc<MarkdownBlockParserFn>>,
     block_renderers: HashMap<SharedString, Arc<MarkdownBlockRenderFn>>,
     inline_parsers: Vec<Arc<MarkdownInlineParserFn>>,
@@ -255,6 +256,13 @@ pub struct MarkdownExtensions {
 }
 
 impl MarkdownExtensions {
+    /// Render paragraph line endings as line breaks instead of spaces.
+    pub fn preserve_soft_breaks(mut self) -> Self {
+        self.preserve_soft_breaks = true;
+        self.bump_revision();
+        self
+    }
+
     /// Change this revision when parser captures or plugin configuration change.
     /// Reusing it allows equivalent registrations rebuilt during rendering to
     /// retain the parsed document. Renderer-only changes do not need a new value.
@@ -352,6 +360,7 @@ impl MarkdownExtensions {
         self.parser_revision == other.parser_revision
             && self.enable_mdx == other.enable_mdx
             && self.enable_frontmatter == other.enable_frontmatter
+            && self.preserve_soft_breaks == other.preserve_soft_breaks
             && self.block_parsers.len() == other.block_parsers.len()
             && self.block_renderers.len() == other.block_renderers.len()
             && self.inline_parsers.len() == other.inline_parsers.len()
