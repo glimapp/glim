@@ -50,7 +50,7 @@ markdown = "=1.0.0"
 csv = "1"
 sys-locale = "0.3"
 sysinfo = { version = "=0.31.4", default-features = false, features = ["system"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9.7.0", default-features = false, features = ["deflate-flate2", "deflate-zopfli"] }
 tar = "0.4"
 flate2 = "1"
 crc32fast = "=1.5.2"

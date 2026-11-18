@@ -94,7 +94,8 @@ pub(super) fn prepare(
     for index in 0..archive.len() {
         cancel.check()?;
         let mut entry = archive.by_index(index)?;
-        if entry.name() == "word/document.xml" {
+        let name = entry.name()?;
+        if name == "word/document.xml" {
             output.start_file(
                 "word/document.xml",
                 zip::write::SimpleFileOptions::default()
@@ -104,7 +105,7 @@ pub(super) fn prepare(
         } else {
             let options =
                 zip::write::SimpleFileOptions::default().compression_method(entry.compression());
-            output.start_file(entry.name(), options)?;
+            output.start_file(name, options)?;
             cancel.copy(&mut entry, &mut output)?;
         }
     }

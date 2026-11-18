@@ -36,7 +36,7 @@ pub fn read_cancellable(path: &Path, cancel: &crate::work::Cancellation) -> Resu
         cancel: cancel.clone(),
     })
     .context(ReadStage("container"))?;
-    let modern = archive.file_names().any(|name| name == "content.json");
+    let modern = archive.index_for_name("content.json").is_some();
     let mut entry = archive
         .by_name(if modern {
             "content.json"
@@ -403,7 +403,7 @@ pub fn read_source(
         inner: std::fs::File::open(path)?,
         cancel: cancel.clone(),
     })?;
-    let modern = archive.file_names().any(|name| name == "content.json");
+    let modern = archive.index_for_name("content.json").is_some();
     drop(archive);
     crate::paged::zip_member(
         path,

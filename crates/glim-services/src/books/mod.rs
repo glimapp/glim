@@ -303,11 +303,14 @@ fn read_structured(path: &Path, cancel: &crate::work::Cancellation) -> Result<Bo
     } else {
         let bytes = if name.ends_with(".zip") {
             let mut package = archive(path)?;
-            let entries = package
-                .file_names()
-                .filter(|v| v.to_ascii_lowercase().ends_with(".fb2"))
-                .map(str::to_owned)
-                .collect::<Vec<_>>();
+            let mut entries = Vec::new();
+            for name in package.file_names() {
+                cancel.check()?;
+                let name = name?;
+                if name.to_ascii_lowercase().ends_with(".fb2") {
+                    entries.push(name.into_owned());
+                }
+            }
             ensure!(entries.len() == 1, "FB2 ZIP must contain exactly one book");
             entry(&mut package, &entries[0], TEXT_LIMIT, cancel)?
         } else {
@@ -345,7 +348,7 @@ fn empty(path: &Path, format: Format) -> Result<Book> {
 }
 fn epub(path: &Path, cancel: &crate::work::Cancellation) -> Result<Book> {
     let mut package = archive(path)?;
-    if package.file_names().any(|v| v == "META-INF/encryption.xml") {
+    if package.index_for_name("META-INF/encryption.xml").is_some() {
         let value = decode(&entry(
             &mut package,
             "META-INF/encryption.xml",
@@ -506,20 +509,21 @@ fn epub(path: &Path, cancel: &crate::work::Cancellation) -> Result<Book> {
 fn comic(path: &Path, cancel: &crate::work::Cancellation) -> Result<Book> {
     let mut package = archive(path)?;
     let mut book = empty(path, Format::Comic)?;
-    let mut images = package
-        .file_names()
-        .filter(|name| {
-            matches!(
-                name.rsplit('.')
-                    .next()
-                    .unwrap_or_default()
-                    .to_ascii_lowercase()
-                    .as_str(),
-                "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
-            )
-        })
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
+    let mut images = Vec::new();
+    for name in package.file_names() {
+        cancel.check()?;
+        let name = name?;
+        if matches!(
+            name.rsplit('.')
+                .next()
+                .unwrap_or_default()
+                .to_ascii_lowercase()
+                .as_str(),
+            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
+        ) {
+            images.push(name.into_owned());
+        }
+    }
     images.sort_by_cached_key(|name| natural_key(name));
     for href in images {
         ensure!(
@@ -532,7 +536,7 @@ fn comic(path: &Path, cancel: &crate::work::Cancellation) -> Result<Book> {
             html: None,
         });
     }
-    if package.file_names().any(|s| s == "ComicInfo.xml") {
+    if package.index_for_name("ComicInfo.xml").is_some() {
         let metadata = decode(&entry(
             &mut package,
             "ComicInfo.xml",
@@ -967,11 +971,11 @@ fn source_book(path: &Path, cancel: &crate::work::Cancellation) -> Result<Book> 
         for index in 0..package.len() {
             cancel.check()?;
             let entry = package.by_index(index)?;
-            let name = entry.name();
             if !entry.is_dir() {
+                let name = entry.name()?.into_owned();
                 book.chapters.push(Chapter {
-                    href: name.to_owned(),
-                    title: name.to_owned(),
+                    href: name.clone(),
+                    title: name,
                     html: None,
                 });
             }

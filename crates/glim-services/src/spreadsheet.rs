@@ -120,10 +120,7 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
     pages::initialize(&cache)?;
     pages::resources(&mut archive, directory.path(), &cache, cancel)?;
     cache.execute_batch("BEGIN")?;
-    if archive
-        .file_names()
-        .any(|name| name == "xl/sharedStrings.xml")
-    {
+    if archive.index_for_name("xl/sharedStrings.xml").is_some() {
         let (mut value, mut id, mut in_text) = (String::new(), 0_i64, false);
         let mut phonetic = 0_usize;
         scan(&mut archive, "xl/sharedStrings.xml", cancel, |event, _| {

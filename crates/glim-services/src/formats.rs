@@ -49,10 +49,11 @@ pub fn read_preview_cancellable(path: &Path, cancel: &Cancellation) -> Result<Te
                 for index in 0..archive.len() {
                     cancel.check()?;
                     let mut entry = archive.by_index(index)?;
+                    let name = entry.name()?;
                     writeln!(
                         text,
                         "{} · {} bytes{}",
-                        crate::archive::name(&entry),
+                        name,
                         entry.size(),
                         if entry.enclosed_name().is_some() {
                             String::new()
@@ -60,9 +61,8 @@ pub fn read_preview_cancellable(path: &Path, cancel: &Cancellation) -> Result<Te
                             crate::locale::tr(" · Unsafe extraction path")
                         }
                     )?;
-                    if (matches!(ext.as_str(), "odt" | "ods" | "odp")
-                        && entry.name() == "content.xml")
-                        || (ext == "epub" && entry.name().ends_with(".xhtml"))
+                    if (matches!(ext.as_str(), "odt" | "ods" | "odp") && name == "content.xml")
+                        || (ext == "epub" && name.ends_with(".xhtml"))
                     {
                         // Preserve large XML completely in source form rather than rejecting it.
                         let mut prefix = Vec::new();
