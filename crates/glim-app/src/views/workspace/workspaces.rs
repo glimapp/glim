@@ -11,6 +11,7 @@ use gpui_kit::{
     prelude::FluentBuilder,
     *,
 };
+use std::collections::HashSet;
 
 const COLLAPSED_WORKSPACE_FONT_SIZE: f32 = 14.;
 const COLLAPSED_WORKSPACE_TEXT_PADDING: f32 = 4.;
@@ -19,25 +20,39 @@ fn workspace_list_height(count: usize) -> f32 {
     (count as f32 * (super::WORKSPACE_ROW_HEIGHT + 4.) - 4.).max(0.)
 }
 
-fn workspace_short_name(title: &str, window: &Window, cx: &App) -> String {
-    let title = title.lines().next().unwrap_or_default();
-    let mut font = font(cx.theme().font_family.clone());
-    font.weight = FontWeight::MEDIUM;
-    let line = window.text_system().shape_line(
-        title.to_owned().into(),
-        px(COLLAPSED_WORKSPACE_FONT_SIZE),
-        &[TextRun {
-            len: title.len(),
-            font,
-            color: cx.theme().foreground,
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        }],
-        None,
-    );
-    let text_width = super::COLLAPSED_WORKSPACE_ROW_WIDTH - 2. * COLLAPSED_WORKSPACE_TEXT_PADDING;
-    title[..line.index_for_x(px(text_width)).unwrap_or(title.len())].to_owned()
+fn workspace_abbreviation(title: &str, used: &mut HashSet<String>) -> String {
+    let mut words = title
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|word| !word.is_empty());
+    let mut first_word = words
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .flat_map(char::to_uppercase);
+    let initial = first_word.next().unwrap_or('W');
+
+    // Prefer characters from the next word so shared prefixes stay recognizable.
+    let suffixes = words
+        .flat_map(str::chars)
+        .flat_map(char::to_uppercase)
+        .chain(first_word)
+        .chain('A'..='Z')
+        .chain('0'..='9');
+    for suffix in suffixes {
+        let abbreviation = String::from_iter([initial, suffix]);
+        if used.insert(abbreviation.clone()) {
+            return abbreviation;
+        }
+    }
+
+    let mut number = 1;
+    loop {
+        let abbreviation = format!("{number:02}");
+        if used.insert(abbreviation.clone()) {
+            return abbreviation;
+        }
+        number += 1;
+    }
 }
 
 struct PinnedWorkspaceList {
@@ -291,7 +306,6 @@ impl Workspace {
     pub(super) fn collapsed_workspace_navigation(
         &self,
         outline: &super::layout::WorkspaceOutline,
-        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let slots = self
@@ -317,6 +331,7 @@ impl Workspace {
             .unwrap_or_default();
         let count = slots.len();
         let mut pinned = None;
+        let mut abbreviations = HashSet::with_capacity(count);
         let list = v_flex()
             .id("collapsed-workspaces")
             .min_h_0()
@@ -369,7 +384,8 @@ impl Workspace {
                         .text_size(px(COLLAPSED_WORKSPACE_FONT_SIZE))
                         .line_height(px(18.))
                         .font_weight(FontWeight::MEDIUM)
-                        .child(workspace_short_name(&title, window, cx)),
+                        .whitespace_nowrap()
+                        .child(workspace_abbreviation(&title, &mut abbreviations)),
                 )
                 .tooltip(title.clone())
                 .accessibility_label(title)
