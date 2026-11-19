@@ -205,15 +205,12 @@ impl Render for Workspace {
         let navigation_width = sidebar_width + explorer_width;
         let header_width = navigation_width.max(self.header_controls_width(window, cx));
         let rounded_header_join = header_width - navigation_width > 0.5;
-        let header_cutout = rounded_header_join.then(|| {
-            size(
-                px(header_width - navigation_width),
-                px(super::TITLE_BAR_HEIGHT),
-            )
-        });
         let has_tabs = self.page == Page::Document
             && (!self.tabs.is_empty() || self.pending_open_path().is_some());
-        let align_file_tree_top = has_tabs && !rounded_header_join;
+        // The tab bar's one-pixel bottom border sits inside its height.
+        let header_divider_y = px(super::TITLE_BAR_HEIGHT) - px(if has_tabs { 1. } else { 0. });
+        let header_cutout = rounded_header_join
+            .then(|| size(px(header_width - navigation_width), header_divider_y));
         let tab_bar = self.tab_bar((header_width - navigation_width).max(0.), window, cx);
         let header = self.header(None, rounded_header_join, cx);
         let view = cx.entity().downgrade();
@@ -617,12 +614,9 @@ impl Render for Workspace {
         } else {
             file_tree.into_any_element()
         };
-        // The tab bar's one-pixel bottom border sits inside its height.
-        let file_tree_top =
-            px(super::TITLE_BAR_HEIGHT) - px(if align_file_tree_top { 1. } else { 0. });
         let file_tree = div()
             .size_full()
-            .pt(file_tree_top)
+            .pt(header_divider_y)
             .child(file_tree)
             .into_any_element();
         let viewer = if self.file_fullscreen {
@@ -919,7 +913,7 @@ impl Render for Workspace {
                 cx.stop_propagation();
             }))
             .child(body)
-            .child(outline.render(align_file_tree_top, cx))
+            .child(outline.render(has_tabs, cx))
             .when(!self.file_fullscreen, |view| {
                 view.child(
                     div()

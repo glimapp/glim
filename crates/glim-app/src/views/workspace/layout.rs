@@ -28,6 +28,10 @@ pub(super) fn reader_frame(
             let radius = px(12.)
                 .min(bounds.size.width / 2.)
                 .min(bounds.size.height / 2.);
+            let joined_tree = tree.get().is_some_and(|tree| {
+                (tree.right() - bounds.left()).abs() <= px(1.)
+                    && (tree.bottom() - bounds.bottom()).abs() <= px(1.)
+            });
             let cutout = header_cutout.map(|size| bounds.origin + point(size.width, size.height));
             if let Some(cutout) = cutout {
                 let inset = px(0.5);
@@ -48,7 +52,11 @@ pub(super) fn reader_frame(
                     ),
                     (
                         point(bounds.left() + inset, cutout.y + inset),
-                        px(6.) - inset,
+                        if joined_tree {
+                            Pixels::ZERO
+                        } else {
+                            px(6.) - inset
+                        },
                     ),
                     (cutout + point(inset, inset), px(6.) + inset),
                 ];
@@ -88,10 +96,7 @@ pub(super) fn reader_frame(
                 trace(&mut mask);
                 if let Ok(mask) = mask.build() {
                     window.paint_path(mask.clone(), outside);
-                    if tree.get().is_some_and(|tree| {
-                        (tree.right() - bounds.left()).abs() <= px(1.)
-                            && (tree.bottom() - bounds.bottom()).abs() <= px(1.)
-                    }) {
+                    if joined_tree {
                         window.with_content_mask(
                             Some(ContentMask {
                                 bounds: Bounds::new(
@@ -129,12 +134,7 @@ pub(super) fn reader_frame(
                 );
                 path.close();
                 if let Ok(path) = path.build() {
-                    let connected_corner = x > 0.
-                        && y < 0.
-                        && tree.get().is_some_and(|tree| {
-                            (tree.right() - bounds.left()).abs() <= px(1.)
-                                && (tree.bottom() - bounds.bottom()).abs() <= px(1.)
-                        });
+                    let connected_corner = x > 0. && y < 0. && joined_tree;
                     window.paint_path(path, if connected_corner { surface } else { outside });
                 }
             }
