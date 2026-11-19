@@ -44,6 +44,7 @@ impl Workspace {
                         .filter(|reader| {
                             reader.document.remote.is_some()
                                 && !reader.document.trashed
+                                && !reader.is_dirty()
                                 && !reader.refresh_busy(cx)
                         })
                         .map(|reader| reader.document.path.clone())
@@ -56,7 +57,7 @@ impl Workspace {
                     if let Some(reader) = view
                         .active
                         .and_then(|index| view.tabs.get(index))
-                        .filter(|reader| !reader.document.trashed)
+                        .filter(|reader| !reader.document.trashed && !reader.is_dirty())
                     {
                         selected.retain(|path| *path != reader.document.path);
                         selected.insert(0, reader.document.path.clone());
@@ -106,7 +107,11 @@ impl Workspace {
                             }) else {
                                 return;
                             };
-                            if view.loading || view.tabs[index].refresh_busy(cx) {
+                            if view.loading
+                                || view.is_saving()
+                                || view.tabs[index].is_dirty()
+                                || view.tabs[index].refresh_busy(cx)
+                            {
                                 return;
                             }
                             match result {
@@ -128,6 +133,7 @@ impl Workspace {
                                         reader.deactivate(cx);
                                     }
                                     view.tabs[index] = reader;
+                                    view.observe_autosave(window, cx);
                                     cx.notify();
                                 }
                                 Ok(None) => {}

@@ -186,6 +186,7 @@ pub struct FileStamp {
     pub size: Option<u64>,
     pub modified: Option<u32>,
     pub mode: u32,
+    pub owner: Option<(u32, u32)>,
 }
 
 pub type RemoteVersion = BTreeMap<PathBuf, Option<FileStamp>>;

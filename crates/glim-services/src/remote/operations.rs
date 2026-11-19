@@ -1,4 +1,4 @@
-use super::{Session, sftp::Sftp};
+use super::{RemoteVersion, Session, sftp::Sftp};
 use crate::{locale::tr, work::Cancellation};
 use anyhow::{Context, Result, ensure};
 use std::path::{Component, Path, PathBuf};
@@ -22,6 +22,80 @@ fn entry_path(transport: &mut Sftp, path: &Path, cancel: &Cancellation) -> Resul
     Ok(parent.join(name))
 }
 impl Session {
+    pub fn save_text(
+        &self,
+        path: &Path,
+        expected: &str,
+        text: &str,
+        mut version: RemoteVersion,
+        cancel: &Cancellation,
+    ) -> Result<RemoteVersion> {
+        ensure!(!text.contains('\0'), "Text contains a null byte");
+        self.with_transport(cancel, |transport| {
+            let entry = entry_path(transport, path, cancel)?;
+            let target = transport.realpath(&entry, cancel)?;
+            let original = transport
+                .lstat_optional(&target, cancel)?
+                .context("The remote file was moved or deleted")?;
+            ensure!(
+                original.mode & 0o170000 == 0o100000 && original.mode & 0o222 != 0,
+                "Remote file is not a writable regular file"
+            );
+            transport.check_writable(&target, cancel)?;
+            let changed = "Remote file changed on the server. Your edits are still open.";
+            if !matches_remote_text(transport, &target, expected, cancel)? {
+                // A reply can be lost after the server has applied a replacement.
+                ensure!(
+                    matches_remote_text(transport, &target, text, cancel)?,
+                    changed
+                );
+                ensure!(
+                    transport.realpath(path, cancel)? == target
+                        && transport.lstat_optional(&target, cancel)?.as_ref() == Some(&original),
+                    changed
+                );
+                version.insert(path.to_path_buf(), Some(original));
+                return Ok(version);
+            }
+
+            // Use a private, exclusively created sibling so replacement stays on the same filesystem.
+            let nonce = tempfile::Builder::new().prefix(".glim-save-").tempfile()?;
+            let temporary =
+                target.with_file_name(nonce.path().file_name().context("Invalid save file name")?);
+            let watch = transport.watch(cancel);
+            let handle = transport.open_exclusive(&temporary)?;
+            let result = (|| {
+                let uploaded = transport.upload(&handle, text.as_bytes(), cancel);
+                let closed = transport.close_handle(&handle);
+                uploaded?;
+                closed?;
+                let temporary_stamp = transport.stat(&temporary, cancel)?;
+                transport.copy_save_attributes(&temporary, &original, &temporary_stamp)?;
+                let saved = transport.stat(&temporary, cancel)?;
+                ensure!(
+                    saved.mode == original.mode && saved.owner == original.owner,
+                    "Could not preserve remote file permissions"
+                );
+                ensure!(
+                    matches_remote_text(transport, &target, expected, cancel)?
+                        && transport.realpath(path, cancel)? == target
+                        && transport.lstat_optional(&target, cancel)?.as_ref() == Some(&original),
+                    changed
+                );
+                cancel.check()?;
+                transport.replace_file(&temporary, &target)?;
+                version.insert(path.to_path_buf(), Some(saved));
+                Ok(version)
+            })();
+            drop(watch);
+            if result.is_err() && transport.healthy() {
+                let _cleanup = transport.watch(&Cancellation::default());
+                let _ = transport.remove_save_file(&temporary);
+            }
+            result
+        })
+    }
+
     pub(crate) fn git_path_exists(&self, path: &Path, cancel: &Cancellation) -> Result<bool> {
         self.with_transport(cancel, |transport| {
             Ok(transport.stat_optional(path, cancel)?.is_some())
@@ -141,9 +215,70 @@ impl Session {
     }
 }
 
+fn matches_remote_text(
+    transport: &mut Sftp,
+    path: &Path,
+    text: &str,
+    cancel: &Cancellation,
+) -> Result<bool> {
+    let mut remaining = text.as_bytes();
+    let complete = transport.read_chunks(path, cancel, |chunk| {
+        let Some(rest) = remaining.strip_prefix(chunk) else {
+            return Ok(false);
+        };
+        remaining = rest;
+        Ok(true)
+    })?;
+    Ok(complete && remaining.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn remote_text_save_replaces_complete_files_and_keeps_external_changes() -> Result<()> {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let directory = tempfile::tempdir()?;
+        let root = directory.path().canonicalize()?;
+        let cancel = Cancellation::default();
+        let transport = Sftp::local_test(&root)?;
+        let session =
+            Session::from_transport(super::super::Connection::default(), transport, &cancel)?;
+        let file = session.create_entry(&root.join("new.txt"), false, &cancel)?;
+        let link = root.join("link.txt");
+        symlink(&file, &link)?;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640))?;
+        let first = "第一行\n".repeat(crate::limits::REMOTE_TRANSFER_BYTES as usize / 4 + 1);
+        let version = session.save_text(&link, "", &first, RemoteVersion::new(), &cancel)?;
+        assert_eq!(std::fs::read_to_string(&file)?, first);
+        assert_eq!(
+            std::fs::metadata(&file)?.permissions().mode() & 0o777,
+            0o640
+        );
+        assert!(std::fs::symlink_metadata(&link)?.is_symlink());
+        assert!(!session.has_changed(&version, &cancel)?);
+        session.save_text(&link, "", &first, RemoteVersion::new(), &cancel)?;
+
+        let external = "第两行\n".repeat(crate::limits::REMOTE_TRANSFER_BYTES as usize / 4 + 1);
+        assert_eq!(external.len(), first.len());
+        std::fs::write(&file, &external)?;
+        assert!(
+            session
+                .save_text(&link, &first, "draft", version, &cancel)
+                .is_err()
+        );
+        assert_eq!(std::fs::read_to_string(&file)?, external);
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o440))?;
+        assert!(
+            session
+                .save_text(&link, &external, "draft", RemoteVersion::new(), &cancel)
+                .is_err()
+        );
+        assert_eq!(std::fs::read_to_string(&file)?, external);
+        assert_eq!(std::fs::read_dir(&root)?.count(), 2);
+        Ok(())
+    }
+
     #[test]
     fn remote_operations_preserve_conflicts_links_and_trashed_subtrees() -> Result<()> {
         use std::os::unix::fs::symlink;

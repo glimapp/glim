@@ -57,7 +57,7 @@ fn terminate(child: &mut Child) {
     let _ = child.kill();
 }
 
-struct Watch {
+pub(super) struct Watch {
     done: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -159,7 +159,7 @@ impl Sftp {
             thread: Some(thread),
         }
     }
-    fn watch(&self, cancel: &Cancellation) -> Watch {
+    pub(super) fn watch(&self, cancel: &Cancellation) -> Watch {
         let done = Arc::new(AtomicBool::new(false));
         let stop = done.clone();
         let cancel = cancel.clone();
@@ -293,13 +293,71 @@ impl Sftp {
     pub(super) fn create_file(&mut self, path: &Path, cancel: &Cancellation) -> Result<()> {
         cancel.check()?;
         let _watch = self.watch(cancel);
+        let handle = self.open_exclusive(path)?;
+        self.close_handle(&handle)
+    }
+    pub(super) fn open_exclusive(&mut self, path: &Path) -> Result<Vec<u8>> {
         let mut body = string(path.as_os_str().as_encoded_bytes())?;
         body.extend_from_slice(&(2u32 | 8 | 32).to_be_bytes()); // WRITE | CREAT | EXCL
         body.extend_from_slice(&4u32.to_be_bytes());
         body.extend_from_slice(&0o600u32.to_be_bytes());
         let reply = self.request(3, &body)?;
-        let handle = Packet::body(&reply, 102)?.string()?.to_vec();
-        Self::expect_ok(&self.request(4, &string(&handle)?)?)
+        Ok(Packet::body(&reply, 102)?.string()?.to_vec())
+    }
+    pub(super) fn close_handle(&mut self, handle: &[u8]) -> Result<()> {
+        Self::expect_ok(&self.request(4, &string(handle)?)?)
+    }
+    pub(super) fn check_writable(&mut self, path: &Path, cancel: &Cancellation) -> Result<()> {
+        cancel.check()?;
+        let _watch = self.watch(cancel);
+        let mut body = string(path.as_os_str().as_encoded_bytes())?;
+        body.extend_from_slice(&2u32.to_be_bytes()); // WRITE, without CREAT or TRUNC
+        body.extend_from_slice(&0u32.to_be_bytes());
+        let reply = self.request(3, &body)?;
+        self.close_handle(Packet::body(&reply, 102)?.string()?)
+    }
+    pub(super) fn upload(
+        &mut self,
+        handle: &[u8],
+        bytes: &[u8],
+        cancel: &Cancellation,
+    ) -> Result<()> {
+        let mut offset = 0u64;
+        for chunk in bytes.chunks(limits::REMOTE_TRANSFER_BYTES as usize) {
+            cancel.check()?;
+            let mut body = string(handle)?;
+            body.extend_from_slice(&offset.to_be_bytes());
+            body.extend_from_slice(&string(chunk)?);
+            Self::expect_ok(&self.request(6, &body)?)?;
+            offset += chunk.len() as u64;
+        }
+        Ok(())
+    }
+    pub(super) fn copy_save_attributes(
+        &mut self,
+        path: &Path,
+        source: &super::FileStamp,
+        temporary: &super::FileStamp,
+    ) -> Result<()> {
+        let mut body = string(path.as_os_str().as_encoded_bytes())?;
+        let ownership = source.owner.filter(|_| source.owner != temporary.owner);
+        body.extend_from_slice(&(4u32 | if ownership.is_some() { 2 } else { 0 }).to_be_bytes());
+        if let Some((uid, gid)) = ownership {
+            body.extend_from_slice(&uid.to_be_bytes());
+            body.extend_from_slice(&gid.to_be_bytes());
+        }
+        body.extend_from_slice(&(source.mode & 0o7777).to_be_bytes());
+        Self::expect_ok(&self.request(9, &body)?)
+    }
+    pub(super) fn replace_file(&mut self, source: &Path, destination: &Path) -> Result<()> {
+        let mut body = string(b"posix-rename@openssh.com")?;
+        body.extend_from_slice(&string(source.as_os_str().as_encoded_bytes())?);
+        body.extend_from_slice(&string(destination.as_os_str().as_encoded_bytes())?);
+        Self::expect_ok(&self.request(200, &body)?)
+            .context("Remote server could not atomically replace the file")
+    }
+    pub(super) fn remove_save_file(&mut self, path: &Path) -> Result<()> {
+        Self::expect_ok(&self.request(13, &string(path.as_os_str().as_encoded_bytes())?)?)
     }
     pub(super) fn rename(
         &mut self,
@@ -557,9 +615,11 @@ impl<'a> Packet<'a> {
         } else {
             None
         };
-        if flags & 2 != 0 {
-            self.take(8)?;
-        }
+        let owner = if flags & 2 != 0 {
+            Some((self.u32()?, self.u32()?))
+        } else {
+            None
+        };
         let mode = if flags & 4 != 0 { self.u32()? } else { 0 };
         let modified = if flags & 8 != 0 {
             self.u32()?;
@@ -577,6 +637,7 @@ impl<'a> Packet<'a> {
             size,
             modified,
             mode,
+            owner,
         })
     }
 }

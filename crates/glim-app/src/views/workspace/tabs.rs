@@ -555,7 +555,13 @@ impl Workspace {
                 } else if let Some(remote) = &reader.document.remote {
                     format!(
                         "{} · {}\n{}",
-                        glim_services::locale::tr("Remote · Read-only"),
+                        glim_services::locale::tr(
+                            if reader.can_edit_remote_text() && !reader.document.trashed {
+                                "Remote"
+                            } else {
+                                "Remote · Read-only"
+                            }
+                        ),
                         remote.connection.label(),
                         reader.document.path.display()
                     )

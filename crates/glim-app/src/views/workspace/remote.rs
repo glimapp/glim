@@ -762,6 +762,10 @@ impl Workspace {
         let Some(session) = self.remote.clone() else {
             return;
         };
+        let refresh_version = refresh
+            .then(|| self.tabs.iter().find(|reader| reader.document.path == path))
+            .flatten()
+            .map(|reader| reader.refresh_version(cx));
         self.page = super::Page::Document;
         self.loading = true;
         self.error = None;
@@ -821,13 +825,51 @@ impl Workspace {
             let result = work.await;
             let _ = view.update_in(cx, |view, window, cx| {
                 view.loading = false;
+                if let Some(version) = refresh_version
+                    && (view.is_saving()
+                        || !view.tabs.iter().any(|reader| {
+                            reader.document.path == path
+                                && !reader.document.trashed
+                                && !reader.is_dirty()
+                                && reader.refresh_version(cx) == version
+                        }))
+                {
+                    view.loading_path = None;
+                    view.drain_remote_open_paths(window, cx);
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(content) => {
                         let mut reader =
                             crate::views::reader::Reader::from_content(content, window, cx);
+                        if refresh
+                            && let Some(previous) =
+                                view.tabs.iter().find(|r| r.document.path == path)
+                        {
+                            reader.inherit_view(previous, cx);
+                        }
                         reader.set_remote(session, path, cx);
+                        reader.set_word_wrap(view.word_wrap, window, cx);
                         if !refresh {
+                            if reader.can_edit_remote_text()
+                                && reader
+                                    .document
+                                    .snapshot
+                                    .saved_text()
+                                    .is_some_and(|text| text.is_empty())
+                            {
+                                reader.set_preview(false, cx);
+                            }
                             reader.report_opened("open");
+                        }
+                        view.observe_autosave(window, cx);
+                        if !refresh
+                            && view.is_visible_workspace(cx)
+                            && let Some(reader) = view.active_reader()
+                            && reader.mode() == glim_core::ReaderMode::Source
+                        {
+                            reader.focus_source(window, cx);
                         }
                         if let Some(index) = view
                             .tabs
@@ -1036,11 +1078,14 @@ impl Workspace {
             }
             let _ = view.update_in(cx, |view, window, cx| {
                 view.remote_restore = None;
-                view.tabs = restored;
-                view.active = session
-                    .active
-                    .filter(|index| *index < view.tabs.len())
-                    .or_else(|| (!view.tabs.is_empty()).then_some(0));
+                if !view.has_unsaved() && !view.is_saving() {
+                    view.tabs = restored;
+                    view.active = session
+                        .active
+                        .filter(|index| *index < view.tabs.len())
+                        .or_else(|| (!view.tabs.is_empty()).then_some(0));
+                }
+                view.observe_autosave(window, cx);
                 view.loading = false;
                 cx.refresh_windows();
                 view.sync_workspace(cx);
@@ -1115,6 +1160,11 @@ impl Workspace {
     }
 
     pub(super) fn reconnect_remote(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.has_unsaved() || self.is_saving() {
+            // Saving reconnects using the retained SFTP session. Reloading all
+            // tabs here would discard buffers with unpublished edits.
+            return;
+        }
         let descriptor = cx
             .global::<Connections>()
             .catalog
@@ -1142,7 +1192,7 @@ impl Workspace {
         }
         if let Some(reader) = self
             .active_reader()
-            .filter(|reader| !reader.document.trashed)
+            .filter(|reader| !reader.document.trashed && !reader.is_dirty() && !self.is_saving())
         {
             self.read_remote_file(reader.document.path.clone(), true, window, cx);
         }

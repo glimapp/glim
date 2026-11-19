@@ -107,8 +107,19 @@ impl Reader {
     }
     pub fn set_editing_locked(&mut self, locked: bool, cx: &mut App) {
         if let Some(edit) = &self.document.edit {
-            edit.set_locked(locked || self.document.remote.is_some(), cx);
+            edit.set_locked(
+                locked || (self.document.remote.is_some() && !self.is_full_text_editor()),
+                cx,
+            );
         }
+    }
+    pub(crate) fn can_edit_remote_text(&self) -> bool {
+        self.is_full_text_editor()
+            && self
+                .document
+                .edit
+                .as_ref()
+                .is_some_and(|edit| !edit.is_readonly())
     }
     pub(crate) fn set_remote(
         &mut self,
@@ -119,7 +130,7 @@ impl Reader {
         self.document.remote_version = session.loaded_version(&path);
         self.document.path = path;
         self.document.remote = Some(session);
-        self.set_editing_locked(true, cx);
+        self.set_editing_locked(false, cx);
     }
     pub fn is_dirty(&self) -> bool {
         self.document

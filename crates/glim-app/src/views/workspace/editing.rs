@@ -1,4 +1,5 @@
 use super::Workspace;
+use anyhow::Context as _;
 use glim_services::workspace::FolderSnapshot;
 use gpui_kit::*;
 
@@ -13,6 +14,11 @@ pub(super) enum DiscardAction {
 pub(super) struct CloseRequest {
     action: DiscardAction,
     discarded: Vec<EntityId>,
+}
+enum SaveOutcome {
+    Text,
+    Page(glim_services::paged::PageSaved),
+    Remote(glim_services::remote::RemoteVersion),
 }
 impl Workspace {
     pub(crate) fn can_begin_quit(&self) -> bool {
@@ -164,10 +170,11 @@ impl Workspace {
     }
 
     pub(super) fn save_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self
-            .active_reader()
-            .is_some_and(|reader| reader.document.remote.is_some() && !reader.document.trashed)
-        {
+        if self.active_reader().is_some_and(|reader| {
+            reader.document.remote.is_some()
+                && !reader.document.trashed
+                && !reader.can_edit_remote_text()
+        }) {
             return;
         }
         if let Some(reader) = self.active_reader() {
@@ -194,9 +201,6 @@ impl Workspace {
     }
 
     pub(super) fn observe_autosave(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if glim_services::remote::is_remote_id(&self.recent_id) {
-            return;
-        }
         let keys = self
             .tabs
             .iter()
@@ -320,6 +324,8 @@ impl Workspace {
         let editor = reader.editor().unwrap();
         let path = reader.document.path.clone();
         let expected = reader.document.snapshot.saved_text();
+        let remote = reader.document.remote.clone();
+        let remote_version = reader.document.remote_version.clone().unwrap_or_default();
         let page = reader.page_save_request(cx);
         let text = editor.read(cx).value().to_string();
         self.saving = Some(id);
@@ -332,11 +338,19 @@ impl Workspace {
             let _scope = glim_services::diagnostics::FileScope::enter(&path, "save");
             log::info!("save begin file={}", path.display());
             let started = std::time::Instant::now();
-            let result = if let Some(page) = page {
-                glim_services::paged::save_page_cancellable(&page, &text, &cancel).map(Some)
+            let result = if let Some(remote) = remote {
+                expected
+                    .context("Editable remote file has no saved text snapshot")
+                    .and_then(|expected| {
+                        remote.save_text(&path, &expected, &text, remote_version, &cancel)
+                    })
+                    .map(SaveOutcome::Remote)
+            } else if let Some(page) = page {
+                glim_services::paged::save_page_cancellable(&page, &text, &cancel)
+                    .map(SaveOutcome::Page)
             } else if let Some(expected) = expected {
                 glim_services::files::save_document_cancellable(&path, &expected, &text, &cancel)
-                    .map(|()| None)
+                    .map(|()| SaveOutcome::Text)
             } else {
                 Err(anyhow::anyhow!(
                     "Editable document has no saved text snapshot"
@@ -355,16 +369,22 @@ impl Workspace {
                 let cancelled = v.save_cancel.take().is_none();
                 v.saving = None;
                 match result {
-                    Ok(page) => {
+                    Ok(outcome) => {
+                        let saved_remotely = matches!(&outcome, SaveOutcome::Remote(_));
                         if let Some(reader) = v
                             .tabs
                             .iter_mut()
                             .find(|r| r.editor().is_some_and(|s| s.entity_id() == id))
                         {
-                            if let Some(page) = page {
-                                reader.page_saved(text, page, cx);
-                            } else {
-                                reader.mark_saved(text, cx);
+                            match outcome {
+                                SaveOutcome::Page(page) => reader.page_saved(text, page, cx),
+                                SaveOutcome::Remote(version) => {
+                                    reader.document.remote_version = version
+                                        .contains_key(&reader.document.path)
+                                        .then_some(version);
+                                    reader.mark_saved(text, cx);
+                                }
+                                SaveOutcome::Text => reader.mark_saved(text, cx),
                             }
                         }
                         v.finish_recovery(id, cx);
@@ -378,7 +398,11 @@ impl Workspace {
                         {
                             v.save_queue.push_back(id);
                         }
-                        v.refresh(window, cx);
+                        if !saved_remotely {
+                            v.refresh(window, cx);
+                        } else if let Some(remote) = &v.remote {
+                            v.remote_disconnected = !remote.is_connected();
+                        }
                     }
                     Err(error) => {
                         v.cancel_close_request(cx);

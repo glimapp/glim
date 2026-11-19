@@ -259,7 +259,7 @@ impl Workspace {
                             "Finder Integration",
                             "Open folders as workspaces from the Finder context menu.",
                             finder,
-                        )).child(divider()).child(row("SSH Connections", "Browse remote files in a read-only workspace.", connections)))
+                        )).child(divider()).child(row("SSH Connections", "Manage saved SSH connections.", connections)))
                         .child(heading("Application").mt_3())
                         .child(
                             group()

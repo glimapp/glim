@@ -124,7 +124,11 @@ impl Reader {
                 ("can_preview", flag(self.can_preview())),
                 (
                     "can_edit",
-                    flag(self.document.remote.is_none() && self.editor().is_some()),
+                    flag(if self.document.remote.is_some() {
+                        self.can_edit_remote_text()
+                    } else {
+                        self.editor().is_some()
+                    }),
                 ),
                 (
                     "storage",
