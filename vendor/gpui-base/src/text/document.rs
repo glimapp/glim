@@ -1,5 +1,5 @@
 use gpui::{
-    App, IntoElement, ListState, ParentElement as _, SharedString, Styled as _, Window, div,
+    App, IntoElement, ListState, ParentElement as _, Pixels, SharedString, Styled as _, Window, div,
 };
 
 use std::{
@@ -267,20 +267,26 @@ impl ParsedDocument {
                 move |ix, window, cx| {
                     let is_last = ix + 1 == blocks.len();
                     let (is_first, prev) = flow_position(&blocks, ix);
-                    blocks[ix]
-                        .render_block(
-                            NodeRenderOptions {
-                                ix,
-                                is_last,
-                                is_first,
-                                prev,
-                                ..options
-                            },
-                            &node_cx,
-                            window,
-                            cx,
-                        )
-                        .into_any_element()
+                    let block = blocks[ix].render_block(
+                        NodeRenderOptions {
+                            ix,
+                            is_last,
+                            is_first,
+                            prev,
+                            ..options
+                        },
+                        &node_cx,
+                        window,
+                        cx,
+                    );
+                    let top_padding = node_cx.style.scroll_top_padding();
+                    // List padding stays above the first visible item. Include
+                    // the document's top inset in the first item's height.
+                    if ix == 0 && top_padding > Pixels::ZERO {
+                        div().pt(top_padding).child(block).into_any_element()
+                    } else {
+                        block
+                    }
                 }
             })
             .size_full()

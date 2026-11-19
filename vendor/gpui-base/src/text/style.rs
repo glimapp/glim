@@ -19,6 +19,7 @@ pub struct TextViewStyle {
     code_background: Hsla,
     border: Hsla,
     paragraph_gap: Rems,
+    scroll_top_padding: Pixels,
     scroll_bottom_padding: Pixels,
     heading: Arc<dyn Fn(u8) -> StyleRefinement + Send + Sync + 'static>,
     code_block: StyleRefinement,
@@ -36,6 +37,7 @@ pub struct TextViewStyle {
 impl PartialEq for TextViewStyle {
     fn eq(&self, other: &Self) -> bool {
         self.paragraph_gap == other.paragraph_gap
+            && self.scroll_top_padding == other.scroll_top_padding
             && self.scroll_bottom_padding == other.scroll_bottom_padding
             && self.foreground == other.foreground
             && self.muted_foreground == other.muted_foreground
@@ -83,6 +85,7 @@ impl TextViewStyle {
             code_background: colors.accent,
             border: colors.border,
             paragraph_gap: rems(1.),
+            scroll_top_padding: Pixels::ZERO,
             scroll_bottom_padding: Pixels::ZERO,
             heading: Arc::new(|_| StyleRefinement::default()),
             code_block: StyleRefinement::default(),
@@ -141,6 +144,17 @@ impl TextViewStyle {
     pub fn with_paragraph_gap(mut self, gap: Rems) -> Self {
         self.paragraph_gap = gap;
         self
+    }
+
+    /// Adds space before the document that scrolls with the first block.
+    /// Fit-content views ignore this value.
+    pub fn with_scroll_top_padding(mut self, padding: Pixels) -> Self {
+        self.scroll_top_padding = padding.max(Pixels::ZERO);
+        self
+    }
+
+    pub(crate) fn scroll_top_padding(&self) -> Pixels {
+        self.scroll_top_padding
     }
 
     /// Adds space after the document in a scrollable TextView without reducing

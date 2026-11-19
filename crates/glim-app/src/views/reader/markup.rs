@@ -392,6 +392,7 @@ impl MarkupReader {
             .style(
                 style
                     .with_table(table_style)
+                    .with_scroll_top_padding(px(16.))
                     .with_scroll_bottom_padding(px(64.)),
             )
             .scrollable(true)
@@ -399,8 +400,7 @@ impl MarkupReader {
             // Keep document padding inside the viewport so the component's
             // absolute scrollbar stays at the reading area's outer edge.
             .px_6()
-            .pt_4()
-            .pb_0()
+            .py_0()
             .pr(px(crate::views::minimap::MINIMAP_WIDTH + 26.));
         let text_view = if let Some(diagrams) = &self.diagrams {
             text_view.markdown_extensions(super::diagrams::with_alerts(
