@@ -731,6 +731,7 @@ impl Workspace {
                     )
             })
             .collect::<Vec<_>>();
+        let pending_tab = self.pending_open_tab(cx);
         h_flex()
             .h(px(super::TITLE_BAR_HEIGHT))
             .w_full()
@@ -742,19 +743,21 @@ impl Workspace {
             .rounded_tr(px(11.))
             .border_b_1()
             .border_color(cx.theme().border)
-            .child(
-                h_flex()
-                    .id("document-tabs")
-                    .role(Role::TabList)
-                    .gap_1()
-                    .track_scroll(&self.tab_scroll)
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .overflow_x_scroll()
-                    .children(self.pending_open_tab(cx))
-                    .children(tabs),
-            )
+            .when(!tabs.is_empty() || pending_tab.is_some(), |bar| {
+                bar.child(
+                    h_flex()
+                        .id("document-tabs")
+                        .role(Role::TabList)
+                        .gap_1()
+                        .track_scroll(&self.tab_scroll)
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .overflow_x_scroll()
+                        .children(pending_tab)
+                        .children(tabs),
+                )
+            })
             .into_any_element()
     }
 
