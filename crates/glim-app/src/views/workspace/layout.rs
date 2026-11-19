@@ -180,7 +180,7 @@ impl WorkspaceOutline {
         .into_any_element()
     }
 
-    pub fn render(self, cx: &App) -> AnyElement {
+    pub fn render(self, align_file_tree_top: bool, cx: &App) -> AnyElement {
         let color = cx.theme().border.opacity(0.65);
         let surface = crate::views::workspace_background(cx);
         canvas(
@@ -192,19 +192,19 @@ impl WorkspaceOutline {
                 let right = tree.right() - inset;
                 let top = tree.top() + inset;
                 let bottom = tree.bottom() - inset;
-                let bottom_right = self
-                    .reader
-                    .get()
-                    .filter(|reader| {
-                        (tree.right() - reader.left()).abs() <= px(1.)
-                            && (tree.bottom() - reader.bottom()).abs() <= px(1.)
-                    })
-                    .map_or(right, |reader| {
-                        reader.left()
-                            + px(12.)
-                                .min(reader.size.width / 2.)
-                                .min(reader.size.height / 2.)
-                    });
+                let joined_reader = self.reader.get().filter(|reader| {
+                    (tree.right() - reader.left()).abs() <= px(1.)
+                        && (tree.bottom() - reader.bottom()).abs() <= px(1.)
+                });
+                let top_right = joined_reader
+                    .filter(|_| align_file_tree_top)
+                    .map_or(right, |reader| reader.left());
+                let bottom_right = joined_reader.map_or(right, |reader| {
+                    reader.left()
+                        + px(12.)
+                            .min(reader.size.width / 2.)
+                            .min(reader.size.height / 2.)
+                });
                 let mut corners = vec![
                     (point(bottom_right, bottom), px(0.)),
                     (point(left, bottom), px(12.)),
@@ -218,7 +218,7 @@ impl WorkspaceOutline {
                     ]);
                 }
                 corners.push((point(left, top), px(12.)));
-                corners.push((point(right, top), px(0.)));
+                corners.push((point(top_right, top), px(0.)));
                 corners.dedup_by(|a, b| a.0 == b.0);
                 let mut path = PathBuilder::stroke(px(1.));
                 let mut fill = PathBuilder::fill();
