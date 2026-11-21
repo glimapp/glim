@@ -16,6 +16,10 @@
       "group": "find",
       "width": 28
     },
+    "export-pdf": {
+      "group": "export",
+      "width": 28
+    },
     "cancel-file-save": {
       "group": "window",
       "width": 28
@@ -297,6 +301,7 @@
     "markdown": [
       "@mode",
       "@find",
+      "export-pdf",
       "@window"
     ],
     "html": [

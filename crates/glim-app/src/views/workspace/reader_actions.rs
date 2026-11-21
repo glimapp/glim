@@ -69,6 +69,7 @@ pub(super) enum ToolbarAction {
     Source,
     WordWrap,
     Find,
+    ExportPdf,
     FileFullscreen,
     Update,
 }
@@ -91,6 +92,7 @@ impl ToolbarAction {
             Self::Source => "reader-source",
             Self::WordWrap => "word-wrap",
             Self::Find => "find-in-file",
+            Self::ExportPdf => "export-pdf",
             Self::FileFullscreen => "file-fullscreen",
             Self::Update => "update-available",
         }
@@ -119,6 +121,8 @@ impl ToolbarItem {
             ToolbarAction::Source => "chevron.left.forwardslash.chevron.right",
             ToolbarAction::WordWrap => "arrow.turn.down.left",
             ToolbarAction::Find => "magnifyingglass",
+            ToolbarAction::ExportPdf if matches!(self.icon, Some(IconName::X)) => "xmark",
+            ToolbarAction::ExportPdf => "arrow.down.document",
             ToolbarAction::FileFullscreen if self.selected => "arrow.down.right.and.arrow.up.left",
             ToolbarAction::FileFullscreen => "arrow.up.left.and.arrow.down.right",
             ToolbarAction::Extract => "archivebox",
@@ -137,6 +141,7 @@ impl ToolbarItem {
             ToolbarAction::Source => ("Source", Some(IconName::Code)),
             ToolbarAction::WordWrap => ("Word wrap", None),
             ToolbarAction::Find => ("Find in file · ⌘F", Some(IconName::Search)),
+            ToolbarAction::ExportPdf => ("Export PDF…", Some(IconName::FileDown)),
             ToolbarAction::FileFullscreen => ("Enter File Fullscreen", None),
             ToolbarAction::Update => ("Update Available", Some(IconName::Download)),
         };
@@ -199,6 +204,95 @@ pub(super) fn document_items(
 }
 
 impl super::Workspace {
+    fn export_markdown_pdf(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::app::reader_jobs::{self, JobClass, Priority};
+        use glim_services::{locale::tr, work::Cancellation};
+        use gpui_kit::component::WindowExt;
+
+        if self.picking {
+            return;
+        }
+        if self.pdf_export_task.take().is_some() {
+            cx.notify();
+            return;
+        }
+        let Some(reader) = self.active_reader() else {
+            return;
+        };
+        let Some((source, base, format)) = reader.markdown_pdf_snapshot(cx) else {
+            return;
+        };
+        let path = &reader.document.path;
+        let name = path.with_extension("pdf");
+        let name = name.file_name().unwrap_or_default().to_string_lossy();
+        let directory = if reader.document.remote.is_some() {
+            std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| "/".into())
+        } else {
+            path.parent()
+                .unwrap_or_else(|| std::path::Path::new("/"))
+                .to_owned()
+        };
+        let title = reader.title.to_string();
+        let selection = cx.prompt_for_new_path(&directory, Some(&name));
+        self.picking = true;
+        let (cancel, guard) = Cancellation::task();
+        self.pdf_export_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let _guard = guard;
+            let outcome = selection.await;
+            let Ok(open) = view.update(cx, |view, cx| {
+                view.picking = false;
+                if !matches!(outcome, Ok(Ok(Some(_)))) {
+                    view.pdf_export_task = None;
+                }
+                cx.notify();
+                view.all_open_document_paths(cx)
+            }) else {
+                return;
+            };
+            let Ok(Ok(Some(path))) = outcome else { return };
+            let result = reader_jobs::run(
+                cx.background_executor().clone(),
+                JobClass::Native,
+                Priority::Interactive,
+                cancel,
+                move |cancel| {
+                    anyhow::ensure!(
+                        path.extension()
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf")),
+                        "{}",
+                        tr("Choose a filename ending in .pdf")
+                    );
+                    let destination =
+                        glim_services::files::prepare_save_destination(&path, &open, cancel)?;
+                    let text = source.to_string();
+                    let text = format
+                        .as_ref()
+                        .map(|path| glim_services::text_formats::markdown(path, &text))
+                        .unwrap_or(text);
+                    glim_services::markdown_pdf::export(&text, &base, &title, &destination, cancel)
+                },
+            )
+            .await;
+            let _ = view.update_in(cx, |view, window, cx| {
+                view.pdf_export_task = None;
+                match result {
+                    Ok(0) => window.push_notification(tr("PDF exported"), cx),
+                    Ok(_) => window.push_notification(
+                        tr("PDF exported with unavailable images or diagrams"),
+                        cx,
+                    ),
+                    Err(error) => {
+                        view.error = Some(format!("{}\n{error:#}", tr("PDF export failed")).into());
+                    }
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
     pub(super) fn toggle_markdown_task(
         &mut self,
         editor: gpui_kit::EntityId,
@@ -369,6 +463,19 @@ impl super::Workspace {
             }
             document.push(fullscreen);
         }
+        if self.page == Page::Document
+            && self
+                .active_reader()
+                .is_some_and(Reader::can_export_markdown_pdf)
+        {
+            let mut export = ToolbarItem::new(ToolbarAction::ExportPdf);
+            export.enabled = !self.picking;
+            if self.pdf_export_task.is_some() {
+                export.label = "Cancel PDF export";
+                export.icon = Some(IconName::X);
+            }
+            document.push(export);
+        }
         document
     }
 
@@ -430,6 +537,7 @@ impl super::Workspace {
         glim_services::telemetry::track("reader_action", props);
         match action {
             ToolbarAction::Extract => self.extract_archive(window, cx),
+            ToolbarAction::ExportPdf => self.export_markdown_pdf(window, cx),
             ToolbarAction::Find => {
                 if let Some(reader) = self.active_reader() {
                     reader.toggle_find(window, cx);

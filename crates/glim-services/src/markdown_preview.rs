@@ -340,6 +340,11 @@ pub fn from_node_with_source(node: &Node, source: Option<&str>) -> Option<Diagra
 }
 pub type RenderedDiagrams = HashMap<Diagram, std::result::Result<DiagramImage, String>>;
 
+pub(crate) struct DiagramSvg {
+    pub(crate) svg: String,
+    pub(crate) baseline: Option<f64>,
+}
+
 /// Deduplicate repeated blocks and keep source ranges entirely in TextView.
 pub fn collect(text: &str) -> Result<Vec<Diagram>> {
     // Any supported diagram must use a fence, math delimiter, or indented code.
@@ -476,6 +481,62 @@ pub fn render_batch(
     if requests.is_empty() || cancelled.load(Ordering::Relaxed) {
         return Ok(());
     }
+    render_svg_batch(
+        &requests,
+        || cancelled.load(Ordering::Relaxed),
+        |diagram, result| {
+            let result = result.and_then(|svg| {
+                rasterize(&svg.svg, diagram_fonts(), svg.baseline, edge)
+                    .and_then(|image| {
+                        bytes_used += image.png.len();
+                        pixels_used += u64::from(image.width) * u64::from(image.height) * 4;
+                        ensure!(
+                            bytes_used <= reader_limits::DIAGRAM_AGGREGATE_ENCODED_BYTES,
+                            "Diagram image budget exceeded"
+                        );
+                        ensure!(
+                            pixels_used <= reader_limits::DIAGRAM_AGGREGATE_DECODED_BYTES,
+                            "Decoded diagram image budget exceeded"
+                        );
+                        Ok(image)
+                    })
+                    .map_err(|e| format!("{}: {e}", crate::locale::tr("Cannot display diagram")))
+            });
+            if let Ok(image) = &result {
+                remember_image(diagram, edge, image);
+                disk_cache::remember(diagram, edge, image, cancelled);
+            }
+            publish(diagram.clone(), result);
+        },
+    )
+}
+
+pub(crate) fn renderer_executable() -> Result<std::path::PathBuf> {
+    let executable = std::env::current_exe()?;
+    Ok(executable
+        .parent()
+        .and_then(|directory| directory.parent())
+        .map(|contents| contents.join("Helpers/GlimRenderer.app/Contents/MacOS/glim-renderer"))
+        .filter(|helper| helper.is_file())
+        .unwrap_or(executable))
+}
+
+pub(crate) fn diagram_fonts() -> Arc<resvg::usvg::fontdb::Database> {
+    static FONTS: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
+    FONTS
+        .get_or_init(|| {
+            let mut fonts = resvg::usvg::fontdb::Database::new();
+            fonts.load_system_fonts();
+            Arc::new(fonts)
+        })
+        .clone()
+}
+
+pub(crate) fn render_svg_batch(
+    requests: &[Diagram],
+    cancelled: impl Fn() -> bool,
+    mut publish: impl FnMut(&Diagram, std::result::Result<DiagramSvg, String>),
+) -> Result<()> {
     let dir = tempfile::tempdir()?;
     let input = dir.path().join("request.json");
     let output = dir.path().join("result.json");
@@ -484,15 +545,7 @@ pub fn render_batch(
         .map(|d| serde_json::json!({ "kind": d.kind, "source": d.source }))
         .collect::<Vec<_>>();
     std::fs::write(&input, serde_json::to_vec(&request)?)?;
-    let executable = std::env::current_exe()?;
-
-    let executable = executable
-        .parent()
-        .and_then(|directory| directory.parent())
-        .map(|contents| contents.join("Helpers/GlimRenderer.app/Contents/MacOS/glim-renderer"))
-        .filter(|helper| helper.is_file())
-        .unwrap_or(executable);
-    let mut command = Command::new(executable);
+    let mut command = Command::new(renderer_executable()?);
     command
         .arg("--render-markdown")
         .arg(&input)
@@ -509,14 +562,6 @@ pub fn render_batch(
         reader_limits::DIAGRAM_STARTUP_SECONDS
             + requests.len() as u64 * reader_limits::DIAGRAM_BLOCK_SECONDS,
     );
-    static FONTS: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
-    let fonts = FONTS
-        .get_or_init(|| {
-            let mut fonts = resvg::usvg::fontdb::Database::new();
-            fonts.load_system_fonts();
-            Arc::new(fonts)
-        })
-        .clone();
     let mut completed = HashSet::new();
     let mut timed_out = false;
     loop {
@@ -528,7 +573,7 @@ pub fn render_batch(
                 return Err(error.into());
             }
         };
-        if cancelled.load(Ordering::Relaxed) {
+        if cancelled() {
             let _ = child.kill();
             let _ = child.wait();
             return Ok(());
@@ -575,40 +620,23 @@ pub fn render_batch(
             if !finished && value.is_none_or(|v| v.is_null()) {
                 continue;
             }
-            let result = if let Some(svg) =
-                value.and_then(|v| v.get("svg")).and_then(|v| v.as_str())
-            {
-                let baseline = value
-                    .and_then(|v| v.get("baseline"))
-                    .and_then(|v| v.as_f64());
-                rasterize(svg, fonts.clone(), baseline, edge)
-                    .and_then(|image| {
-                        bytes_used += image.png.len();
-                        pixels_used += u64::from(image.width) * u64::from(image.height) * 4;
-                        ensure!(
-                            bytes_used <= reader_limits::DIAGRAM_AGGREGATE_ENCODED_BYTES,
-                            "Diagram image budget exceeded"
-                        );
-                        ensure!(
-                            pixels_used <= reader_limits::DIAGRAM_AGGREGATE_DECODED_BYTES,
-                            "Decoded diagram image budget exceeded"
-                        );
-                        Ok(image)
+            let result =
+                if let Some(svg) = value.and_then(|v| v.get("svg")).and_then(|v| v.as_str()) {
+                    Ok(DiagramSvg {
+                        svg: svg.to_owned(),
+                        baseline: value
+                            .and_then(|v| v.get("baseline"))
+                            .and_then(|v| v.as_f64()),
                     })
-                    .map_err(|e| format!("{}: {e}", crate::locale::tr("Cannot display diagram")))
-            } else {
-                Err(value
-                    .and_then(|v| v.get("error"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(&missing_reason)
-                    .to_owned())
-            };
-            if let Ok(image) = &result {
-                remember_image(diagram, edge, image);
-                disk_cache::remember(diagram, edge, image, cancelled);
-            }
+                } else {
+                    Err(value
+                        .and_then(|v| v.get("error"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&missing_reason)
+                        .to_owned())
+                };
             completed.insert(index);
-            publish(diagram.clone(), result);
+            publish(diagram, result);
         }
         if finished {
             break;

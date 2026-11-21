@@ -126,6 +126,8 @@ GPUI static/book/inline pixels and GIF output frames use `services::media::Raste
 
 The shared scheduling direction, format-specific representations, current implementation and remaining work are documented in [Resources and rendering](reader-resources.md). Diagram batches pre-analyze engine dependencies and import only required offline ESM modules; font files use memory mapping and successful raster results share a bounded in-process cache. The asset build embeds the complete module manifest in the app; no runtime project-folder scan is needed.
 
+Markdown PDF export snapshots the current editor in the shared reader action. Services stage printable HTML and image assets in a private directory, using SVG from the existing offline diagram engine. The bundled renderer loads only the staged document and uses WebKit and AppKit to print paginated PDF. Services publish the finished file through the existing atomic save path.
+
 Markdown workspace refresh also checks referenced local still-image metadata on background workers, even when the Markdown source itself is unchanged. Changed images are decoded again; the old frame remains visible until the replacement is ready. Remote images do not participate in this filesystem refresh.
 
 Office and workbook external-open actions resolve the current Launch Services handler at click time. When Glim owns the association, the action offers compatible applications excluding every bundle with Glim’s identifier, plus an application picker. Opening uses an explicit application URL and does not modify file associations; picker selections are checked again to prevent reopening Glim.

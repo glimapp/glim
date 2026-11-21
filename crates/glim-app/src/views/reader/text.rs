@@ -318,6 +318,31 @@ impl Reader {
             ReaderMode::Source
         }
     }
+
+    pub(crate) fn can_export_markdown_pdf(&self) -> bool {
+        matches!(&self.renderer, Renderer::Markup(markup) if markup.preview && !markup.html)
+            && self.toolbar_profile() == "markdown"
+    }
+
+    pub(crate) fn markdown_pdf_snapshot(
+        &self,
+        cx: &App,
+    ) -> Option<(
+        gpui_kit::component::input::Rope,
+        url::Url,
+        Option<std::path::PathBuf>,
+    )> {
+        let Renderer::Markup(markup) = &self.renderer else {
+            return None;
+        };
+        self.can_export_markdown_pdf().then(|| {
+            (
+                markup.source.edit.editor().read(cx).text().clone(),
+                markup.base.clone(),
+                markup.format_path.clone(),
+            )
+        })
+    }
     pub fn reveal_content_offset(&mut self, offset: u64, window: &mut Window, cx: &mut App) {
         self.set_preview(false, cx);
         if let Renderer::Paged { view, .. } = &self.renderer {

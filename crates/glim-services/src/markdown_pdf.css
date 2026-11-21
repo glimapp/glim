@@ -1,0 +1,56 @@
+:root {
+    color-scheme: light;
+    color: #202124;
+    font: 10.5pt/1.52 -apple-system, sans-serif;
+    -webkit-print-color-adjust: exact;
+}
+body { margin: 0; overflow-wrap: anywhere; }
+p, ul, ol, dl, table, pre, figure, blockquote { margin: 0 0 0.85em; }
+h1, h2, h3, h4, h5, h6 {
+    line-height: 1.2;
+    margin: 1em 0 0.4em;
+    page-break-after: avoid;
+    break-after: avoid;
+}
+body > :first-child { margin-top: 0; }
+h1 { font-size: 22pt; }
+h2 { font-size: 16pt; }
+h3 { font-size: 13pt; }
+p { orphans: 2; widows: 2; }
+a { color: #2156a0; text-decoration: underline; }
+ul, ol { padding-left: 1.55em; }
+li > ul, li > ol { margin-bottom: 0; }
+input[type="checkbox"] { margin-left: 0; }
+li:has(> input[type="checkbox"]) { list-style: none; }
+blockquote {
+    padding: 0.1em 0 0.1em 0.85em;
+    border-left: 2pt solid #afb9c5;
+    color: #39424e;
+}
+blockquote > :last-child { margin-bottom: 0; }
+blockquote .markdown-alert-title { font-weight: 650; }
+blockquote.markdown-alert-note, blockquote.markdown-alert-important { border-color: #4276af; }
+blockquote.markdown-alert-tip { border-color: #468359; }
+blockquote.markdown-alert-warning, blockquote.markdown-alert-caution { border-color: #bb702d; }
+hr { border: 0; border-top: 0.7pt solid #bfc5cd; margin: 1.2em 0; }
+table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+thead { display: table-header-group; page-break-inside: avoid; break-inside: avoid; }
+tr { page-break-inside: avoid; break-inside: avoid; }
+th, td { border: 0.55pt solid #cbd0d6; padding: 0.35em 0.55em; vertical-align: top; }
+th { background: #eef1f4; text-align: left; }
+code, kbd, pre { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; }
+code { background: #eef1f4; border-radius: 2pt; }
+pre {
+    padding: 0.7em 0.85em;
+    border: 0.55pt solid #dce0e5;
+    background: #f7f8fa;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    tab-size: 4;
+}
+pre code { background: transparent; font-size: inherit; }
+figure { text-align: center; }
+img, figure { page-break-inside: avoid; break-inside: avoid; }
+img { max-width: 100%; max-height: 650pt; vertical-align: middle; }
+img.formula { max-height: 3em; }
+.asset-error { color: #98532a; font-size: 9pt; }

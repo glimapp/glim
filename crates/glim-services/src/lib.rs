@@ -19,6 +19,7 @@ pub mod integrations;
 pub mod json;
 pub mod limits;
 pub mod locale;
+pub mod markdown_pdf;
 pub mod markdown_preview;
 pub mod markup_images;
 mod matroska;

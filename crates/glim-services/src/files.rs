@@ -183,7 +183,7 @@ pub fn save_new_document(
     })
 }
 
-fn publish_document(
+pub(crate) fn publish_document(
     destination: &DraftDestination,
     cancel: &crate::work::Cancellation,
     write: impl FnOnce(&mut File) -> Result<()>,
