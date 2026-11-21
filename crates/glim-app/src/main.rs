@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
         return app::diagram_engine::run();
     }
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--print-markdown-pdf")) {
-        return app::markdown_pdf::run();
+        return app::markdown_export::run_print_subprocess();
     }
 
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--prepare-matroska")) {

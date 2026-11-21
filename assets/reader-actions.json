@@ -20,6 +20,10 @@
       "group": "export",
       "width": 28
     },
+    "open-in-browser": {
+      "group": "export",
+      "width": 28
+    },
     "cancel-file-save": {
       "group": "window",
       "width": 28
@@ -302,6 +306,7 @@
       "@mode",
       "@find",
       "export-pdf",
+      "open-in-browser",
       "@window"
     ],
     "html": [

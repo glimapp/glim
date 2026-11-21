@@ -70,6 +70,7 @@ pub(super) enum ToolbarAction {
     WordWrap,
     Find,
     ExportPdf,
+    OpenInBrowser,
     FileFullscreen,
     Update,
 }
@@ -93,6 +94,7 @@ impl ToolbarAction {
             Self::WordWrap => "word-wrap",
             Self::Find => "find-in-file",
             Self::ExportPdf => "export-pdf",
+            Self::OpenInBrowser => "open-in-browser",
             Self::FileFullscreen => "file-fullscreen",
             Self::Update => "update-available",
         }
@@ -123,6 +125,7 @@ impl ToolbarItem {
             ToolbarAction::Find => "magnifyingglass",
             ToolbarAction::ExportPdf if matches!(self.icon, Some(IconName::X)) => "xmark",
             ToolbarAction::ExportPdf => "arrow.down.document",
+            ToolbarAction::OpenInBrowser => "arrow.up.right.square",
             ToolbarAction::FileFullscreen if self.selected => "arrow.down.right.and.arrow.up.left",
             ToolbarAction::FileFullscreen => "arrow.up.left.and.arrow.down.right",
             ToolbarAction::Extract => "archivebox",
@@ -142,6 +145,7 @@ impl ToolbarItem {
             ToolbarAction::WordWrap => ("Word wrap", None),
             ToolbarAction::Find => ("Find in file · ⌘F", Some(IconName::Search)),
             ToolbarAction::ExportPdf => ("Export PDF…", Some(IconName::FileDown)),
+            ToolbarAction::OpenInBrowser => ("Open in Browser", Some(IconName::ExternalLink)),
             ToolbarAction::FileFullscreen => ("Enter File Fullscreen", None),
             ToolbarAction::Update => ("Update Available", Some(IconName::Download)),
         };
@@ -219,7 +223,7 @@ impl super::Workspace {
         let Some(reader) = self.active_reader() else {
             return;
         };
-        let Some((source, base, format)) = reader.markdown_pdf_snapshot(cx) else {
+        let Some((source, base, format)) = reader.markdown_export_snapshot(cx) else {
             return;
         };
         let path = &reader.document.path;
@@ -271,7 +275,13 @@ impl super::Workspace {
                         .as_ref()
                         .map(|path| glim_services::text_formats::markdown(path, &text))
                         .unwrap_or(text);
-                    glim_services::markdown_pdf::export(&text, &base, &title, &destination, cancel)
+                    glim_services::markdown_export::export_pdf(
+                        &text,
+                        &base,
+                        &title,
+                        &destination,
+                        cancel,
+                    )
                 },
             )
             .await;
@@ -285,6 +295,70 @@ impl super::Workspace {
                     ),
                     Err(error) => {
                         view.error = Some(format!("{}\n{error:#}", tr("PDF export failed")).into());
+                    }
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn open_markdown_in_browser(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::app::reader_jobs::{self, JobClass, Priority};
+        use glim_services::{locale::tr, work::Cancellation};
+        use gpui_kit::component::WindowExt;
+
+        if self.markdown_browser_task.is_some() {
+            return;
+        }
+        let Some(reader) = self.active_reader() else {
+            return;
+        };
+        let Some((source, base, format)) = reader.markdown_export_snapshot(cx) else {
+            return;
+        };
+        let title = reader.title.to_string();
+        let (cancel, guard) = Cancellation::task();
+        self.markdown_browser_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let _guard = guard;
+            let exported = reader_jobs::run(
+                cx.background_executor().clone(),
+                JobClass::Native,
+                Priority::Interactive,
+                cancel,
+                move |cancel| {
+                    let text = source.to_string();
+                    let text = format
+                        .as_ref()
+                        .map(|path| glim_services::text_formats::markdown(path, &text))
+                        .unwrap_or(text);
+                    glim_services::markdown_export::export_html(&text, &base, &title, cancel)
+                },
+            )
+            .await;
+            let result = match exported {
+                Ok((path, unavailable)) => crate::app::markdown_export::open_in_browser(&path)
+                    .await
+                    .map(|()| unavailable)
+                    .map_err(|error| error.context(path.display().to_string())),
+                Err(error) => Err(error),
+            };
+            let _ = view.update_in(cx, |view, window, cx| {
+                view.markdown_browser_task = None;
+                match result {
+                    Ok(0) => {}
+                    Ok(_) => window.push_notification(
+                        tr("Some images or diagrams could not be included in the HTML preview"),
+                        cx,
+                    ),
+                    Err(error) => {
+                        view.error = Some(
+                            format!(
+                                "{}\n{error:#}",
+                                tr("Could not open Markdown in the browser")
+                            )
+                            .into(),
+                        );
                     }
                 }
                 cx.notify();
@@ -466,7 +540,7 @@ impl super::Workspace {
         if self.page == Page::Document
             && self
                 .active_reader()
-                .is_some_and(Reader::can_export_markdown_pdf)
+                .is_some_and(Reader::can_export_markdown)
         {
             let mut export = ToolbarItem::new(ToolbarAction::ExportPdf);
             export.enabled = !self.picking;
@@ -475,6 +549,12 @@ impl super::Workspace {
                 export.icon = Some(IconName::X);
             }
             document.push(export);
+            let mut browser = ToolbarItem::new(ToolbarAction::OpenInBrowser);
+            if self.markdown_browser_task.is_some() {
+                browser.enabled = false;
+                browser.label = "Preparing browser preview…";
+            }
+            document.push(browser);
         }
         document
     }
@@ -538,6 +618,7 @@ impl super::Workspace {
         match action {
             ToolbarAction::Extract => self.extract_archive(window, cx),
             ToolbarAction::ExportPdf => self.export_markdown_pdf(window, cx),
+            ToolbarAction::OpenInBrowser => self.open_markdown_in_browser(window, cx),
             ToolbarAction::Find => {
                 if let Some(reader) = self.active_reader() {
                     reader.toggle_find(window, cx);

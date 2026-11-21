@@ -1,9 +1,10 @@
-//! Prepares a private printable document and stages its assets on disk.
+//! Renders Markdown and its assets for PDF printing and standalone HTML.
 use crate::{
     inline_images, limits, markdown_preview as diagrams, markup_images,
     work::{self, Cancellation},
 };
 use anyhow::{Context, Result, ensure};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use diagrams::{Diagram, DiagramSvg};
 use html5ever::{parse_document, tendril::TendrilSink};
 use markup5ever_rcdom::{NodeData, RcDom};
@@ -13,12 +14,12 @@ use std::{
     collections::HashMap,
     fs::{self, File},
     io::{BufWriter, Write},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 use url::Url;
 
-pub fn export(
+pub fn export_pdf(
     markdown: &str,
     base: &Url,
     title: &str,
@@ -28,20 +29,94 @@ pub fn export(
     let directory = tempfile::tempdir()?;
     let html_path = directory.path().join("document.html");
     let pdf_path = directory.path().join("document.pdf");
+    let unavailable = write_html(
+        markdown,
+        base,
+        title,
+        directory.path(),
+        File::create(&html_path)?,
+        false,
+        cancel,
+    )?;
+    let mut command = Command::new(diagrams::renderer_executable()?);
+    command
+        .arg("--print-markdown-pdf")
+        .arg(&html_path)
+        .arg(&pdf_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    ensure!(
+        work::run(&mut command, cancel)?.success(),
+        "{}",
+        crate::locale::tr("Cannot create PDF pages")
+    );
+    crate::files::publish_document(destination, cancel, |output| {
+        cancel.copy(File::open(&pdf_path)?, output)?;
+        Ok(())
+    })?;
+    Ok(unavailable)
+}
+
+pub fn export_html(
+    markdown: &str,
+    base: &Url,
+    title: &str,
+    cancel: &Cancellation,
+) -> Result<(PathBuf, usize)> {
+    cancel.check()?;
+    let directory = crate::preferences::directory()?.join("MarkdownPreviews");
+    fs::create_dir_all(&directory)?;
+    let scratch = tempfile::tempdir()?;
+    let mut output = tempfile::Builder::new()
+        .prefix("preview-")
+        .suffix(".partial")
+        .tempfile_in(&directory)?;
+    let unavailable = write_html(
+        markdown,
+        base,
+        title,
+        scratch.path(),
+        output.as_file_mut(),
+        true,
+        cancel,
+    )?;
+    let path = output.path().with_extension("html");
+    cancel.check()?;
+    output.persist_noclobber(&path)?;
+    Ok((path, unavailable))
+}
+
+fn write_html(
+    markdown: &str,
+    base: &Url,
+    title: &str,
+    directory: &Path,
+    output: impl Write,
+    embedded: bool,
+    cancel: &Cancellation,
+) -> Result<usize> {
+    cancel.check()?;
     let markdown = diagrams::normalize_tables(markdown);
     let mut assets = Assets {
-        directory: directory.path(),
+        directory,
         diagrams: HashMap::new(),
         images: HashMap::new(),
         next_asset: 0,
         unavailable: 0,
+        embedded,
         cancel,
     };
     assets.prepare_diagrams(&markdown)?;
-    let mut output = BufWriter::new(File::create(&html_path)?);
+    let mut output = BufWriter::new(output);
+    let (image_source, screen_style) = if embedded {
+        ("data:", include_str!("markdown_browser.css"))
+    } else {
+        ("file:", "")
+    };
     write!(
         output,
-        "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src file:\"><title>{}</title><style>{}</style><body>",
+        "<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src {image_source}\"><title>{}</title><style>{}{screen_style}</style><body>",
         escaped(title),
         include_str!("markdown_pdf.css")
     )?;
@@ -102,25 +177,7 @@ pub fn export(
     });
     html::write_html_io(&mut output, events)?;
     output.flush()?;
-    drop(output);
     cancel.check()?;
-    let mut command = Command::new(diagrams::renderer_executable()?);
-    command
-        .arg("--print-markdown-pdf")
-        .arg(&html_path)
-        .arg(&pdf_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    ensure!(
-        work::run(&mut command, cancel)?.success(),
-        "{}",
-        crate::locale::tr("Cannot create PDF pages")
-    );
-    crate::files::publish_document(destination, cancel, |output| {
-        cancel.copy(File::open(&pdf_path)?, output)?;
-        Ok(())
-    })?;
     Ok(assets.unavailable)
 }
 
@@ -210,6 +267,7 @@ struct Assets<'a> {
     images: HashMap<Url, Option<String>>,
     next_asset: usize,
     unavailable: usize,
+    embedded: bool,
     cancel: &'a Cancellation,
 }
 
@@ -267,6 +325,17 @@ impl Assets<'_> {
         path
     }
 
+    fn asset_url(&self, path: &str, media_type: &str) -> Option<String> {
+        if !self.embedded {
+            return Some(path.to_owned());
+        }
+        let bytes = fs::read(self.directory.join(path)).ok()?;
+        Some(format!(
+            "data:{media_type};base64,{}",
+            STANDARD.encode(bytes)
+        ))
+    }
+
     fn vector(&mut self, svg: DiagramSvg) -> Result<VectorImage> {
         use resvg::usvg::{Options, Tree, WriteOptions};
         let options = Options {
@@ -294,20 +363,27 @@ impl Assets<'_> {
 
     fn diagram_html(&mut self, diagram: &Diagram) -> String {
         let inline = diagram.kind == "inline-math";
-        match self.diagrams.get(&diagram_key(diagram)) {
-            Some(Ok(image)) if inline => format!(
+        let result = self.diagrams.get(&diagram_key(diagram));
+        let image = result
+            .and_then(|value| value.as_ref().ok())
+            .and_then(|image| {
+                self.asset_url(&image.path, "image/svg+xml")
+                    .map(|url| (image, url))
+            });
+        match image {
+            Some((image, url)) if inline => format!(
                 "<img class=\"formula\" src=\"{}\" alt=\"{}\" style=\"height:{}px;vertical-align:-{}px\">",
-                image.path,
+                url,
                 escaped(&diagram.source),
                 image.height,
                 image.descent
             ),
-            Some(Ok(image)) => format!(
+            Some((_, url)) => format!(
                 "<figure class=\"diagram\"><img src=\"{}\" alt=\"{}\"></figure>\n",
-                image.path,
+                url,
                 escaped(&diagram.kind)
             ),
-            result => {
+            None => {
                 self.unavailable += 1;
                 let reason = result
                     .and_then(|value| value.as_ref().err())
@@ -344,10 +420,11 @@ impl Assets<'_> {
             self.images.insert(url, path.clone());
             path
         });
-        path.unwrap_or_else(|| {
-            self.unavailable += 1;
-            "image-unavailable".into()
-        })
+        path.and_then(|path| self.asset_url(&path, "image/png"))
+            .unwrap_or_else(|| {
+                self.unavailable += 1;
+                "image-unavailable".into()
+            })
     }
 
     fn prepare_image(&mut self, url: &Url) -> Result<String> {
@@ -360,7 +437,7 @@ impl Assets<'_> {
             }
             _ => anyhow::bail!("Unsupported image URL"),
         };
-        // WebKit receives a bounded, inert still image, including for animated inputs.
+        // Exports use a bounded still image, including for animated inputs.
         ensure!(source.metadata()?.is_file(), "Image is not a regular file");
         let bytes = inline_images::thumbnail_png_cancellable(
             &source,

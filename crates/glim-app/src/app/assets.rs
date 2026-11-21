@@ -8,6 +8,7 @@ gpui_kit::assets::icon_assets!(
         ArrowLeft,
         ArrowRight,
         Download,
+        ExternalLink,
         X,
         House,
         PanelTop,

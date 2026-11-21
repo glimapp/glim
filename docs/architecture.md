@@ -128,6 +128,8 @@ The shared scheduling direction, format-specific representations, current implem
 
 Markdown PDF export snapshots the current editor in the shared reader action. Services stage printable HTML and image assets in a private directory, using SVG from the existing offline diagram engine. The bundled renderer loads only the staged document and uses WebKit and AppKit to print paginated PDF. Services publish the finished file through the existing atomic save path.
 
+Open in Browser uses the same editor snapshot and Markdown export renderer. Each invocation publishes a standalone HTML file with embedded assets in the application's `MarkdownPreviews` directory. AppKit resolves the default web browser and opens the saved file in it.
+
 Markdown workspace refresh also checks referenced local still-image metadata on background workers, even when the Markdown source itself is unchanged. Changed images are decoded again; the old frame remains visible until the replacement is ready. Remote images do not participate in this filesystem refresh.
 
 Office and workbook external-open actions resolve the current Launch Services handler at click time. When Glim owns the association, the action offers compatible applications excluding every bundle with Glim’s identifier, plus an application picker. Opening uses an explicit application URL and does not modify file associations; picker selections are checked again to prevent reopening Glim.

@@ -10,7 +10,7 @@ pub(crate) mod finder_integration;
 pub(crate) mod git_operation;
 mod image_http;
 pub(crate) mod languages;
-pub(crate) mod markdown_pdf;
+pub(crate) mod markdown_export;
 pub(crate) mod media_prepare;
 mod menus;
 pub(crate) mod reader_jobs;

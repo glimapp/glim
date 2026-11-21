@@ -100,3 +100,20 @@ public func glimPrintMarkdownPDF(_ input: UnsafePointer<CChar>, _ output: Unsafe
     _ = NSApplication.shared.setActivationPolicy(.prohibited)
     return MarkdownPDFPrint(source: source, destination: destination).run(destination: destination)
 }
+
+@_cdecl("glim_open_markdown_in_browser")
+public func glimOpenMarkdownInBrowser(
+    _ path: UnsafePointer<CChar>,
+    _ context: UnsafeMutableRawPointer?,
+    _ complete: @escaping @convention(c) (UnsafeMutableRawPointer?, Int32) -> Void
+) {
+    let workspace = NSWorkspace.shared
+    guard let browser = workspace.urlForApplication(toOpen: URL(string: "https://localhost")!) else {
+        complete(context, 1)
+        return
+    }
+    let file = URL(fileURLWithPath: String(cString: path))
+    workspace.open([file], withApplicationAt: browser, configuration: .init()) { app, error in
+        complete(context, error == nil && app != nil ? 0 : 2)
+    }
+}

@@ -319,12 +319,12 @@ impl Reader {
         }
     }
 
-    pub(crate) fn can_export_markdown_pdf(&self) -> bool {
+    pub(crate) fn can_export_markdown(&self) -> bool {
         matches!(&self.renderer, Renderer::Markup(markup) if markup.preview && !markup.html)
             && self.toolbar_profile() == "markdown"
     }
 
-    pub(crate) fn markdown_pdf_snapshot(
+    pub(crate) fn markdown_export_snapshot(
         &self,
         cx: &App,
     ) -> Option<(
@@ -335,7 +335,7 @@ impl Reader {
         let Renderer::Markup(markup) = &self.renderer else {
             return None;
         };
-        self.can_export_markdown_pdf().then(|| {
+        self.can_export_markdown().then(|| {
             (
                 markup.source.edit.editor().read(cx).text().clone(),
                 markup.base.clone(),
