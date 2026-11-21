@@ -23,6 +23,7 @@ gpui_kit::assets::icon_assets!(
         Replace,
         ReplaceAll,
         FileCode,
+        FileDown,
         FileImage,
         FileArchive,
         File,
