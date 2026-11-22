@@ -922,6 +922,7 @@
   "Unstaged changes will be permanently discarded. Staged changes are kept.": "Unstaged changes will be permanently discarded. Staged changes are kept.",
   "Use current file": "Use current file",
   "Use incoming file": "Use incoming file",
+  "Worktree tab": "Worktrees",
   "Worktrees": "Worktrees",
   "staged files": "staged files",
   "Local branch": "Local branch",
