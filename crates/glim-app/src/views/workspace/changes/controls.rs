@@ -591,7 +591,7 @@ impl Changes {
             .disabled(
                 self.busy(cx)
                     || self.active_root.is_none()
-                    || (self.browsing && form.revision_field(1)),
+                    || (self.browsing && !self.catalog_ready && form.revision_field(1)),
             )
             .on_click(cx.listener(move |view, _, window, cx| {
                 view.form(id.into(), form.clone(), window, cx)

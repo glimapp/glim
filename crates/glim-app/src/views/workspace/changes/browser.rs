@@ -146,6 +146,7 @@ impl Changes {
         self.patch_task = None;
         self.patch_loading = false;
         self.selection = None;
+        self.catalog_ready = false;
         self.catalog = Arc::default();
         self.reference_groups = Default::default();
         self.commits = Arc::default();
@@ -179,6 +180,7 @@ impl Changes {
         }
         self.cancel_browse();
         self.section = section;
+        self.catalog_ready = false;
         if section == Section::History {
             self.reset_history();
             self.history_path = None;
@@ -307,7 +309,6 @@ impl Changes {
         let search = self.history_search.clone();
         let path = self.history_path.clone();
         self.browsing = true;
-        self.browser_error = None;
         let (cancel, guard) = Cancellation::task();
         self.browse_cancel = Some(guard);
         let work = cx.background_executor().spawn(async move {
@@ -354,6 +355,8 @@ impl Changes {
                 view.browsing = false;
                 match result {
                     Ok((catalog, history, revisions)) => {
+                        view.catalog_ready = true;
+                        view.browser_error = None;
                         if let Some(commits) = revisions {
                             view.commits = Arc::new(commits);
                         }
@@ -582,7 +585,7 @@ impl Changes {
                                 .small()
                                 .w_full()
                                 .h(px(30.))
-                                .px_2()
+                                .px(px(5.))
                                 .tooltip(tr(label))
                                 .accessibility_label(tr(label))
                                 .child(
@@ -590,8 +593,9 @@ impl Changes {
                                         .w_full()
                                         .justify_start()
                                         .gap_1()
-                                        .child(gpui_kit::component::Icon::new(arrow).size(px(12.)))
-                                        .child(gpui_kit::component::Icon::new(icon).size(px(14.))),
+                                        .child(gpui_kit::component::Icon::new(icon).size(px(14.)))
+                                        .child(tr(label))
+                                        .child(gpui_kit::component::Icon::new(arrow).size(px(12.))),
                                 )
                                 .on_click(move |_, _, cx| {
                                     owner.update(cx, |view, cx| {
@@ -884,7 +888,7 @@ impl Changes {
                     .h(px(20.))
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(if self.browsing {
+                    .child(if self.browsing && !self.catalog_ready {
                         tr("Loading…")
                     } else if self.section == Section::Stashes {
                         tr("No stashes")

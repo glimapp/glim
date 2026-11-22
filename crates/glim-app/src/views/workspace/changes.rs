@@ -61,6 +61,7 @@ impl DiffTab {
 }
 
 enum Prepared {
+    Unchanged,
     Diff(
         Vec<DiffFile>,
         glim_services::resources::WorkingReservation,
@@ -101,7 +102,9 @@ pub(crate) struct Changes {
     reference_groups: [Vec<usize>; 2],
     selected_reference: Option<usize>,
     selected_stash: Option<usize>,
+    displayed_patch: Option<(DiffTab, [u8; 32])>,
     patch_source: Option<Arc<String>>,
+    catalog_ready: bool,
     browsing: bool,
     browse_generation: u64,
     browse_task: Option<Task<()>>,
@@ -160,6 +163,7 @@ impl Changes {
         self.cancel(cx);
         self.tabs.clear();
         self.repositories.clear();
+        self.catalog_ready = false;
         self.catalog = Arc::default();
         self.reference_groups = Default::default();
         self.commits = Arc::default();
@@ -232,7 +236,9 @@ impl Changes {
             reference_groups: Default::default(),
             selected_reference: None,
             selected_stash: None,
+            displayed_patch: None,
             patch_source: None,
+            catalog_ready: false,
             browsing: false,
             browse_generation: 0,
             browse_task: None,
@@ -257,7 +263,7 @@ impl Changes {
             raw: None,
             patch_loading: false,
             patch_error: None,
-            soft_wrap: false,
+            soft_wrap: true,
             generation: 0,
             status_task: None,
             status_cancel: None,
@@ -291,10 +297,12 @@ impl Changes {
                 != remote.as_ref().map(|r| &r.connection.id)
         {
             self.manual_refresh = None;
+            self.errors.clear();
             self.tabs.clear();
             self.selection = None;
             self.active_root = None;
             self.comparison = None;
+            self.catalog_ready = false;
             self.catalog = Arc::default();
             self.reference_groups = Default::default();
             self.commits = Arc::default();
@@ -311,7 +319,6 @@ impl Changes {
         self.roots = roots.clone();
         self.remote = remote.clone();
         self.loading = true;
-        self.errors.clear();
         let (cancel, guard) = Cancellation::task();
         self.status_cancel = Some(guard);
         let work = cx.background_executor().spawn(async move {
@@ -330,6 +337,7 @@ impl Changes {
                     return;
                 }
                 view.loading = false;
+                view.errors.clear();
                 view.repositories.clear();
                 for result in results {
                     match result {
@@ -411,6 +419,7 @@ impl Changes {
         self.memory = None;
         self.patch_error = None;
         self.patch_source = None;
+        self.displayed_patch = None;
     }
 
     fn current_tab(&self) -> Option<DiffTab> {
@@ -500,14 +509,22 @@ impl Changes {
         comparison: Option<Comparison>,
         cx: &mut Context<Self>,
     ) {
-        if let Some(tab) = self.current_tab()
-            && !self.tabs.contains(&tab)
-        {
-            self.tabs.push(tab);
+        let Some(tab) = self.current_tab() else {
+            return;
+        };
+        if !self.tabs.contains(&tab) {
+            self.tabs.push(tab.clone());
+        }
+        let previous = self
+            .displayed_patch
+            .as_ref()
+            .filter(|(shown, _)| shown == &tab)
+            .map(|(_, digest)| *digest);
+        if previous.is_none() {
+            self.clear_patch(cx);
         }
         self.patch_cancel = None;
         self.patch_task = None;
-        self.clear_patch(cx);
         self.patch_loading = true;
         let generation = self.generation;
         let selection = self.selection.clone();
@@ -527,15 +544,11 @@ impl Changes {
                 }
                 _ => anyhow::bail!("Missing Git diff selection"),
             };
-            if comparison.as_ref().is_some_and(Comparison::is_raw) {
-                return Ok(Prepared::Raw(glim_services::paged::generated(
-                    &PathBuf::from("git-details.txt"),
-                    patch,
-                )?));
-            }
             let bytes = patch.as_file().metadata()?.len();
             let mut input = patch.reopen()?;
             let mut buffer = vec![0; glim_services::limits::IO_BUFFER_BYTES];
+            use sha2::{Digest, Sha256};
+            let mut hash = Sha256::new();
             let mut lines = 0u64;
             loop {
                 use std::io::Read as _;
@@ -544,9 +557,21 @@ impl Changes {
                 if read == 0 {
                     break;
                 }
+                hash.update(&buffer[..read]);
                 lines = lines.saturating_add(
                     buffer[..read].iter().filter(|byte| **byte == b'\n').count() as u64,
                 );
+            }
+            let digest: [u8; 32] = hash.finalize().into();
+            if previous == Some(digest) {
+                return Ok((digest, Prepared::Unchanged));
+            }
+            if comparison.as_ref().is_some_and(Comparison::is_raw) {
+                let page = glim_services::paged::generated(
+                    std::path::Path::new("git-details.txt"),
+                    patch,
+                )?;
+                return Ok((digest, Prepared::Raw(page)));
             }
             // Reserve a conservative parser envelope before the library allocates
             // per-line strings, source ranges and presentation rows.
@@ -570,10 +595,9 @@ impl Changes {
                                 DiffFile::parse(&text)?
                             };
                             cancel.check()?;
-                            return Ok::<_, anyhow::Error>(Prepared::Diff(
-                                files,
-                                memory,
-                                Arc::new(text),
+                            return Ok::<_, anyhow::Error>((
+                                digest,
+                                Prepared::Diff(files, memory, Arc::new(text)),
                             ));
                         }
                         Err(_) => binary = true,
@@ -589,11 +613,14 @@ impl Changes {
                 .as_ref()
                 .map(|c| c.path.with_extension("diff"))
                 .unwrap_or_else(|| PathBuf::from("comparison.diff"));
-            Ok(Prepared::Raw(if binary {
-                glim_services::paged::generated_binary(&path, patch)?
-            } else {
-                glim_services::paged::generated(&path, patch)?
-            }))
+            Ok((
+                digest,
+                Prepared::Raw(if binary {
+                    glim_services::paged::generated_binary(&path, patch)?
+                } else {
+                    glim_services::paged::generated(&path, patch)?
+                }),
+            ))
         });
         self.patch_task = Some(cx.spawn(async move |view, cx| {
             let result = work.await;
@@ -605,13 +632,22 @@ impl Changes {
                     return;
                 }
                 view.patch_loading = false;
+                if let Ok((digest, _)) = &result {
+                    view.displayed_patch = Some((tab, *digest));
+                    view.patch_error = None;
+                }
                 match result {
-                    Ok(Prepared::Diff(files, memory, source)) => {
+                    Ok((_, Prepared::Unchanged)) => {}
+                    Ok((_, Prepared::Diff(files, memory, source))) => {
+                        view.raw = None;
                         view.patch_source = Some(source);
                         view.diff.update(cx, |state, cx| state.set_files(files, cx));
                         view.memory = Some(memory);
                     }
-                    Ok(Prepared::Raw(page)) => {
+                    Ok((_, Prepared::Raw(page))) => {
+                        view.diff.update(cx, |state, cx| state.set_files([], cx));
+                        view.patch_source = None;
+                        view.memory = None;
                         view.raw = Some(
                             cx.new(|_| crate::views::reader::paged::PagedReader::text_only(page)),
                         )
@@ -903,7 +939,7 @@ impl Changes {
 impl Changes {
     pub(super) fn diff_view(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let mode = self.diff.read(cx).mode();
-        let ready = !self.patch_loading && !self.diff.read(cx).files().is_empty();
+        let ready = self.patch_error.is_none() && !self.diff.read(cx).files().is_empty();
         let toolbar = h_flex()
             .gap_1()
             .child(
@@ -968,6 +1004,41 @@ impl Changes {
                         cx.notify();
                     })),
             )
+            .children(
+                [
+                    (
+                        "diff-collapse-all",
+                        gpui_kit::assets::IconName::FoldVertical,
+                        "Collapse all",
+                        true,
+                    ),
+                    (
+                        "diff-expand-all",
+                        gpui_kit::assets::IconName::UnfoldVertical,
+                        "Expand all",
+                        false,
+                    ),
+                ]
+                .map(|(id, icon, label, collapsed)| {
+                    controls::icon_action(Button::new(id), icon, label)
+                        .disabled(!ready)
+                        .on_click(cx.listener(move |view, _, _, cx| {
+                            view.diff.update(cx, |state, cx| {
+                                let paths: Vec<_> = state
+                                    .files()
+                                    .iter()
+                                    .filter(|file| {
+                                        state.is_file_collapsed(file.path()) != collapsed
+                                    })
+                                    .map(|file| file.path().clone())
+                                    .collect();
+                                for path in paths {
+                                    state.set_file_collapsed(&path, collapsed, cx);
+                                }
+                            })
+                        }))
+                }),
+            )
             .child(
                 Button::new("diff-previous")
                     .ghost()
@@ -1005,7 +1076,9 @@ impl Changes {
                 .disabled(self.loading)
                 .on_click(cx.listener(|view, _, _, cx| view.refresh_from("diff-refresh", cx))),
             );
-        let content = if self.patch_loading || (self.loading && self.selection.is_none()) {
+        let content = if self.displayed_patch.is_none()
+            && (self.patch_loading || (self.loading && self.repositories.is_empty()))
+        {
             message(tr("Loading changes…"), cx)
         } else if let Some(error) = self.patch_error.as_ref().or_else(|| {
             self.selection
@@ -1069,7 +1142,29 @@ impl Changes {
                 .child(raw.clone())
                 .into_any_element()
         } else if ready {
+            let diff = self.diff.clone();
             Diff::new(&self.diff)
+                .render_header_suffix(move |file, _, _| {
+                    let diff = diff.clone();
+                    let path = file.path().clone();
+                    div()
+                        .id("diff-file-title")
+                        .absolute()
+                        .left_0()
+                        .right(px(-12.))
+                        .top(px(-4.))
+                        .bottom(px(-4.))
+                        .cursor_pointer()
+                        .on_click(move |_, _, cx| {
+                            diff.update(cx, |state, cx| {
+                                state.set_file_collapsed(
+                                    &path,
+                                    !state.is_file_collapsed(&path),
+                                    cx,
+                                );
+                            });
+                        })
+                })
                 .soft_wrap(self.soft_wrap)
                 .size_full()
                 .into_any_element()
@@ -1146,7 +1241,7 @@ mod tests {
         git(&["config", "user.name", "Glim QA"]);
         git(&["config", "user.email", "qa@example.invalid"]);
         git(&["config", "commit.gpgSign", "false"]);
-        std::fs::write(root.join("schedule.md"), "Monday\n").unwrap();
+        std::fs::write(root.join("schedule.md"), "Monday\n".repeat(240)).unwrap();
         git(&["add", "schedule.md"]);
         git(&["commit", "-qm", "Initial schedule"]);
         let remote = directory.path().join("upstream.git");
@@ -1158,6 +1253,9 @@ mod tests {
         std::fs::write(root.join("test-note.md"), "Untracked marker\n").unwrap();
         let (handle, workspace) = cx.update(|cx| {
             gpui_kit::init(cx);
+            cx.default_global::<crate::app::GitSettings>()
+                .preferences
+                .auto_refresh = true;
             crate::app::remote::init(Default::default(), cx);
             gpui_kit::open_window(
                 WindowOptions {
@@ -1287,7 +1385,7 @@ mod tests {
             &format!("work/{}", "long-branch-name-".repeat(10)),
         ]);
         git(&["tag", "0.2.3"]);
-        git(&["tag", "0.2.26"]);
+        git(&["tag", "0.2.26", "HEAD~1"]);
         click(
             cx,
             ("git-section", browser::Section::Changes as usize).into(),
@@ -1334,6 +1432,75 @@ mod tests {
             click(cx, ("git-reference-group", group).into());
             assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).collapsed_refs[group]));
             click(cx, ("git-reference-group", group).into());
+        }
+        let tag_index = cx.update(|cx| {
+            workspace
+                .read(cx)
+                .changes
+                .read(cx)
+                .catalog
+                .references
+                .iter()
+                .position(|r| r.full == "refs/tags/0.2.26")
+                .unwrap()
+        });
+        click(cx, ("git-browser-row", tag_index).into());
+        let diff = cx.update(|cx| workspace.read(cx).changes.read(cx).diff.clone());
+        click(cx, "diff-unified".into());
+        cx.update(|cx| diff.update(cx, |state, cx| state.scroll_to_file("schedule.md", cx)));
+        cx.update_window(handle, |_, w, cx| {
+            w.render_frame(cx);
+            let header = w.find("collapse-file").bounds();
+            w.click_at(
+                "diff-body",
+                gpui_kit::point(
+                    px(100.),
+                    header.center().y - w.find("diff-body").bounds().top(),
+                ),
+                cx,
+            );
+        })
+        .unwrap();
+        assert!(cx.update(|cx| diff.read(cx).is_file_collapsed("schedule.md")));
+        let generation = cx.update(|cx| workspace.read(cx).changes.read(cx).generation);
+        cx.update(|cx| {
+            cx.background_executor()
+                .advance_clock(std::time::Duration::from_secs(61))
+        });
+        cx.run_until_parked();
+        assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).generation > generation));
+        assert!(cx.update(|cx| diff.read(cx).is_file_collapsed("schedule.md")));
+        click(cx, "diff-expand-all".into());
+        assert!(!cx.update(|cx| diff.read(cx).is_file_collapsed("schedule.md")));
+        for (mode, wrap) in [
+            ("diff-unified", true),
+            ("diff-split", true),
+            ("diff-unified", false),
+            ("diff-split", false),
+        ] {
+            click(cx, mode.into());
+            if cx.update(|cx| workspace.read(cx).changes.read(cx).soft_wrap) != wrap {
+                click(cx, "diff-wrap".into());
+            }
+            cx.update(|cx| diff.update(cx, |state, cx| state.scroll_to_file("schedule.md", cx)));
+            cx.update_window(handle, |_, w, cx| {
+                w.render_frame(cx);
+                assert!(w.find("collapse-file").visible());
+                w.scroll(
+                    "diff-body",
+                    gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-900.))),
+                    cx,
+                );
+                w.render_frame(cx);
+                assert!(
+                    w.try_find("collapse-file")
+                        .is_none_or(|header| !header.visible()),
+                    "{mode} did not scroll (wrap={wrap})"
+                );
+            })
+            .unwrap();
+            click(cx, "diff-collapse-all".into());
+            click(cx, "diff-expand-all".into());
         }
         for (form, field) in [
             ("git-new-tag", 1usize),
