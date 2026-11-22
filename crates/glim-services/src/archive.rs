@@ -46,6 +46,7 @@ fn native(
     cancel: &Cancellation,
 ) -> Result<tempfile::NamedTempFile> {
     use std::{
+        io::Read,
         os::unix::fs::PermissionsExt,
         process::{Command, Stdio},
     };
