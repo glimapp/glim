@@ -8,6 +8,35 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use glim_core::{Document, DocumentKind};
 
+// Windows shell clients expect a drive or UNC path. Glim retains the verbatim path
+// for filesystem I/O, including paths returned by std::fs::canonicalize.
+#[cfg(windows)]
+pub fn windows_shell_path(path: &Path) -> std::io::Result<std::path::PathBuf> {
+    use std::path::{Component, PathBuf, Prefix};
+    let absolute = std::path::absolute(path)?;
+    let mut parts = absolute.components();
+    let Some(Component::Prefix(prefix)) = parts.next() else {
+        return Ok(absolute);
+    };
+    let mut root = match prefix.kind() {
+        Prefix::VerbatimDisk(drive) => PathBuf::from(format!("{}:\\", char::from(drive))),
+        Prefix::VerbatimUNC(server, share) => {
+            let mut root = std::ffi::OsString::from(r"\\");
+            root.push(server);
+            root.push(r"\");
+            root.push(share);
+            PathBuf::from(root)
+        }
+        _ => return Ok(absolute),
+    };
+    for part in parts {
+        if let Component::Normal(name) = part {
+            root.push(name);
+        }
+    }
+    Ok(root)
+}
+
 /// Compatibility value for the shared full-text policy; memory admission controls loading.
 pub const MAX_DOCUMENT_BYTES: u64 = reader_limits::TEXT_EDITABLE_BYTES;
 

@@ -36,5 +36,13 @@ fn main() -> anyhow::Result<()> {
     {
         return app::spreadsheet_prepare::run();
     }
+    // GPUI's DirectComposition target draws over child HWNDs. Its HWND swap
+    // chain leaves the embedded WebView2 and Explorer preview surfaces visible.
+    #[cfg(windows)]
+    #[allow(unsafe_code)]
+    // SAFETY: this is Windows-only and runs before starting the GUI runtime.
+    unsafe {
+        std::env::set_var("GPUI_DISABLE_DIRECT_COMPOSITION", "1");
+    }
     app::run()
 }

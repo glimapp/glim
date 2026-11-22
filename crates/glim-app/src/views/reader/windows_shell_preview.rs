@@ -17,8 +17,9 @@ use windows::{
                 SHCreateItemFromParsingName, SHCreateStreamOnFileEx,
             },
             WindowsAndMessaging::{
-                CreateWindowExW, DestroyWindow, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE, SWP_NOZORDER,
-                SetWindowPos, ShowWindow, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+                CreateWindowExW, DestroyWindow, GWL_STYLE, GetWindowLongW, SW_HIDE, SW_SHOWNA,
+                SWP_NOACTIVATE, SWP_NOZORDER, SetWindowLongW, SetWindowPos, ShowWindow, WS_CHILD,
+                WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_VISIBLE,
             },
         },
     },
@@ -34,7 +35,8 @@ impl Preview {
     pub(super) fn new(path: &Path, placement: Placement) -> Result<Self> {
         let extension = path.extension().context("Missing preview file extension")?;
         let extension = HSTRING::from(format!(".{}", extension.to_string_lossy()));
-        let path = HSTRING::from(path.as_os_str());
+        let shell_path = glim_services::files::windows_shell_path(path)?;
+        let path = HSTRING::from(shell_path.as_os_str());
         // The shell association is a braced CLSID, 38 characters plus NUL.
         let mut class = [0u16; 39];
         let mut length = class.len() as u32;
@@ -76,16 +78,20 @@ impl Preview {
                 bottom: bounds.height as i32,
                 ..Default::default()
             };
+            // Exclude the handler's child window when GPUI repaints the workspace.
+            let parent = HWND(placement.parent.hwnd.get() as _);
+            let style = GetWindowLongW(parent, GWL_STYLE);
+            SetWindowLongW(parent, GWL_STYLE, style | WS_CLIPCHILDREN.0 as i32);
             let host = CreateWindowExW(
                 Default::default(),
                 w!("STATIC"),
                 PCWSTR::null(),
-                WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+                WS_VISIBLE | WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
                 origin.x,
                 origin.y,
                 rect.right,
                 rect.bottom,
-                Some(HWND(placement.parent.hwnd.get() as _)),
+                Some(parent),
                 None,
                 None,
                 None,
