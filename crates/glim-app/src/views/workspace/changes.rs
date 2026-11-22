@@ -1054,6 +1054,13 @@ mod tests {
             .unwrap();
             cx.run_until_parked();
         };
+        click(cx, "file-panel-files".into());
+        assert!(cx.update(|cx| workspace.read(cx).changes_expanded));
+        click(cx, "file-panel-files".into());
+        assert!(!cx.update(|cx| workspace.read(cx).changes_expanded));
+        click(cx, "file-panel-changes".into());
+        click(cx, "expanded-changes-heading".into());
+        assert!(!cx.update(|cx| workspace.read(cx).changes_expanded));
         click(cx, "file-panel-changes".into());
         click(cx, "diff-split".into());
         click(cx, ("git-change", 1usize).into());
