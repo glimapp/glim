@@ -40,8 +40,8 @@ use actions::{
     About, AddFolder, CheckForUpdates, CloseWindow, CloseWorkspace, DefaultApplications,
     KeyboardShortcuts, LanguageChinese, LanguageEnglish, LanguageSystem, NavigateBack,
     NavigateForward, NewFile, NewWindow, NextTab, OpenFile, OpenFolder, OpenSettings, PreviousTab,
-    PrintDocument, Quit, Refresh, SaveFile, SearchWorkspace, ToggleDarkMode, ToggleFileTree,
-    TogglePreview, ToggleSidebar, ToggleWordWrap,
+    Quit, Refresh, SaveFile, SearchWorkspace, ToggleDarkMode, ToggleFileTree, TogglePreview,
+    ToggleSidebar, ToggleWordWrap,
 };
 
 pub struct ReaderPreferences {
@@ -556,7 +556,8 @@ pub fn run() -> Result<()> {
             KeyBinding::new("secondary-shift-n", NewWindow, None),
             KeyBinding::new("secondary-n", NewFile, None),
             KeyBinding::new("secondary-o", OpenFile, None),
-            KeyBinding::new("secondary-p", PrintDocument, None),
+            #[cfg(target_os = "macos")]
+            KeyBinding::new("secondary-p", actions::PrintDocument, None),
             KeyBinding::new("secondary-s", SaveFile, None),
             KeyBinding::new("secondary-shift-o", OpenFolder, None),
             KeyBinding::new("secondary-r", Refresh, None),

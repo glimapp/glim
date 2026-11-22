@@ -47,6 +47,8 @@ fn main() {
             }
         }
         Ok("windows") => {
+            #[cfg(windows)]
+            embed_windows_icon();
             if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
                 // Restoring reader tabs and rendering their first frame share the UI stack.
                 println!("cargo:rustc-link-arg-bin=glim=/STACK:16777216");
@@ -54,6 +56,20 @@ fn main() {
         }
         _ => panic!("Unsupported Glim desktop target"),
     }
+}
+
+#[cfg(windows)]
+fn embed_windows_icon() {
+    let assets = "../../assets/windows";
+    println!("cargo:rerun-if-changed={assets}/Glim.rc");
+    println!("cargo:rerun-if-changed={assets}/Glim.ico");
+    embed_resource::compile_for(
+        format!("{assets}/Glim.rc"),
+        ["glim"],
+        embed_resource::ParamsIncludeDirs([assets]),
+    )
+    .manifest_required()
+    .expect("Embed the Glim Windows application icon");
 }
 
 fn embed_build_identity() {

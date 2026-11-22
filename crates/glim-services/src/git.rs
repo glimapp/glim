@@ -12,7 +12,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-pub const AVAILABLE: bool = cfg!(feature = "git");
+pub const AVAILABLE: bool = cfg!(all(feature = "git", target_os = "macos"));
 
 pub fn enabled() -> bool {
     AVAILABLE

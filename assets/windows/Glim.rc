@@ -1,0 +1,2 @@
+// The GPUI Windows backend loads icon resource 1 for its window class.
+1 ICON "Glim.ico"

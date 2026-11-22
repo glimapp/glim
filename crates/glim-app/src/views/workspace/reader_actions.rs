@@ -661,6 +661,7 @@ impl super::Workspace {
     }
 }
 
+#[cfg(target_os = "macos")]
 impl super::Workspace {
     fn print_content(&self) -> Option<crate::app::markdown_export::PrintContent> {
         use crate::app::markdown_export::PrintContent;

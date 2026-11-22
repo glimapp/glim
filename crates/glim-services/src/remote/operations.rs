@@ -322,7 +322,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "git"))]
+#[cfg(all(test, feature = "git", target_os = "macos"))]
 mod git_tests {
     use super::*;
     #[test]

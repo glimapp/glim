@@ -2554,6 +2554,7 @@ name = "glim-app"
 version = "0.2.27"
 dependencies = [
  "anyhow",
+ "embed-resource",
  "futures-channel",
  "glim-core",
  "glim-services",
