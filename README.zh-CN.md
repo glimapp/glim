@@ -86,7 +86,7 @@ Glim 是免费开源的 Mac 文件查看器。在同一工作区阅读带 Mermai
 
 ## 终端与 AI 工具
 
-打开 **设置 → 应用集成 → 配置 CLI 与 Agent Skills**。Glim 会设置终端 PATH，并为检测到的兼容 Agent 安装 Glim skill。打开新终端或新的 Agent 会话即可使用。
+打开 **设置 → 应用集成 → 终端与 Agent 工具 → 配置**。Glim 会设置终端 PATH，并为检测到的兼容 Agent 安装 Glim skill。打开新终端或新的 Agent 会话即可使用。
 
 ```sh
 glim open README.md

@@ -1,4 +1,7 @@
 {
+  "Set up": "Set up",
+  "Install the glim command and skills for detected agents.": "Install the glim command and skills for detected agents.",
+  "Terminal and agent tools": "Terminal and agent tools",
   "Setup incomplete. View details and retry.": "Setup incomplete. View details and retry.",
   "Open a new terminal or agent session.": "Open a new terminal or agent session.",
   "Set up CLI and Agent Skills": "Set up CLI and Agent Skills",

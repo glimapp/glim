@@ -86,7 +86,7 @@ If a local database sits beside your report, open it in Glim. Choose a table, fi
 
 ## Terminal and AI tools
 
-Choose **Settings → App integrations → Set up CLI and Agent Skills**. Glim configures your shell PATH and installs its skill for detected compatible agents. Open a new terminal or agent session to use it.
+Choose **Settings → App integrations → Terminal and agent tools → Set up**. Glim configures your shell PATH and installs its skill for detected compatible agents. Open a new terminal or agent session to use it.
 
 ```sh
 glim open README.md

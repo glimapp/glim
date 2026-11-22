@@ -21,6 +21,7 @@ pub(crate) struct Integrations {
     targets: Vec<Target>,
     loaded: bool,
     busy: bool,
+    discovery: Option<Task<()>>,
     installing_tools: bool,
     tools_error: Option<String>,
     pending_config: Option<std::path::PathBuf>,
@@ -31,17 +32,16 @@ pub(crate) struct Integrations {
 
 impl Integrations {
     pub(crate) fn reload(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.busy || self.discovery.is_some() {
             return;
         }
-        self.busy = true;
         let work = cx
             .background_executor()
             .spawn(async { integrations::discover() });
-        self.task = Some(cx.spawn(async move |view, cx| {
+        self.discovery = Some(cx.spawn(async move |view, cx| {
             let result = work.await;
             let _ = view.update(cx, |view, cx| {
-                view.busy = false;
+                view.discovery = None;
                 view.loaded = true;
                 match result {
                     Ok(targets) => view.targets = targets,
@@ -100,6 +100,7 @@ impl Integrations {
             return;
         }
         self.busy = true;
+        self.discovery = None;
         self.pending_config = Some(target.config.clone());
         self.notice = None;
         self.notice_task = None;
@@ -350,6 +351,41 @@ impl Render for Integrations {
             .child(
                 h_flex()
                     .w_full()
+                    .gap_3()
+                    .px_4()
+                    .py_3()
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(div().text_sm().child(tr("Terminal and agent tools")))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(tr(
+                                        "Install the glim command and skills for detected agents.",
+                                    )),
+                            ),
+                    )
+                    .child(
+                        Button::new("install-terminal-tools")
+                            .small()
+                            .h(px(30.))
+                            .min_w(px(90.))
+                            .rounded(px(8.))
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .disabled(self.busy)
+                            .loading(self.installing_tools)
+                            .label(tr("Set up"))
+                            .on_click(cx.listener(|view, _, _, cx| view.install_tools(cx))),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .w_full()
                     .justify_between()
                     .child(
                         div()
@@ -363,20 +399,10 @@ impl Render for Integrations {
                             IconName::RotateCw,
                             tr("Refresh"),
                         )
-                        .disabled(self.busy)
-                        .loading(self.busy)
+                        .disabled(self.busy || self.discovery.is_some())
+                        .loading(self.discovery.is_some())
                         .on_click(cx.listener(|view, _, _, cx| view.reload(cx))),
                     ),
-            )
-            .child(
-                Button::new("install-terminal-tools")
-                    .small()
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .disabled(self.busy)
-                    .loading(self.installing_tools)
-                    .label(tr("Set up CLI and Agent Skills"))
-                    .on_click(cx.listener(|view, _, _, cx| view.install_tools(cx))),
             )
             .child(rows)
             .child(

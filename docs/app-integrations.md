@@ -4,7 +4,7 @@
 
 Open **Settings → App integrations**, then choose **Add integration** beside a detected application. A green dot and **Configured** mean the configuration has been written, not that the other application has established a live connection. Restart the target application or reload its MCP servers, and accept any tool approval it requires. Use the **Configured** menu to remove the integration.
 
-Choose **Settings → App integrations → Set up CLI and Agent Skills**. Glim configures your shell PATH and installs its skill for detected compatible agents. Open a new terminal or agent session to use it.
+Choose **Settings → App integrations → Terminal and agent tools → Set up**. Glim configures your shell PATH and installs its skill for detected compatible agents. Open a new terminal or agent session to use it.
 
 Skill setup supports Codex, Claude Code, Gemini CLI, GitHub Copilot (including VS Code), OpenCode and Cursor. Glim preserves conflicting files. Resolve the conflict and run setup again. Claude Desktop can use the MCP integration below.
 
