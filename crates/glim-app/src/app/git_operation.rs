@@ -37,7 +37,7 @@ pub(crate) fn start(
     root: PathBuf,
     remote: Option<Session>,
     operation: Operation,
-    source: ElementId,
+    source: Option<ElementId>,
     owner: WeakEntity<Changes>,
     cx: &mut App,
 ) -> anyhow::Result<()> {
@@ -67,13 +67,22 @@ pub(crate) fn start(
     let completed_connection = connection.clone();
     let completed_operation = operation.clone();
     let completed_root = root.clone();
+    let background_fetch = source.is_none();
     let work = cx.background_executor().spawn(async move {
+        if background_fetch {
+            return glim_services::git::fetch_remote_updates(
+                &work_root,
+                remote.as_ref(),
+                &Cancellation::default(),
+            );
+        }
         glim_services::git::execute(
             &work_root,
             remote.as_ref(),
             &work_operation,
             &Cancellation::default(),
         )
+        .map(|_| false)
     });
     let task = cx.spawn(async move |cx| {
         let result = work.await;
@@ -87,16 +96,28 @@ pub(crate) fn start(
                     && job.operation == completed_operation)
             });
             let _ = owner.update(cx, |view, cx| {
-                view.operation_finished(
-                    completed_root,
-                    completed_connection,
-                    source,
-                    &completed_operation,
-                    result,
-                    cx,
-                )
+                if let Some(source) = source {
+                    view.operation_finished(
+                        completed_root,
+                        completed_connection,
+                        source,
+                        &completed_operation,
+                        result.map(|_| ()),
+                        cx,
+                    );
+                } else {
+                    match result {
+                        Ok(true) => {
+                            view.remote_updates_fetched(completed_root, completed_connection, cx)
+                        }
+                        Ok(false) => {}
+                        Err(error) => log::debug!("Background Git fetch failed: {error:#}"),
+                    }
+                }
             });
-            cx.refresh_windows();
+            if !background_fetch {
+                cx.refresh_windows();
+            }
         });
     });
     cx.default_global::<GitOperations>().0.push(Running {
@@ -105,6 +126,8 @@ pub(crate) fn start(
         operation,
         _task: task,
     });
-    cx.refresh_windows();
+    if !background_fetch {
+        cx.refresh_windows();
+    }
     Ok(())
 }

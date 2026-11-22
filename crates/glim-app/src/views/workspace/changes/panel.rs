@@ -78,22 +78,10 @@ impl Render for Changes {
             .gap_1()
             .child(self.branch_picker(
                 &branch,
+                (metadata.ahead, metadata.behind),
                 repository.map(|r| r.branches.clone()).unwrap_or_default(),
                 cx,
             ))
-            .child(self.subsection_button(
-                Section::Stashes,
-                gpui_kit::assets::IconName::Archive,
-                cx,
-            ))
-            .when(metadata.ahead > 0 || metadata.behind > 0, |row| {
-                row.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(format!("↑{} ↓{}", metadata.ahead, metadata.behind)),
-                )
-            })
             .child(self.operation_button("git-fetch", Operation::Fetch(None), disabled, cx))
             .when(!metadata.upstream.is_empty(), |row| {
                 row.child(self.operation_button(
@@ -108,7 +96,12 @@ impl Render for Changes {
                     disabled,
                     cx,
                 ))
-            });
+            })
+            .child(self.subsection_button(
+                Section::Stashes,
+                gpui_kit::assets::IconName::Archive,
+                cx,
+            ));
         use gpui_kit::assets::IconName;
         let mut tabs = h_flex()
             .id("git-sections")
@@ -130,6 +123,11 @@ impl Render for Changes {
                 Section::Stashes => (IconName::Archive, "Stashes"),
                 Section::Worktrees => (IconName::Network, "Worktree tab"),
             };
+            let unread = section == Section::Branches
+                && self
+                    .active_root
+                    .as_ref()
+                    .is_some_and(|r| self.remote_updates.contains(r));
             let active = !self.settings_open && self.section.parent() == section;
             tabs = tabs.child(
                 div()
@@ -147,10 +145,33 @@ impl Render for Changes {
                             label,
                             section.label(),
                         )
+                        .when(unread, |button| {
+                            button
+                                .tooltip(tr("New remote updates"))
+                                .accessibility_label(tr("Branches · New remote updates"))
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .top(px(4.))
+                                        .right(px(3.))
+                                        .size(px(6.))
+                                        .rounded_full()
+                                        .bg(cx.theme().success),
+                                )
+                        })
                         .toggled(active)
                         .on_click(cx.listener(move |view, _, _, cx| {
                             view.settings_open = false;
-                            view.switch_section(section, cx);
+                            let acknowledged = section == Section::Branches
+                                && view
+                                    .active_root
+                                    .as_ref()
+                                    .is_some_and(|root| view.remote_updates.remove(root));
+                            if acknowledged && view.section == section {
+                                view.browse(cx);
+                            } else {
+                                view.switch_section(section, cx);
+                            }
                             cx.notify();
                             cx.emit(ShowDiff);
                         })),
@@ -332,12 +353,6 @@ impl Render for Changes {
                 actions =
                     actions.child(self.operation_button(("git-batch", index), op, disabled, cx));
             }
-            actions = actions.child(self.operation_button(
-                "git-submodules",
-                Operation::Submodules,
-                disabled,
-                cx,
-            ));
             content = content.child(actions).child(self.navigation(cx));
             let message = self.message.read(cx).value().to_string();
             let focused = self.message.read(cx).focus_handle(cx).is_focused(window);

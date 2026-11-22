@@ -135,6 +135,7 @@ pub struct Commit {
     pub author: String,
     pub date: String,
     pub subject: String,
+    pub message: String,
 }
 
 pub const HISTORY_PAGE: usize = 100;
@@ -158,7 +159,7 @@ pub fn history(
         "--date-order".into(),
         "--date=format:%Y-%m-%d %H:%M:%S".into(),
         "-z".into(),
-        "--format=%H%x00%an%x00%ad%x00%s".into(),
+        "--format=%H%x00%an%x00%ad%x00%s%x00%B".into(),
         format!("--max-count={}", limit.saturating_add(1)).into(),
         format!("--skip={offset}").into(),
     ];
@@ -194,6 +195,7 @@ pub fn history(
             author: next()?,
             date: next()?,
             subject: next()?,
+            message: next()?,
         });
     }
     let more = commits.len() > limit;

@@ -80,6 +80,7 @@ pub(crate) struct Changes {
     identity_ready: bool,
     monitoring: bool,
     refresh_timer: Option<Task<()>>,
+    remote_updates: std::collections::HashSet<PathBuf>,
     available: bool,
     active_root: Option<PathBuf>,
     catalog: Arc<Catalog>,
@@ -216,6 +217,7 @@ impl Changes {
             identity_ready: false,
             monitoring: false,
             refresh_timer: None,
+            remote_updates: Default::default(),
             available: true,
             active_root: None,
             catalog: Arc::default(),
@@ -301,6 +303,7 @@ impl Changes {
                 != remote.as_ref().map(|r| &r.connection.id)
         {
             self.manual_refresh = None;
+            self.remote_updates.clear();
             self.errors.clear();
             self.tabs.clear();
             self.selection = None;
@@ -681,12 +684,23 @@ impl Changes {
                         .await;
                     if view
                         .update(cx, |view, cx| {
-                            if !view.loading
-                                && !view.patch_loading
-                                && !view.browsing
+                            if let Some(root) = view.active_root.clone()
                                 && !view.busy(cx)
+                                && !crate::app::git_operation::blocked(
+                                    &root,
+                                    view.remote.as_ref(),
+                                    &Operation::Fetch(None),
+                                    cx,
+                                )
                             {
-                                view.refresh(cx);
+                                let _ = crate::app::git_operation::start(
+                                    root,
+                                    view.remote.clone(),
+                                    Operation::Fetch(None),
+                                    None,
+                                    cx.entity().downgrade(),
+                                    cx,
+                                );
                             }
                         })
                         .is_err()
@@ -695,6 +709,20 @@ impl Changes {
                     }
                 }
             }));
+        }
+    }
+
+    pub(crate) fn remote_updates_fetched(
+        &mut self,
+        root: PathBuf,
+        connection: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.roots.contains(&root)
+            && connection.as_deref() == self.remote.as_ref().map(|r| r.connection.id.as_str())
+            && self.remote_updates.insert(root)
+        {
+            cx.notify();
         }
     }
 
@@ -822,7 +850,7 @@ impl Changes {
                                     if change.area == Area::Working && change.status != 'U' {
                                         ops.push(Operation::Discard(change.clone()));
                                     }
-                                    let actions: Vec<_> = ops
+                                    let mut actions: Vec<_> = ops
                                         .into_iter()
                                         .map(|op| {
                                             (
@@ -833,6 +861,12 @@ impl Changes {
                                             )
                                         })
                                         .collect();
+                                    actions.push((
+                                        gpui_kit::assets::IconName::FileClock,
+                                        tr("File history"),
+                                        browser::RowAction::FileHistory(change.path.clone()),
+                                        change.area == Area::Untracked,
+                                    ));
                                     let source = ElementId::Name(
                                         format!(
                                             "git-file-{:?}-{}",
@@ -1247,7 +1281,13 @@ mod tests {
         git(&["config", "commit.gpgSign", "false"]);
         std::fs::write(root.join("schedule.md"), "Monday\n".repeat(240)).unwrap();
         git(&["add", "schedule.md"]);
-        git(&["commit", "-qm", "Initial schedule"]);
+        git(&[
+            "commit",
+            "-qm",
+            "Initial schedule",
+            "-m",
+            "First paragraph.\n\nSecond paragraph.",
+        ]);
         let remote = directory.path().join("upstream.git");
         let remote_path = remote.to_str().unwrap();
         git(&["init", "--bare", "-b", "main", remote_path]);
@@ -1488,11 +1528,47 @@ mod tests {
         .unwrap();
         assert!(cx.update(|cx| diff.read(cx).is_file_collapsed("schedule.md")));
         let generation = cx.update(|cx| workspace.read(cx).changes.read(cx).generation);
+        let current_head = git(&["rev-parse", "HEAD"]);
+        let upstream_commit = git(&[
+            "commit-tree",
+            "HEAD^{tree}",
+            "-p",
+            "HEAD",
+            "-m",
+            "Remote only",
+        ]);
+        git(&[
+            "push",
+            "origin",
+            &format!("{}:refs/heads/qa-update", upstream_commit.trim()),
+        ]);
+        // A local push records origin/qa-update too. Remove that tracking ref
+        // to model a commit published by a different client.
+        git(&["update-ref", "-d", "refs/remotes/origin/qa-update"]);
         cx.update(|cx| cx.background_executor().clone())
             .advance_clock(std::time::Duration::from_secs(61));
         cx.run_until_parked();
-        assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).generation > generation));
-        assert!(cx.update(|cx| diff.read(cx).is_file_collapsed("schedule.md")));
+        assert_eq!(git(&["rev-parse", "origin/qa-update"]), upstream_commit);
+        assert_eq!(git(&["rev-parse", "HEAD"]), current_head);
+        cx.update(|cx| {
+            let git = workspace.read(cx).changes.read(cx);
+            assert_eq!(git.generation, generation);
+            assert!(git.remote_updates.contains(&root));
+            assert!(diff.read(cx).is_file_collapsed("schedule.md"));
+        });
+        click(
+            cx,
+            ("git-section", browser::Section::Branches as usize).into(),
+        );
+        assert!(!cx.update(|cx| {
+            workspace
+                .read(cx)
+                .changes
+                .read(cx)
+                .remote_updates
+                .contains(&root)
+        }));
+        git(&["push", "origin", "--delete", "qa-update"]);
         click(cx, "diff-expand-all".into());
         assert!(!cx.update(|cx| diff.read(cx).is_file_collapsed("schedule.md")));
         for (mode, wrap) in [
@@ -1605,6 +1681,17 @@ mod tests {
             .unwrap();
         }
         click(cx, "git-form-cancel".into());
+        cx.update_window(handle, |_, w, cx| {
+            w.render_frame(cx);
+            assert!(
+                w.find(("git-browser-row", 1usize))
+                    .label()
+                    .unwrap()
+                    .contains("Initial schedule\n\nFirst paragraph.\n\nSecond paragraph.")
+            );
+            w.hover(("git-browser-row", 1usize), cx);
+        })
+        .unwrap();
         click(cx, ("git-browser-row", 1usize).into());
         assert_eq!(
             cx.update(|cx| workspace

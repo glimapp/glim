@@ -8,7 +8,6 @@ pub enum Operation {
         name: String,
         email: String,
     },
-    Submodules,
     Clone {
         url: String,
         path: PathBuf,
@@ -141,7 +140,6 @@ impl Operation {
         match self {
             Self::Init(_) => "Initialize repository",
             Self::Identity { .. } => "Commit identity",
-            Self::Submodules => "Update submodules",
             Self::Clone { .. } => "Clone repository",
             Self::Ignore(_) => "Ignore file",
             Self::Stage(None) => "Stage all",
@@ -396,7 +394,6 @@ pub fn execute(
             simple(&["config", "--local", "user.name", name])?;
             simple(&["config", "--local", "user.email", email])
         }
-        Operation::Submodules => simple(&["submodule", "update", "--init", "--recursive"]),
         Operation::Ignore(path) => {
             relative(path.as_os_str().as_bytes().to_vec())?;
             let filename = path.to_str().context("Ignore requires a UTF-8 filename")?;

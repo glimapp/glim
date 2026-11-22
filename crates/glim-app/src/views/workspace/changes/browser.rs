@@ -43,6 +43,7 @@ pub(super) enum RowAction {
     Run(Operation),
     Open(PathBuf),
     Compare(Comparison),
+    FileHistory(PathBuf),
     Form(Form),
     Copy(String),
 }
@@ -64,7 +65,11 @@ impl Changes {
             let source = source.clone();
             menu = menu.item(
                 PopupMenuItem::new(label.clone())
-                    .icon(icon.clone())
+                    .icon(if matches!(action, RowAction::Form(Form::Tag)) {
+                        super::controls::create_tag_icon()
+                    } else {
+                        icon.clone().into()
+                    })
                     .disabled(
                         *disabled
                             || match &action {
@@ -84,6 +89,14 @@ impl Changes {
                                 }
                                 RowAction::Form(form) => {
                                     view.form(source.clone(), form.clone(), window, cx)
+                                }
+                                RowAction::FileHistory(path) => {
+                                    view.switch_section(Section::History, cx);
+                                    view.history_path = Some(path.clone());
+                                    view.reset_history();
+                                    view.selected_commit = None;
+                                    view.browse(cx);
+                                    cx.emit(ShowDiff);
                                 }
                                 RowAction::Open(path) => cx.emit(OpenFile(path.clone())),
                                 RowAction::Copy(id) => {
@@ -457,7 +470,6 @@ impl Changes {
             Section::History => h_flex()
                 .gap_1()
                 .flex_wrap()
-                .child(self.form_button("git-compare", Form::Compare, cx))
                 .child(
                     super::controls::icon_action(
                         Button::new("git-history-all"),
@@ -472,27 +484,7 @@ impl Changes {
                         view.browse(cx);
                     })),
                 )
-                .when_some(
-                    self.selection.as_ref().map(|(_, c)| c.path.clone()),
-                    |bar, path| {
-                        bar.child(
-                            super::controls::icon_action(
-                                Button::new("git-file-history"),
-                                gpui_kit::assets::IconName::FileClock,
-                                "File history",
-                            )
-                            .selected(self.history_path.as_ref() == Some(&path))
-                            .on_click(cx.listener(
-                                move |view, _, _, cx| {
-                                    view.history_path = Some(path.clone());
-                                    view.reset_history();
-                                    view.selected_commit = None;
-                                    view.browse(cx);
-                                },
-                            )),
-                        )
-                    },
-                )
+                .child(self.form_button("git-compare", Form::Compare, cx))
                 .child(
                     super::controls::icon_action(
                         Button::new("git-history-search"),
@@ -710,7 +702,10 @@ impl Changes {
                 let commit = &view.commits[index];
                 format!(
                     "{}\n{} · {}\n{}",
-                    title, commit.author, commit.id, commit.date
+                    commit.message.trim_end(),
+                    commit.author,
+                    commit.id,
+                    commit.date
                 )
             } else {
                 format!("{title}\n{subtitle}")

@@ -28,12 +28,20 @@ pub(super) fn navigation_button(
                 .child(div().text_xs().child(tr(label))),
         )
 }
-pub(super) fn icon_action(button: Button, icon: IconName, label: &str) -> Button {
+pub(super) fn create_tag_icon() -> gpui_kit::component::Icon {
+    gpui_kit::component::Icon::default().path("navigation/tag-plus.svg")
+}
+
+pub(super) fn icon_action(
+    button: Button,
+    icon: impl Into<gpui_kit::component::Icon>,
+    label: &str,
+) -> Button {
     let label = tr(label);
     button
         .ghost()
         .small()
-        .icon(icon)
+        .icon(icon.into())
         .tooltip(label.clone())
         .accessibility_label(label)
 }
@@ -173,7 +181,7 @@ impl Changes {
             root,
             self.remote.clone(),
             operation.clone(),
-            source,
+            Some(source),
             owner,
             cx,
         ) {
@@ -308,7 +316,6 @@ impl Changes {
             Operation::Unstage(None) => icon_action(button, IconName::ListMinus, operation.label()),
             Operation::Ignore(_) => icon_action(button, IconName::EyeOff, operation.label()),
             Operation::Discard(_) => icon_action(button, IconName::Undo2, operation.label()),
-            Operation::Submodules => icon_action(button, IconName::Package, operation.label()),
             Operation::ConflictSide { incoming, .. } => icon_action(
                 button,
                 if *incoming {
@@ -332,6 +339,7 @@ impl Changes {
     pub(super) fn branch_picker(
         &self,
         branch: &str,
+        tracking: (usize, usize),
         branches: Arc<Vec<String>>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -346,7 +354,11 @@ impl Changes {
                 .icon(IconName::GitBranch)
                 .label(current.clone()),
         )
-        .tooltip(tr("Switch branch"))
+        .tooltip(if tracking == (0, 0) {
+            tr("Switch branch")
+        } else {
+            format!("{} · ↑{} ↓{}", tr("Switch branch"), tracking.0, tracking.1)
+        })
         .accessibility_label(format!("{} · {current}", tr("Switch branch")))
         .disabled(self.busy(cx) || branches.is_empty())
         .dropdown_menu(move |mut menu, _, _| {
@@ -422,7 +434,7 @@ impl Changes {
         for (id, label, checked) in [
             (
                 "git-auto-refresh",
-                "Refresh status every minute",
+                "Fetch remotes every minute",
                 prefs.auto_refresh,
             ),
             ("git-worktrees", "Enable worktrees", prefs.worktrees),
@@ -579,13 +591,13 @@ impl Changes {
         cx: &mut Context<Self>,
     ) -> Button {
         let icon = match &form {
-            Form::Compare => IconName::GitCompareArrows,
-            Form::Tag => IconName::Tag,
-            Form::Branch => IconName::GitBranchPlus,
-            Form::Rename(_) => IconName::GitBranch,
-            Form::Remote => IconName::Server,
-            Form::Worktree => IconName::FolderPlus,
-            Form::Stash => IconName::Archive,
+            Form::Tag => create_tag_icon(),
+            Form::Compare => IconName::GitCompareArrows.into(),
+            Form::Branch => IconName::GitBranchPlus.into(),
+            Form::Rename(_) => IconName::GitBranch.into(),
+            Form::Remote => IconName::Server.into(),
+            Form::Worktree => IconName::FolderPlus.into(),
+            Form::Stash => IconName::Archive.into(),
         };
         self.feedback_button(id.into(), icon_action(Button::new(id), icon, form.title()))
             .disabled(

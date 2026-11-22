@@ -142,6 +142,41 @@ fn relative(bytes: Vec<u8>) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Fetch remote references without touching the index, working tree or FETCH_HEAD.
+pub fn fetch_remote_updates(
+    root: &Path,
+    remote: Option<&Session>,
+    cancel: &Cancellation,
+) -> Result<bool> {
+    use sha2::{Digest, Sha256};
+    let snapshot = || -> Result<_> {
+        let args = [
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/remotes",
+            "refs/tags",
+        ]
+        .map(OsString::from);
+        let output = run(command(root, remote, &args)?, false, cancel)?;
+        let mut hash = Sha256::new();
+        cancel.copy(output.reopen()?, &mut hash)?;
+        Ok(hash.finalize())
+    };
+    let before = snapshot()?;
+    let args = [
+        "-c",
+        "credential.interactive=false",
+        "fetch",
+        "--all",
+        "--prune",
+        "--no-write-fetch-head",
+        "--no-recurse-submodules",
+    ]
+    .map(OsString::from);
+    run(command(root, remote, &args)?, false, cancel)?;
+    Ok(snapshot()? != before)
+}
+
 pub fn changes(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> Result<Repository> {
     let args = [
         "status",
