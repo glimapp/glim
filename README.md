@@ -86,12 +86,7 @@ If a local database sits beside your report, open it in Glim. Choose a table, fi
 
 ## Terminal and AI tools
 
-Link the bundled command into a directory on your PATH once.
-
-```sh
-mkdir -p ~/.local/bin
-ln -s /Applications/Glim.app/Contents/Resources/glim ~/.local/bin/glim
-```
+Choose **Settings → App integrations → Set up CLI and Agent Skills**. Glim configures your shell PATH and installs its skill for detected compatible agents. Open a new terminal or agent session to use it.
 
 ```sh
 glim open README.md
@@ -102,9 +97,9 @@ glim formats
 glim --help
 ```
 
-Exports require a new output filename and print its path on success. For Cursor’s MCP configuration, use the absolute launcher path as the command and `["mcp"]` as its arguments. MCP exposes `open_in_glim`. Agents can run the export commands directly in a terminal.
+Exports require a new output filename and print its path on success.
 
-[Terminal guide](docs/user-guide.md#cli) · [Cursor configuration example](docs/app-integrations.md#cursor-mcp)
+[Terminal guide](docs/user-guide.md#cli) · [Agent integrations](docs/app-integrations.md)
 
 ## Download
 

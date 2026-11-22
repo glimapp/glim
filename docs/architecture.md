@@ -27,6 +27,7 @@ crates/
       reader/         source, markup, data trees/tables, images, native previews, XMind
       explorer.rs     lazy directory tree, sticky ancestors and filename/path tooltips
       minimap.rs      document overview
+integrations/terminal.rs  user CLI, shell PATH and agent skill setup (glim-services)
 native/               embedded macOS previews, settings helper and Sparkle bridge
 assets/               branding, file icons, syntax queries, offline engines and bundle metadata
 scripts/              packaging, signing, feed generation and focused native checks

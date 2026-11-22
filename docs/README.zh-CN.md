@@ -37,4 +37,4 @@ Glim 帮助你在 Mac 上查看工作、学习和项目中的各种文件，也�
 
 维护约定：待办及验收缺口集中在 `TODO.zh-CN.md`；架构、契约和策略文档描述当前设计与已落实行为。性能原始报告、会话记录和临时验证产物保存在仓库外；发布变更写入 GitHub Releases。
 
-[终端使用指南](user-guide.zh-CN.md#cli) · [Cursor 配置示例](app-integrations.zh-CN.md#cursor-mcp)
+[终端使用指南](user-guide.zh-CN.md#cli) · [多 Agent 集成](app-integrations.zh-CN.md)

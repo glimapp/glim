@@ -21,6 +21,8 @@ pub(crate) struct Integrations {
     targets: Vec<Target>,
     loaded: bool,
     busy: bool,
+    installing_tools: bool,
+    tools_error: Option<String>,
     pending_config: Option<std::path::PathBuf>,
     task: Option<Task<()>>,
     notice: Option<(&'static str, bool)>,
@@ -64,6 +66,33 @@ impl Integrations {
                 cx.notify();
             });
         }));
+    }
+
+    fn install_tools(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.busy = true;
+        self.installing_tools = true;
+        self.tools_error = None;
+        self.notice = None;
+        self.notice_task = None;
+        let work = cx
+            .background_executor()
+            .spawn(async { integrations::terminal::install(&integrations::discover()?) });
+        self.task = Some(cx.spawn(async move |view, cx| {
+            let result = work.await;
+            let _ = view.update(cx, |view, cx| {
+                view.busy = false;
+                view.installing_tools = false;
+                match result {
+                    Ok(()) => view.notice("Open a new terminal or agent session.", false, cx),
+                    Err(error) => view.tools_error = Some(format!("{error:#}")),
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
     }
 
     fn configure(&mut self, target: Target, install: bool, cx: &mut Context<Self>) {
@@ -283,7 +312,19 @@ impl Render for Integrations {
                     }),
             );
         }
-        let status = if let Some((message, error)) = self.notice {
+        let status = if let Some(error) = self.tools_error.clone() {
+            div()
+                .id("tools-error")
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .role(Role::Status)
+                .text_xs()
+                .text_color(cx.theme().danger)
+                .tooltip(move |window, cx| Tooltip::new(error.clone()).build(window, cx))
+                .child(tr("Setup incomplete. View details and retry."))
+                .into_any_element()
+        } else if let Some((message, error)) = self.notice {
             div()
                 .id("integration-notice")
                 .flex_1()
@@ -326,6 +367,16 @@ impl Render for Integrations {
                         .loading(self.busy)
                         .on_click(cx.listener(|view, _, _, cx| view.reload(cx))),
                     ),
+            )
+            .child(
+                Button::new("install-terminal-tools")
+                    .small()
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .disabled(self.busy)
+                    .loading(self.installing_tools)
+                    .label(tr("Set up CLI and Agent Skills"))
+                    .on_click(cx.listener(|view, _, _, cx| view.install_tools(cx))),
             )
             .child(rows)
             .child(
