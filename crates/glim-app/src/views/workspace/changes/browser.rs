@@ -1,5 +1,7 @@
 use super::controls::Form;
 use super::*;
+use gpui_kit::assets::IconName;
+use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Section {
@@ -56,6 +58,7 @@ impl Changes {
         self.patch_loading = false;
         self.selection = None;
         self.catalog = Arc::default();
+        self.reference_groups = Default::default();
         self.commits = Arc::default();
         self.active_root = Some(root.clone());
         self.comparison = None;
@@ -162,7 +165,14 @@ impl Changes {
             } else {
                 None
             };
-            Ok::<_, anyhow::Error>((catalog, history))
+            let revisions = if matches!(section, Section::Branches | Section::Worktrees)
+                && !catalog.references.is_empty()
+            {
+                Some(git::history(&root, remote.as_ref(), 0, false, "", None, &cancel)?.commits)
+            } else {
+                None
+            };
+            Ok::<_, anyhow::Error>((catalog, history, revisions))
         });
         self.browse_task = Some(cx.spawn(async move |view, cx| {
             let result = work.await;
@@ -172,7 +182,10 @@ impl Changes {
                 }
                 view.browsing = false;
                 match result {
-                    Ok((catalog, history)) => {
+                    Ok((catalog, history, revisions)) => {
+                        if let Some(commits) = revisions {
+                            view.commits = Arc::new(commits);
+                        }
                         let reference_key =
                             view.selected_reference
                                 .and_then(|index| match view.section {
@@ -193,6 +206,12 @@ impl Changes {
                             .selected_stash
                             .and_then(|index| view.catalog.stashes.get(index))
                             .map(|s| s.id.clone());
+                        view.reference_groups = Default::default();
+                        for (index, reference) in catalog.references.iter().enumerate() {
+                            view.reference_groups
+                                [usize::from(reference.full.starts_with("refs/tags/"))]
+                            .push(index);
+                        }
                         view.catalog = Arc::new(catalog);
                         view.selected_reference =
                             reference_key.as_ref().and_then(|key| match view.section {
@@ -373,11 +392,24 @@ impl Changes {
                 .child(self.form_button("git-add-remote", Form::Remote, cx))
                 .child(self.operation_button("git-fetch-all", Operation::Fetch(None), false, cx))
                 .into_any_element(),
-            Section::Stashes | Section::Worktrees | Section::Changes => div().into_any_element(),
+            Section::Stashes => self
+                .form_button("git-stash-save", Form::Stash, cx)
+                .into_any_element(),
+            Section::Worktrees => self
+                .form_button("git-worktree-add", Form::Worktree, cx)
+                .into_any_element(),
+            Section::Changes => div().into_any_element(),
         };
+        let visible_refs = std::array::from_fn::<_, 2, _>(|group| {
+            if self.collapsed_refs[group] {
+                0
+            } else {
+                self.reference_groups[group].len()
+            }
+        });
         let count = match self.section {
             Section::History => self.commits.len(),
-            Section::Branches => self.catalog.references.len(),
+            Section::Branches => 2 + visible_refs.iter().sum::<usize>(),
             Section::Remotes => self.catalog.remotes.len(),
             Section::Stashes => self.catalog.stashes.len(),
             Section::Worktrees => self.catalog.worktrees.len(),
@@ -389,6 +421,46 @@ impl Changes {
             let view = owner.read(cx);
             range
                 .map(|index| {
+                    let index = if section == Section::Branches {
+                        let group = usize::from(index > visible_refs[0]);
+                        let offset = if group == 0 {
+                            index
+                        } else {
+                            index - visible_refs[0] - 1
+                        };
+                        if offset == 0 {
+                            let owner = owner.clone();
+                            let (icon, label) = if group == 0 {
+                                (IconName::GitBranch, "Git branches")
+                            } else {
+                                (IconName::Tag, "Git tags")
+                            };
+                            let arrow = if view.collapsed_refs[group] {
+                                IconName::ChevronRight
+                            } else {
+                                IconName::ChevronDown
+                            };
+                            return super::controls::icon_action(
+                                Button::new(("git-reference-group", group)),
+                                icon,
+                                label,
+                            )
+                            .w_full()
+                            .h(px(30.))
+                            .justify_start()
+                            .child(gpui_kit::component::Icon::new(arrow).size(px(12.)))
+                            .on_click(move |_, _, cx| {
+                                owner.update(cx, |view, cx| {
+                                    view.collapsed_refs[group] = !view.collapsed_refs[group];
+                                    cx.notify();
+                                })
+                            })
+                            .into_any_element();
+                        }
+                        view.reference_groups[group][offset - 1]
+                    } else {
+                        index
+                    };
                     let (title, subtitle, selected) = match section {
                         Section::History => {
                             let commit = &view.commits[index];
@@ -472,10 +544,15 @@ impl Changes {
                         _ => unreachable!(),
                     };
                     let owner = owner.clone();
-                    Button::new(("git-browser-row", index))
+                    let menu_owner = owner.clone();
+                    let row = Button::new(("git-browser-row", index))
                         .ghost()
                         .w_full()
-                        .h(px(52.))
+                        .h(if section == Section::Branches {
+                            px(30.)
+                        } else {
+                            px(52.)
+                        })
                         .justify_start()
                         .selected(selected)
                         .tooltip(format!("{title}\n{subtitle}"))
@@ -485,13 +562,15 @@ impl Changes {
                                 .min_w_0()
                                 .gap_1()
                                 .child(div().truncate().text_sm().child(title))
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(subtitle),
-                                ),
+                                .when(section != Section::Branches, |row| {
+                                    row.child(
+                                        div()
+                                            .truncate()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(subtitle),
+                                    )
+                                }),
                         )
                         .on_click(move |_, _, cx| {
                             owner.update(cx, |view, cx| {
@@ -529,17 +608,65 @@ impl Changes {
                                 }
                                 cx.notify();
                             })
-                        })
-                        .into_any_element()
+                        });
+                    if matches!(section, Section::Worktrees | Section::Remotes) {
+                        let root = view.active_root.clone();
+                        let open = view
+                            .catalog
+                            .worktrees
+                            .get(index)
+                            .filter(|_| section == Section::Worktrees)
+                            .map(|t| t.path.clone());
+                        let operations = view.row_operations(section, index);
+                        return div()
+                            .id(("git-context-row", index))
+                            .child(row)
+                            .context_menu(move |mut menu, _, cx| {
+                                if let Some(path) = &open {
+                                    let path = path.clone();
+                                    let owner = menu_owner.clone();
+                                    menu =
+                                        menu.item(PopupMenuItem::new(tr("Open Folder")).on_click(
+                                            move |_, _, cx| {
+                                                owner.update(cx, |_, cx| {
+                                                    cx.emit(OpenFile(path.clone()))
+                                                })
+                                            },
+                                        ));
+                                }
+                                let busy = menu_owner.read(cx).busy(cx);
+                                for (operation, disabled) in &operations {
+                                    let operation = operation.clone();
+                                    let root = root.clone();
+                                    let owner = menu_owner.clone();
+                                    menu = menu.item(
+                                        PopupMenuItem::new(operation.menu_label())
+                                            .disabled(busy || *disabled)
+                                            .on_click(move |_, window, cx| {
+                                                owner.update(cx, |view, cx| {
+                                                    if view.active_root == root {
+                                                        view.request(operation.clone(), window, cx);
+                                                    }
+                                                });
+                                            }),
+                                    );
+                                }
+                                menu
+                            })
+                            .into_any_element();
+                    }
+                    row.into_any_element()
                 })
                 .collect()
         })
         .min_h_0()
         .w_full();
-        let mut panel = v_flex().w_full().min_h_0().gap_2().p_2().when(
-            !matches!(self.section, Section::Stashes | Section::Worktrees),
-            |panel| panel.child(controls),
-        );
+        let mut panel = v_flex()
+            .w_full()
+            .min_h_0()
+            .gap_1()
+            .p_2()
+            .child(h_flex().child(controls));
         if self.section == Section::History && self.search_open {
             panel = panel.child(
                 h_flex()
@@ -590,25 +717,25 @@ impl Changes {
                 );
             }
         }
-        panel = panel.child(
-            div()
-                .h(px(20.))
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(if self.browsing {
-                    tr("Loading…")
-                } else if count == 0 {
-                    tr(if self.section == Section::Stashes {
-                        "No stashes"
+        if self.browsing || count == 0 {
+            panel = panel.child(
+                div()
+                    .h(px(20.))
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(if self.browsing {
+                        tr("Loading…")
+                    } else if self.section == Section::Stashes {
+                        tr("No stashes")
                     } else {
-                        "No entries"
-                    })
-                } else {
-                    format!("{count} {}", tr("entries"))
-                }),
-        );
-        panel = panel.flex_1().child(rows.flex_1());
-        panel = panel.child(self.browser_actions(cx));
+                        tr("No entries")
+                    }),
+            );
+        }
+        panel = panel
+            .child(self.browser_actions(cx))
+            .flex_1()
+            .child(rows.flex_1());
         panel.into_any_element()
     }
 
@@ -785,72 +912,53 @@ impl Changes {
                     ));
                 }
             }
-            Section::Remotes => {
-                if let Some(remote) = self
-                    .selected_reference
-                    .and_then(|i| self.catalog.remotes.get(i))
-                {
-                    let mut operations = vec![
-                        Operation::Fetch(Some(remote.name.clone())),
-                        Operation::Push(Some(remote.name.clone())),
-                        Operation::RemoveRemote(remote.name.clone()),
-                    ];
-                    if let Some(repository) = self
-                        .repositories
-                        .iter()
-                        .find(|repo| Some(&repo.root) == self.active_root.as_ref())
-                    {
-                        if let Some(branch) = repository
-                            .metadata
-                            .upstream
-                            .strip_prefix(&format!("{}/", remote.name))
-                        {
-                            if let Some(reference) = self.catalog.references.iter().find(|r| {
-                                r.full == format!("refs/remotes/{}/{}", remote.name, branch)
-                            }) {
-                                operations.push(Operation::ForcePush {
-                                    remote: remote.name.clone(),
-                                    branch: branch.into(),
-                                    expected: reference.id.clone(),
-                                });
-                            }
-                        }
-                    }
-                    bar = bar.child(self.operation_menu(
-                        "git-remote-actions",
-                        "Remote actions",
-                        operations,
-                        cx,
-                    ));
-                }
-            }
-            Section::Worktrees => {
-                if let Some(tree) = self
-                    .selected_reference
-                    .and_then(|i| self.catalog.worktrees.get(i))
-                {
-                    let path = tree.path.clone();
-                    bar = bar
-                        .child(
-                            super::controls::icon_action(
-                                Button::new("git-open-worktree"),
-                                gpui_kit::assets::IconName::FolderOpen,
-                                "Open Folder",
-                            )
-                            .on_click(
-                                cx.listener(move |_, _, _, cx| cx.emit(OpenFile(path.clone()))),
-                            ),
-                        )
-                        .child(self.operation_button(
-                            "git-remove-worktree",
-                            Operation::RemoveWorktree(tree.path.clone()),
-                            self.active_root.as_ref() == Some(&tree.path) || tree.locked,
-                            cx,
-                        ));
-                }
-            }
             _ => {}
         }
         bar.into_any_element()
+    }
+
+    fn row_operations(&self, section: Section, index: usize) -> Vec<(Operation, bool)> {
+        match section {
+            Section::Remotes => {
+                let remote = &self.catalog.remotes[index];
+                let mut operations = vec![
+                    Operation::Fetch(Some(remote.name.clone())),
+                    Operation::Push(Some(remote.name.clone())),
+                    Operation::RemoveRemote(remote.name.clone()),
+                ];
+                if let Some(repository) = self
+                    .repositories
+                    .iter()
+                    .find(|repo| Some(&repo.root) == self.active_root.as_ref())
+                {
+                    if let Some(branch) = repository
+                        .metadata
+                        .upstream
+                        .strip_prefix(&format!("{}/", remote.name))
+                    {
+                        if let Some(reference) =
+                            self.catalog.references.iter().find(|r| {
+                                r.full == format!("refs/remotes/{}/{}", remote.name, branch)
+                            })
+                        {
+                            operations.push(Operation::ForcePush {
+                                remote: remote.name.clone(),
+                                branch: branch.into(),
+                                expected: reference.id.clone(),
+                            });
+                        }
+                    }
+                }
+                operations.into_iter().map(|op| (op, false)).collect()
+            }
+            Section::Worktrees => {
+                let tree = &self.catalog.worktrees[index];
+                vec![(
+                    Operation::RemoveWorktree(tree.path.clone()),
+                    tree.locked || self.active_root.as_ref() == Some(&tree.path),
+                )]
+            }
+            _ => Vec::new(),
+        }
     }
 }

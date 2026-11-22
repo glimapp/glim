@@ -922,6 +922,8 @@
   "staged files": "staged files",
   "Local branch": "Local branch",
   "Remote branch": "Remote branch",
+  "Git branches": "Branches",
+  "Git tags": "Tags",
   "Tag": "Tag",
   "Reset · soft": "Reset · soft",
   "Reset · mixed": "Reset · mixed",

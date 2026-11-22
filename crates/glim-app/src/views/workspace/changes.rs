@@ -89,6 +89,8 @@ pub(crate) struct Changes {
     form_values: std::collections::HashMap<String, Vec<String>>,
     comparison: Option<(PathBuf, Comparison)>,
     selected_commit: Option<Commit>,
+    collapsed_refs: [bool; 2],
+    reference_groups: [Vec<usize>; 2],
     selected_reference: Option<usize>,
     selected_stash: Option<usize>,
     patch_source: Option<Arc<String>>,
@@ -146,6 +148,7 @@ impl Changes {
         self.tabs.clear();
         self.repositories.clear();
         self.catalog = Arc::default();
+        self.reference_groups = Default::default();
         self.commits = Arc::default();
         self.rows = Arc::default();
         self.selection = None;
@@ -197,6 +200,8 @@ impl Changes {
             form_values: Default::default(),
             comparison: None,
             selected_commit: None,
+            collapsed_refs: [false; 2],
+            reference_groups: Default::default(),
             selected_reference: None,
             selected_stash: None,
             patch_source: None,
@@ -261,6 +266,7 @@ impl Changes {
             self.active_root = None;
             self.comparison = None;
             self.catalog = Arc::default();
+            self.reference_groups = Default::default();
             self.commits = Arc::default();
             self.selected_commit = None;
             self.selected_reference = None;
@@ -769,28 +775,7 @@ impl Changes {
         let mode = self.diff.read(cx).mode();
         let ready = !self.patch_loading && !self.diff.read(cx).files().is_empty();
         let toolbar = h_flex()
-            .w_full()
-            .min_w_0()
-            .h(px(38.))
-            .flex_shrink_0()
-            .px_2()
             .gap_1()
-            .child(
-                div().flex_1().min_w_0().truncate().text_sm().child(
-                    self.selection
-                        .as_ref()
-                        .filter(|_| self.comparison.is_none())
-                        .map_or_else(
-                            || {
-                                self.comparison
-                                    .as_ref()
-                                    .map(|(_, c)| c.title())
-                                    .unwrap_or_else(|| tr("Changes"))
-                            },
-                            |(_, change)| change.path.to_string_lossy().into_owned(),
-                        ),
-                ),
-            )
             .child(
                 Button::new("diff-open-file")
                     .ghost()
@@ -955,21 +940,32 @@ impl Changes {
                 .soft_wrap(self.soft_wrap)
                 .size_full()
                 .into_any_element()
+        } else if self.selection.is_some() {
+            message(tr("No textual changes"), cx)
         } else {
-            message(
-                tr(if self.selection.is_some() {
-                    "No textual changes"
-                } else {
-                    "No changes"
-                }),
-                cx,
-            )
+            div().into_any_element()
         };
+        let show_toolbar = self.selection.is_some() || self.comparison.is_some();
         v_flex()
+            .relative()
             .size_full()
             .min_h_0()
-            .child(toolbar)
-            .child(div().flex_1().min_h_0().w_full().child(content))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .when(show_toolbar, |view| view.pb(px(48.)))
+                    .child(content),
+            )
+            .when(show_toolbar, |view| {
+                view.child(crate::views::reader::controls::capsule(
+                    toolbar.into_any_element(),
+                    false,
+                    px(0.),
+                    cx,
+                ))
+            })
             .into_any_element()
     }
 }
@@ -1116,14 +1112,42 @@ mod tests {
             "Move opening to Tuesday\n"
         );
         assert!(git(&["status", "--porcelain"]).is_empty());
-        for section in [browser::Section::Stashes, browser::Section::History] {
-            click(cx, "git-section-picker".into());
+        click(
+            cx,
+            ("git-section", browser::Section::Branches as usize).into(),
+        );
+        for group in [0usize, 1] {
+            click(cx, ("git-reference-group", group).into());
+            assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).collapsed_refs[group]));
+            click(cx, ("git-reference-group", group).into());
+        }
+        for (form, field) in [("git-new-tag", 1usize), ("git-compare-refs", 0)] {
+            click(cx, form.into());
+            click(cx, ("revision-picker", field).into());
             cx.update_window(handle, |_, w, cx| {
                 w.render_frame(cx);
-                w.within("popup-menu").click(section as usize, cx);
+                w.within("popup-menu").click(1usize, cx);
+            })
+            .unwrap();
+            click(cx, "git-form-cancel".into());
+        }
+        for section in [browser::Section::Remotes, browser::Section::Worktrees] {
+            click(cx, ("git-section", section as usize).into());
+            cx.update_window(handle, |_, w, cx| {
+                w.render_frame(cx);
+                w.right_click(("git-browser-row", 0usize), cx);
             })
             .unwrap();
             cx.run_until_parked();
+            cx.update_window(handle, |_, w, cx| {
+                w.render_frame(cx);
+                w.within("popup-menu").find(0usize);
+                w.press("escape", cx);
+            })
+            .unwrap();
+        }
+        for section in [browser::Section::Stashes, browser::Section::History] {
+            click(cx, ("git-section", section as usize).into());
             assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).section == section));
         }
         assert_eq!(
@@ -1142,6 +1166,10 @@ mod tests {
                 .subject
                 .clone()),
             "Initial schedule"
+        );
+        click(
+            cx,
+            ("git-section", browser::Section::Changes as usize).into(),
         );
         click(cx, "git-sync".into());
         cx.update_window(handle, |_, w, cx| {

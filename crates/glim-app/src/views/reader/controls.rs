@@ -137,7 +137,12 @@ impl RenderOnce for ReaderToolbarDock {
             .into_any_element()
     }
 }
-fn capsule(controls: AnyElement, collapsed: bool, trailing_inset: Pixels, cx: &App) -> AnyElement {
+pub(crate) fn capsule(
+    controls: AnyElement,
+    collapsed: bool,
+    trailing_inset: Pixels,
+    cx: &App,
+) -> AnyElement {
     div()
         .absolute()
         .left(px(16.))

@@ -4,7 +4,8 @@ use std::borrow::Cow;
 gpui_kit::assets::icon_assets!(
     ViewerIcons,
     [
-        CloudSync,
+        ArrowUpDown,
+        Send,
         Tag,
         Archive,
         Undo2,

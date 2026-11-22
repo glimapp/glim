@@ -922,6 +922,8 @@
   "staged files": "个已暂存文件",
   "Local branch": "本地分支",
   "Remote branch": "远端分支",
+  "Git branches": "分支",
+  "Git tags": "标签",
   "Tag": "标签",
   "Reset · soft": "重置 · soft（保留暂存）",
   "Reset · mixed": "重置 · mixed（保留文件）",
