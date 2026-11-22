@@ -590,15 +590,7 @@ impl Changes {
                     format!("{count} {}", tr("entries"))
                 }),
         );
-        let diff_section = matches!(
-            self.section,
-            Section::History | Section::Branches | Section::Stashes
-        );
-        panel = if diff_section {
-            panel.child(rows.h(px((count as f32 * 52.).min(190.))))
-        } else {
-            panel.flex_1().child(rows.flex_1())
-        };
+        panel = panel.flex_1().child(rows.flex_1());
         panel = panel.child(self.browser_actions(cx));
         panel.into_any_element()
     }

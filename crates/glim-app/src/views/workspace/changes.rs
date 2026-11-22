@@ -483,11 +483,11 @@ impl Changes {
         }
     }
 
-    pub(super) fn navigation(entity: &Entity<Self>, cx: &App) -> AnyElement {
-        let view = entity.read(cx);
+    fn navigation(&self, cx: &Context<Self>) -> AnyElement {
+        let view = self;
         let rows = view.rows.clone();
         let scroll = view.scroll.clone();
-        let owner = entity.clone();
+        let owner = cx.entity();
         v_flex()
             .flex_1()
             .min_h_0()
@@ -654,7 +654,7 @@ impl Changes {
 }
 
 impl Changes {
-    fn diff_view(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn diff_view(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let mode = self.diff.read(cx).mode();
         let ready = !self.patch_loading && !self.diff.read(cx).files().is_empty();
         let toolbar = h_flex()
@@ -940,7 +940,7 @@ mod tests {
             .unwrap();
             cx.run_until_parked();
         };
-        click(cx, "file-panel-git".into());
+        click(cx, "file-panel-changes".into());
         click(cx, "diff-split".into());
         click(cx, "git-stage-file".into());
         assert_eq!(git(&["diff", "--cached", "--name-only"]), "schedule.md\n");
