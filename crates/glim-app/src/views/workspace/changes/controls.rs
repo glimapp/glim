@@ -37,11 +37,36 @@ pub(super) fn icon_action(button: Button, icon: IconName, label: &str) -> Button
         .accessibility_label(label)
 }
 
+pub(super) fn operation_icon(op: &Operation) -> IconName {
+    match op {
+        Operation::Merge(_) => IconName::GitMerge,
+        Operation::Rebase(_) | Operation::Switch(_) => IconName::GitBranch,
+        Operation::CherryPick(_) => IconName::GitCommitHorizontal,
+        Operation::Revert(_)
+        | Operation::Reset { .. }
+        | Operation::RestoreFile { .. }
+        | Operation::Discard(_) => IconName::Undo2,
+        Operation::DeleteBranch(_)
+        | Operation::DeleteTag(_)
+        | Operation::DeleteRemoteTag { .. }
+        | Operation::DeleteRemoteBranch { .. }
+        | Operation::StashDrop { .. }
+        | Operation::RemoveRemote(_) => IconName::Trash,
+        Operation::Push(_) | Operation::PushTag { .. } | Operation::ForcePush { .. } => {
+            IconName::ArrowUp
+        }
+        Operation::Fetch(_) => IconName::Download,
+        Operation::StashApply(_) => IconName::Copy,
+        Operation::StashPop { .. } => IconName::ArchiveRestore,
+        Operation::Stage(_) => IconName::Plus,
+        Operation::Unstage(_) => IconName::Minus,
+        Operation::Ignore(_) => IconName::EyeOff,
+        _ => IconName::Check,
+    }
+}
+
 #[derive(Clone)]
 pub(super) enum Form {
-    Init,
-    Identity,
-    Clone,
     Branch,
     Rename(String),
     Tag(String),
@@ -53,9 +78,6 @@ pub(super) enum Form {
 impl Form {
     fn title(&self) -> &'static str {
         match self {
-            Self::Init => "Initialize repository",
-            Self::Identity => "Commit identity",
-            Self::Clone => "Clone repository",
             Self::Branch => "Create branch",
             Self::Rename(_) => "Rename branch",
             Self::Tag(_) => "Create tag",
@@ -67,15 +89,6 @@ impl Form {
     }
     fn fields(&self) -> Vec<(&'static str, String)> {
         match self {
-            Self::Identity => vec![
-                ("Author name", String::new()),
-                ("Author email", String::new()),
-            ],
-            Self::Init => vec![("Absolute repository path", String::new())],
-            Self::Clone => vec![
-                ("Remote URL", String::new()),
-                ("Absolute repository path", String::new()),
-            ],
             Self::Branch => vec![("Branch name", String::new())],
             Self::Rename(old) => vec![("Branch name", old.clone())],
             Self::Tag(target) => vec![("Tag name", String::new()), ("Revision", target.clone())],
@@ -218,6 +231,24 @@ impl Changes {
             Operation::Stage(Some(_)) => icon_action(button, IconName::Plus, "Stage file"),
             Operation::Unstage(Some(_)) => icon_action(button, IconName::Minus, "Unstage"),
             Operation::Fetch(_) => icon_action(button, IconName::Download, operation.label()),
+            Operation::Pull(_) => icon_action(button, IconName::ArrowDown, operation.label()),
+            Operation::Push(_) => icon_action(button, IconName::ArrowUp, operation.label()),
+            Operation::Stage(None) => icon_action(button, IconName::ListPlus, operation.label()),
+            Operation::Unstage(None) => icon_action(button, IconName::ListMinus, operation.label()),
+            Operation::Ignore(_) => icon_action(button, IconName::EyeOff, operation.label()),
+            Operation::Discard(_) => icon_action(button, IconName::Undo2, operation.label()),
+            Operation::Submodules => icon_action(button, IconName::Package, operation.label()),
+            Operation::ConflictSide { incoming, .. } => icon_action(
+                button,
+                if *incoming {
+                    IconName::ArrowRight
+                } else {
+                    IconName::ArrowLeft
+                },
+                operation.label(),
+            ),
+            Operation::Continue(_) => icon_action(button, IconName::Check, operation.label()),
+            Operation::Abort(_) => icon_action(button, IconName::X, operation.label()),
             _ => button.label(tr(operation.label())),
         };
         button
@@ -227,142 +258,160 @@ impl Changes {
             )
     }
 
-    pub(super) fn operation_menu(
+    pub(super) fn branch_picker(
         &self,
-        id: &'static str,
-        label: &'static str,
-        operations: Vec<Operation>,
+        branch: &str,
+        branches: Arc<Vec<String>>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let owner = cx.entity().downgrade();
         let root = self.active_root.clone();
-        let button = Button::new(id).small();
-        let button = match label {
-            "Sync" => icon_action(button, IconName::ArrowUpDown, label),
-            "Branch actions" | "Stash actions" | "File actions" | "Commit actions" => {
-                icon_action(button, IconName::Ellipsis, label)
-            }
-            "Reset to commit" => icon_action(button, IconName::Undo2, label),
-            "All files" => icon_action(button, IconName::Files, label),
-            _ => button.label(tr(label)).icon(IconName::ChevronDown),
-        };
-        button
-            .disabled(self.busy(cx) || operations.is_empty())
-            .dropdown_menu(move |mut menu, _, _| {
-                for operation in &operations {
-                    let operation = operation.clone();
-                    let owner = owner.clone();
-                    let root = root.clone();
-                    menu = menu.item(PopupMenuItem::new(operation.menu_label()).on_click(
-                        move |_, window, cx| {
-                            let _ = owner.update(cx, |view, cx| {
-                                if view.active_root == root {
-                                    view.request(operation.clone(), window, cx);
-                                }
-                            });
-                        },
-                    ));
-                }
-                menu
-            })
-            .into_any_element()
-    }
-
-    pub(super) fn repository_menu(
-        &self,
-        branch: &str,
-        upstream: &str,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let owner = cx.entity().downgrade();
-        let has_repository = self.active_root.is_some();
-        let hint = if upstream.is_empty() {
-            branch.to_owned()
-        } else {
-            format!("{branch} → {upstream}")
-        };
-        Button::new("git-repository-menu")
+        let current = branch.to_owned();
+        Button::new("git-branch-picker")
             .small()
             .ghost()
-            .min_w_0()
-            .justify_start()
             .icon(IconName::GitBranch)
-            .child(div().truncate().text_sm().child(branch.to_owned()))
-            .tooltip(hint.clone())
-            .accessibility_label(format!("{} · {hint}", tr("Repository")))
-            .disabled(self.busy(cx))
+            .label(current.clone())
+            .tooltip(tr("Switch branch"))
+            .accessibility_label(format!("{} · {current}", tr("Switch branch")))
+            .disabled(self.busy(cx) || branches.is_empty())
             .dropdown_menu(move |mut menu, _, _| {
-                let refresh = owner.clone();
-                menu = menu.item(PopupMenuItem::new(tr("Refresh")).on_click(move |_, _, cx| {
-                    let _ = refresh.update(cx, |view, cx| view.refresh(cx));
-                }));
-                for form in [Form::Clone, Form::Init] {
+                for name in branches.iter() {
                     let owner = owner.clone();
-                    menu = menu.item(PopupMenuItem::new(tr(form.title())).on_click(
-                        move |_, window, cx| {
-                            let _ =
-                                owner.update(cx, |view, cx| view.form(form.clone(), window, cx));
-                        },
-                    ));
-                }
-                if has_repository {
-                    for operation in [Operation::Submodules] {
-                        let owner = owner.clone();
-                        menu = menu.item(PopupMenuItem::new(operation.menu_label()).on_click(
-                            move |_, window, cx| {
+                    let root = root.clone();
+                    let op = Operation::Switch(format!("refs/heads/{name}"));
+                    menu = menu.item(
+                        PopupMenuItem::new(name.clone())
+                            .checked(*name == current)
+                            .disabled(*name == current)
+                            .on_click(move |_, window, cx| {
                                 let _ = owner.update(cx, |view, cx| {
-                                    view.request(operation.clone(), window, cx)
+                                    if view.active_root == root {
+                                        view.request(op.clone(), window, cx);
+                                    }
                                 });
-                            },
-                        ));
-                    }
+                            }),
+                    );
                 }
-                menu
+                menu.scrollable(true).max_h(px(320.))
             })
             .into_any_element()
     }
 
-    pub(super) fn settings_menu(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let owner = cx.entity().downgrade();
-        let prefs = Self::preferences(cx);
-        let identity_disabled = self.busy(cx) || self.active_root.is_none();
-        navigation_button("git-settings", IconName::Settings, "Settings", "Settings").dropdown_menu(
-            move |menu, _, _| {
-                let identity_owner = owner.clone();
-                let mut menu = menu
-                    .item(
-                        PopupMenuItem::new(tr(Form::Identity.title()))
-                            .disabled(identity_disabled)
-                            .on_click(move |_, window, cx| {
-                                let _ = identity_owner
-                                    .update(cx, |view, cx| view.form(Form::Identity, window, cx));
-                            }),
-                    )
-                    .separator();
-                for (label, checked) in [
-                    ("Refresh status every minute", prefs.auto_refresh),
-                    ("Enable worktrees", prefs.worktrees),
-                ] {
-                    let owner = owner.clone();
-                    menu = menu.item(PopupMenuItem::new(tr(label)).checked(checked).on_click(
-                        move |_, _, cx| {
-                            let _ = owner.update(cx, |view, cx| {
-                                let mut prefs = Self::preferences(cx);
-                                if label == "Enable worktrees" {
-                                    prefs.worktrees = !prefs.worktrees;
-                                } else {
-                                    prefs.auto_refresh = !prefs.auto_refresh;
-                                }
-                                view.save_preferences(prefs, cx);
-                            });
-                        },
-                    ));
+    pub(super) fn load_identity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.identity_task = None;
+        self.identity_ready = false;
+        self.identity_root = self.active_root.clone();
+        let Some(root) = self.active_root.clone() else {
+            return;
+        };
+        let remote = self.remote.clone();
+        let (cancel, guard) = Cancellation::task();
+        let job = cx
+            .background_executor()
+            .spawn(async move { git::commit_identity(&root, remote.as_ref(), &cancel) });
+        self.identity_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let _guard = guard;
+            let result = job.await;
+            let _ = view.update_in(cx, |view, window, cx| {
+                if view.identity_root != view.active_root {
+                    return;
                 }
-                menu
-            },
-        )
+                match result {
+                    Ok(values) => {
+                        for (input, value) in view.identity.iter().zip(values) {
+                            input.update(cx, |input, cx| input.set_value(value, window, cx));
+                        }
+                        view.identity_ready = true;
+                    }
+                    Err(error) => view.operation_error = Some(error.to_string().into()),
+                }
+                cx.notify();
+            });
+        }));
     }
 
+    pub(super) fn settings_view(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        use gpui_kit::component::switch::Switch;
+        let prefs = Self::preferences(cx);
+        let mut panel = v_flex()
+            .id("git-settings-panel")
+            .min_h_0()
+            .p_2()
+            .gap_2()
+            .overflow_y_scroll();
+        for (id, label, checked) in [
+            (
+                "git-auto-refresh",
+                "Refresh status every minute",
+                prefs.auto_refresh,
+            ),
+            ("git-worktrees", "Enable worktrees", prefs.worktrees),
+            ("git-pull-rebase", "Pull with rebase", prefs.pull_rebase),
+        ] {
+            panel = panel.child(
+                h_flex()
+                    .w_full()
+                    .min_h(px(30.))
+                    .gap_2()
+                    .child(div().flex_1().text_sm().child(tr(label)))
+                    .child(
+                        Switch::new(id)
+                            .small()
+                            .checked(checked)
+                            .accessibility_label(tr(label))
+                            .on_click(cx.listener(move |view, enabled, _, cx| {
+                                let mut prefs = Self::preferences(cx);
+                                match id {
+                                    "git-auto-refresh" => prefs.auto_refresh = *enabled,
+                                    "git-worktrees" => prefs.worktrees = *enabled,
+                                    _ => prefs.pull_rebase = *enabled,
+                                }
+                                view.save_preferences(prefs, cx);
+                            })),
+                    ),
+            );
+        }
+        let ready = self.identity_ready && self.identity_root == self.active_root && !self.busy(cx);
+        panel = panel.child(
+            div()
+                .border_t_1()
+                .border_color(cx.theme().border)
+                .pt_2()
+                .text_sm()
+                .child(tr("Commit identity")),
+        );
+        for (field, label) in self.identity.iter().zip(["Author name", "Author email"]) {
+            panel = panel.child(
+                v_flex()
+                    .gap_1()
+                    .child(div().text_xs().child(tr(label)))
+                    .child(
+                        crate::views::form_input(field, window, cx)
+                            .aria_label(tr(label))
+                            .disabled(!ready),
+                    ),
+            );
+        }
+        panel
+            .child(
+                icon_action(Button::new("git-save-identity"), IconName::Check, "Save")
+                    .disabled(!ready)
+                    .on_click(cx.listener(|view, _, window, cx| {
+                        let [name, email] = view
+                            .identity
+                            .each_ref()
+                            .map(|input| input.read(cx).value().trim().to_owned());
+                        if name.is_empty() || email.is_empty() {
+                            view.operation_error = Some(tr("Complete the required fields").into());
+                            cx.notify();
+                            return;
+                        }
+                        view.request(Operation::Identity { name, email }, window, cx);
+                    })),
+            )
+            .into_any_element()
+    }
     fn save_preferences(
         &self,
         preferences: glim_services::preferences::GitPreferences,
@@ -401,19 +450,15 @@ impl Changes {
             Form::Tag(_) => IconName::Tag,
             Form::Branch | Form::Rename(_) => IconName::GitBranch,
             Form::Remote => IconName::Globe,
-            Form::Worktree | Form::Init | Form::Clone => IconName::FolderPlus,
+            Form::Worktree => IconName::FolderPlus,
             Form::Stash => IconName::Archive,
-            Form::Identity => IconName::Settings2,
         };
         icon_action(Button::new(id), icon, form.title())
-            .disabled(
-                self.busy(cx)
-                    || (self.active_root.is_none() && !matches!(form, Form::Init | Form::Clone)),
-            )
+            .disabled(self.busy(cx) || self.active_root.is_none())
             .on_click(cx.listener(move |view, _, window, cx| view.form(form.clone(), window, cx)))
     }
 
-    fn form(&mut self, form: Form, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn form(&mut self, form: Form, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy(cx) {
             return;
         }
@@ -567,8 +612,7 @@ impl Changes {
                         return false;
                     }
                     let path_index = match form {
-                        Form::Init | Form::Worktree => Some(0),
-                        Form::Clone => Some(1),
+                        Form::Worktree => Some(0),
                         _ => None,
                     };
                     if path_index.is_some_and(|index| !PathBuf::from(&values[index]).is_absolute())
@@ -583,15 +627,6 @@ impl Changes {
                         }
                         view.form_values.insert(key.clone(), values.clone());
                         let operation = match &form {
-                            Form::Identity => Operation::Identity {
-                                name: values[0].clone(),
-                                email: values[1].clone(),
-                            },
-                            Form::Init => Operation::Init(PathBuf::from(&values[0])),
-                            Form::Clone => Operation::Clone {
-                                url: values[0].clone(),
-                                path: PathBuf::from(&values[1]),
-                            },
                             Form::Branch => Operation::CreateBranch(values[0].clone()),
                             Form::Rename(old) => {
                                 Operation::RenameBranch(old.clone(), values[0].clone())

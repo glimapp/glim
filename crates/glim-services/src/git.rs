@@ -41,6 +41,7 @@ pub struct Change {
 pub struct Repository {
     pub root: PathBuf,
     pub changes: Vec<Change>,
+    pub branches: std::sync::Arc<Vec<String>>,
     pub metadata: Metadata,
 }
 
@@ -202,7 +203,14 @@ pub fn changes(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> 
             }
         }
     }
+    let branches = query::strings(
+        root,
+        remote,
+        &["for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads"],
+        cancel,
+    )?;
     Ok(Repository {
+        branches: std::sync::Arc::new(branches.lines().map(String::from).collect()),
         root: root.to_owned(),
         changes,
         metadata: metadata(root, remote, cancel)?,

@@ -169,12 +169,14 @@ fn set(key: &str, value: &str) -> Result<()> {
 pub struct GitPreferences {
     pub auto_refresh: bool,
     pub worktrees: bool,
+    pub pull_rebase: bool,
 }
 impl Default for GitPreferences {
     fn default() -> Self {
         Self {
             auto_refresh: false,
             worktrees: true,
+            pull_rebase: false,
         }
     }
 }
