@@ -76,9 +76,7 @@ impl Workspace {
                                         ),
                                 )
                                 .on_click(cx.listener(|view, _, window, cx| {
-                                    if view.page != Page::Changes {
-                                        view.set_changes_expanded(true, cx);
-                                    }
+                                    view.set_changes_expanded(false, cx);
                                     window.focus(&view.focus, cx);
                                     cx.notify();
                                 })),
@@ -464,9 +462,9 @@ impl Render for Workspace {
             .gap(px(2.))
             .when(has_git, |header| header.cursor_pointer())
             .on_click(cx.listener(move |view, _, window, cx| {
-                if show_changes {
+                if has_git {
                     view.path_hint.hide();
-                    view.set_changes_expanded(false, cx);
+                    view.set_changes_expanded(!view.changes_expanded, cx);
                     window.focus(&view.focus, cx);
                     cx.notify();
                 }
@@ -485,12 +483,16 @@ impl Render for Workspace {
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(cx.theme().foreground)
-                    .accessibility_label(glim_services::locale::tr("Show Files"))
+                    .accessibility_label(glim_services::locale::tr(if show_changes {
+                        "Show Files"
+                    } else {
+                        "Show Changes"
+                    }))
                     .child(files_heading)
                     .on_click(cx.listener(|view, _, window, cx| {
                         cx.stop_propagation();
                         view.path_hint.hide();
-                        view.set_changes_expanded(false, cx);
+                        view.set_changes_expanded(!view.changes_expanded, cx);
                         window.focus(&view.focus, cx);
                         cx.notify();
                     }))
