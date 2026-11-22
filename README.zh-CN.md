@@ -104,6 +104,8 @@ glim --help
 
 导出时请指定新文件名。成功后，标准输出会返回文件路径。配置 Cursor MCP 时，命令填写启动器的绝对路径，参数填写 `["mcp"]`。MCP 提供 `open_in_glim` 工具，AI 也可以直接在终端调用导出命令。
 
+[终端使用指南](docs/user-guide.zh-CN.md#cli) · [Cursor 配置示例](docs/app-integrations.zh-CN.md#cursor-mcp)
+
 ## 下载与安装
 
 在[最新 Release 页面](https://github.com/glimapp/glim/releases/latest)的 **Assets** 中，按设备选择对应安装包；版本号、更新说明和校验文件以该页面为准。

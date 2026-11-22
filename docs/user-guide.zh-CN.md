@@ -4,6 +4,21 @@
 
 Glim 是 Mac 上的文件查看工作区。你可以是来读合同的职场人士、查资料的学生，也可以是检查数据和代码的开发者。直接打开已有文件即可；想了解适合自己的用法，先看[场景专题](topics.zh-CN.md)。
 
+<a id="cli"></a>
+
+## 在终端处理 Markdown
+
+从项目目录运行以下命令。路径可以是相对路径，文件名含空格时用引号括起来。 [安装终端命令](../README.zh-CN.md#终端与-ai-工具)
+
+```sh
+glim open .
+glim preview "meeting notes.md"
+glim pdf "meeting notes.md" "meeting notes.pdf"
+glim html "meeting notes.md" "meeting notes.html"
+```
+
+导出使用 Glim 的 Markdown 渲染器。输入文件使用 UTF-8，输出目录必须已存在，输出文件名必须是新名称。脚本可以检查退出状态，并从标准输出读取生成文件的路径。如果部分图片或图表无法渲染，命令会在标准错误中报告数量，导出仍可成功。
+
 ## 先打开一份文件，或一整个文件夹
 
 安装步骤见[下载与安装](../README.zh-CN.md#下载与安装)。

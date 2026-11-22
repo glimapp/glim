@@ -104,6 +104,8 @@ glim --help
 
 Exports require a new output filename and print its path on success. For Cursor’s MCP configuration, use the absolute launcher path as the command and `["mcp"]` as its arguments. MCP exposes `open_in_glim`. Agents can run the export commands directly in a terminal.
 
+[Terminal guide](docs/user-guide.md#cli) · [Cursor configuration example](docs/app-integrations.md#cursor-mcp)
+
 ## Download
 
 Open the [latest Release page](https://github.com/glimapp/glim/releases/latest) and choose the matching installer under **Assets**. That page contains the current version, release notes and checksums.

@@ -31,6 +31,27 @@ The MCP command is the installed `Glim.app/Contents/MacOS/glim --mcp`; no Node.j
 
 Glim backs up existing configurations privately under `~/Library/Application Support/Glim/Integrations/Backups`, retaining the latest two copies per file. Removal deletes the recognized Glim entry and its Codex default references, leaving other integrations and settings intact. Existing malformed configurations or conflicting `glim` entries are left untouched; use the row's Finder action to inspect them, then refresh.
 
+<a id="cursor-mcp"></a>
+
+## Cursor MCP
+
+For manual setup, merge the following `glim` entry into `mcpServers` in `~/.cursor/mcp.json`, then reload MCP servers in Cursor.
+
+```json
+{
+  "mcpServers": {
+    "glim": {
+      "command": "/Applications/Glim.app/Contents/Resources/glim",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}
+```
+
+Pass an absolute local file or folder path to `open_in_glim`. To export Markdown, ask Cursor to run `glim pdf README.md report.pdf` in its terminal.
+
 ## Client references
 
 - [Codex custom file handlers](https://learn.chatgpt.com/docs/config-file/config-advanced#add-custom-file-handlers)

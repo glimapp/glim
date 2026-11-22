@@ -14,7 +14,7 @@
 
 ## 模块与数据流
 
-`views/integrations` 是设置页持续持有的实体，负责发现应用、展示各应用的配置状态及短暂反馈。`services/integrations/discovery` 合并常见配置目录、Profile 目录、应用 bundle 标识、支持的环境变量覆盖和用户指定文件，按工具与真实路径去重。`services/integrations` 进行带备份的原子修改，保留 TOML 和 JSON/JSONC 中的其他配置与注释；遇到同名冲突或扫描后发生的修改时拒绝覆盖。`services/integrations/mcp` 仅在 `glim --mcp` 模式下运行，早于界面初始化，通过本地 stdio 工具将已有文件或文件夹交给 macOS 打开。它不返回文件内容、不访问远端 URL，也不修改调用方的工具审批策略。支持范围与配置路径见[应用集成](app-integrations.zh-CN.md)。
+`views/integrations` 是设置页持续持有的实体，负责发现应用、展示各应用的配置状态及短暂反馈。`services/integrations/discovery` 合并常见配置目录、Profile 目录、应用 bundle 标识、支持的环境变量覆盖和用户指定文件，按工具与真实路径去重。`services/integrations` 进行带备份的原子修改，保留 TOML 和 JSON/JSONC 中的其他配置与注释；遇到同名冲突或扫描后发生的修改时拒绝覆盖。`services/integrations/mcp` 由应用集成入口或终端命令 `glim mcp` 启动，早于界面初始化，通过本地 stdio 工具将已有文件或文件夹交给 macOS 打开。它不返回文件内容、不访问远端 URL，也不修改调用方的工具审批策略。支持范围与配置路径见[应用集成](app-integrations.zh-CN.md)。
 
 `services/integrations/codex` 在界面启动前处理 Codex 的 JSON 标准输入请求，通过 LaunchServices 打开本地路径，通过经过校验的 `glim://open-remote` 元数据处理 SSH 文件，不执行传入的终端命令。`app/remote_open` 保留串行验证任务，复用已有连接和工作区，将远端文件交给现有恢复与下载队列。独立的启动任务迁移已识别的旧版 Glim 文件处理器和图标，保留 Codex 编辑器偏好；内嵌 PNG 的 data URL 同时用于网页视图与原生右键菜单。配置发现本身只读。
 
@@ -26,6 +26,7 @@ crates/
   glim-services/src/   文件系统、监听、格式解析、备份和偏好；无 UI
   glim-app/src/
     app/              启动、动作、菜单、语言、图表引擎和更新协调
+      cli.rs          分派终端的 Markdown 导出、文件打开、格式目录和 MCP 命令
     views/
       workspace_window.rs  窗口级工作区 tab 的持有与切换
       workspace/      标签、加载、导航、编辑和更新会话恢复
