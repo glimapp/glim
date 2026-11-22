@@ -140,7 +140,7 @@ impl PreviewState {
                     match self.build(placement) {
                         Ok(view) => {
                             if let Surface::Browser(web) = &view
-                                && (self.content["kind"] == "html"
+                                && (matches!(self.content["kind"].as_str(), Some("html" | "pdf"))
                                     || self.content["kind"] == "office"
                                         && self.content["reading"].is_string())
                             {
