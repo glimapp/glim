@@ -968,7 +968,7 @@ impl Explorer {
         let painted_hint_bounds = hint_bounds.clone();
         let show_hint = self.clipped_labels.contains(&label_key);
         let tooltip_name = name.clone();
-        let tooltip_path = row.entry.path.display().to_string();
+        let tooltip_path = super::display_path(&row.entry.path);
         let row_path = row.entry.path.clone();
         let right_click_path = row_path.clone();
         let menu_path = row.entry.path.clone();
@@ -991,6 +991,12 @@ impl Explorer {
         let moving = crate::app::file_move::destination(cx) == Some(row.entry.path.as_path());
         let entry = div()
             .id(row.element_id(if sticky { "sticky-row" } else { "tree-row" }))
+            .when(cfg!(windows) && show_hint, |entry| {
+                let path = tooltip_path.clone();
+                entry.tooltip(move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(path.clone()).build(window, cx)
+                })
+            })
             .relative()
             .child(
                 canvas(
@@ -1497,7 +1503,7 @@ impl Explorer {
             items.extend([(Some("Open Preview / Play"), Some(Open)), (None, None)]);
         }
         items.extend([
-            (Some("Reveal in Finder"), Some(Reveal)),
+            (Some(super::REVEAL_FILE_LABEL), Some(Reveal)),
             (None, None),
             (Some("Copy Relative Path"), Some(CopyRelative)),
             (Some("Copy Absolute Path"), Some(CopyAbsolute)),

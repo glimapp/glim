@@ -114,7 +114,7 @@ pub fn welcome(
         .unwrap_or_default();
     let more = recent.len() > current.recent_visible();
     let recent_count = recent.len();
-    let home = std::env::home_dir();
+    let home = (!cfg!(windows)).then(std::env::home_dir).flatten();
     let visible = recent
         .into_iter()
         .take(current.recent_visible())
@@ -322,7 +322,7 @@ pub fn welcome(
                                     home.as_ref()
                                         .and_then(|home| path.strip_prefix(home).ok())
                                         .map(|relative| format!("~/{}", relative.display()))
-                                        .unwrap_or_else(|| path.display().to_string())
+                                        .unwrap_or_else(|| super::display_path(path))
                                 })
                                 .collect::<Vec<_>>()
                                 .join(" · ");

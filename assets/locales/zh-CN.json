@@ -518,6 +518,7 @@
   " (showing first 256)": "（仅显示前 256 项）",
   "Open Preview / Play": "打开预览 / 播放",
   "Reveal in Finder": "在访达中显示",
+  "Show in File Explorer": "在文件资源管理器中显示",
   "Copy Relative Path": "复制相对路径",
   "Copy Absolute Path": "复制绝对路径",
   "Play in Order": "顺序播放",

@@ -257,6 +257,7 @@ impl Workspace {
                 .inset_0(),
             )
             .accessibility_label(label.clone())
+            .when(cfg!(windows), |button| button.tooltip(label.clone()))
             .on_hover(cx.listener(move |view, hovered: &bool, window, _| {
                 if *hovered {
                     view.path_hint
@@ -668,12 +669,12 @@ impl Workspace {
                     .iter()
                     .filter(|root| path.starts_with(root))
                     .max_by_key(|root| root.components().count());
-                let location = root
-                    .and_then(|root| root.parent())
-                    .and_then(|base| parent.strip_prefix(base).ok())
-                    .unwrap_or(parent)
-                    .to_string_lossy()
-                    .into_owned();
+                let location = crate::views::display_path(
+                    root.and_then(|root| root.parent())
+                        .and_then(|base| parent.strip_prefix(base).ok())
+                        .unwrap_or(parent),
+                );
+                let path_label = crate::views::display_path(path);
                 if let Some(hit) = hit {
                     name = format!("{name}:{}", hit.line);
                 }
@@ -692,8 +693,8 @@ impl Workspace {
                     .when(index == self.search_selected, |row| {
                         row.bg(crate::views::selection_background(cx))
                     })
-                    .tooltip(path.to_string_lossy().into_owned())
-                    .accessibility_label(format!("{} {}", tr("Open"), path.display()))
+                    .tooltip(path_label.clone())
+                    .accessibility_label(format!("{} {path_label}", tr("Open")))
                     .child(
                         h_flex()
                             .w_full()

@@ -26,6 +26,25 @@ pub(crate) mod integrations;
 
 pub(crate) mod updates;
 
+fn display_path(path: &std::path::Path) -> String {
+    let text = path.to_string_lossy();
+    #[cfg(windows)]
+    if let Some(std::path::Component::Prefix(prefix)) = path.components().next() {
+        match prefix.kind() {
+            std::path::Prefix::VerbatimDisk(_) => return text[4..].to_owned(),
+            std::path::Prefix::VerbatimUNC(..) => return format!(r"\\{}", &text[8..]),
+            _ => {}
+        }
+    }
+    text.into_owned()
+}
+
+const REVEAL_FILE_LABEL: &str = if cfg!(windows) {
+    "Show in File Explorer"
+} else {
+    "Reveal in Finder"
+};
+
 /// Brand ink for navigation and primary entry points; tuned for each appearance.
 fn accent(cx: &gpui_kit::App) -> gpui_kit::Hsla {
     use gpui_kit::component::ActiveTheme;

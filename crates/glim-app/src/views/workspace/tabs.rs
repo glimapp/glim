@@ -376,7 +376,10 @@ impl Workspace {
         if self.tabs[index].document.draft_directory.is_none() {
             let path = self.tabs[index].document.path.clone();
             if self.tabs[index].document.remote.is_none() {
-                items.push((Some(glim_services::locale::tr("Reveal in Finder")), true));
+                items.push((
+                    Some(glim_services::locale::tr(crate::views::REVEAL_FILE_LABEL)),
+                    true,
+                ));
                 actions.push(Some(TabMenuAction::Reveal(path.clone())));
             }
             items.push((Some(glim_services::locale::tr("Copy Absolute Path")), true));
@@ -613,10 +616,10 @@ impl Workspace {
                             }
                         ),
                         remote.connection.label(),
-                        reader.document.path.display()
+                        crate::views::display_path(&reader.document.path)
                     )
                 } else {
-                    reader.document.path.display().to_string()
+                    crate::views::display_path(&reader.document.path)
                 };
                 let hint_title = label.clone();
                 let hint_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::default()));
@@ -712,6 +715,13 @@ impl Workspace {
                     .child(
                         h_flex()
                             .id(("document-tab-label", index))
+                            .when(cfg!(windows), |label| {
+                                let path = hint_path.clone();
+                                label.tooltip(move |window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(path.clone())
+                                        .build(window, cx)
+                                })
+                            })
                             .when(reader.document.trashed, |label| {
                                 label.text_color(cx.theme().muted_foreground)
                             })
