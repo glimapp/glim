@@ -4,6 +4,18 @@ use gpui_kit::component::{
     menu::{DropdownMenu, PopupMenuItem},
 };
 
+use gpui_kit::assets::IconName;
+
+pub(super) fn icon_action(button: Button, icon: IconName, label: &str) -> Button {
+    let label = tr(label);
+    button
+        .ghost()
+        .small()
+        .icon(icon)
+        .tooltip(label.clone())
+        .accessibility_label(label)
+}
+
 #[derive(Clone)]
 pub(super) enum Form {
     Init,
@@ -176,9 +188,16 @@ impl Changes {
         disabled: bool,
         cx: &mut Context<Self>,
     ) -> Button {
-        Button::new(id)
-            .small()
-            .label(tr(operation.label()))
+        let button = Button::new(id).small();
+        let button = match &operation {
+            Operation::Stage(Some(change)) if change.status == 'U' => {
+                button.label(tr("Mark resolved"))
+            }
+            Operation::Stage(Some(_)) => icon_action(button, IconName::Plus, "Stage file"),
+            Operation::Unstage(Some(_)) => icon_action(button, IconName::Minus, "Unstage"),
+            _ => button.label(tr(operation.label())),
+        };
+        button
             .disabled(disabled || self.busy(cx) || self.active_root.is_none())
             .on_click(
                 cx.listener(move |view, _, window, cx| view.request(operation.clone(), window, cx)),
@@ -194,10 +213,13 @@ impl Changes {
     ) -> AnyElement {
         let owner = cx.entity().downgrade();
         let root = self.active_root.clone();
-        Button::new(id)
-            .small()
-            .label(tr(label))
-            .icon(gpui_kit::assets::IconName::ChevronDown)
+        let button = Button::new(id).small();
+        let button = match label {
+            "File actions" | "Commit actions" => icon_action(button, IconName::Ellipsis, label),
+            "All files" => icon_action(button, IconName::Files, label),
+            _ => button.label(tr(label)).icon(IconName::ChevronDown),
+        };
+        button
             .disabled(self.busy(cx) || operations.is_empty())
             .dropdown_menu(move |mut menu, _, _| {
                 for operation in &operations {
@@ -222,40 +244,39 @@ impl Changes {
     pub(super) fn repository_menu(&self, cx: &mut Context<Self>) -> AnyElement {
         let owner = cx.entity().downgrade();
         let has_repository = self.active_root.is_some();
-        Button::new("git-repository-menu")
-            .small()
-            .label(tr("Repository"))
-            .icon(gpui_kit::assets::IconName::ChevronDown)
-            .disabled(self.busy(cx))
-            .dropdown_menu(move |mut menu, _, _| {
-                let mut forms = vec![Form::Clone, Form::Init];
-                if has_repository {
-                    forms.push(Form::Identity);
-                }
-                for form in forms {
+        icon_action(
+            Button::new("git-repository-menu"),
+            IconName::FolderGit2,
+            "Repository",
+        )
+        .disabled(self.busy(cx))
+        .dropdown_menu(move |mut menu, _, _| {
+            let mut forms = vec![Form::Clone, Form::Init];
+            if has_repository {
+                forms.push(Form::Identity);
+            }
+            for form in forms {
+                let owner = owner.clone();
+                menu = menu.item(PopupMenuItem::new(tr(form.title())).on_click(
+                    move |_, window, cx| {
+                        let _ = owner.update(cx, |view, cx| view.form(form.clone(), window, cx));
+                    },
+                ));
+            }
+            if has_repository {
+                for operation in [Operation::Submodules] {
                     let owner = owner.clone();
-                    menu = menu.item(PopupMenuItem::new(tr(form.title())).on_click(
+                    menu = menu.item(PopupMenuItem::new(operation.menu_label()).on_click(
                         move |_, window, cx| {
-                            let _ =
-                                owner.update(cx, |view, cx| view.form(form.clone(), window, cx));
+                            let _ = owner
+                                .update(cx, |view, cx| view.request(operation.clone(), window, cx));
                         },
                     ));
                 }
-                if has_repository {
-                    for operation in [Operation::Submodules] {
-                        let owner = owner.clone();
-                        menu = menu.item(PopupMenuItem::new(operation.menu_label()).on_click(
-                            move |_, window, cx| {
-                                let _ = owner.update(cx, |view, cx| {
-                                    view.request(operation.clone(), window, cx)
-                                });
-                            },
-                        ));
-                    }
-                }
-                menu
-            })
-            .into_any_element()
+            }
+            menu
+        })
+        .into_any_element()
     }
 
     pub(super) fn form_button(

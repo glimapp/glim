@@ -143,14 +143,19 @@ impl Render for Changes {
             Button::new("git-other-sections")
                 .small()
                 .ghost()
-                .label(tr(
+                .map(|button| {
                     if matches!(self.section, Section::Changes | Section::History) {
-                        "More"
+                        super::controls::icon_action(
+                            button,
+                            gpui_kit::assets::IconName::Ellipsis,
+                            "More",
+                        )
                     } else {
-                        self.section.label()
-                    },
-                ))
-                .icon(gpui_kit::assets::IconName::ChevronDown)
+                        button
+                            .label(tr(self.section.label()))
+                            .icon(gpui_kit::assets::IconName::ChevronDown)
+                    }
+                })
                 .dropdown_menu(move |mut menu, _, _| {
                     for section in Section::ALL.into_iter().skip(2) {
                         let owner = owner.clone();
@@ -232,19 +237,12 @@ impl Render for Changes {
                         cx,
                     ));
                 } else {
-                    actions = actions.child(
-                        self.operation_button(
-                            "git-stage-file",
-                            Operation::Stage(Some(change.clone())),
-                            disabled,
-                            cx,
-                        )
-                        .label(tr(if change.status == 'U' {
-                            "Mark resolved"
-                        } else {
-                            "Stage file"
-                        })),
-                    );
+                    actions = actions.child(self.operation_button(
+                        "git-stage-file",
+                        Operation::Stage(Some(change.clone())),
+                        disabled,
+                        cx,
+                    ));
                 }
                 let mut file_options = Vec::new();
                 if change.area == Area::Untracked {
