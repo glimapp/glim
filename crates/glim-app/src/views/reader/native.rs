@@ -482,7 +482,7 @@ impl Render for NativeReader {
                 .child(div().flex_1().min_h_0().w_full().child(surface))
                 .into_any_element();
             return if let Some(find) = &self.find_bar {
-                super::find::wrap(content, find, 0.)
+                super::find::wrap(content, find, 0., cx)
             } else {
                 content
             };

@@ -457,16 +457,19 @@ impl Render for FindBar {
                 .aria_label(tr("Invalid regular expression"))
                 .into_any_element()
         } else {
+            let count = if query_empty {
+                String::new()
+            } else if self.pending.is_some() || self.native_searching {
+                "…".to_owned()
+            } else {
+                label.clone()
+            };
             div()
                 .id("find-count")
                 .truncate()
-                .child(if query_empty {
-                    String::new()
-                } else if self.pending.is_some() {
-                    "…".to_owned()
-                } else {
-                    label.clone()
-                })
+                .role(Role::Status)
+                .aria_label(count.clone())
+                .child(count)
                 .tooltip(move |window, cx| Tooltip::new(label.clone()).build(window, cx))
                 .into_any_element()
         };
@@ -665,7 +668,7 @@ impl Render for FindBar {
                         ),
                 )
             })
-            .when(native, |panel| {
+            .when(native && cfg!(target_os = "macos"), |panel| {
                 let Target::Native(preview) = &self.target else {
                     unreachable!()
                 };
@@ -684,6 +687,16 @@ impl Render for FindBar {
                 )
             })
             .into_any_element();
+        if native && cfg!(windows) {
+            // A child HWND paints above GPUI. Give the open panel its own row,
+            // measured by layout so wrapped controls also fit narrow windows.
+            return h_flex()
+                .w_full()
+                .justify_end()
+                .p(px(6.))
+                .child(panel)
+                .into_any_element();
+        }
         div()
             .absolute()
             .top(px(12.))
@@ -700,6 +713,7 @@ pub(super) fn wrap(
     content: impl IntoElement,
     find: &Entity<FindBar>,
     trailing_inset: f32,
+    cx: &App,
 ) -> AnyElement {
     let search = find.clone();
     let replace = find.clone();
@@ -742,15 +756,24 @@ pub(super) fn wrap(
                 }
             })
         })
-        .child(content)
-        .child(
-            div()
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .left_0()
-                .right(px(trailing_inset))
-                .child(find.clone()),
-        )
+        .map(|container| {
+            if cfg!(windows) && matches!(find.read(cx).target, Target::Native(_)) {
+                container
+                    .flex()
+                    .flex_col()
+                    .child(div().flex_shrink_0().child(find.clone()))
+                    .child(div().flex_1().min_h_0().child(content))
+            } else {
+                container.child(content).child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left_0()
+                        .right(px(trailing_inset))
+                        .child(find.clone()),
+                )
+            }
+        })
         .into_any_element()
 }

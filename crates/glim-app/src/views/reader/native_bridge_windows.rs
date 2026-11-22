@@ -1,5 +1,7 @@
 #![allow(unsafe_code)]
 
+#[path = "windows_find.rs"]
+mod find;
 #[path = "windows_html.rs"]
 mod html;
 
@@ -58,6 +60,7 @@ struct PreviewState {
     executors: OnceCell<(ForegroundExecutor, BackgroundExecutor)>,
     navigation: Rc<RefCell<Option<String>>>,
     anchor: RefCell<Option<String>>,
+    find: RefCell<Option<find::Session>>,
     desired: Cell<Option<Placement>>,
     scheduled: Cell<bool>,
     view: RefCell<Option<(Win32WindowHandle, WebView)>>,
@@ -103,6 +106,7 @@ impl PreviewState {
                 .is_some_and(|(parent, _)| *parent != placement.parent)
             {
                 child = None;
+                self.find.take();
             }
             if let Some((_, view)) = &child {
                 let _ = view.set_bounds(placement.bounds);
@@ -112,6 +116,12 @@ impl PreviewState {
                 if unsafe { IsWindow(placement.parent.hwnd.get() as _) } != 0 {
                     match self.build(placement) {
                         Ok(view) => {
+                            if self.content["kind"] == "html"
+                                || self.content["kind"] == "office"
+                                    && self.content["reading"].is_string()
+                            {
+                                self.find.replace(find::Session::new(&view).ok());
+                            }
                             let _ = view.set_visible(self.desired.get().is_some());
                             child = Some((placement.parent, view));
                         }
@@ -191,6 +201,7 @@ impl NativePreview {
             executors: OnceCell::new(),
             navigation: Rc::default(),
             anchor: RefCell::default(),
+            find: RefCell::default(),
             desired: Cell::new(None),
             scheduled: Cell::new(false),
             view: RefCell::new(None),
@@ -226,11 +237,30 @@ impl NativePreview {
         self.0.request(None);
     }
 
-    pub fn toggle_find(&self) {}
-    pub fn update_find(&self, _open: bool, _focus: bool) {}
-    pub fn search(&self, _query: &str, _sensitive: bool, _backwards: bool, _changed: bool) {}
+    pub fn toggle_find(&self) {
+        if let Some(session) = &*self.0.find.borrow() {
+            session.command.set(if session.open.get() { 2 } else { 1 });
+        }
+    }
+    pub fn update_find(&self, open: bool, focus: bool) {
+        if let Some(session) = &*self.0.find.borrow() {
+            session.set_open(open);
+            if focus && let Some((_, view)) = &*self.0.view.borrow() {
+                if open {
+                    let _ = view.focus_parent();
+                } else {
+                    let _ = view.focus();
+                }
+            }
+        }
+    }
+    pub fn search(&self, query: &str, sensitive: bool, backwards: bool, changed: bool) {
+        if let Some(session) = &*self.0.find.borrow() {
+            session.search(query, sensitive, backwards, changed);
+        }
+    }
     pub fn take_find_event(&self) -> Option<FindEvent> {
-        None
+        self.0.find.borrow().as_ref()?.event()
     }
     pub fn find_overlay(&self, _bounds: Bounds<Pixels>, _radius: f32, _window: &Window) {}
     pub fn start_pdf_reload(
@@ -238,8 +268,15 @@ impl NativePreview {
     ) -> Option<futures_channel::oneshot::Receiver<Result<(), PdfReloadFailure>>> {
         None
     }
-    pub fn find(&self, _show: bool) -> bool {
-        false
+    pub fn find(&self, show: bool) -> bool {
+        let session = self.0.find.borrow();
+        let Some(session) = session.as_ref() else {
+            return false;
+        };
+        if show {
+            session.command.set(1);
+        }
+        true
     }
     pub fn take_navigation(&self) -> Option<String> {
         self.0.navigation.take()

@@ -533,6 +533,7 @@ impl MarkupReader {
             content,
             &self.find,
             crate::views::minimap::MINIMAP_WIDTH + 12.,
+            cx,
         )
     }
 }
