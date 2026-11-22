@@ -506,14 +506,14 @@ impl Changes {
             Section::Branches => h_flex()
                 .gap_1()
                 .flex_wrap()
-                .child(self.subsection_button(Section::Remotes, IconName::Globe, cx))
                 .child(self.form_button("git-new-branch", Form::Branch, cx))
                 .child(self.form_button("git-new-tag", Form::Tag, cx))
                 .child(self.form_button("git-compare-refs", Form::Compare, cx))
+                .child(self.subsection_button(Section::Remotes, IconName::Server, cx))
                 .into_any_element(),
             Section::Remotes => h_flex()
                 .gap_1()
-                .child(self.subsection_button(Section::Remotes, IconName::Globe, cx))
+                .child(self.subsection_button(Section::Remotes, IconName::Server, cx))
                 .child(self.form_button("git-add-remote", Form::Remote, cx))
                 .child(self.operation_button("git-fetch-all", Operation::Fetch(None), false, cx))
                 .into_any_element(),
