@@ -1118,6 +1118,7 @@ impl Changes {
                 .disabled(self.loading)
                 .on_click(cx.listener(|view, _, _, cx| view.refresh_from("diff-refresh", cx))),
             );
+        let show_toolbar = self.selection.is_some() || self.comparison.is_some();
         let content = if self.displayed_patch.is_none()
             && (self.patch_loading || (self.loading && self.repositories.is_empty()))
         {
@@ -1134,6 +1135,7 @@ impl Changes {
                 .size_full()
                 .min_h_0()
                 .p_4()
+                .when(show_toolbar, |view| view.pb(px(56.)))
                 .gap_2()
                 .child(
                     div()
@@ -1215,19 +1217,11 @@ impl Changes {
         } else {
             div().into_any_element()
         };
-        let show_toolbar = self.selection.is_some() || self.comparison.is_some();
         v_flex()
             .relative()
             .size_full()
             .min_h_0()
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .when(show_toolbar, |view| view.pb(px(48.)))
-                    .child(content),
-            )
+            .child(content)
             .when(show_toolbar, |view| {
                 view.child(crate::views::reader::controls::capsule(
                     toolbar.into_any_element(),
