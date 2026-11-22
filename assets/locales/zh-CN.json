@@ -932,6 +932,8 @@
   "Reset · soft": "重置 · soft（保留暂存）",
   "Reset · mixed": "重置 · mixed（保留文件）",
   "Reset · hard": "重置 · hard（丢弃修改）",
+  "Pull strategy": "拉取策略",
+  "Fast-forward only": "仅快进",
   "Pull with rebase": "拉取并变基",
   "Pull · fast-forward": "拉取 · 仅快进",
   "Publish branch": "发布当前分支",

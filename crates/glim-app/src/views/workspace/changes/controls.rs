@@ -1,4 +1,5 @@
 use super::*;
+use crate::views::settings_controls::{field_choice, field_dropdown};
 use gpui_kit::component::{
     WindowExt,
     menu::{DropdownMenu, PopupMenuItem},
@@ -409,7 +410,7 @@ impl Changes {
         }));
     }
 
-    pub(super) fn settings_view(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn settings_view(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         use gpui_kit::component::switch::Switch;
         let prefs = Self::preferences(cx);
         let mut panel = v_flex()
@@ -425,7 +426,6 @@ impl Changes {
                 prefs.auto_refresh,
             ),
             ("git-worktrees", "Enable worktrees", prefs.worktrees),
-            ("git-pull-rebase", "Pull with rebase", prefs.pull_rebase),
         ] {
             panel = panel.child(
                 h_flex()
@@ -440,63 +440,110 @@ impl Changes {
                             .accessibility_label(tr(label))
                             .on_click(cx.listener(move |view, enabled, _, cx| {
                                 let mut prefs = Self::preferences(cx);
-                                match id {
-                                    "git-auto-refresh" => prefs.auto_refresh = *enabled,
-                                    "git-worktrees" => prefs.worktrees = *enabled,
-                                    _ => prefs.pull_rebase = *enabled,
+                                if id == "git-auto-refresh" {
+                                    prefs.auto_refresh = *enabled;
+                                } else {
+                                    prefs.worktrees = *enabled;
                                 }
                                 view.save_preferences(prefs, cx);
                             })),
                     ),
             );
         }
-        let ready = self.identity_ready && self.identity_root == self.active_root && !self.busy(cx);
+        let strategies = [(false, "Fast-forward only"), (true, "Rebase")];
+        let strategy = tr(if prefs.pull_rebase {
+            "Rebase"
+        } else {
+            "Fast-forward only"
+        });
+        let owner = cx.entity().downgrade();
+        let picker = field_dropdown(
+            Button::new("git-pull-strategy")
+                .small()
+                .outline()
+                .w_full()
+                .label(strategy.clone())
+                .dropdown_caret(true)
+                .accessibility_label(format!("{} · {strategy}", tr("Pull strategy"))),
+            window,
+            cx,
+            move |mut menu| {
+                for (rebase, label) in strategies {
+                    let owner = owner.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(tr(label))
+                            .checked(prefs.pull_rebase == rebase)
+                            .on_click(move |_, _, cx| {
+                                let _ = owner.update(cx, |view, cx| {
+                                    let mut prefs = Self::preferences(cx);
+                                    prefs.pull_rebase = rebase;
+                                    view.save_preferences(prefs, cx);
+                                });
+                            }),
+                    );
+                }
+                menu
+            },
+        )
+        .w(rems(7.5))
+        .max_w(relative(0.65));
         panel = panel.child(
-            div()
+            h_flex()
+                .w_full()
+                .min_h(px(30.))
+                .gap_2()
+                .child(div().flex_1().text_sm().child(tr("Pull strategy")))
+                .child(picker),
+        );
+        let ready = self.identity_ready && self.identity_root == self.active_root && !self.busy(cx);
+        let save = self
+            .feedback_button(
+                "git-save-identity".into(),
+                icon_action(Button::new("git-save-identity"), IconName::Check, "Save"),
+            )
+            .disabled(!ready)
+            .on_click(cx.listener(|view, _, window, cx| {
+                let [name, email] = view
+                    .identity
+                    .each_ref()
+                    .map(|input| input.read(cx).value().trim().to_owned());
+                if name.is_empty() || email.is_empty() {
+                    view.operation_error = Some(tr("Complete the required fields").into());
+                    cx.notify();
+                    return;
+                }
+                view.request(
+                    "git-save-identity".into(),
+                    Operation::Identity { name, email },
+                    window,
+                    cx,
+                );
+            }));
+        panel = panel.child(
+            h_flex()
+                .w_full()
                 .border_t_1()
                 .border_color(cx.theme().border)
                 .pt_2()
-                .text_sm()
-                .child(tr("Commit identity")),
+                .child(div().flex_1().text_sm().child(tr("Commit identity")))
+                .child(save),
         );
         for (field, label) in self.identity.iter().zip(["Author name", "Author email"]) {
             panel = panel.child(
-                v_flex()
-                    .gap_1()
-                    .child(div().text_xs().child(tr(label)))
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(div().w(rems(5.)).flex_shrink_0().text_xs().child(tr(label)))
                     .child(
-                        crate::views::form_input(field, window, cx)
-                            .aria_label(tr(label))
-                            .disabled(!ready),
+                        div().flex_1().min_w_0().child(
+                            crate::views::form_input(field, window, cx)
+                                .aria_label(tr(label))
+                                .disabled(!ready),
+                        ),
                     ),
             );
         }
-        panel
-            .child(
-                self.feedback_button(
-                    "git-save-identity".into(),
-                    icon_action(Button::new("git-save-identity"), IconName::Check, "Save"),
-                )
-                .disabled(!ready)
-                .on_click(cx.listener(|view, _, window, cx| {
-                    let [name, email] = view
-                        .identity
-                        .each_ref()
-                        .map(|input| input.read(cx).value().trim().to_owned());
-                    if name.is_empty() || email.is_empty() {
-                        view.operation_error = Some(tr("Complete the required fields").into());
-                        cx.notify();
-                        return;
-                    }
-                    view.request(
-                        "git-save-identity".into(),
-                        Operation::Identity { name, email },
-                        window,
-                        cx,
-                    );
-                })),
-            )
-            .into_any_element()
+        panel.into_any_element()
     }
     fn save_preferences(
         &self,
@@ -634,7 +681,7 @@ impl Changes {
                         v_flex()
                             .gap_1()
                             .child(div().text_sm().child(tr(label)))
-                            .child(
+                            .child(field_dropdown(
                                 Button::new(("revision-picker", index))
                                     .w_full()
                                     .justify_start()
@@ -653,30 +700,28 @@ impl Changes {
                                                 )
                                                 .size(px(14.)),
                                             ),
-                                    )
-                                    .dropdown_menu(move |mut menu, _, _| {
-                                        for (name, value) in revisions.iter() {
-                                            let selected = value == &current;
-                                            let value = value.clone();
-                                            let input = input.clone();
-                                            menu = menu.item(
-                                                PopupMenuItem::new(name.clone())
-                                                    .checked(selected)
-                                                    .on_click(move |_, window, cx| {
-                                                        input.update(cx, |input, cx| {
-                                                            input.set_value(
-                                                                value.clone(),
-                                                                window,
-                                                                cx,
-                                                            )
-                                                        });
-                                                        window.refresh();
-                                                    }),
-                                            );
-                                        }
-                                        menu.scrollable(true).max_h(px(320.))
-                                    }),
-                            ),
+                                    ),
+                                window,
+                                cx,
+                                move |mut menu| {
+                                    for (name, value) in revisions.iter() {
+                                        let selected = value == &current;
+                                        let value = value.clone();
+                                        let input = input.clone();
+                                        menu = menu.item(
+                                            field_choice(name.clone()).checked(selected).on_click(
+                                                move |_, window, cx| {
+                                                    input.update(cx, |input, cx| {
+                                                        input.set_value(value.clone(), window, cx)
+                                                    });
+                                                    window.refresh();
+                                                },
+                                            ),
+                                        );
+                                    }
+                                    menu.scrollable(true).max_h(px(320.))
+                                },
+                            )),
                     );
                     continue;
                 }
