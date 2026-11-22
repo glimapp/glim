@@ -603,7 +603,7 @@ impl Render for Workspace {
             })
             .when(has_git, |view| {
                 view.child(
-                    div().w_full().flex_shrink_0().px_3().child(
+                    div().w_full().flex_shrink_0().child(
                         div()
                             .w_full()
                             .h(px(1.))

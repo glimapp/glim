@@ -238,6 +238,7 @@ pub struct Worktree {
 }
 #[derive(Default)]
 pub struct Catalog {
+    pub default_branch: Option<String>,
     pub references: Vec<Reference>,
     pub remotes: Vec<Remote>,
     pub stashes: Vec<Stash>,
@@ -246,32 +247,69 @@ pub struct Catalog {
 
 pub fn catalog(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> Result<Catalog> {
     let mut result = Catalog::default();
-    let refs = strings(
-        root,
-        remote,
-        &[
+    let format = "--format=%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)%00%(HEAD)%00%(symref)";
+    for args in [
+        vec![
             "for-each-ref",
             "--sort=refname",
-            "--format=%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)%00%(HEAD)",
+            "--sort=-committerdate",
+            format,
             "refs/heads",
             "refs/remotes",
+        ],
+        vec![
+            "for-each-ref",
+            "--sort=-version:refname",
+            format,
             "refs/tags",
         ],
-        cancel,
-    )?;
-    for line in refs.lines() {
-        let fields: Vec<_> = line.split('\0').collect();
-        if fields.len() == 6 {
+    ] {
+        let refs = strings(root, remote, &args, cancel)?;
+        for line in refs.lines() {
+            let fields: Vec<_> = line.split('\0').collect();
+            let [full, short, id, upstream, tracking, head, symref] = fields.as_slice() else {
+                continue;
+            };
+            if !symref.is_empty() {
+                if full.starts_with("refs/remotes/")
+                    && full.ends_with("/HEAD")
+                    && (result.default_branch.is_none() || *full == "refs/remotes/origin/HEAD")
+                {
+                    result.default_branch = Some(symref.to_string());
+                }
+                continue;
+            }
             result.references.push(Reference {
-                full: fields[0].into(),
-                name: fields[1].into(),
-                id: fields[2].into(),
-                upstream: fields[3].into(),
-                tracking: fields[4].into(),
-                current: fields[5] == "*",
+                full: full.to_string(),
+                name: short.to_string(),
+                id: id.to_string(),
+                upstream: upstream.to_string(),
+                tracking: tracking.to_string(),
+                current: *head == "*",
             });
         }
     }
+    let local = |name: &str| {
+        result
+            .references
+            .iter()
+            .find(|r| r.full.strip_prefix("refs/heads/") == Some(name))
+            .map(|r| r.full.clone())
+    };
+    result.default_branch = match result.default_branch.take() {
+        Some(remote_ref) => remote_ref
+            .strip_prefix("refs/remotes/")
+            .and_then(|r| r.split_once('/'))
+            .and_then(|(_, name)| local(name))
+            .or(Some(remote_ref)),
+        None => local("main").or_else(|| local("master")).or_else(|| {
+            result
+                .references
+                .iter()
+                .find(|r| r.current)
+                .map(|r| r.full.clone())
+        }),
+    };
     for name in strings(root, remote, &["remote"], cancel)?.lines() {
         result.remotes.push(Remote {
             name: name.into(),

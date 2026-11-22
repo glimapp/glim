@@ -118,9 +118,7 @@ impl Render for Changes {
             .overflow_x_scroll()
             .flex_shrink_0()
             .justify_around()
-            .px_1()
-            .border_b_1()
-            .border_color(cx.theme().border);
+            .px_1();
         for section in Section::PRIMARY {
             if section == Section::Worktrees && !Self::preferences(cx).worktrees {
                 continue;
@@ -434,7 +432,14 @@ impl Render for Changes {
             .size_full()
             .min_h_0()
             .min_w_0()
-            .child(tabs)
+            .child(
+                v_flex()
+                    .w_full()
+                    .px_3()
+                    .flex_shrink_0()
+                    .child(tabs)
+                    .child(div().w_full().h(px(1.)).bg(cx.theme().border)),
+            )
             .when(
                 self.operation_error.is_some()
                     || self.browser_error.is_some()

@@ -21,7 +21,10 @@ pub enum Operation {
         message: String,
         amend: bool,
     },
-    CreateBranch(String),
+    CreateBranch {
+        name: String,
+        from: String,
+    },
     Switch(String),
     RenameBranch(String, String),
     DeleteBranch(String),
@@ -130,7 +133,7 @@ impl Operation {
             Self::Discard(_) => "Discard changes",
             Self::Commit { amend: false, .. } => "Commit",
             Self::Commit { amend: true, .. } => "Amend commit",
-            Self::CreateBranch(_) => "Create branch",
+            Self::CreateBranch { .. } => "Create branch",
             Self::Switch(_) => "Switch branch",
             Self::RenameBranch(..) => "Rename branch",
             Self::DeleteBranch(_) => "Delete branch",
@@ -499,10 +502,14 @@ pub fn execute(
             }
             run_args(args, Some(&input))
         }
-        Operation::CreateBranch(branch) => {
+        Operation::CreateBranch { name: branch, from } => {
             name(branch)?;
             simple(&["check-ref-format", "--branch", branch])?;
-            simple(&["switch", "--create", branch])
+            if from == "HEAD" {
+                simple(&["switch", "--create", branch])
+            } else {
+                simple(&["switch", "--create", branch, &resolved(from)?])
+            }
         }
         Operation::Switch(branch) => {
             name(branch)?;
