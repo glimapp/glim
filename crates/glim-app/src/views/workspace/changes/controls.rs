@@ -275,11 +275,7 @@ impl Changes {
                 menu = menu.item(PopupMenuItem::new(tr("Refresh")).on_click(move |_, _, cx| {
                     let _ = refresh.update(cx, |view, cx| view.refresh(cx));
                 }));
-                let mut forms = vec![Form::Clone, Form::Init];
-                if has_repository {
-                    forms.push(Form::Identity);
-                }
-                for form in forms {
+                for form in [Form::Clone, Form::Init] {
                     let owner = owner.clone();
                     menu = menu.item(PopupMenuItem::new(tr(form.title())).on_click(
                         move |_, window, cx| {
@@ -303,6 +299,20 @@ impl Changes {
                 menu
             })
             .into_any_element()
+    }
+
+    pub(super) fn settings_menu(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let owner = cx.entity().downgrade();
+        icon_action(Button::new("git-settings"), IconName::Settings, "Settings")
+            .disabled(self.busy(cx) || self.active_root.is_none())
+            .dropdown_menu(move |menu, _, _| {
+                let owner = owner.clone();
+                menu.item(PopupMenuItem::new(tr(Form::Identity.title())).on_click(
+                    move |_, window, cx| {
+                        let _ = owner.update(cx, |view, cx| view.form(Form::Identity, window, cx));
+                    },
+                ))
+            })
     }
 
     pub(super) fn form_button(

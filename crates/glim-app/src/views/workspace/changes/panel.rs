@@ -108,29 +108,51 @@ impl Render for Changes {
             .min_w_0()
             .overflow_x_scroll()
             .flex_shrink_0()
-            .px_2();
+            .px_1()
+            .border_b_1()
+            .border_color(cx.theme().border);
         for section in Section::ALL {
-            let icon = match section {
-                Section::Changes => IconName::Files,
-                Section::History => IconName::Clock,
-                Section::Branches => IconName::GitBranch,
-                Section::Remotes => IconName::Globe,
-                Section::Stashes => IconName::Archive,
-                Section::Worktrees => IconName::Folders,
+            let (icon, label) = match section {
+                Section::Changes => (IconName::Files, "Changes"),
+                Section::History => (IconName::Clock, "History"),
+                Section::Branches => (IconName::GitBranch, "Git branches"),
+                Section::Remotes => (IconName::Globe, "Remotes"),
+                Section::Stashes => (IconName::Archive, "Stashes"),
+                Section::Worktrees => (IconName::Folders, "Worktree tab"),
             };
+            let active = self.section == section;
             tabs = tabs.child(
-                super::controls::icon_action(
-                    Button::new(("git-section", section as usize)),
-                    icon,
-                    section.label(),
-                )
-                .selected(self.section == section)
-                .on_click(cx.listener(move |view, _, _, cx| {
-                    view.switch_section(section, cx);
-                    cx.emit(ShowDiff);
-                })),
+                div()
+                    .flex_shrink_0()
+                    .border_b_2()
+                    .border_color(if active {
+                        crate::views::accent(cx)
+                    } else {
+                        transparent_black()
+                    })
+                    .child(
+                        Button::new(("git-section", section as usize))
+                            .ghost()
+                            .small()
+                            .toggled(active)
+                            .h(px(40.))
+                            .px(px(3.))
+                            .tooltip(tr(section.label()))
+                            .accessibility_label(tr(section.label()))
+                            .child(
+                                v_flex()
+                                    .items_center()
+                                    .child(gpui_kit::component::Icon::new(icon).size(px(14.)))
+                                    .child(div().text_xs().child(tr(label))),
+                            )
+                            .on_click(cx.listener(move |view, _, _, cx| {
+                                view.switch_section(section, cx);
+                                cx.emit(ShowDiff);
+                            })),
+                    ),
             );
         }
+        let tabs = tabs.child(self.settings_menu(cx));
         let mut status = h_flex().h(px(30.)).flex_shrink_0().min_w_0().px_3().gap_2();
         if let Some(error) = self
             .operation_error
@@ -186,7 +208,7 @@ impl Render for Changes {
             let mut actions = header.overflow_x_scroll().child(
                 super::controls::icon_action(
                     Button::new("all-changes-diff"),
-                    gpui_kit::assets::IconName::GitCompareArrows,
+                    gpui_kit::assets::IconName::Layers,
                     "All changes",
                 )
                 .disabled(self.active_root.is_none())

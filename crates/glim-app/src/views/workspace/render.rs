@@ -61,7 +61,7 @@ impl Workspace {
                                         .min_w_0()
                                         .gap_2()
                                         .child(
-                                            Icon::new(gpui_kit::assets::IconName::GitCompareArrows)
+                                            Icon::new(gpui_kit::assets::IconName::FolderGit2)
                                                 .size(px(16.))
                                                 .flex_shrink_0(),
                                         )
@@ -116,7 +116,7 @@ impl Workspace {
                             .min_w_0()
                             .gap_2()
                             .child(
-                                Icon::new(gpui_kit::assets::IconName::GitCompareArrows)
+                                Icon::new(gpui_kit::assets::IconName::FolderGit2)
                                     .size(px(16.))
                                     .flex_shrink_0(),
                             )

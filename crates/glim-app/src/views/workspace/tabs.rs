@@ -806,7 +806,7 @@ impl Workspace {
                             Button::new(("diff-tab", index))
                                 .ghost()
                                 .small()
-                                .icon(gpui_kit::assets::IconName::GitCompareArrows)
+                                .icon(gpui_kit::assets::IconName::FileDiff)
                                 .tooltip(tab.description())
                                 .accessibility_label(label.clone())
                                 .child(div().max_w(px(210.)).truncate().text_xs().child(label))
