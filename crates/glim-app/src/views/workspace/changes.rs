@@ -74,6 +74,7 @@ enum Prepared {
 
 pub(crate) struct Changes {
     pub(super) tabs: Vec<DiffTab>,
+    release_titles: std::collections::HashMap<PathBuf, std::collections::HashMap<String, String>>,
     section: Section,
     settings_open: bool,
     identity: [Entity<InputState>; 2],
@@ -175,6 +176,7 @@ impl Changes {
     pub(super) fn disable(&mut self, cx: &mut Context<Self>) {
         self.cancel(cx);
         self.tabs.clear();
+        self.release_titles.clear();
         self.repositories.clear();
         self.catalog_ready = false;
         self.catalog = Arc::default();
@@ -219,6 +221,7 @@ impl Changes {
         ];
         Self {
             tabs: Vec::new(),
+            release_titles: Default::default(),
             section: Section::Changes,
             settings_open: false,
             identity: std::array::from_fn(|_| cx.new(|cx| InputState::new(window, cx))),
@@ -318,6 +321,7 @@ impl Changes {
             self.remote_updates.clear();
             self.errors.clear();
             self.tabs.clear();
+            self.release_titles.clear();
             self.expanded_worktrees.clear();
             self.selection = None;
             self.active_root = None;
@@ -484,7 +488,7 @@ impl Changes {
                 self.section = match &query {
                     Comparison::AllChanges => Section::Changes,
                     Comparison::Stash(_) => Section::Stashes,
-                    Comparison::Between(_, _) => Section::Branches,
+                    Comparison::Between(_, _) | Comparison::ReleaseTag(_) => Section::Branches,
                     _ => Section::History,
                 };
                 self.selected_commit = match &query {
@@ -506,12 +510,23 @@ impl Changes {
         cx.notify();
     }
 
+    pub(super) fn release_title(&self, tab: &DiffTab) -> Option<&String> {
+        let DiffTab::Comparison(root, Comparison::ReleaseTag(tag)) = tab else {
+            return None;
+        };
+        self.release_titles.get(root)?.get(tag)
+    }
+
     pub(super) fn close_tab(&mut self, index: usize, cx: &mut Context<Self>) {
         if index >= self.tabs.len() {
             return;
         }
         let active = self.active_tab() == Some(index);
-        self.tabs.remove(index);
+        if let DiffTab::Comparison(root, Comparison::ReleaseTag(tag)) = self.tabs.remove(index)
+            && let Some(titles) = self.release_titles.get_mut(&root)
+        {
+            titles.remove(&tag);
+        }
         if active {
             if self.tabs.is_empty() {
                 self.patch_cancel = None;
@@ -577,11 +592,12 @@ impl Changes {
         self.patch_cancel = Some(guard);
         let work = cx.background_executor().spawn(async move {
             let conflict = change.as_ref().is_some_and(|c| c.status == 'U');
-            let patch = match (&change, &comparison) {
-                (Some(change), _) if conflict => {
-                    git::conflict_source(&root, remote.as_ref(), &change.path, &cancel)?
-                }
-                (Some(change), _) => git::patch(&root, change, remote.as_ref(), &cancel)?,
+            let (patch, title) = match (&change, &comparison) {
+                (Some(change), _) if conflict => (
+                    git::conflict_source(&root, remote.as_ref(), &change.path, &cancel)?,
+                    None,
+                ),
+                (Some(change), _) => (git::patch(&root, change, remote.as_ref(), &cancel)?, None),
                 (_, Some(comparison)) => {
                     git::comparison_patch(&root, remote.as_ref(), comparison, &cancel)?
                 }
@@ -607,14 +623,14 @@ impl Changes {
             }
             let digest: [u8; 32] = hash.finalize().into();
             if previous == Some(digest) {
-                return Ok((digest, Prepared::Unchanged));
+                return Ok((digest, title, Prepared::Unchanged));
             }
             if comparison.as_ref().is_some_and(Comparison::is_raw) {
                 let page = glim_services::paged::generated(
                     std::path::Path::new("git-details.txt"),
                     patch,
                 )?;
-                return Ok((digest, Prepared::Raw(page)));
+                return Ok((digest, title, Prepared::Raw(page)));
             }
             // Reserve a conservative parser envelope before the library allocates
             // per-line strings, source ranges and presentation rows.
@@ -640,6 +656,7 @@ impl Changes {
                             cancel.check()?;
                             return Ok::<_, anyhow::Error>((
                                 digest,
+                                title,
                                 Prepared::Diff(files, memory, Arc::new(text)),
                             ));
                         }
@@ -658,6 +675,7 @@ impl Changes {
                 .unwrap_or_else(|| PathBuf::from("comparison.diff"));
             Ok((
                 digest,
+                title,
                 Prepared::Raw(if binary {
                     glim_services::paged::generated_binary(&path, patch)?
                 } else {
@@ -675,19 +693,27 @@ impl Changes {
                     return;
                 }
                 view.patch_loading = false;
-                if let Ok((digest, _)) = &result {
+                if let Ok((digest, title, _)) = &result {
+                    if let (DiffTab::Comparison(root, Comparison::ReleaseTag(tag)), Some(title)) =
+                        (&tab, title)
+                    {
+                        view.release_titles
+                            .entry(root.clone())
+                            .or_default()
+                            .insert(tag.clone(), title.clone());
+                    }
                     view.displayed_patch = Some((tab, *digest));
                     view.patch_error = None;
                 }
                 match result {
-                    Ok((_, Prepared::Unchanged)) => {}
-                    Ok((_, Prepared::Diff(files, memory, source))) => {
+                    Ok((_, _, Prepared::Unchanged)) => {}
+                    Ok((_, _, Prepared::Diff(files, memory, source))) => {
                         view.raw = None;
                         view.patch_source = Some(source);
                         view.diff.update(cx, |state, cx| state.set_files(files, cx));
                         view.memory = Some(memory);
                     }
-                    Ok((_, Prepared::Raw(page))) => {
+                    Ok((_, _, Prepared::Raw(page))) => {
                         view.diff.update(cx, |state, cx| state.set_files([], cx));
                         view.patch_source = None;
                         view.memory = None;

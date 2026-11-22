@@ -65,7 +65,7 @@ impl Render for DraggedTab {
 pub(super) enum TabIdentity {
     Pending(std::path::PathBuf),
     Document(u64),
-    Diff(super::changes::DiffTab),
+    Diff(super::changes::DiffTab, Option<String>),
 }
 
 enum TabMenuAction {
@@ -802,7 +802,14 @@ impl Workspace {
                 .iter()
                 .enumerate()
                 .map(|(index, tab)| {
-                    let label = tab.label();
+                    let range = git.release_title(tab);
+                    let label = range.cloned().unwrap_or_else(|| tab.label());
+                    let description = match (range, tab) {
+                        (Some(range), super::changes::DiffTab::Comparison(root, _)) => {
+                            format!("{} · {range}", root.display())
+                        }
+                        _ => tab.description(),
+                    };
                     let active = self.page == super::Page::Changes && selected == Some(index);
                     h_flex()
                         .h(px(TAB_HEIGHT))
@@ -816,9 +823,15 @@ impl Workspace {
                                 .ghost()
                                 .small()
                                 .icon(gpui_kit::assets::IconName::FileDiff)
-                                .tooltip(tab.description())
+                                .tooltip(description)
                                 .accessibility_label(label.clone())
-                                .child(div().max_w(px(210.)).truncate().text_xs().child(label))
+                                .child(
+                                    div()
+                                        .max_w(px(210.))
+                                        .truncate()
+                                        .text_xs()
+                                        .child(label.clone()),
+                                )
                                 .on_click(cx.listener(move |view, _, _, cx| {
                                     view.activate_diff_tab(index, cx)
                                 })),
@@ -832,7 +845,7 @@ impl Workspace {
                                 .accessibility_label(format!(
                                     "{} {}",
                                     glim_services::locale::tr("Close"),
-                                    tab.label()
+                                    label
                                 ))
                                 .on_click(cx.listener(move |view, _, _, cx| {
                                     view.close_diff_tab(index, cx)
@@ -857,7 +870,10 @@ impl Workspace {
             }
             super::Page::Changes => selected.map(|index| {
                 (
-                    TabIdentity::Diff(git.tabs[index].clone()),
+                    TabIdentity::Diff(
+                        git.tabs[index].clone(),
+                        git.release_title(&git.tabs[index]).cloned(),
+                    ),
                     first_document + tabs.len() + index,
                 )
             }),

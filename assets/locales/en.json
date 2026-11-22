@@ -839,6 +839,7 @@
   "Abort": "Abort",
   "Absolute worktree path": "Absolute worktree path",
   "Add remote": "Add remote",
+  "Empty tree": "Empty tree",
   "Create worktree": "Create worktree",
   "Open worktree": "Open worktree",
   "Worktree path (automatic if empty)": "Worktree path (automatic if empty)",

@@ -941,10 +941,7 @@ impl Changes {
                                 view.selected_remote = None;
                                 view.selected_reference = Some(index);
                                 let reference = view.catalog.references[index].clone();
-                                view.open_comparison(
-                                    Comparison::Between("HEAD".into(), reference.full),
-                                    cx,
-                                );
+                                view.open_comparison(Comparison::for_reference(&reference), cx);
                             }
                             EntryKind::Stash => {
                                 view.selected_stash = Some(index);

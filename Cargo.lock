@@ -2607,6 +2607,7 @@ dependencies = [
  "resvg 0.45.1",
  "roxmltree 0.21.1",
  "rusqlite",
+ "semver",
  "serde",
  "serde_json",
  "serde_yaml_ng",

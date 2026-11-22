@@ -418,11 +418,52 @@ pub(super) fn revision(
     .map(|s| s.trim().to_owned())
 }
 
+// Glim also publishes four-component hotfix tags such as v0.2.26.1.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct ReleaseVersion<'a> {
+    namespace: &'a str,
+    numbers: Vec<u64>,
+    prerelease: semver::Prerelease,
+}
+
+impl<'a> ReleaseVersion<'a> {
+    fn parse(tag: &'a str) -> Option<Self> {
+        let (namespace, name) = tag.rsplit_once('/').unwrap_or(("", tag));
+        let name = name.strip_prefix('v').unwrap_or(name);
+        let name = name.split_once('+').map_or(name, |(version, _)| version);
+        let (core, pre) = name.split_once('-').unwrap_or((name, ""));
+        if name.ends_with('-') && pre.is_empty() {
+            return None;
+        }
+        let mut numbers = core
+            .split('.')
+            .map(str::parse)
+            .collect::<Result<Vec<u64>, _>>()
+            .ok()?;
+        if numbers.len() < 2 {
+            return None;
+        }
+        while numbers.len() > 2 && numbers.last() == Some(&0) {
+            numbers.pop();
+        }
+        Some(Self {
+            namespace,
+            numbers,
+            prerelease: semver::Prerelease::new(pre).ok()?,
+        })
+    }
+
+    fn same_line(&self, other: &Self) -> bool {
+        self.namespace == other.namespace && self.numbers[..2] == other.numbers[..2]
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Comparison {
     AllChanges,
     Commit(String),
     Between(String, String),
+    ReleaseTag(String),
     Stash(String),
     FileHistory(String, PathBuf),
     Details(String),
@@ -430,10 +471,22 @@ pub enum Comparison {
 }
 
 impl Comparison {
+    pub fn for_reference(reference: &Reference) -> Self {
+        match reference
+            .full
+            .strip_prefix("refs/tags/")
+            .and_then(ReleaseVersion::parse)
+        {
+            Some(_) => Self::ReleaseTag(reference.full.clone()),
+            None => Self::Between("HEAD".into(), reference.full.clone()),
+        }
+    }
+
     pub fn title(&self) -> String {
         match self {
             Self::AllChanges => tr("All changes"),
             Self::Commit(id) => format!("{} · {}", tr("Commit"), &id[..id.len().min(12)]),
+            Self::ReleaseTag(tag) => tag.trim_start_matches("refs/tags/").to_owned(),
             Self::Between(base, target) => format!("{base} → {target}"),
             Self::Stash(id) => format!("Stash · {}", &id[..id.len().min(12)]),
             Self::FileHistory(id, path) => {
@@ -453,7 +506,8 @@ pub fn comparison_patch(
     remote: Option<&Session>,
     comparison: &Comparison,
     cancel: &Cancellation,
-) -> Result<tempfile::NamedTempFile> {
+) -> Result<(tempfile::NamedTempFile, Option<String>)> {
+    let mut range_title = None;
     if *comparison == Comparison::AllChanges {
         use std::io::{Read, Write};
         let mut output = tempfile::NamedTempFile::new()?;
@@ -470,7 +524,7 @@ pub fn comparison_patch(
                 output.write_all(&buffer[..n])?;
             }
         }
-        return Ok(output);
+        return Ok((output, None));
     }
     if let Comparison::Details(id) = comparison {
         return run(
@@ -487,7 +541,8 @@ pub fn comparison_patch(
             )?,
             false,
             cancel,
-        );
+        )
+        .map(|patch| (patch, None));
     }
     if let Comparison::Blame(path) = comparison {
         relative(path.as_os_str().as_bytes().to_vec())?;
@@ -504,7 +559,8 @@ pub fn comparison_patch(
             )?,
             false,
             cancel,
-        );
+        )
+        .map(|patch| (patch, None));
     }
     let mut args: Vec<OsString> = match comparison {
         Comparison::Commit(id) | Comparison::FileHistory(id, _) => vec![
@@ -513,6 +569,48 @@ pub fn comparison_patch(
             "--first-parent".into(),
             revision(root, remote, id, cancel)?.into(),
         ],
+        Comparison::ReleaseTag(tag) => {
+            let name = tag
+                .strip_prefix("refs/tags/")
+                .context("Expected a version tag")?;
+            let version = ReleaseVersion::parse(name).context("Invalid version tag")?;
+            let target = revision(root, remote, tag, cancel)?;
+            let tags = strings(
+                root,
+                remote,
+                &[
+                    "for-each-ref",
+                    "--merged",
+                    &target,
+                    "--format=%(refname:lstrip=2)",
+                    "refs/tags",
+                ],
+                cancel,
+            )?;
+            let previous = tags
+                .lines()
+                .filter_map(|name| {
+                    let candidate = ReleaseVersion::parse(name)?;
+                    (candidate.same_line(&version) && candidate < version)
+                        .then_some((candidate, name))
+                })
+                .max();
+            let base = if let Some((_, previous)) = previous {
+                range_title = Some(format!("{previous} → {name}"));
+                revision(root, remote, &format!("refs/tags/{previous}"), cancel)?
+            } else {
+                range_title = Some(format!("{} → {name}", tr("Empty tree")));
+                strings(
+                    root,
+                    remote,
+                    &["hash-object", "-t", "tree", "--stdin"],
+                    cancel,
+                )?
+                .trim()
+                .to_owned()
+            };
+            vec!["diff".into(), base.into(), target.into()]
+        }
         Comparison::Between(left, right) => vec![
             "diff".into(),
             revision(root, remote, left, cancel)?.into(),
@@ -544,7 +642,10 @@ pub fn comparison_patch(
         relative(path.as_os_str().as_bytes().to_vec())?;
         args.push(path.as_os_str().to_owned());
     }
-    run(command(root, remote, &args)?, false, cancel)
+    Ok((
+        run(command(root, remote, &args)?, false, cancel)?,
+        range_title,
+    ))
 }
 
 pub fn conflict_source(

@@ -839,6 +839,7 @@
   "Abort": "中止",
   "Absolute worktree path": "工作树绝对路径",
   "Add remote": "添加远端",
+  "Empty tree": "空树",
   "Create worktree": "创建工作树",
   "Open worktree": "打开工作树",
   "Worktree path (automatic if empty)": "工作树目录（留空使用同级目录）",
