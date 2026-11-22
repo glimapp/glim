@@ -4,6 +4,10 @@
 
 进入 **设置 → 应用集成**，在检测到的应用旁点击 **关联**。绿色点与“已关联”表示配置已写入，不表示目标应用已经建立实时连接。重启对应应用或重新加载其 MCP 服务，并按目标应用要求批准工具调用。“已关联”菜单提供取消关联。
 
+打开 **设置 → 应用集成 → 配置 CLI 与 Agent Skills**。Glim 会设置终端 PATH，并为检测到的兼容 Agent 安装 Glim skill。打开新终端或新的 Agent 会话即可使用。
+
+支持 Codex、Claude Code、Gemini CLI、GitHub Copilot（含 VS Code）、OpenCode 和 Cursor。已有的同名文件会保留；可在解决冲突后再次点击配置。Claude Desktop 可使用下方的 MCP 集成。
+
 | 应用 | 用户级配置位置 | 使用方式 |
 | --- | --- | --- |
 | Codex | `~/.codex/config.toml`、检测到的 `~/.codex-*` 目录、`CODEX_HOME` 或手动选择的目录 | 添加本地与 SSH 远端路径的 Glim 打开入口，并设为默认。 |

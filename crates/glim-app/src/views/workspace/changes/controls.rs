@@ -244,42 +244,63 @@ impl Changes {
             .into_any_element()
     }
 
-    pub(super) fn repository_menu(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn repository_menu(
+        &self,
+        branch: &str,
+        upstream: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let owner = cx.entity().downgrade();
         let has_repository = self.active_root.is_some();
-        icon_action(
-            Button::new("git-repository-menu"),
-            IconName::FolderGit2,
-            "Repository",
-        )
-        .disabled(self.busy(cx))
-        .dropdown_menu(move |mut menu, _, _| {
-            let mut forms = vec![Form::Clone, Form::Init];
-            if has_repository {
-                forms.push(Form::Identity);
-            }
-            for form in forms {
-                let owner = owner.clone();
-                menu = menu.item(PopupMenuItem::new(tr(form.title())).on_click(
-                    move |_, window, cx| {
-                        let _ = owner.update(cx, |view, cx| view.form(form.clone(), window, cx));
-                    },
-                ));
-            }
-            if has_repository {
-                for operation in [Operation::Submodules] {
+        let hint = if upstream.is_empty() {
+            branch.to_owned()
+        } else {
+            format!("{branch} → {upstream}")
+        };
+        Button::new("git-repository-menu")
+            .small()
+            .ghost()
+            .flex_1()
+            .min_w_0()
+            .justify_start()
+            .icon(IconName::GitBranch)
+            .child(div().truncate().text_sm().child(branch.to_owned()))
+            .tooltip(hint.clone())
+            .accessibility_label(format!("{} · {hint}", tr("Repository")))
+            .disabled(self.busy(cx))
+            .dropdown_menu(move |mut menu, _, _| {
+                let refresh = owner.clone();
+                menu = menu.item(PopupMenuItem::new(tr("Refresh")).on_click(move |_, _, cx| {
+                    let _ = refresh.update(cx, |view, cx| view.refresh(cx));
+                }));
+                let mut forms = vec![Form::Clone, Form::Init];
+                if has_repository {
+                    forms.push(Form::Identity);
+                }
+                for form in forms {
                     let owner = owner.clone();
-                    menu = menu.item(PopupMenuItem::new(operation.menu_label()).on_click(
+                    menu = menu.item(PopupMenuItem::new(tr(form.title())).on_click(
                         move |_, window, cx| {
-                            let _ = owner
-                                .update(cx, |view, cx| view.request(operation.clone(), window, cx));
+                            let _ =
+                                owner.update(cx, |view, cx| view.form(form.clone(), window, cx));
                         },
                     ));
                 }
-            }
-            menu
-        })
-        .into_any_element()
+                if has_repository {
+                    for operation in [Operation::Submodules] {
+                        let owner = owner.clone();
+                        menu = menu.item(PopupMenuItem::new(operation.menu_label()).on_click(
+                            move |_, window, cx| {
+                                let _ = owner.update(cx, |view, cx| {
+                                    view.request(operation.clone(), window, cx)
+                                });
+                            },
+                        ));
+                    }
+                }
+                menu
+            })
+            .into_any_element()
     }
 
     pub(super) fn form_button(

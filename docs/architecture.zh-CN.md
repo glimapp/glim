@@ -33,6 +33,7 @@ crates/
       reader/         原文、排版、数据树／表、图片、原生预览和 XMind
       explorer.rs     按需目录树、置顶祖先与完整名称／路径浮窗
       minimap.rs      文档概览
+integrations/terminal.rs  用户级 CLI、shell PATH 和 Agent Skills 安装（glim-services）
 native/               内嵌 macOS 预览、设置辅助程序和 Sparkle 桥接
 assets/               品牌、文件图标、语法查询、离线引擎和包元数据
 scripts/              打包、签名、更新清单与专项原生检查

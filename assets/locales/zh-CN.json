@@ -1,4 +1,8 @@
 {
+  "Setup incomplete. View details and retry.": "配置未完成。查看详情后重试。",
+  "Open a new terminal or agent session.": "请打开新终端或启动新的 Agent 会话。",
+  "Set up CLI and Agent Skills": "配置 CLI 与 Agent Skills",
+  "No stashes": "暂无暂存记录（Stash）",
   "All changes": "全部差异",
   "More": "更多",
   "File actions": "文件操作",

@@ -3,6 +3,7 @@ pub mod codex;
 mod discovery;
 mod json_edit;
 pub mod mcp;
+pub mod terminal;
 
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};

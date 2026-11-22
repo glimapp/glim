@@ -86,12 +86,7 @@ Glim 是免费开源的 Mac 文件查看器。在同一工作区阅读带 Mermai
 
 ## 终端与 AI 工具
 
-将应用自带的命令链接到 PATH 中的目录。例如，若 PATH 包含 ~/.local/bin，可执行以下命令。
-
-```sh
-mkdir -p ~/.local/bin
-ln -s /Applications/Glim.app/Contents/Resources/glim ~/.local/bin/glim
-```
+打开 **设置 → 应用集成 → 配置 CLI 与 Agent Skills**。Glim 会设置终端 PATH，并为检测到的兼容 Agent 安装 Glim skill。打开新终端或新的 Agent 会话即可使用。
 
 ```sh
 glim open README.md
@@ -102,9 +97,9 @@ glim formats
 glim --help
 ```
 
-导出时请指定新文件名。成功后，标准输出会返回文件路径。配置 Cursor MCP 时，命令填写启动器的绝对路径，参数填写 `["mcp"]`。MCP 提供 `open_in_glim` 工具，AI 也可以直接在终端调用导出命令。
+导出时请指定新文件名。成功后，标准输出会返回文件路径。
 
-[终端使用指南](docs/user-guide.zh-CN.md#cli) · [Cursor 配置示例](docs/app-integrations.zh-CN.md#cursor-mcp)
+[终端使用指南](docs/user-guide.zh-CN.md#cli) · [多 Agent 集成](docs/app-integrations.zh-CN.md)
 
 ## 下载与安装
 

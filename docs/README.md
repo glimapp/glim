@@ -37,4 +37,4 @@ Documentation describes current source. Consult [Release notes](https://github.c
 
 Maintenance convention: keep open work and acceptance gaps in `TODO.md`; architecture, contracts and policies describe current design and implemented behavior. Keep raw performance reports, session logs and temporary validation artifacts outside the repository. Publish release changes in GitHub Releases.
 
-[Terminal guide](user-guide.md#cli) · [Cursor configuration example](app-integrations.md#cursor-mcp)
+[Terminal guide](user-guide.md#cli) · [Agent integrations](app-integrations.md)

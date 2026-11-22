@@ -1116,10 +1116,16 @@ mod tests {
             "Move opening to Tuesday\n"
         );
         assert!(git(&["status", "--porcelain"]).is_empty());
-        click(
-            cx,
-            ("git-section", browser::Section::History as usize).into(),
-        );
+        for section in [browser::Section::Stashes, browser::Section::History] {
+            click(cx, "git-section-picker".into());
+            cx.update_window(handle, |_, w, cx| {
+                w.render_frame(cx);
+                w.within("popup-menu").click(section as usize, cx);
+            })
+            .unwrap();
+            cx.run_until_parked();
+            assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).section == section));
+        }
         assert_eq!(
             cx.update(|cx| workspace.read(cx).changes.read(cx).commits.len()),
             2

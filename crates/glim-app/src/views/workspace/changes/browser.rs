@@ -373,15 +373,7 @@ impl Changes {
                 .child(self.form_button("git-add-remote", Form::Remote, cx))
                 .child(self.operation_button("git-fetch-all", Operation::Fetch(None), false, cx))
                 .into_any_element(),
-            Section::Stashes => h_flex()
-                .gap_1()
-                .child(self.form_button("git-stash-save", Form::Stash, cx))
-                .into_any_element(),
-            Section::Worktrees => h_flex()
-                .gap_1()
-                .child(self.form_button("git-worktree-add", Form::Worktree, cx))
-                .into_any_element(),
-            Section::Changes => div().into_any_element(),
+            Section::Stashes | Section::Worktrees | Section::Changes => div().into_any_element(),
         };
         let count = match self.section {
             Section::History => self.commits.len(),
@@ -544,7 +536,10 @@ impl Changes {
         })
         .min_h_0()
         .w_full();
-        let mut panel = v_flex().w_full().min_h_0().gap_2().p_2().child(controls);
+        let mut panel = v_flex().w_full().min_h_0().gap_2().p_2().when(
+            !matches!(self.section, Section::Stashes | Section::Worktrees),
+            |panel| panel.child(controls),
+        );
         if self.section == Section::History && self.search_open {
             panel = panel.child(
                 h_flex()
@@ -603,7 +598,11 @@ impl Changes {
                 .child(if self.browsing {
                     tr("Loading…")
                 } else if count == 0 {
-                    tr("No entries")
+                    tr(if self.section == Section::Stashes {
+                        "No stashes"
+                    } else {
+                        "No entries"
+                    })
                 } else {
                     format!("{count} {}", tr("entries"))
                 }),
