@@ -1,6 +1,9 @@
 #![allow(unsafe_code)]
 
-use gpui_kit::{App, Bounds, ForegroundExecutor, Pixels, Window};
+#[path = "windows_html.rs"]
+mod html;
+
+use gpui_kit::{App, BackgroundExecutor, Bounds, ForegroundExecutor, Pixels, Window};
 use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
 };
@@ -52,7 +55,9 @@ impl HasWindowHandle for PreviewParent {
 
 struct PreviewState {
     content: serde_json::Value,
-    executor: OnceCell<ForegroundExecutor>,
+    executors: OnceCell<(ForegroundExecutor, BackgroundExecutor)>,
+    navigation: Rc<RefCell<Option<String>>>,
+    anchor: RefCell<Option<String>>,
     desired: Cell<Option<Placement>>,
     scheduled: Cell<bool>,
     view: RefCell<Option<(Win32WindowHandle, WebView)>>,
@@ -66,7 +71,7 @@ impl PreviewState {
     }
 
     fn schedule(self: &Rc<Self>) {
-        let Some(executor) = self.executor.get() else {
+        let Some((executor, _)) = self.executors.get() else {
             return;
         };
         if self.scheduled.replace(true) {
@@ -126,29 +131,37 @@ impl PreviewState {
             .with_bounds(placement.bounds)
             .with_incognito(true)
             .with_devtools(false)
-            .with_javascript_disabled()
-            .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
             .with_download_started_handler(|_, _| false);
+        if kind == "html" {
+            let (foreground, background) = self.executors.get().expect("preview has a placement");
+            let view = builder.build_as_child(&PreviewParent(placement.parent))?;
+            html::load(
+                &view,
+                Path::new(self.content["source"].as_str().unwrap_or_default()),
+                self.content["text"].as_str(),
+                self.anchor.borrow().as_deref(),
+                self.navigation.clone(),
+                foreground.clone(),
+                background.clone(),
+            )?;
+            return Ok(view);
+        }
+        builder = builder
+            .with_javascript_disabled()
+            .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny);
         let file = match kind {
             "image" => self.content["prepared"]
                 .as_str()
                 .or_else(|| self.content["source"].as_str()),
             "office" => self.content["reading"].as_str(),
-            "pdf" | "html" => self.content["source"].as_str(),
+            "pdf" => self.content["source"].as_str(),
             "media" => self.content["files"]
                 .get(0)
                 .and_then(serde_json::Value::as_str),
             _ => None,
         };
         let file_url = file.and_then(|file| url::Url::from_file_path(Path::new(file)).ok());
-        let text = (kind == "html")
-            .then(|| self.content["text"].as_str())
-            .flatten();
-        if let Some(text) = text {
-            builder = builder
-                .with_html(text)
-                .with_navigation_handler(|url| url == "about:blank");
-        } else if let Some(url) = file_url {
+        if let Some(url) = file_url {
             let mut allowed = url.clone();
             allowed.set_fragment(None);
             builder = builder
@@ -175,7 +188,9 @@ impl NativePreview {
             serde_json::from_slice(configuration).unwrap_or_default();
         Self(Rc::new(PreviewState {
             content: configuration["content"].clone(),
-            executor: OnceCell::new(),
+            executors: OnceCell::new(),
+            navigation: Rc::default(),
+            anchor: RefCell::default(),
             desired: Cell::new(None),
             scheduled: Cell::new(false),
             view: RefCell::new(None),
@@ -198,9 +213,12 @@ impl NativePreview {
             )
             .into(),
         };
-        self.0
-            .executor
-            .get_or_init(|| cx.foreground_executor().clone());
+        self.0.executors.get_or_init(|| {
+            (
+                cx.foreground_executor().clone(),
+                cx.background_executor().clone(),
+            )
+        });
         self.0.request(Some(Placement { parent, bounds }));
     }
 
@@ -224,7 +242,13 @@ impl NativePreview {
         false
     }
     pub fn take_navigation(&self) -> Option<String> {
-        None
+        self.0.navigation.take()
     }
-    pub fn reveal_anchor(&self, _anchor: &str) {}
+    pub fn reveal_anchor(&self, anchor: &str) {
+        self.0.anchor.replace(Some(anchor.into()));
+        if let Some((_, view)) = &*self.0.view.borrow() {
+            let id = serde_json::Value::String(anchor.to_owned());
+            let _ = view.evaluate_script(&format!("location.hash = encodeURIComponent({id});"));
+        }
+    }
 }

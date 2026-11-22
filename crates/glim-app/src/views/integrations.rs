@@ -21,6 +21,7 @@ pub(crate) struct Integrations {
     targets: Vec<Target>,
     loaded: bool,
     busy: bool,
+    #[cfg(target_os = "macos")]
     installing_tools: bool,
     tools_error: Option<String>,
     pending_config: Option<std::path::PathBuf>,
@@ -68,6 +69,7 @@ impl Integrations {
         }));
     }
 
+    #[cfg(target_os = "macos")]
     fn install_tools(&mut self, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -343,6 +345,19 @@ impl Render for Integrations {
         } else {
             div().into_any_element()
         };
+        #[cfg(target_os = "macos")]
+        let terminal_tools = Some(
+            Button::new("install-terminal-tools")
+                .small()
+                .border_1()
+                .border_color(cx.theme().border)
+                .disabled(self.busy)
+                .loading(self.installing_tools)
+                .label(tr("Set up CLI and Agent Skills"))
+                .on_click(cx.listener(|view, _, _, cx| view.install_tools(cx))),
+        );
+        #[cfg(windows)]
+        let terminal_tools = None::<Button>;
         v_flex()
             .w_full()
             .gap_3()
@@ -368,16 +383,7 @@ impl Render for Integrations {
                         .on_click(cx.listener(|view, _, _, cx| view.reload(cx))),
                     ),
             )
-            .child(
-                Button::new("install-terminal-tools")
-                    .small()
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .disabled(self.busy)
-                    .loading(self.installing_tools)
-                    .label(tr("Set up CLI and Agent Skills"))
-                    .on_click(cx.listener(|view, _, _, cx| view.install_tools(cx))),
-            )
+            .children(terminal_tools)
             .child(rows)
             .child(
                 h_flex()

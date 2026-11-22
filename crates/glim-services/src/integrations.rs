@@ -3,6 +3,7 @@ pub mod codex;
 mod discovery;
 mod json_edit;
 pub mod mcp;
+#[cfg(target_os = "macos")]
 pub mod terminal;
 
 use anyhow::{Context, Result, ensure};

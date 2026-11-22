@@ -441,7 +441,7 @@ SQLite 自动刷新对比创建私有快照时记录的主库、WAL 和回滚日
 
 ### 平台、偏好与更新边界
 
-主工作区维护 GPUI macOS 后端，支持 Apple Silicon 与 Intel，快捷键使用 ⌘。Swift 提供原生预览与默认文件类型设置；图表使用系统 WebKit。应用与服务的 Windows 分支已移除；构建脚本明确拒绝非 macOS 目标。
+macOS 后端支持 Apple Silicon 与 Intel，快捷键使用 ⌘。Swift 提供原生预览与默认文件类型设置，图表使用系统 WebKit。Windows 移植分支共用 GPUI 工作区和 Rust 阅读器。`views/reader/windows_html.rs` 为每个 HTML 预览创建独立的 WebView2 来源，读取编辑器文本或磁盘文件，在文档目录或所属仓库内解析本地资源，并将用户点击的链接交给工作区打开。
 
 macOS 保留 `io.github.jony4.glimpse` 身份以兼容已有安装。偏好位于 `~/Library/Application Support/Glim`，在已实现的位置兼容旧 Glimpse 路径。语言字典内嵌，文档正文及技术诊断不翻译；每个文档主题都有英文／简体中文对应页。
 
