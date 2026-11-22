@@ -288,7 +288,17 @@ fn download_image(
     cancel: &crate::work::Cancellation,
 ) -> Result<tempfile::NamedTempFile> {
     let file = tempfile::NamedTempFile::new()?;
+    #[cfg(target_os = "macos")]
     let mut command = Command::new("/usr/bin/curl");
+    #[cfg(windows)]
+    let mut command = {
+        use std::os::windows::process::CommandExt;
+        let root =
+            std::env::var_os("SystemRoot").context("Windows system directory unavailable")?;
+        let mut curl = Command::new(std::path::PathBuf::from(root).join("System32/curl.exe"));
+        curl.creation_flags(0x0800_0000);
+        curl
+    };
     command
         .args([
             "--disable",
