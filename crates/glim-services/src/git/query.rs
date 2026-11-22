@@ -209,6 +209,13 @@ pub struct Reference {
     pub upstream: String,
     pub tracking: String,
     pub current: bool,
+    pub tag: Option<Box<TagDetails>>,
+}
+#[derive(Clone, Debug)]
+pub struct TagDetails {
+    pub author: String,
+    pub date: String,
+    pub subject: String,
 }
 #[derive(Clone, Debug)]
 pub struct Remote {
@@ -241,6 +248,11 @@ pub struct Catalog {
 pub fn catalog(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> Result<Catalog> {
     let mut result = Catalog::default();
     let format = "--format=%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)%00%(HEAD)%00%(symref)";
+    // Tag objects have a tagger and annotation. Lightweight tags on commits
+    // expose the commit author and subject through the same ref query.
+    let tag_format = format!(
+        "{format}%00%(taggername)%(authorname)%00%(taggerdate:format:%Y-%m-%d %H:%M:%S)%(authordate:format:%Y-%m-%d %H:%M:%S)%00%(contents:subject)"
+    );
     for args in [
         vec![
             "for-each-ref",
@@ -253,14 +265,24 @@ pub fn catalog(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> 
         vec![
             "for-each-ref",
             "--sort=-version:refname",
-            format,
+            &tag_format,
             "refs/tags",
         ],
     ] {
         let refs = strings(root, remote, &args, cancel)?;
         for line in refs.lines() {
             let fields: Vec<_> = line.split('\0').collect();
-            let [full, short, id, upstream, tracking, head, symref] = fields.as_slice() else {
+            let [
+                full,
+                short,
+                id,
+                upstream,
+                tracking,
+                head,
+                symref,
+                details @ ..,
+            ] = fields.as_slice()
+            else {
                 continue;
             };
             if !symref.is_empty() {
@@ -279,6 +301,14 @@ pub fn catalog(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> 
                 upstream: upstream.to_string(),
                 tracking: tracking.to_string(),
                 current: *head == "*",
+                tag: match details {
+                    [author, date, subject] => Some(Box::new(TagDetails {
+                        author: (*author).into(),
+                        date: (*date).into(),
+                        subject: (*subject).into(),
+                    })),
+                    _ => None,
+                },
             });
         }
     }

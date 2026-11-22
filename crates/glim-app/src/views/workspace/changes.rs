@@ -100,6 +100,8 @@ pub(crate) struct Changes {
     selected_commit: Option<Commit>,
     collapsed_refs: [bool; 2],
     reference_groups: [Vec<usize>; 2],
+    reference_list: ListState,
+    visible_group_sizes: [usize; 2],
     selected_reference: Option<usize>,
     selected_stash: Option<usize>,
     displayed_patch: Option<(DiffTab, [u8; 32])>,
@@ -234,6 +236,8 @@ impl Changes {
             selected_commit: None,
             collapsed_refs: [false; 2],
             reference_groups: Default::default(),
+            reference_list: ListState::new(2, ListAlignment::Top, px(100.)),
+            visible_group_sizes: [0; 2],
             selected_reference: None,
             selected_stash: None,
             displayed_patch: None,
@@ -1384,7 +1388,15 @@ mod tests {
             "branch",
             &format!("work/{}", "long-branch-name-".repeat(10)),
         ]);
-        git(&["tag", "0.2.3"]);
+        git(&[
+            "-c",
+            "user.name=Release Editor",
+            "tag",
+            "-a",
+            "0.2.3",
+            "-m",
+            "Release notes",
+        ]);
         git(&["tag", "0.2.26", "HEAD~1"]);
         click(
             cx,
@@ -1427,6 +1439,19 @@ mod tests {
                 .map(|r| r.name.as_str())
                 .collect();
             assert_eq!(tags, ["0.2.26", "0.2.3"]);
+            let details: Vec<_> = catalog
+                .references
+                .iter()
+                .filter_map(|r| r.tag.as_deref())
+                .map(|tag| (tag.author.as_str(), tag.subject.as_str()))
+                .collect();
+            assert_eq!(
+                details,
+                [
+                    ("Glim QA", "Initial schedule"),
+                    ("Release Editor", "Release notes")
+                ]
+            );
         });
         for group in [0usize, 1] {
             click(cx, ("git-reference-group", group).into());
@@ -1463,10 +1488,8 @@ mod tests {
         .unwrap();
         assert!(cx.update(|cx| diff.read(cx).is_file_collapsed("schedule.md")));
         let generation = cx.update(|cx| workspace.read(cx).changes.read(cx).generation);
-        cx.update(|cx| {
-            cx.background_executor()
-                .advance_clock(std::time::Duration::from_secs(61))
-        });
+        cx.update(|cx| cx.background_executor().clone())
+            .advance_clock(std::time::Duration::from_secs(61));
         cx.run_until_parked();
         assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).generation > generation));
         assert!(cx.update(|cx| diff.read(cx).is_file_collapsed("schedule.md")));

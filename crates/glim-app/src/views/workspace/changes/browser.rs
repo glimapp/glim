@@ -547,283 +547,321 @@ impl Changes {
         };
         let owner = cx.entity();
         let section = self.section;
-        let rows = uniform_list("git-browser-list", count, move |range, _, cx| {
-            if section == Section::History && range.end >= count {
-                let view = owner.read(cx);
-                if view.history_more && !view.browsing && view.browser_error.is_none() {
-                    let generation = view.browse_generation;
-                    let owner = owner.clone();
-                    cx.defer(move |cx| {
-                        owner.update(cx, |view, cx| view.append_history(generation, cx))
-                    });
-                }
-            }
+        let render_row = move |index: usize, owner: &Entity<Self>, cx: &App| {
             let view = owner.read(cx);
-            range
-                .map(|index| {
-                    let index = if section == Section::Branches {
-                        let group = usize::from(index > visible_refs[0]);
-                        let offset = if group == 0 {
-                            index
-                        } else {
-                            index - visible_refs[0] - 1
-                        };
-                        if offset == 0 {
-                            let owner = owner.clone();
-                            let (icon, label) = if group == 0 {
-                                (IconName::GitBranch, "Git branches")
-                            } else {
-                                (IconName::Tag, "Git tags")
-                            };
-                            let arrow = if view.collapsed_refs[group] {
-                                IconName::ChevronRight
-                            } else {
-                                IconName::ChevronDown
-                            };
-                            return Button::new(("git-reference-group", group))
-                                .ghost()
-                                .small()
-                                .w_full()
-                                .h(px(30.))
-                                .px(px(5.))
-                                .tooltip(tr(label))
-                                .accessibility_label(tr(label))
-                                .child(
-                                    h_flex()
-                                        .w_full()
-                                        .justify_start()
-                                        .gap_1()
-                                        .child(gpui_kit::component::Icon::new(icon).size(px(14.)))
-                                        .child(tr(label))
-                                        .child(gpui_kit::component::Icon::new(arrow).size(px(12.))),
-                                )
-                                .on_click(move |_, _, cx| {
-                                    owner.update(cx, |view, cx| {
-                                        view.collapsed_refs[group] = !view.collapsed_refs[group];
-                                        cx.notify();
-                                    })
-                                })
-                                .into_any_element();
-                        }
-                        view.reference_groups[group][offset - 1]
-                    } else {
-                        index
-                    };
-                    let (title, subtitle, selected) = match section {
-                        Section::History => {
-                            let commit = &view.commits[index];
-                            (
-                                commit.subject.clone(),
-                                format!(
-                                    "{} · {}",
-                                    &commit.id[..8.min(commit.id.len())],
-                                    commit.date.get(5..16).unwrap_or(&commit.date)
-                                ),
-                                view.selected_commit
-                                    .as_ref()
-                                    .is_some_and(|c| c.id == commit.id),
-                            )
-                        }
-                        Section::Branches => {
-                            let reference = &view.catalog.references[index];
-                            (
-                                format!(
-                                    "{}{}",
-                                    if reference.current { "● " } else { "" },
-                                    reference.name
-                                ),
-                                format!(
-                                    "{} · {} {}",
-                                    if reference.full.starts_with("refs/tags/") {
-                                        tr("Tag")
-                                    } else if reference.full.starts_with("refs/remotes/") {
-                                        tr("Remote branch")
-                                    } else {
-                                        tr("Local branch")
-                                    },
-                                    reference.upstream,
-                                    reference.tracking
-                                ),
-                                view.selected_reference == Some(index),
-                            )
-                        }
-                        Section::Remotes => {
-                            let remote = &view.catalog.remotes[index];
-                            (
-                                remote.name.clone(),
-                                remote.url.clone(),
-                                view.selected_reference == Some(index),
-                            )
-                        }
-                        Section::Stashes => {
-                            let stash = &view.catalog.stashes[index];
-                            (
-                                stash.subject.clone(),
-                                format!("{} · {}", stash.name, stash.id),
-                                view.selected_stash == Some(index),
-                            )
-                        }
-                        Section::Worktrees => {
-                            let tree = &view.catalog.worktrees[index];
-                            (
-                                tree.path.display().to_string(),
-                                format!(
-                                    "{} · {}{}{}",
-                                    if tree.branch.is_empty() {
-                                        tr("Detached HEAD")
-                                    } else {
-                                        tree.branch.clone()
-                                    },
-                                    &tree.head[..8.min(tree.head.len())],
-                                    if tree.locked {
-                                        format!(" · {}", tr("Locked"))
-                                    } else {
-                                        String::new()
-                                    },
-                                    if tree.prunable {
-                                        format!(" · {}", tr("Prunable"))
-                                    } else {
-                                        String::new()
-                                    }
-                                ),
-                                view.selected_reference == Some(index),
-                            )
-                        }
-                        _ => unreachable!(),
-                    };
+            let index = if section == Section::Branches {
+                let group = usize::from(index > visible_refs[0]);
+                let offset = if group == 0 {
+                    index
+                } else {
+                    index - visible_refs[0] - 1
+                };
+                if offset == 0 {
                     let owner = owner.clone();
-                    let menu_owner = owner.clone();
-                    let target = match section {
-                        Section::History => view.commits[index].id.as_str(),
-                        Section::Branches => view.catalog.references[index].full.as_str(),
-                        Section::Remotes => view.catalog.remotes[index].name.as_str(),
-                        Section::Stashes => view.catalog.stashes[index].id.as_str(),
-                        Section::Worktrees => &view.catalog.worktrees[index].path.to_string_lossy(),
-                        _ => unreachable!(),
+                    let (icon, label) = if group == 0 {
+                        (IconName::GitBranch, "Git branches")
+                    } else {
+                        (IconName::Tag, "Git tags")
                     };
-                    let source =
-                        ElementId::Name(format!("git-row-{}-{target}", section as usize).into());
-                    let row = view
-                        .feedback_button(source.clone(), Button::new(("git-browser-row", index)))
+                    let arrow = if view.collapsed_refs[group] {
+                        IconName::ChevronRight
+                    } else {
+                        IconName::ChevronDown
+                    };
+                    return Button::new(("git-reference-group", group))
                         .ghost()
+                        .small()
                         .w_full()
-                        .h(if section == Section::Branches {
-                            px(30.)
-                        } else {
-                            px(52.)
-                        })
-                        .justify_start()
-                        .selected(selected)
-                        .tooltip(if section == Section::History {
-                            let commit = &view.commits[index];
-                            format!(
-                                "{}\n{} · {}\n{}",
-                                title, commit.author, commit.id, commit.date
-                            )
-                        } else {
-                            format!("{title}\n{subtitle}")
-                        })
+                        .h(px(30.))
+                        .px(px(5.))
+                        .tooltip(tr(label))
+                        .accessibility_label(tr(label))
                         .child(
-                            v_flex()
+                            h_flex()
                                 .w_full()
-                                .min_w_0()
+                                .justify_start()
                                 .gap_1()
-                                .child(div().truncate().text_sm().child(title))
-                                .when(section == Section::History, |row| {
-                                    row.child(
-                                        h_flex()
-                                            .w_full()
-                                            .min_w_0()
-                                            .gap_1()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(
-                                                div()
-                                                    .min_w_0()
-                                                    .truncate()
-                                                    .child(view.commits[index].author.clone()),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex_shrink_0()
-                                                    .child(format!("· {subtitle}")),
-                                            ),
-                                    )
-                                })
-                                .when(
-                                    !matches!(section, Section::Branches | Section::History),
-                                    |row| {
-                                        row.child(
-                                            div()
-                                                .truncate()
-                                                .text_xs()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child(subtitle),
-                                        )
-                                    },
-                                ),
+                                .child(gpui_kit::component::Icon::new(icon).size(px(14.)))
+                                .child(tr(label))
+                                .child(gpui_kit::component::Icon::new(arrow).size(px(12.))),
                         )
                         .on_click(move |_, _, cx| {
                             owner.update(cx, |view, cx| {
-                                match section {
-                                    Section::History => {
-                                        let commit = view.commits[index].clone();
-                                        view.selected_commit = Some(commit.clone());
-                                        view.show_comparison(
-                                            match view.history_path.clone() {
-                                                Some(path) => {
-                                                    Comparison::FileHistory(commit.id, path)
-                                                }
-                                                None => Comparison::Commit(commit.id),
-                                            },
-                                            cx,
-                                        );
-                                    }
-                                    Section::Branches => {
-                                        view.selected_reference = Some(index);
-                                        let reference = view.catalog.references[index].clone();
-                                        view.show_comparison(
-                                            Comparison::Between("HEAD".into(), reference.full),
-                                            cx,
-                                        );
-                                    }
-                                    Section::Stashes => {
-                                        view.selected_stash = Some(index);
-                                        let stash = view.catalog.stashes[index].clone();
-                                        view.show_comparison(Comparison::Stash(stash.id), cx);
-                                    }
-                                    Section::Remotes | Section::Worktrees => {
-                                        view.selected_reference = Some(index);
-                                    }
-                                    _ => {}
-                                }
+                                view.collapsed_refs[group] = !view.collapsed_refs[group];
                                 cx.notify();
                             })
-                        });
-                    let root = view.active_root.clone();
-                    let actions = view.item_actions(section, index);
-                    div()
-                        .id(("git-context-row", index))
-                        .child(row)
-                        .context_menu(move |menu, _, cx| {
-                            menu_owner.read(cx).row_menu(
-                                menu,
-                                &source,
-                                &actions,
-                                &root,
-                                &menu_owner,
-                                cx,
+                        })
+                        .into_any_element();
+                }
+                view.reference_groups[group][offset - 1]
+            } else {
+                index
+            };
+            let tag = (section == Section::Branches)
+                .then(|| view.catalog.references[index].tag.as_deref())
+                .flatten();
+            let (title, subtitle, selected) = match section {
+                Section::History => {
+                    let commit = &view.commits[index];
+                    (
+                        commit.subject.clone(),
+                        format!(
+                            "{} · {}",
+                            &commit.id[..8.min(commit.id.len())],
+                            commit.date.get(5..16).unwrap_or(&commit.date)
+                        ),
+                        view.selected_commit
+                            .as_ref()
+                            .is_some_and(|c| c.id == commit.id),
+                    )
+                }
+                Section::Branches => {
+                    let reference = &view.catalog.references[index];
+                    (
+                        format!(
+                            "{}{}",
+                            if reference.current { "● " } else { "" },
+                            reference.name
+                        ),
+                        if let Some(tag) = tag {
+                            tag.date.get(5..16).unwrap_or(&tag.date).to_owned()
+                        } else {
+                            format!(
+                                "{} · {} {}",
+                                tr(if reference.full.starts_with("refs/remotes/") {
+                                    "Remote branch"
+                                } else {
+                                    "Local branch"
+                                }),
+                                reference.upstream,
+                                reference.tracking
+                            )
+                        },
+                        view.selected_reference == Some(index),
+                    )
+                }
+                Section::Remotes => {
+                    let remote = &view.catalog.remotes[index];
+                    (
+                        remote.name.clone(),
+                        remote.url.clone(),
+                        view.selected_reference == Some(index),
+                    )
+                }
+                Section::Stashes => {
+                    let stash = &view.catalog.stashes[index];
+                    (
+                        stash.subject.clone(),
+                        format!("{} · {}", stash.name, stash.id),
+                        view.selected_stash == Some(index),
+                    )
+                }
+                Section::Worktrees => {
+                    let tree = &view.catalog.worktrees[index];
+                    (
+                        tree.path.display().to_string(),
+                        format!(
+                            "{} · {}{}{}",
+                            if tree.branch.is_empty() {
+                                tr("Detached HEAD")
+                            } else {
+                                tree.branch.clone()
+                            },
+                            &tree.head[..8.min(tree.head.len())],
+                            if tree.locked {
+                                format!(" · {}", tr("Locked"))
+                            } else {
+                                String::new()
+                            },
+                            if tree.prunable {
+                                format!(" · {}", tr("Prunable"))
+                            } else {
+                                String::new()
+                            }
+                        ),
+                        view.selected_reference == Some(index),
+                    )
+                }
+                _ => unreachable!(),
+            };
+            let owner = owner.clone();
+            let menu_owner = owner.clone();
+            let target = match section {
+                Section::History => view.commits[index].id.as_str(),
+                Section::Branches => view.catalog.references[index].full.as_str(),
+                Section::Remotes => view.catalog.remotes[index].name.as_str(),
+                Section::Stashes => view.catalog.stashes[index].id.as_str(),
+                Section::Worktrees => &view.catalog.worktrees[index].path.to_string_lossy(),
+                _ => unreachable!(),
+            };
+            let source = ElementId::Name(format!("git-row-{}-{target}", section as usize).into());
+            let author = if section == Section::History {
+                Some(view.commits[index].author.as_str())
+            } else {
+                tag.map(|tag| tag.author.as_str())
+            };
+            let description = if let Some(tag) = tag {
+                [title.as_str(), &tag.subject, &tag.author, &tag.date]
+                    .into_iter()
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            } else if section == Section::History {
+                let commit = &view.commits[index];
+                format!(
+                    "{}\n{} · {}\n{}",
+                    title, commit.author, commit.id, commit.date
+                )
+            } else {
+                format!("{title}\n{subtitle}")
+            };
+            let row = view
+                .feedback_button(source.clone(), Button::new(("git-browser-row", index)))
+                .ghost()
+                .w_full()
+                .h(if section == Section::Branches && tag.is_none() {
+                    px(30.)
+                } else {
+                    px(52.)
+                })
+                .justify_start()
+                .selected(selected)
+                .accessibility_label(description.clone())
+                .tooltip(description)
+                .child(
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .gap_1()
+                        .child(div().truncate().text_sm().child(
+                            if let Some(tag) = tag.filter(|t| !t.subject.is_empty()) {
+                                format!("{title}  {}", tag.subject)
+                            } else {
+                                title
+                            },
+                        ))
+                        .when_some(author, |row, author| {
+                            row.child(
+                                h_flex()
+                                    .w_full()
+                                    .min_w_0()
+                                    .gap_1()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(div().min_w_0().truncate().child(author.to_owned()))
+                                    .when(!subtitle.is_empty(), |line| {
+                                        line.child(div().flex_shrink_0().child(
+                                            if author.is_empty() {
+                                                subtitle.clone()
+                                            } else {
+                                                format!("· {subtitle}")
+                                            },
+                                        ))
+                                    }),
                             )
                         })
-                        .into_any_element()
+                        .when(
+                            !matches!(section, Section::Branches | Section::History),
+                            |row| {
+                                row.child(
+                                    div()
+                                        .truncate()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(subtitle),
+                                )
+                            },
+                        ),
+                )
+                .on_click(move |_, _, cx| {
+                    owner.update(cx, |view, cx| {
+                        match section {
+                            Section::History => {
+                                let commit = view.commits[index].clone();
+                                view.selected_commit = Some(commit.clone());
+                                view.show_comparison(
+                                    match view.history_path.clone() {
+                                        Some(path) => Comparison::FileHistory(commit.id, path),
+                                        None => Comparison::Commit(commit.id),
+                                    },
+                                    cx,
+                                );
+                            }
+                            Section::Branches => {
+                                view.selected_reference = Some(index);
+                                let reference = view.catalog.references[index].clone();
+                                view.show_comparison(
+                                    Comparison::Between("HEAD".into(), reference.full),
+                                    cx,
+                                );
+                            }
+                            Section::Stashes => {
+                                view.selected_stash = Some(index);
+                                let stash = view.catalog.stashes[index].clone();
+                                view.show_comparison(Comparison::Stash(stash.id), cx);
+                            }
+                            Section::Remotes | Section::Worktrees => {
+                                view.selected_reference = Some(index);
+                            }
+                            _ => {}
+                        }
+                        cx.notify();
+                    })
+                });
+            let root = view.active_root.clone();
+            let actions = view.item_actions(section, index);
+            div()
+                .id(("git-context-row", index))
+                .child(row)
+                .context_menu(move |menu, _, cx| {
+                    menu_owner
+                        .read(cx)
+                        .row_menu(menu, &source, &actions, &root, &menu_owner, cx)
                 })
-                .collect()
-        })
-        .when(section == Section::History, |list| {
-            list.track_scroll(&self.history_scroll)
-        })
-        .min_h_0()
-        .w_full();
+                .into_any_element()
+        };
+        let rows = if section == Section::Branches {
+            // The two group headers and branch names are compact. Tag details
+            // need taller rows, so measure visible items individually.
+            let mut start = 1;
+            for (previous, &visible) in self.visible_group_sizes.iter_mut().zip(&visible_refs) {
+                if *previous != visible {
+                    let common = (*previous).min(visible);
+                    self.reference_list
+                        .splice(start + common..start + *previous, visible - common);
+                    *previous = visible;
+                }
+                start += visible + 1;
+            }
+            list(self.reference_list.clone(), move |index, _, cx| {
+                render_row(index, &owner, cx)
+            })
+            .w_full()
+            .flex_1()
+            .min_h_0()
+            .into_any_element()
+        } else {
+            uniform_list("git-browser-list", count, move |range, _, cx| {
+                if section == Section::History && range.end >= count {
+                    let view = owner.read(cx);
+                    if view.history_more && !view.browsing && view.browser_error.is_none() {
+                        let generation = view.browse_generation;
+                        let owner = owner.clone();
+                        cx.defer(move |cx| {
+                            owner.update(cx, |view, cx| view.append_history(generation, cx))
+                        });
+                    }
+                }
+                range.map(|index| render_row(index, &owner, cx)).collect()
+            })
+            .when(section == Section::History, |list| {
+                list.track_scroll(&self.history_scroll)
+            })
+            .w_full()
+            .flex_1()
+            .min_h_0()
+            .into_any_element()
+        };
         let mut panel = v_flex()
             .w_full()
             .min_h_0()
@@ -897,7 +935,7 @@ impl Changes {
                     }),
             );
         }
-        panel = panel.flex_1().child(rows.flex_1());
+        panel = panel.flex_1().child(rows);
         panel.into_any_element()
     }
 
