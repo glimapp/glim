@@ -120,38 +120,77 @@ impl Changes {
     pub(super) fn busy(&self, cx: &App) -> bool {
         !git::enabled()
             || !self.available
-            || self.operation_busy
             || self.operation_task.is_some()
-            || crate::app::workspace_editors_locked(cx)
-            || crate::app::git_operation::busy(cx)
             || crate::app::updates::busy(cx)
     }
 
-    fn begin(&mut self, root: PathBuf, operation: Operation, cx: &mut Context<Self>) {
-        self.operation_busy = true;
+    pub(super) fn feedback_key(
+        &self,
+        source: ElementId,
+    ) -> Option<(PathBuf, Option<String>, ElementId)> {
+        Some((
+            self.active_root.clone()?,
+            self.remote.as_ref().map(|s| s.connection.id.clone()),
+            source,
+        ))
+    }
+    pub(super) fn feedback_button(&self, source: ElementId, button: Button) -> Button {
+        if self.manual_refresh.as_ref() == Some(&source) && self.loading {
+            return button.loading(true);
+        }
+        match self
+            .feedback_key(source)
+            .and_then(|key| self.feedback.get(&key))
+        {
+            Some(None) => button.loading(true),
+            Some(Some(_)) => button.icon(IconName::Check),
+            None => button,
+        }
+    }
+    pub(super) fn operation_blocked(&self, operation: &Operation, cx: &App) -> bool {
+        self.busy(cx)
+            || self.active_root.as_ref().is_none_or(|root| {
+                crate::app::git_operation::blocked(root, self.remote.as_ref(), operation, cx)
+            })
+    }
+
+    fn begin(
+        &mut self,
+        root: PathBuf,
+        source: ElementId,
+        operation: Operation,
+        cx: &mut Context<Self>,
+    ) {
         self.operation_error = None;
-        self.operation_label = Some(tr(operation.label()).into());
-        self.notice_task = None;
+        let key = (
+            root.clone(),
+            self.remote.as_ref().map(|s| s.connection.id.clone()),
+            source.clone(),
+        );
         let owner = cx.entity().downgrade();
         if let Err(error) = crate::app::git_operation::start(
             root,
             self.remote.clone(),
             operation.clone(),
+            source,
             owner,
             cx,
         ) {
-            self.operation_finished(&operation, Err(error), cx);
+            self.operation_error = Some(format!("{}\n{error:#}", tr(operation.label())).into());
+        } else {
+            self.feedback.insert(key, None);
         }
         cx.notify();
     }
 
     pub(super) fn request(
         &mut self,
+        source: ElementId,
         operation: Operation,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.busy(cx) {
+        if self.operation_blocked(&operation, cx) {
             return;
         }
         let root = match &operation {
@@ -176,50 +215,73 @@ impl Changes {
                 let _ = view.update_in(cx, |view, _, cx| {
                     view.operation_task = None;
                     if accepted && !view.busy(cx) && view.active_root.as_ref() == Some(&root) {
-                        view.begin(root, operation, cx);
+                        view.begin(root, source, operation, cx);
                     }
                     cx.notify();
                 });
             }));
         } else {
-            self.begin(root, operation, cx);
+            self.begin(root, source, operation, cx);
         }
     }
 
     pub(crate) fn operation_finished(
         &mut self,
+        root: PathBuf,
+        connection: Option<String>,
+        source: ElementId,
         operation: &Operation,
         result: anyhow::Result<()>,
         cx: &mut Context<Self>,
     ) {
-        self.operation_busy = false;
+        let active = self.active_root.as_ref() == Some(&root)
+            && connection.as_deref() == self.remote.as_ref().map(|s| s.connection.id.as_str());
+        let key = (root.clone(), connection, source);
         match result {
             Ok(()) => {
                 if let Operation::Init(path) | Operation::Clone { path, .. } = operation {
                     cx.emit(OpenFile(path.clone()));
                 }
                 if let Operation::Commit { message, .. } = operation {
-                    self.clear_message = Some(message.clone());
-                    self.amend = false;
+                    if active && self.message_root.as_ref() == Some(&root) {
+                        self.clear_message = Some(message.clone());
+                        self.amend = false;
+                    } else if let Some((draft, amend)) = self.drafts.get_mut(&root)
+                        && draft == message
+                    {
+                        draft.clear();
+                        *amend = false;
+                    }
                 }
-                self.operation_label =
-                    Some(format!("{} · {}", tr(operation.label()), tr("Done")).into());
-                self.notice_task = Some(cx.spawn(async move |view, cx| {
-                    cx.background_executor()
-                        .timer(std::time::Duration::from_secs(3))
-                        .await;
-                    let _ = view.update(cx, |view, cx| {
-                        view.operation_label = None;
-                        cx.notify();
-                    });
-                }));
+                self.show_completed(key, cx);
             }
             Err(error) => {
-                self.operation_label = None;
+                self.feedback.remove(&key);
                 self.operation_error = Some(format!("{}\n{error:#}", tr(operation.label())).into());
             }
         }
-        self.refresh(cx);
+        if active && self.monitoring {
+            self.refresh(cx);
+        }
+        cx.notify();
+    }
+
+    pub(super) fn show_completed(
+        &mut self,
+        key: (PathBuf, Option<String>, ElementId),
+        cx: &mut Context<Self>,
+    ) {
+        let finished = key.clone();
+        let timer = cx.spawn(async move |view, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1200))
+                .await;
+            let _ = view.update(cx, |view, cx| {
+                view.feedback.remove(&finished);
+                cx.notify();
+            });
+        });
+        self.feedback.insert(key, Some(timer));
     }
 
     pub(super) fn operation_button(
@@ -229,7 +291,8 @@ impl Changes {
         disabled: bool,
         cx: &mut Context<Self>,
     ) -> Button {
-        let button = Button::new(id).small();
+        let id = id.into();
+        let button = Button::new(id.clone()).small();
         let button = match &operation {
             Operation::Commit { .. } => icon_action(button, IconName::Send, "Commit"),
             Operation::Stage(Some(change)) if change.status == 'U' => {
@@ -258,11 +321,11 @@ impl Changes {
             Operation::Abort(_) => icon_action(button, IconName::X, operation.label()),
             _ => button.label(tr(operation.label())),
         };
-        button
-            .disabled(disabled || self.busy(cx) || self.active_root.is_none())
-            .on_click(
-                cx.listener(move |view, _, window, cx| view.request(operation.clone(), window, cx)),
-            )
+        self.feedback_button(id.clone(), button)
+            .disabled(disabled || self.operation_blocked(&operation, cx))
+            .on_click(cx.listener(move |view, _, window, cx| {
+                view.request(id.clone(), operation.clone(), window, cx)
+            }))
     }
 
     pub(super) fn branch_picker(
@@ -274,35 +337,43 @@ impl Changes {
         let owner = cx.entity().downgrade();
         let root = self.active_root.clone();
         let current = branch.to_owned();
-        Button::new("git-branch-picker")
-            .small()
-            .ghost()
-            .icon(IconName::GitBranch)
-            .label(current.clone())
-            .tooltip(tr("Switch branch"))
-            .accessibility_label(format!("{} · {current}", tr("Switch branch")))
-            .disabled(self.busy(cx) || branches.is_empty())
-            .dropdown_menu(move |mut menu, _, _| {
-                for name in branches.iter() {
-                    let owner = owner.clone();
-                    let root = root.clone();
-                    let op = Operation::Switch(format!("refs/heads/{name}"));
-                    menu = menu.item(
-                        PopupMenuItem::new(name.clone())
-                            .checked(*name == current)
-                            .disabled(*name == current)
-                            .on_click(move |_, window, cx| {
-                                let _ = owner.update(cx, |view, cx| {
-                                    if view.active_root == root {
-                                        view.request(op.clone(), window, cx);
-                                    }
-                                });
-                            }),
-                    );
-                }
-                menu.scrollable(true).max_h(px(320.))
-            })
-            .into_any_element()
+        self.feedback_button(
+            "git-branch-picker".into(),
+            Button::new("git-branch-picker")
+                .small()
+                .ghost()
+                .icon(IconName::GitBranch)
+                .label(current.clone()),
+        )
+        .tooltip(tr("Switch branch"))
+        .accessibility_label(format!("{} · {current}", tr("Switch branch")))
+        .disabled(self.busy(cx) || branches.is_empty())
+        .dropdown_menu(move |mut menu, _, _| {
+            for name in branches.iter() {
+                let owner = owner.clone();
+                let root = root.clone();
+                let op = Operation::Switch(format!("refs/heads/{name}"));
+                menu = menu.item(
+                    PopupMenuItem::new(name.clone())
+                        .checked(*name == current)
+                        .disabled(*name == current)
+                        .on_click(move |_, window, cx| {
+                            let _ = owner.update(cx, |view, cx| {
+                                if view.active_root == root {
+                                    view.request(
+                                        "git-branch-picker".into(),
+                                        op.clone(),
+                                        window,
+                                        cx,
+                                    );
+                                }
+                            });
+                        }),
+                );
+            }
+            menu.scrollable(true).max_h(px(320.))
+        })
+        .into_any_element()
     }
 
     pub(super) fn load_identity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -402,20 +473,28 @@ impl Changes {
         }
         panel
             .child(
-                icon_action(Button::new("git-save-identity"), IconName::Check, "Save")
-                    .disabled(!ready)
-                    .on_click(cx.listener(|view, _, window, cx| {
-                        let [name, email] = view
-                            .identity
-                            .each_ref()
-                            .map(|input| input.read(cx).value().trim().to_owned());
-                        if name.is_empty() || email.is_empty() {
-                            view.operation_error = Some(tr("Complete the required fields").into());
-                            cx.notify();
-                            return;
-                        }
-                        view.request(Operation::Identity { name, email }, window, cx);
-                    })),
+                self.feedback_button(
+                    "git-save-identity".into(),
+                    icon_action(Button::new("git-save-identity"), IconName::Check, "Save"),
+                )
+                .disabled(!ready)
+                .on_click(cx.listener(|view, _, window, cx| {
+                    let [name, email] = view
+                        .identity
+                        .each_ref()
+                        .map(|input| input.read(cx).value().trim().to_owned());
+                    if name.is_empty() || email.is_empty() {
+                        view.operation_error = Some(tr("Complete the required fields").into());
+                        cx.notify();
+                        return;
+                    }
+                    view.request(
+                        "git-save-identity".into(),
+                        Operation::Identity { name, email },
+                        window,
+                        cx,
+                    );
+                })),
             )
             .into_any_element()
     }
@@ -460,16 +539,24 @@ impl Changes {
             Form::Worktree => IconName::FolderPlus,
             Form::Stash => IconName::Archive,
         };
-        icon_action(Button::new(id), icon, form.title())
+        self.feedback_button(id.into(), icon_action(Button::new(id), icon, form.title()))
             .disabled(
                 self.busy(cx)
                     || self.active_root.is_none()
                     || (self.browsing && form.revision_field(1)),
             )
-            .on_click(cx.listener(move |view, _, window, cx| view.form(form.clone(), window, cx)))
+            .on_click(cx.listener(move |view, _, window, cx| {
+                view.form(id.into(), form.clone(), window, cx)
+            }))
     }
 
-    pub(super) fn form(&mut self, form: Form, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn form(
+        &mut self,
+        source: ElementId,
+        form: Form,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.busy(cx) {
             return;
         }
@@ -525,6 +612,7 @@ impl Changes {
             .filter(|_| !form.revision_field(0))
             .map(|(_, input)| input.read(cx).focus_handle(cx));
         window.open_dialog(cx, move |dialog, window, cx| {
+            let source = source.clone();
             let fields = fields.clone();
             let owner = owner.clone();
             let form = form.clone();
@@ -689,7 +777,7 @@ impl Changes {
                                 return;
                             }
                         };
-                        view.request(operation, window, cx);
+                        view.request(source.clone(), operation, window, cx);
                     });
                     true
                 })
@@ -745,6 +833,7 @@ impl Changes {
             .and_then(|file| self.diff.read(cx).resolved_text(file.path()));
         if let Some(text) = text {
             self.request(
+                "git-save-resolution".into(),
                 Operation::Resolve {
                     path: change.path,
                     original,
@@ -770,6 +859,7 @@ impl Changes {
             return;
         }
         self.request(
+            "git-stage-blocks".into(),
             Operation::Hunks {
                 change,
                 patch,
