@@ -64,6 +64,15 @@ pub(super) const READERS: &[FormatReader] = &[
         accepts: |p| sqlite::supports(p) || sqlite::has_header(p),
         open: |p, _| Ok(Content::Sqlite(p.to_path_buf())),
     },
+    #[cfg(windows)]
+    FormatReader {
+        id: "png",
+        accepts: |p| {
+            p.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+        },
+        open: |p, cancel| media::read_image_cancellable(p, cancel).map(Content::Image),
+    },
     FormatReader {
         id: "native",
         accepts: preview::can_open,
@@ -77,6 +86,6 @@ pub(super) const READERS: &[FormatReader] = &[
     FormatReader {
         id: "image",
         accepts: media::supports,
-        open: |p, _| media::read_image(p).map(Content::Image),
+        open: |p, cancel| media::read_image_cancellable(p, cancel).map(Content::Image),
     },
 ];

@@ -35,9 +35,6 @@ pub(crate) fn png_from_file_cancellable(
     thumbnail_png_cancellable(path, MAX_EDGE, cancel)
 }
 
-pub(crate) fn thumbnail_png(path: &Path, max_edge: u32) -> Result<Vec<u8>> {
-    thumbnail_png_cancellable(path, max_edge, &crate::work::Cancellation::default())
-}
 pub(crate) fn thumbnail_png_cancellable(
     path: &Path,
     max_edge: u32,

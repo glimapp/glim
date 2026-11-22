@@ -19,7 +19,7 @@ pub(super) fn write(
     if let Some(size) = svg_preview::dimensions(path, cancel).ok().flatten() {
         return svg(path, output, size, max_edge, cancel);
     }
-    let absolute = std::path::absolute(path)?;
+    let absolute = storage_file_path(path)?;
     let file = StorageFile::GetFileFromPathAsync(&HSTRING::from(absolute.as_os_str()))?.join()?;
     let stream = file.OpenAsync(FileAccessMode::Read)?.join()?;
     let decoder = BitmapDecoder::CreateAsync(&stream)?.join()?;
@@ -53,6 +53,34 @@ pub(super) fn write(
         image::ImageFormat::Png,
     )?;
     Ok(())
+}
+
+// StorageFile expects a drive or UNC path. Glim retains the verbatim path
+// for filesystem I/O, including paths returned by std::fs::canonicalize.
+fn storage_file_path(path: &Path) -> std::io::Result<std::path::PathBuf> {
+    use std::path::{Component, PathBuf, Prefix};
+    let absolute = std::path::absolute(path)?;
+    let mut parts = absolute.components();
+    let Some(Component::Prefix(prefix)) = parts.next() else {
+        return Ok(absolute);
+    };
+    let mut root = match prefix.kind() {
+        Prefix::VerbatimDisk(drive) => PathBuf::from(format!("{}:\\", char::from(drive))),
+        Prefix::VerbatimUNC(server, share) => {
+            let mut root = std::ffi::OsString::from(r"\\");
+            root.push(server);
+            root.push(r"\");
+            root.push(share);
+            PathBuf::from(root)
+        }
+        _ => return Ok(absolute),
+    };
+    for part in parts {
+        if let Component::Normal(name) = part {
+            root.push(name);
+        }
+    }
+    Ok(root)
 }
 
 fn svg(

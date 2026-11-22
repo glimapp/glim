@@ -22,12 +22,19 @@ pub fn supports(path: &Path) -> bool {
     glim_core::formats::FormatSet::Image.matches(path)
 }
 pub fn read_image(path: &Path) -> Result<ImageDocument> {
+    read_image_cancellable(path, &crate::work::Cancellation::default())
+}
+pub(crate) fn read_image_cancellable(
+    path: &Path,
+    cancel: &crate::work::Cancellation,
+) -> Result<ImageDocument> {
+    cancel.check()?;
     if path
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("gif"))
     {
         let stamp = std::fs::metadata(path)?;
-        GifPlayback::from_file(path.to_path_buf())?;
+        GifPlayback::from_input_cancellable(GifInput::File(path.to_path_buf()), cancel.clone())?;
         return Ok(ImageDocument {
             path: std::path::absolute(path)?,
             png: Vec::new(),
@@ -37,7 +44,11 @@ pub fn read_image(path: &Path) -> Result<ImageDocument> {
         });
     }
     let stamp = std::fs::metadata(path)?;
-    let png = crate::inline_images::thumbnail_png(path, reader_limits::IMAGE_PREVIEW_EDGE)?;
+    let png = crate::inline_images::thumbnail_png_cancellable(
+        path,
+        reader_limits::IMAGE_PREVIEW_EDGE,
+        cancel,
+    )?;
     Ok(ImageDocument {
         path: std::path::absolute(path)?,
         png,
