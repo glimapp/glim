@@ -46,7 +46,12 @@ fn main() {
                 build_updater();
             }
         }
-        Ok("windows") => {}
+        Ok("windows") => {
+            if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+                // Restoring reader tabs and rendering their first frame share the UI stack.
+                println!("cargo:rustc-link-arg-bin=glim=/STACK:16777216");
+            }
+        }
         _ => panic!("Unsupported Glim desktop target"),
     }
 }
