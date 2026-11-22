@@ -846,6 +846,7 @@
   "Apply stash": "应用 Stash",
   "Base revision": "基础版本",
   "Branch actions": "分支操作",
+  "From branch": "来源分支",
   "Branch name": "分支名称",
   "Branches & tags": "分支与标签",
   "Cherry-pick": "拣选提交",

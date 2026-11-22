@@ -199,7 +199,13 @@ pub fn changes(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> 
     let branches = query::strings(
         root,
         remote,
-        &["for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads"],
+        &[
+            "for-each-ref",
+            "--sort=refname",
+            "--sort=-committerdate",
+            "--format=%(refname:lstrip=2)",
+            "refs/heads",
+        ],
         cancel,
     )?;
     Ok(Repository {

@@ -69,7 +69,7 @@ pub(super) fn operation_icon(op: &Operation) -> IconName {
 pub(super) enum Form {
     Branch,
     Rename(String),
-    Tag(String),
+    Tag,
     Remote,
     Worktree,
     Stash,
@@ -80,30 +80,37 @@ impl Form {
         match self {
             Self::Branch => "Create branch",
             Self::Rename(_) => "Rename branch",
-            Self::Tag(_) => "Create tag",
+            Self::Tag => "Create tag",
             Self::Remote => "Add remote",
             Self::Worktree => "Add worktree",
             Self::Stash => "Save stash",
             Self::Compare => "Compare revisions",
         }
     }
+    fn revision_field(&self, index: usize) -> bool {
+        matches!(self, Self::Compare)
+            || (index == 1 && matches!(self, Self::Branch | Self::Tag | Self::Worktree))
+    }
     fn fields(&self) -> Vec<(&'static str, String)> {
         match self {
-            Self::Branch => vec![("Branch name", String::new())],
+            Self::Branch => vec![
+                ("Branch name", String::new()),
+                ("From branch", String::new()),
+            ],
             Self::Rename(old) => vec![("Branch name", old.clone())],
-            Self::Tag(target) => vec![("Tag name", String::new()), ("Revision", target.clone())],
+            Self::Tag => vec![("Tag name", String::new()), ("Revision", String::new())],
             Self::Remote => vec![
                 ("Remote name", String::new()),
                 ("Remote URL", String::new()),
             ],
             Self::Worktree => vec![
                 ("Absolute worktree path", String::new()),
-                ("Revision", "HEAD".into()),
+                ("Revision", String::new()),
             ],
             Self::Stash => vec![("Stash message", String::new())],
             Self::Compare => vec![
-                ("Base revision", "HEAD~1".into()),
-                ("Target revision", "HEAD".into()),
+                ("Base revision", String::new()),
+                ("Target revision", String::new()),
             ],
         }
     }
@@ -447,14 +454,18 @@ impl Changes {
     ) -> Button {
         let icon = match &form {
             Form::Compare => IconName::GitCompareArrows,
-            Form::Tag(_) => IconName::Tag,
+            Form::Tag => IconName::Tag,
             Form::Branch | Form::Rename(_) => IconName::GitBranch,
             Form::Remote => IconName::Globe,
             Form::Worktree => IconName::FolderPlus,
             Form::Stash => IconName::Archive,
         };
         icon_action(Button::new(id), icon, form.title())
-            .disabled(self.busy(cx) || self.active_root.is_none())
+            .disabled(
+                self.busy(cx)
+                    || self.active_root.is_none()
+                    || (self.browsing && form.revision_field(1)),
+            )
             .on_click(cx.listener(move |view, _, window, cx| view.form(form.clone(), window, cx)))
     }
 
@@ -469,7 +480,14 @@ impl Changes {
             .into_iter()
             .enumerate()
             .map(|(index, (label, value))| {
-                let value = saved.get(index).cloned().unwrap_or(value);
+                let value = if form.revision_field(index) {
+                    self.catalog
+                        .default_branch
+                        .clone()
+                        .unwrap_or_else(|| "HEAD".into())
+                } else {
+                    saved.get(index).cloned().unwrap_or(value)
+                };
                 let input = cx.new(|cx| {
                     let mut state = InputState::new(window, cx);
                     state.set_value(value, window, cx);
@@ -481,22 +499,30 @@ impl Changes {
         let owner = cx.entity().downgrade();
         let root = self.active_root.clone();
         let validation = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
-        let mut revisions = vec![("HEAD".to_string(), "HEAD".to_string())];
+        let branch_only = matches!(form, Form::Branch);
+        let mut revisions = Vec::new();
+        if !branch_only {
+            revisions.push(("HEAD".to_string(), "HEAD".to_string()));
+        }
         revisions.extend(
             self.catalog
                 .references
                 .iter()
+                .filter(|r| !branch_only || !r.full.starts_with("refs/tags/"))
                 .map(|r| (r.name.clone(), r.full.clone())),
         );
-        revisions.extend(self.commits.iter().map(|c| {
-            (
-                format!("{}  {}", &c.id[..8.min(c.id.len())], c.subject),
-                c.id.clone(),
-            )
-        }));
+        if !branch_only {
+            revisions.extend(self.commits.iter().map(|c| {
+                (
+                    format!("{}  {}", &c.id[..8.min(c.id.len())], c.subject),
+                    c.id.clone(),
+                )
+            }));
+        }
         let revisions = Arc::new(revisions);
         let focus = fields
             .first()
+            .filter(|_| !form.revision_field(0))
             .map(|(_, input)| input.read(cx).focus_handle(cx));
         window.open_dialog(cx, move |dialog, window, cx| {
             let fields = fields.clone();
@@ -507,57 +533,69 @@ impl Changes {
             let validation = validation.clone();
             let mut dialog = dialog.title(tr(form.title())).width(px(480.));
             for (index, (label, input)) in fields.iter().enumerate() {
+                if form.revision_field(index) {
+                    let current = input.read(cx).value().to_string();
+                    let display = revisions
+                        .iter()
+                        .find(|(_, value)| value == &current)
+                        .map_or_else(|| current.clone(), |(name, _)| name.clone());
+                    let revisions = revisions.clone();
+                    let input = input.clone();
+                    dialog = dialog.child(
+                        v_flex()
+                            .gap_1()
+                            .child(div().text_sm().child(tr(label)))
+                            .child(
+                                Button::new(("revision-picker", index))
+                                    .w_full()
+                                    .justify_start()
+                                    .accessibility_label(format!("{} · {display}", tr(label)))
+                                    .child(
+                                        h_flex()
+                                            .w_full()
+                                            .min_w_0()
+                                            .gap_2()
+                                            .child(
+                                                div().min_w_0().flex_1().truncate().child(display),
+                                            )
+                                            .child(
+                                                gpui_kit::component::Icon::new(
+                                                    IconName::ChevronDown,
+                                                )
+                                                .size(px(14.)),
+                                            ),
+                                    )
+                                    .dropdown_menu(move |mut menu, _, _| {
+                                        for (name, value) in revisions.iter() {
+                                            let selected = value == &current;
+                                            let value = value.clone();
+                                            let input = input.clone();
+                                            menu = menu.item(
+                                                PopupMenuItem::new(name.clone())
+                                                    .checked(selected)
+                                                    .on_click(move |_, window, cx| {
+                                                        input.update(cx, |input, cx| {
+                                                            input.set_value(
+                                                                value.clone(),
+                                                                window,
+                                                                cx,
+                                                            )
+                                                        });
+                                                        window.refresh();
+                                                    }),
+                                            );
+                                        }
+                                        menu.scrollable(true).max_h(px(320.))
+                                    }),
+                            ),
+                    );
+                    continue;
+                }
                 dialog = dialog.child(
                     v_flex()
                         .gap_1()
                         .child(div().text_sm().child(tr(label)))
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .child(
-                                    div().flex_1().min_w_0().child(
-                                        crate::views::form_input(input, window, cx)
-                                            .aria_label(tr(label)),
-                                    ),
-                                )
-                                .when(
-                                    matches!(
-                                        *label,
-                                        "Revision" | "Base revision" | "Target revision"
-                                    ),
-                                    |row| {
-                                        let revisions = revisions.clone();
-                                        let input = input.clone();
-                                        row.child(
-                                            icon_action(
-                                                Button::new(("revision-picker", index)),
-                                                IconName::ChevronDown,
-                                                label,
-                                            )
-                                            .dropdown_menu(move |mut menu, _, _| {
-                                                for (label, revision) in revisions.iter() {
-                                                    let revision = revision.clone();
-                                                    let input = input.clone();
-                                                    menu = menu.item(
-                                                        PopupMenuItem::new(label.clone()).on_click(
-                                                            move |_, window, cx| {
-                                                                input.update(cx, |field, cx| {
-                                                                    field.set_value(
-                                                                        revision.clone(),
-                                                                        window,
-                                                                        cx,
-                                                                    )
-                                                                });
-                                                            },
-                                                        ),
-                                                    );
-                                                }
-                                                menu.scrollable(true).max_h(px(320.))
-                                            }),
-                                        )
-                                    },
-                                ),
-                        ),
+                        .child(crate::views::form_input(input, window, cx).aria_label(tr(label))),
                 );
             }
             if matches!(form, Form::Worktree) {
@@ -627,11 +665,14 @@ impl Changes {
                         }
                         view.form_values.insert(key.clone(), values.clone());
                         let operation = match &form {
-                            Form::Branch => Operation::CreateBranch(values[0].clone()),
+                            Form::Branch => Operation::CreateBranch {
+                                name: values[0].clone(),
+                                from: values[1].clone(),
+                            },
                             Form::Rename(old) => {
                                 Operation::RenameBranch(old.clone(), values[0].clone())
                             }
-                            Form::Tag(_) => Operation::Tag(values[0].clone(), values[1].clone()),
+                            Form::Tag => Operation::Tag(values[0].clone(), values[1].clone()),
                             Form::Remote => {
                                 Operation::AddRemote(values[0].clone(), values[1].clone())
                             }

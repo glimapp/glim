@@ -1233,6 +1233,8 @@ mod tests {
             ("git-section", browser::Section::Branches as usize).into(),
         );
         git(&["branch", "ui-switch-test"]);
+        git(&["tag", "0.2.3"]);
+        git(&["tag", "0.2.26"]);
         click(
             cx,
             ("git-section", browser::Section::Changes as usize).into(),
@@ -1264,13 +1266,39 @@ mod tests {
             cx,
             ("git-section", browser::Section::Branches as usize).into(),
         );
+        cx.update(|cx| {
+            let catalog = &workspace.read(cx).changes.read(cx).catalog;
+            assert_eq!(catalog.default_branch.as_deref(), Some("refs/heads/main"));
+            let tags: Vec<_> = catalog
+                .references
+                .iter()
+                .filter(|r| r.full.starts_with("refs/tags/"))
+                .map(|r| r.name.as_str())
+                .collect();
+            assert_eq!(tags, ["0.2.26", "0.2.3"]);
+        });
         for group in [0usize, 1] {
             click(cx, ("git-reference-group", group).into());
             assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).collapsed_refs[group]));
             click(cx, ("git-reference-group", group).into());
         }
-        for (form, field) in [("git-new-tag", 1usize), ("git-compare-refs", 0)] {
+        for (form, field) in [
+            ("git-new-tag", 1usize),
+            ("git-new-branch", 1),
+            ("git-compare-refs", 0),
+            ("git-compare-refs", 1),
+        ] {
             click(cx, form.into());
+            cx.update_window(handle, |_, w, cx| {
+                w.render_frame(cx);
+                assert!(
+                    w.find(("revision-picker", field))
+                        .label()
+                        .unwrap()
+                        .ends_with(" · main")
+                );
+            })
+            .unwrap();
             click(cx, ("revision-picker", field).into());
             cx.update_window(handle, |_, w, cx| {
                 w.render_frame(cx);
@@ -1312,6 +1340,26 @@ mod tests {
             cx.update(|cx| workspace.read(cx).changes.read(cx).commits.len()),
             2
         );
+        click(cx, "git-compare".into());
+        for field in [0usize, 1] {
+            cx.update_window(handle, |_, w, cx| {
+                w.render_frame(cx);
+                assert!(
+                    w.find(("revision-picker", field))
+                        .label()
+                        .unwrap()
+                        .ends_with(" · main")
+                );
+            })
+            .unwrap();
+            click(cx, ("revision-picker", field).into());
+            cx.update_window(handle, |_, win, cx| {
+                win.render_frame(cx);
+                win.within("popup-menu").click(1usize, cx);
+            })
+            .unwrap();
+        }
+        click(cx, "git-form-cancel".into());
         click(cx, ("git-browser-row", 1usize).into());
         assert_eq!(
             cx.update(|cx| workspace

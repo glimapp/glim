@@ -465,7 +465,7 @@ impl Changes {
                 .flex_wrap()
                 .child(self.subsection_button(Section::Remotes, IconName::Globe, cx))
                 .child(self.form_button("git-new-branch", Form::Branch, cx))
-                .child(self.form_button("git-new-tag", Form::Tag("HEAD".into()), cx))
+                .child(self.form_button("git-new-tag", Form::Tag, cx))
                 .child(self.form_button("git-compare-refs", Form::Compare, cx))
                 .into_any_element(),
             Section::Remotes => h_flex()
@@ -524,22 +524,29 @@ impl Changes {
                             } else {
                                 IconName::ChevronDown
                             };
-                            return super::controls::icon_action(
-                                Button::new(("git-reference-group", group)),
-                                icon,
-                                label,
-                            )
-                            .w_full()
-                            .h(px(30.))
-                            .justify_start()
-                            .child(gpui_kit::component::Icon::new(arrow).size(px(12.)))
-                            .on_click(move |_, _, cx| {
-                                owner.update(cx, |view, cx| {
-                                    view.collapsed_refs[group] = !view.collapsed_refs[group];
-                                    cx.notify();
+                            return Button::new(("git-reference-group", group))
+                                .ghost()
+                                .small()
+                                .w_full()
+                                .h(px(30.))
+                                .px_2()
+                                .tooltip(tr(label))
+                                .accessibility_label(tr(label))
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .justify_start()
+                                        .gap_1()
+                                        .child(gpui_kit::component::Icon::new(arrow).size(px(12.)))
+                                        .child(gpui_kit::component::Icon::new(icon).size(px(14.))),
+                                )
+                                .on_click(move |_, _, cx| {
+                                    owner.update(cx, |view, cx| {
+                                        view.collapsed_refs[group] = !view.collapsed_refs[group];
+                                        cx.notify();
+                                    })
                                 })
-                            })
-                            .into_any_element();
+                                .into_any_element();
                         }
                         view.reference_groups[group][offset - 1]
                     } else {
@@ -810,7 +817,7 @@ impl Changes {
                 items.push((
                     IconName::Tag,
                     tr("Create tag"),
-                    RowAction::Form(Form::Tag(id.clone())),
+                    RowAction::Form(Form::Tag),
                     false,
                 ));
                 operations.extend([
