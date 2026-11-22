@@ -61,42 +61,30 @@ impl Render for Changes {
         let disabled =
             self.operation_busy || crate::app::workspace_editors_locked(cx) || self.loading;
         let metadata = metadata.unwrap_or_default();
+        let branch = if metadata.branch == "(detached)" {
+            tr("Detached HEAD")
+        } else if metadata.branch.is_empty() {
+            tr("No Git repository")
+        } else {
+            metadata.branch.clone()
+        };
         let header = h_flex()
             .id("git-repository-toolbar")
-            .overflow_x_scroll()
             .w_full()
             .min_w_0()
-            .h(px(38.))
+            .h(px(34.))
             .flex_shrink_0()
             .px_2()
-            .gap_2()
-            .child(div().flex_1().min_w_0().truncate().text_sm().child(
-                if metadata.branch == "(detached)" {
-                    tr("Detached HEAD")
-                } else if metadata.branch.is_empty() {
-                    tr("No Git repository")
-                } else {
-                    metadata.branch.clone()
-                },
-            ))
-            .when(!metadata.upstream.is_empty(), |row| {
+            .gap_1()
+            .child(self.repository_menu(&branch, &metadata.upstream, cx))
+            .when(metadata.ahead > 0 || metadata.behind > 0, |row| {
                 row.child(
                     div()
-                        .min_w_0()
-                        .truncate()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(format!(
-                            "{}  ↑{} ↓{}",
-                            metadata.upstream, metadata.ahead, metadata.behind
-                        )),
+                        .child(format!("↑{} ↓{}", metadata.ahead, metadata.behind)),
                 )
-            });
-        let commands = h_flex()
-            .flex_wrap()
-            .px_2()
-            .gap_1()
-            .child(self.repository_menu(cx))
+            })
             .child(self.operation_menu(
                 "git-sync",
                 "Sync",
@@ -112,65 +100,42 @@ impl Render for Changes {
                     operations
                 },
                 cx,
-            ))
-            .child(
-                Button::new("git-refresh-repository")
-                    .ghost()
-                    .small()
-                    .icon(gpui_kit::assets::IconName::RefreshCw)
-                    .tooltip(tr("Refresh"))
-                    .accessibility_label(tr("Refresh"))
-                    .disabled(self.loading || self.operation_busy)
-                    .on_click(cx.listener(|view, _, _, cx| view.refresh(cx))),
-            );
+            ));
         let owner = cx.entity().downgrade();
-        let mut tabs = h_flex().w_full().flex_wrap().px_2().gap_1();
-        for section in [Section::Changes, Section::History] {
-            tabs = tabs.child(
-                Button::new(("git-section", section as usize))
+        use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
+        let tabs = h_flex()
+            .w_full()
+            .min_w_0()
+            .px_2()
+            .gap_1()
+            .child(
+                Button::new("git-section-picker")
                     .small()
                     .ghost()
-                    .label(tr(section.label()))
-                    .selected(self.section == section)
-                    .on_click(cx.listener(move |view, _, _, cx| {
-                        view.switch_section(section, cx);
-                        cx.emit(ShowDiff);
-                    })),
-            );
-        }
-        use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
-        tabs = tabs.child(
-            Button::new("git-other-sections")
-                .small()
-                .ghost()
-                .map(|button| {
-                    if matches!(self.section, Section::Changes | Section::History) {
-                        super::controls::icon_action(
-                            button,
-                            gpui_kit::assets::IconName::Ellipsis,
-                            "More",
-                        )
-                    } else {
-                        button
-                            .label(tr(self.section.label()))
-                            .icon(gpui_kit::assets::IconName::ChevronDown)
-                    }
-                })
-                .dropdown_menu(move |mut menu, _, _| {
-                    for section in Section::ALL.into_iter().skip(2) {
-                        let owner = owner.clone();
-                        menu = menu.item(PopupMenuItem::new(tr(section.label())).on_click(
-                            move |_, _, cx| {
-                                let _ = owner.update(cx, |view, cx| {
-                                    view.switch_section(section, cx);
-                                    cx.emit(ShowDiff);
-                                });
-                            },
-                        ));
-                    }
-                    menu
-                }),
-        );
+                    .label(tr(self.section.label()))
+                    .icon(gpui_kit::assets::IconName::ChevronDown)
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for section in Section::ALL {
+                            let owner = owner.clone();
+                            menu = menu.item(PopupMenuItem::new(tr(section.label())).on_click(
+                                move |_, _, cx| {
+                                    let _ = owner.update(cx, |view, cx| {
+                                        view.switch_section(section, cx);
+                                        cx.emit(ShowDiff);
+                                    });
+                                },
+                            ));
+                        }
+                        menu
+                    }),
+            )
+            .child(div().flex_1())
+            .when(self.section == Section::Stashes, |row| {
+                row.child(self.form_button("git-stash-save", super::controls::Form::Stash, cx))
+            })
+            .when(self.section == Section::Worktrees, |row| {
+                row.child(self.form_button("git-worktree-add", super::controls::Form::Worktree, cx))
+            });
         let mut status = h_flex().h(px(30.)).flex_shrink_0().min_w_0().px_3().gap_2();
         if let Some(error) = self
             .operation_error
@@ -410,7 +375,6 @@ impl Render for Changes {
             .min_h_0()
             .min_w_0()
             .child(header)
-            .child(commands)
             .child(tabs)
             .when(
                 self.operation_error.is_some()
