@@ -305,7 +305,11 @@ impl Render for Integrations {
                             super::icon_button(
                                 ("integration-reveal", index),
                                 IconName::Folder,
-                                tr("Show in Finder"),
+                                tr(if cfg!(windows) {
+                                    super::REVEAL_FILE_LABEL
+                                } else {
+                                    "Show in Finder"
+                                }),
                             )
                             .on_click(move |_, _, cx| cx.reveal_path(&path)),
                         )

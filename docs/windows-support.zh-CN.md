@@ -18,5 +18,6 @@
 | 数据、源码、压缩包与电子书 | 共用 Rust 阅读器 | CSV、JSON、SQLite、源码编辑、归档与书籍具备共用实现。格式识别、阅读、保存或解压的每一步还需在 Windows 分别验证。 |
 | 字体及其他专业格式 | 按格式区分 | 字体可使用系统注册的预览器。字体集合、自定义样张与字形列表待验收，XMind、draw.io、模型和地图等共用阅读器待专项验收。 |
 | 系统集成 | 部分支持 | Windows 本地安装和启动可用。默认文件关联、应用打印、自动更新和终端集成仍有缺口。 |
+| 命令行打开与预览 | 已验证 | `Glim.exe --cli open PATH` 在 Glim 打开文件，`Glim.exe --cli preview FILE.md` 调用系统默认浏览器显示独立 HTML。已用带中文和空格的文件名分别验证 Glim 和 Edge。 |
 
 macOS 的逐格式说明见[文件格式与兼容范围](file-format-support.zh-CN.md)。Git 工作区功能暂不纳入 Windows 对齐范围。

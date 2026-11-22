@@ -217,6 +217,7 @@
   "Select All": "全选",
   "Discard": "放弃修改",
   "Close": "关闭",
+  "Unsaved changes · Close": "有未保存的更改 · 关闭",
   "Open file": "打开文件",
   "Open folder": "打开文件夹",
   "Add folders to workspace": "追加目录到工作区",

@@ -1,8 +1,7 @@
 #![allow(unsafe_code)]
 
 use anyhow::{Context, Result, ensure};
-use std::{os::windows::ffi::OsStrExt, path::Path, ptr};
-use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+use std::path::Path;
 
 pub fn run_print_subprocess() -> Result<()> {
     use std::{path::PathBuf, sync::mpsc};
@@ -90,21 +89,51 @@ pub fn run_print_subprocess() -> Result<()> {
 }
 
 pub(crate) async fn open_in_browser(path: &Path) -> Result<()> {
-    let path: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
-    // SAFETY: the path is NUL-terminated and remains valid for the call.
-    let result = unsafe {
-        ShellExecuteW(
-            ptr::null_mut(),
-            ptr::null(),
-            path.as_ptr(),
-            ptr::null(),
-            ptr::null(),
-            SW_SHOWNORMAL,
-        )
+    open_html_file(path)
+}
+
+pub(super) fn open_html_file(path: &Path) -> Result<()> {
+    use windows::{
+        Win32::UI::{Shell::*, WindowsAndMessaging::SW_SHOWNORMAL},
+        core::{HSTRING, PCWSTR, PWSTR, w},
     };
-    ensure!(
-        result as isize > 32,
-        "The default browser could not open the HTML file"
-    );
+    let url =
+        url::Url::from_file_path(path).map_err(|_| anyhow::anyhow!("Invalid preview path"))?;
+    let url = HSTRING::from(url.as_str());
+    // An HTML file association may point to Glim or another editor. Use the
+    // registered HTTPS browser for the explicit Open in Browser action.
+    let mut length = 0;
+    unsafe {
+        AssocQueryStringW(
+            ASSOCF_IS_PROTOCOL,
+            ASSOCSTR_PROGID,
+            w!("https"),
+            None,
+            None,
+            &mut length,
+        )
+        .ok()?;
+        ensure!(length > 1, "No default browser is available");
+        let mut class = vec![0; length as usize];
+        AssocQueryStringW(
+            ASSOCF_IS_PROTOCOL,
+            ASSOCSTR_PROGID,
+            w!("https"),
+            None,
+            Some(PWSTR(class.as_mut_ptr())),
+            &mut length,
+        )
+        .ok()?;
+        let mut launch = SHELLEXECUTEINFOW {
+            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+            fMask: SEE_MASK_CLASSNAME | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI,
+            lpClass: PCWSTR(class.as_ptr()),
+            lpVerb: w!("open"),
+            lpFile: PCWSTR(url.as_ptr()),
+            nShow: SW_SHOWNORMAL.0,
+            ..Default::default()
+        };
+        ShellExecuteExW(&mut launch).context("The default browser could not open the HTML file")?;
+    }
     Ok(())
 }

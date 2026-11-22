@@ -108,6 +108,19 @@ pub fn run() -> Result<()> {
             let path = PathBuf::from(input)
                 .canonicalize()
                 .context("Cannot resolve input path")?;
+            #[cfg(windows)]
+            {
+                use std::{os::windows::process::CommandExt, process::Stdio};
+                Command::new(std::env::current_exe()?)
+                    .arg(path)
+                    .creation_flags(0x0800_0000)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .context("Cannot launch Glim")?;
+            }
+            #[cfg(target_os = "macos")]
             ensure!(
                 Command::new("/usr/bin/open")
                     .arg("-a")
@@ -149,25 +162,34 @@ fn render(input: &OsString, output: Option<(&std::path::Path, bool)>) -> Result<
         (output.to_owned(), count)
     } else {
         let (html, count) = markdown_export::export_html(&markdown, &base, &title, &cancel)?;
-        let browser = Command::new("/usr/bin/osascript")
-            .args(["-l", "JavaScript", "-e", "ObjC.import('AppKit'); $.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL($.NSURL.URLWithString('https://localhost')).path.js"])
-            .output()?;
-        ensure!(browser.status.success(), "Cannot locate default browser");
-        ensure!(
-            Command::new("/usr/bin/open")
-                .arg("-a")
-                .arg(std::str::from_utf8(&browser.stdout)?.trim_end())
-                .arg("--")
-                .arg(&html)
-                .status()?
-                .success(),
-            "Could not open browser preview"
-        );
+        open_browser_preview(&html)?;
         (html, count)
     };
     println!("{}", result.display());
     if unavailable > 0 {
         eprintln!("{unavailable} embedded assets could not be rendered");
     }
+    Ok(())
+}
+
+#[cfg(windows)]
+use super::markdown_export::open_html_file as open_browser_preview;
+
+#[cfg(target_os = "macos")]
+fn open_browser_preview(html: &Path) -> Result<()> {
+    let browser = Command::new("/usr/bin/osascript")
+            .args(["-l", "JavaScript", "-e", "ObjC.import('AppKit'); $.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL($.NSURL.URLWithString('https://localhost')).path.js"])
+            .output()?;
+    ensure!(browser.status.success(), "Cannot locate default browser");
+    ensure!(
+        Command::new("/usr/bin/open")
+            .arg("-a")
+            .arg(std::str::from_utf8(&browser.stdout)?.trim_end())
+            .arg("--")
+            .arg(html)
+            .status()?
+            .success(),
+        "Could not open browser preview"
+    );
     Ok(())
 }
