@@ -25,6 +25,12 @@ pub(crate) struct DocumentSession {
     version: DocumentVersion,
 }
 impl DocumentSession {
+    pub fn owns_path(&self, path: &std::path::Path) -> bool {
+        !self.trashed && self.path == path
+    }
+    pub fn id(&self) -> u64 {
+        self.version.id
+    }
     pub fn new(path: PathBuf, snapshot: ContentSnapshot) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         Self {
@@ -93,6 +99,10 @@ mod tests {
         let before = document.version();
         document.recovery_key = Some("old-checkpoint".into());
         document.mark_trashed(None);
+        assert!(!document.owns_path(&document.path));
+        let recreated = DocumentSession::new(document.path.clone(), ContentSnapshot::Untracked);
+        assert!(recreated.owns_path(&document.path));
+        assert_ne!(recreated.id(), document.id());
         assert!(!document.autosave_enabled());
         assert!(!document.restore_on_launch());
         assert!(document.recovery_key.is_none());

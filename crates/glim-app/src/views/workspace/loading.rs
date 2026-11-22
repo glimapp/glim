@@ -121,7 +121,7 @@ impl Workspace {
             cx.activate(true);
             return true;
         }
-        let index = self.tabs.iter().position(|r| r.document.path == path);
+        let index = self.tabs.iter().position(|r| r.document.owns_path(path));
         if let Some(index) = index {
             self.select_workspace(self.recent_id.clone(), window, cx);
             self.activate_tab(index, window, cx);
@@ -193,7 +193,7 @@ impl Workspace {
                 if let Some(index) = view
                     .tabs
                     .iter()
-                    .position(|r| Some(&r.document.path) == path.as_ref())
+                    .position(|r| path.as_ref().is_some_and(|path| r.document.owns_path(path)))
                 {
                     view.activate_tab(index, window, cx);
                 } else {
@@ -250,7 +250,7 @@ impl Workspace {
         self.results.clear();
         self.search_task = None;
         self.pending_anchor = None;
-        if let Some(index) = self.tabs.iter().position(|t| t.document.path == path) {
+        if let Some(index) = self.tabs.iter().position(|t| t.document.owns_path(&path)) {
             self.activate_tab(index, window, cx);
             self.tabs[index].activate(cx);
             return;
@@ -619,7 +619,7 @@ impl Workspace {
         if let Some(i) = self
             .tabs
             .iter()
-            .position(|t| t.document.path == reader.document.path)
+            .position(|t| t.document.owns_path(&reader.document.path))
         {
             self.tabs[i] = reader;
             self.active = Some(i);

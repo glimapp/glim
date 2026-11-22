@@ -41,12 +41,51 @@ struct EmbeddedPreviewTests {
             precondition((try? NativePreviewRequest.decode(data)) == nil)
         }
     }
+    static func sameNamePDFReplacement() throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("report.pdf")
+        let fixture = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 400))
+        let pdf = PDFDocument(data: fixture.dataWithPDF(inside: fixture.bounds))!
+        let first = pdf.dataRepresentation()!
+        pdf.insert(pdf.page(at: 0)!.copy() as! PDFPage, at: 1)
+        let second = pdf.dataRepresentation()!
+        let length = max(first.count, second.count)
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        func write(_ data: Data) throws {
+            try (data + Data(repeating: 32, count: length - data.count)).write(to: url)
+            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
+        }
+        try write(first)
+        let handle = try create(url)
+        defer { glimPreviewRelease(handle) }
+        let reader = controller(handle)
+        pump()
+        precondition(reader.pdfView.document?.pageCount == 1)
+        func reload() {
+            var applied = false
+            reader.startPDFReload { applied = $0 == .applied }
+            let deadline = Date().addingTimeInterval(5)
+            while !applied && Date() < deadline { pump() }
+            precondition(applied)
+        }
+        try FileManager.default.removeItem(at: url)
+        try write(second)
+        reload()
+        let replaced = reader.pdfView.document
+        precondition(replaced?.pageCount == 2)
+        reload()
+        precondition(reader.pdfView.document === replaced)
+    }
     static func main() throws {
         if CommandLine.arguments.contains("--quicklook-lifecycle-only") { try quickLookLifecycle(); return }
-        if CommandLine.arguments.contains("--pdf-controls-only") { readerPDFControls(); return }
+        if CommandLine.arguments.contains("--pdf-controls-only") { readerPDFControls(); try sameNamePDFReplacement(); return }
         try readerActionState()
         if CommandLine.arguments.contains("--toolbar-only") { return }
         readerPDFControls()
+        try sameNamePDFReplacement()
         readerResourceOwnership()
         try requestContract()
         _ = NSApplication.shared

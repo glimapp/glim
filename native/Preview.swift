@@ -914,6 +914,25 @@ enum PDFReloadOutcome {
     case applied, cancelled, notFound, permissionDenied, invalidDocument, locked
 }
 
+private struct PDFFileVersion: Equatable {
+    let device: dev_t
+    let inode: ino_t
+    let size: off_t
+    let modified, modifiedNanos, changed, changedNanos: Int
+
+    init?(_ url: URL) {
+        var info = stat()
+        guard url.withUnsafeFileSystemRepresentation({ path in path.map { stat($0, &info) } }) == 0 else { return nil }
+        device = info.st_dev
+        inode = info.st_ino
+        size = info.st_size
+        modified = info.st_mtimespec.tv_sec
+        modifiedNanos = info.st_mtimespec.tv_nsec
+        changed = info.st_ctimespec.tv_sec
+        changedNanos = info.st_ctimespec.tv_nsec
+    }
+}
+
 final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private var findBar: ReaderFindSession?
     private var pdfFind: PDFReaderFind?
@@ -947,6 +966,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     var pdfSlideshow: PDFSlideshow?
     private static let pdfReloadQueue = DispatchQueue(label: "glim.pdf.reload", qos: .userInitiated)
     private var pdfReloadGeneration = 0
+    private var pdfFileVersion: PDFFileVersion?
     private var pdfReloadWork: DispatchWorkItem?
     private var pdfReloadPending = false
     private var pdfReloadCompletion: ((PDFReloadOutcome) -> Void)?
@@ -1079,6 +1099,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         }
         toolbar.addArrangedSubview(detailLabel.readerAction(pdf ? "page-status" : "status"))
         if pdf {
+            pdfFileVersion = PDFFileVersion(urls[0])
             guard let document = PDFDocument(url: urls[0]) else { throw NSError(domain: "Glim", code: 2, userInfo: [NSLocalizedDescriptionKey: "This PDF could not be opened."]) }
             if document.isLocked {
                 let alert = NSAlert(); alert.messageText = L("PDF password"); alert.addButton(withTitle: L("Open")); alert.addButton(withTitle: L("Cancel"))
@@ -1576,8 +1597,18 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
     }
     private func schedulePDFReload(_ url: URL, generation: Int, attempt: Int) {
         let password = pdfUnlockPassword
+        let displayed = pdfFileVersion
         // Coalesce writes and retry transient partial output without discarding the old view.
         let work = DispatchWorkItem { [weak self] in
+            let version = PDFFileVersion(url)
+            if let version = version, displayed == version {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self, !self.closed, self.pdfReloadGeneration == generation else { return }
+                    self.pdfReloadWork = nil
+                    self.finishPDFReload(.applied)
+                }
+                return
+            }
             let document: PDFDocument?
             let failure: PDFReloadOutcome?
             do {
@@ -1621,6 +1652,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
                 let scale = self.pdfView.scaleFactor
                 self.findBar?.prepareForDocumentReplacement()
                 self.pdfView.document = document
+                self.pdfFileVersion = version
                 if !document.isEncrypted { self.pdfUnlockPassword = nil }
                 self.pdfFind?.rebindDocument()
                 self.pdfView.scaleFactor = scale

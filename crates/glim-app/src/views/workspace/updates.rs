@@ -118,7 +118,7 @@ impl Workspace {
         self.start_pending_refresh(window, cx);
     }
 
-    fn start_pending_refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn start_pending_refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.pending_refresh.is_empty()
             || self.loading
             || self.refresh_task.is_some()

@@ -134,7 +134,7 @@ impl Workspace {
         let index = self
             .tabs
             .iter()
-            .position(|reader| reader.document.path == path)?;
+            .position(|reader| reader.document.owns_path(path))?;
         self.tabs[index]
             .can_move_to_window(cx)
             .then(|| self.take_tab(index, window, cx))
@@ -254,6 +254,17 @@ impl Workspace {
             self.loading = false;
             self.load_incoming_file(window, cx);
             self.active = Some(index);
+            let document = &self.tabs[index].document;
+            if document.remote.is_none()
+                && document.restore_on_launch()
+                && document
+                    .path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+            {
+                self.pending_refresh.insert(document.path.clone());
+                self.start_pending_refresh(window, cx);
+            }
             self.reveal_active_file(cx);
             window.focus(&self.focus, cx);
             if self.tabs[index].editor().is_some()
@@ -769,7 +780,11 @@ impl Workspace {
 
     fn pending_open_tab(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let path = self.pending_open_path()?;
-        if self.tabs.iter().any(|reader| reader.document.path == *path) {
+        if self
+            .tabs
+            .iter()
+            .any(|reader| reader.document.owns_path(path))
+        {
             return None;
         }
         let label = path

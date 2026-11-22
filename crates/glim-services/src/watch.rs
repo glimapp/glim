@@ -22,7 +22,7 @@ impl Changes {
     pub fn is_empty(&self) -> bool {
         !self.rescan && self.paths.is_empty()
     }
-    fn insert(&mut self, path: PathBuf) {
+    pub fn insert(&mut self, path: PathBuf) {
         if self.rescan {
             return;
         }

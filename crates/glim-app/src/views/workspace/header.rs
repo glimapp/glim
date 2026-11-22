@@ -9,11 +9,13 @@ use std::path::PathBuf;
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Target {
     pub path: PathBuf,
+    session: u64,
 }
 impl Target {
     pub(super) fn from_reader(reader: &crate::views::reader::Reader) -> Self {
         Self {
             path: reader.document.path.clone(),
+            session: reader.document.id(),
         }
     }
 }
@@ -85,6 +87,15 @@ impl Workspace {
         }
         self.history_cursor = Some(next);
         self.navigating = true;
+        if let Some(index) = self
+            .tabs
+            .iter()
+            .position(|tab| Target::from_reader(tab) == target)
+        {
+            self.activate_tab(index, window, cx);
+            self.tabs[index].activate(cx);
+            return;
+        }
         self.open_path(target.path, window, cx);
     }
     pub(super) fn search_input_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
