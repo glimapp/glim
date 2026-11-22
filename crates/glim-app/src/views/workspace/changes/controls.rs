@@ -534,8 +534,9 @@ impl Changes {
         let icon = match &form {
             Form::Compare => IconName::GitCompareArrows,
             Form::Tag => IconName::Tag,
-            Form::Branch | Form::Rename(_) => IconName::GitBranch,
-            Form::Remote => IconName::Globe,
+            Form::Branch => IconName::GitBranchPlus,
+            Form::Rename(_) => IconName::GitBranch,
+            Form::Remote => IconName::Server,
             Form::Worktree => IconName::FolderPlus,
             Form::Stash => IconName::Archive,
         };

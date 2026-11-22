@@ -126,7 +126,7 @@ impl Render for Changes {
                 Section::Changes => (IconName::Files, "Changes"),
                 Section::History => (IconName::Clock, "History"),
                 Section::Branches => (IconName::GitBranch, "Git branches"),
-                Section::Remotes => (IconName::Globe, "Remotes"),
+                Section::Remotes => (IconName::Server, "Remotes"),
                 Section::Stashes => (IconName::Archive, "Stashes"),
                 Section::Worktrees => (IconName::Folders, "Worktree tab"),
             };

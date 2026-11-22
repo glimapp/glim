@@ -50,6 +50,8 @@ gpui_kit::assets::icon_assets!(
         File,
         FileText,
         GitBranch,
+        GitBranchPlus,
+        Server,
         RefreshCw,
         Ellipsis,
         Eye,
