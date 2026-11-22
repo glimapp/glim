@@ -4,6 +4,8 @@
 mod find;
 #[path = "windows_html.rs"]
 mod html;
+#[path = "windows_openapi.rs"]
+mod openapi;
 #[path = "windows_pdf.rs"]
 mod pdf;
 #[path = "windows_shell_preview.rs"]
@@ -140,9 +142,11 @@ impl PreviewState {
                     match self.build(placement) {
                         Ok(view) => {
                             if let Surface::Browser(web) = &view
-                                && (matches!(self.content["kind"].as_str(), Some("html" | "pdf"))
-                                    || self.content["kind"] == "office"
-                                        && self.content["reading"].is_string())
+                                && (matches!(
+                                    self.content["kind"].as_str(),
+                                    Some("html" | "pdf" | "open_api")
+                                ) || self.content["kind"] == "office"
+                                    && self.content["reading"].is_string())
                             {
                                 self.find.replace(find::Session::new(web).ok());
                             }
@@ -175,6 +179,19 @@ impl PreviewState {
             .with_incognito(true)
             .with_devtools(false)
             .with_download_started_handler(|_, _| false);
+        if kind == "open_api" {
+            let (_, background) = self.executors.get().expect("preview has a placement");
+            let database = self.content["database"]
+                .as_str()
+                .ok_or_else(|| std::io::Error::other("Missing API reference index"))?;
+            return openapi::build(
+                builder,
+                placement.parent,
+                database.into(),
+                background.clone(),
+            )
+            .map(Surface::Browser);
+        }
         if kind == "html" {
             let (foreground, background) = self.executors.get().expect("preview has a placement");
             let view = builder.build_as_child(&PreviewParent(placement.parent))?;

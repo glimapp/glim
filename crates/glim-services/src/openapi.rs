@@ -9,6 +9,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(windows)]
+pub mod query;
+
 pub struct Index {
     pub database: PathBuf,
     _directory: tempfile::TempDir,
