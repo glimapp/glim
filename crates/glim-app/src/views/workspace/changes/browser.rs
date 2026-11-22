@@ -50,6 +50,7 @@ impl Changes {
     pub(super) fn row_menu(
         &self,
         menu: gpui_kit::component::menu::PopupMenu,
+        source: &ElementId,
         actions: &[(IconName, String, RowAction, bool)],
         root: &Option<PathBuf>,
         owner: &Entity<Self>,
@@ -60,13 +61,17 @@ impl Changes {
             let owner = owner.clone();
             let root = root.clone();
             let action = action.clone();
+            let source = source.clone();
             menu = menu.item(
                 PopupMenuItem::new(label.clone())
                     .icon(icon.clone())
                     .disabled(
                         *disabled
-                            || (self.busy(cx)
-                                && matches!(action, RowAction::Run(_) | RowAction::Form(_))),
+                            || match &action {
+                                RowAction::Run(op) => self.operation_blocked(op, cx),
+                                RowAction::Form(_) => self.busy(cx),
+                                _ => false,
+                            },
                     )
                     .on_click(move |_, window, cx| {
                         owner.update(cx, |view, cx| {
@@ -74,8 +79,12 @@ impl Changes {
                                 return;
                             }
                             match &action {
-                                RowAction::Run(op) => view.request(op.clone(), window, cx),
-                                RowAction::Form(form) => view.form(form.clone(), window, cx),
+                                RowAction::Run(op) => {
+                                    view.request(source.clone(), op.clone(), window, cx)
+                                }
+                                RowAction::Form(form) => {
+                                    view.form(source.clone(), form.clone(), window, cx)
+                                }
                                 RowAction::Open(path) => cx.emit(OpenFile(path.clone())),
                                 RowAction::Copy(id) => {
                                     cx.write_to_clipboard(ClipboardItem::new_string(id.clone()))
@@ -636,7 +645,18 @@ impl Changes {
                     };
                     let owner = owner.clone();
                     let menu_owner = owner.clone();
-                    let row = Button::new(("git-browser-row", index))
+                    let target = match section {
+                        Section::History => view.commits[index].id.as_str(),
+                        Section::Branches => view.catalog.references[index].full.as_str(),
+                        Section::Remotes => view.catalog.remotes[index].name.as_str(),
+                        Section::Stashes => view.catalog.stashes[index].id.as_str(),
+                        Section::Worktrees => &view.catalog.worktrees[index].path.to_string_lossy(),
+                        _ => unreachable!(),
+                    };
+                    let source =
+                        ElementId::Name(format!("git-row-{}-{target}", section as usize).into());
+                    let row = view
+                        .feedback_button(source.clone(), Button::new(("git-browser-row", index)))
                         .ghost()
                         .w_full()
                         .h(if section == Section::Branches {
@@ -706,9 +726,14 @@ impl Changes {
                         .id(("git-context-row", index))
                         .child(row)
                         .context_menu(move |menu, _, cx| {
-                            menu_owner
-                                .read(cx)
-                                .row_menu(menu, &actions, &root, &menu_owner, cx)
+                            menu_owner.read(cx).row_menu(
+                                menu,
+                                &source,
+                                &actions,
+                                &root,
+                                &menu_owner,
+                                cx,
+                            )
                         })
                         .into_any_element()
                 })
@@ -772,7 +797,7 @@ impl Changes {
                 );
             }
         }
-        if self.browsing || count == 0 {
+        if count == 0 {
             panel = panel.child(
                 div()
                     .h(px(20.))

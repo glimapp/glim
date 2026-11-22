@@ -105,13 +105,12 @@ pub(crate) struct Changes {
     browse_generation: u64,
     browse_task: Option<Task<()>>,
     browse_cancel: Option<CancelOnDrop>,
-    operation_busy: bool,
+    feedback: std::collections::HashMap<(PathBuf, Option<String>, ElementId), Option<Task<()>>>,
+    manual_refresh: Option<ElementId>,
     operation_error: Option<SharedString>,
     browser_error: Option<SharedString>,
-    operation_label: Option<SharedString>,
     operation_task: Option<Task<()>>,
     clear_message: Option<String>,
-    notice_task: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
     roots: Vec<PathBuf>,
     remote: Option<glim_services::remote::Session>,
@@ -136,6 +135,7 @@ pub(crate) struct Changes {
 
 impl Changes {
     pub(super) fn cancel(&mut self, cx: &mut Context<Self>) {
+        self.manual_refresh = None;
         self.settings_open = false;
         self.identity_root = None;
         self.identity_task = None;
@@ -235,13 +235,12 @@ impl Changes {
             browse_generation: 0,
             browse_task: None,
             browse_cancel: None,
-            operation_busy: false,
+            feedback: Default::default(),
+            manual_refresh: None,
             operation_error: None,
             browser_error: None,
-            operation_label: None,
             operation_task: None,
             clear_message: None,
-            notice_task: None,
             _subscriptions: subscriptions,
             roots: Vec::new(),
             remote: None,
@@ -289,6 +288,7 @@ impl Changes {
             || self.remote.as_ref().map(|r| &r.connection.id)
                 != remote.as_ref().map(|r| &r.connection.id)
         {
+            self.manual_refresh = None;
             self.tabs.clear();
             self.selection = None;
             self.active_root = None;
@@ -334,6 +334,12 @@ impl Changes {
                         Ok(repository) => view.repositories.push(repository),
                         Err(error) => view.errors.push(error.into()),
                     }
+                }
+                if let Some(source) = view.manual_refresh.take()
+                    && view.errors.is_empty()
+                    && let Some(key) = view.feedback_key(source)
+                {
+                    view.show_completed(key, cx);
                 }
                 let mut rows = Vec::new();
                 for repository in &view.repositories {
@@ -650,6 +656,11 @@ impl Changes {
         }
     }
 
+    fn refresh_from(&mut self, source: &'static str, cx: &mut Context<Self>) {
+        self.manual_refresh = Some(source.into());
+        self.refresh(cx);
+    }
+
     fn refresh(&mut self, cx: &mut Context<Self>) {
         self.load(self.roots.clone(), self.remote.clone(), cx);
     }
@@ -671,7 +682,7 @@ impl Changes {
             .flex_1()
             .min_h_0()
             .w_full()
-            .when(view.loading, |v| {
+            .when(view.loading && view.repositories.is_empty(), |v| {
                 v.child(
                     div()
                         .px_3()
@@ -695,7 +706,7 @@ impl Changes {
                     })
             }))
             .when(
-                !view.loading
+                (!view.loading || !view.repositories.is_empty())
                     && view.repositories.iter().all(|r| r.changes.is_empty())
                     && view.errors.is_empty(),
                 |v| {
@@ -780,7 +791,19 @@ impl Changes {
                                             )
                                         })
                                         .collect();
-                                    let row = Button::new(("git-change", index))
+                                    let source = ElementId::Name(
+                                        format!(
+                                            "git-file-{:?}-{}",
+                                            change.area,
+                                            change.path.display()
+                                        )
+                                        .into(),
+                                    );
+                                    let row = view
+                                        .feedback_button(
+                                            source.clone(),
+                                            Button::new(("git-change", index)),
+                                        )
                                         .ghost()
                                         .w_full()
                                         .h(px(32.))
@@ -853,6 +876,7 @@ impl Changes {
                                                 }
                                                 view.row_menu(
                                                     menu,
+                                                    &source,
                                                     &actions,
                                                     &target_root,
                                                     &menu_owner,
@@ -967,14 +991,17 @@ impl Changes {
                     })),
             )
             .child(
-                Button::new("diff-refresh")
-                    .ghost()
-                    .small()
-                    .icon(gpui_kit::assets::IconName::RefreshCw)
-                    .tooltip(tr("Refresh"))
-                    .accessibility_label(tr("Refresh"))
-                    .disabled(self.loading)
-                    .on_click(cx.listener(|view, _, _, cx| view.refresh(cx))),
+                self.feedback_button(
+                    "diff-refresh".into(),
+                    Button::new("diff-refresh")
+                        .ghost()
+                        .small()
+                        .icon(gpui_kit::assets::IconName::RefreshCw)
+                        .tooltip(tr("Refresh"))
+                        .accessibility_label(tr("Refresh")),
+                )
+                .disabled(self.loading)
+                .on_click(cx.listener(|view, _, _, cx| view.refresh_from("diff-refresh", cx))),
             );
         let content = if self.patch_loading || (self.loading && self.selection.is_none()) {
             message(tr("Loading changes…"), cx)
@@ -1211,8 +1238,28 @@ mod tests {
                 .unwrap()
         });
         assert!(patch.contains("+Tuesday") && !patch.contains("Untracked marker"));
+        let row_top = |cx: &mut TestAppContext| {
+            cx.update_window(handle, |_, w, cx| {
+                w.render_frame(cx);
+                w.find(("git-change", 0usize)).bounds().top()
+            })
+            .unwrap()
+        };
+        let initial_top = row_top(cx);
+        click(cx, "git-fetch".into());
+        assert_eq!(row_top(cx), initial_top);
         std::fs::remove_file(root.join("test-note.md")).unwrap();
-        click(cx, "git-stage-file".into());
+        cx.update_window(handle, |_, w, cx| {
+            w.render_frame(cx);
+            let before = w.find(("git-change", 0usize)).bounds().top();
+            w.click("git-fetch", cx);
+            w.render_frame(cx);
+            assert_eq!(w.find(("git-change", 0usize)).bounds().top(), before);
+            assert_ne!(w.find("git-stage-file").disabled(), Some(true));
+            w.click("git-stage-file", cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
         assert_eq!(git(&["diff", "--cached", "--name-only"]), "schedule.md\n");
         click(cx, "git-unstage-file".into());
         assert!(git(&["diff", "--cached", "--name-only"]).is_empty());

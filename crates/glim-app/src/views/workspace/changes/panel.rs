@@ -58,8 +58,7 @@ impl Render for Changes {
         let conflict_count = repository.map_or(0, |repo| {
             repo.changes.iter().filter(|c| c.status == 'U').count()
         });
-        let disabled =
-            self.operation_busy || crate::app::workspace_editors_locked(cx) || self.loading;
+        let disabled = self.loading && self.repositories.is_empty();
         let metadata = metadata.unwrap_or_default();
         let branch = if metadata.branch == "(detached)" {
             tr("Detached HEAD")
@@ -202,14 +201,6 @@ impl Render for Changes {
                         view.error_dialog(error.clone(), window, cx)
                     })),
             );
-        } else if let Some(label) = self.operation_label.clone() {
-            status = status.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .truncate()
-                    .child(label),
-            );
         }
         if let Some(operation) = metadata.operation.clone() {
             status = status
@@ -279,17 +270,20 @@ impl Render for Changes {
                         .is_some_and(|range| range.side() == range.end_side())
                 {
                     actions = actions.child(
-                        Button::new("git-stage-blocks")
-                            .small()
-                            .label(tr(if change.area == Area::Staged {
-                                "Unstage selected blocks"
-                            } else {
-                                "Stage selected blocks"
-                            }))
-                            .disabled(disabled || self.patch_source.is_none())
-                            .on_click(
-                                cx.listener(|view, _, window, cx| view.selected_blocks(window, cx)),
-                            ),
+                        self.feedback_button(
+                            "git-stage-blocks".into(),
+                            Button::new("git-stage-blocks"),
+                        )
+                        .small()
+                        .label(tr(if change.area == Area::Staged {
+                            "Unstage selected blocks"
+                        } else {
+                            "Stage selected blocks"
+                        }))
+                        .disabled(disabled || self.patch_source.is_none())
+                        .on_click(
+                            cx.listener(|view, _, window, cx| view.selected_blocks(window, cx)),
+                        ),
                     );
                 }
                 if change.status == 'U' {
@@ -314,13 +308,16 @@ impl Render for Changes {
                             })
                     });
                     actions = actions.child(
-                        Button::new("git-save-resolution")
-                            .small()
-                            .label(tr("Save resolution and stage"))
-                            .disabled(disabled || !resolved || self.patch_source.is_none())
-                            .on_click(
-                                cx.listener(|view, _, window, cx| view.save_resolution(window, cx)),
-                            ),
+                        self.feedback_button(
+                            "git-save-resolution".into(),
+                            Button::new("git-save-resolution"),
+                        )
+                        .small()
+                        .label(tr("Save resolution and stage"))
+                        .disabled(disabled || !resolved || self.patch_source.is_none())
+                        .on_click(
+                            cx.listener(|view, _, window, cx| view.save_resolution(window, cx)),
+                        ),
                     );
                 }
             }
@@ -393,13 +390,20 @@ impl Render for Changes {
                                     )),
                                 )
                                 .child(
-                                    super::controls::icon_action(
-                                        Button::new("git-commit-refresh"),
-                                        IconName::RefreshCw,
-                                        "Refresh",
+                                    self.feedback_button(
+                                        "git-commit-refresh".into(),
+                                        super::controls::icon_action(
+                                            Button::new("git-commit-refresh"),
+                                            IconName::RefreshCw,
+                                            "Refresh",
+                                        ),
                                     )
-                                    .disabled(disabled)
-                                    .on_click(cx.listener(|view, _, _, cx| view.refresh(cx))),
+                                    .disabled(self.loading)
+                                    .on_click(cx.listener(
+                                        |view, _, _, cx| {
+                                            view.refresh_from("git-commit-refresh", cx)
+                                        },
+                                    )),
                                 )
                                 .child(
                                     self.operation_button(
@@ -443,7 +447,6 @@ impl Render for Changes {
             .when(
                 self.operation_error.is_some()
                     || self.browser_error.is_some()
-                    || self.operation_label.is_some()
                     || metadata.operation.is_some(),
                 |panel| panel.child(status),
             )

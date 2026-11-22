@@ -4,26 +4,47 @@ use crate::views::workspace::changes::Changes;
 use glim_services::{git::Operation, remote::Session, work::Cancellation};
 use std::path::PathBuf;
 
-#[derive(Default)]
-struct GitOperation(Option<Task<()>>);
-impl Global for GitOperation {}
+struct Running {
+    root: PathBuf,
+    connection: Option<String>,
+    operation: Operation,
+    _task: Task<()>,
+}
 
-pub(crate) fn busy(cx: &App) -> bool {
-    cx.try_global::<GitOperation>()
-        .is_some_and(|operation| operation.0.is_some())
+#[derive(Default)]
+struct GitOperations(Vec<Running>);
+impl Global for GitOperations {}
+
+pub(crate) fn blocked(
+    root: &std::path::Path,
+    remote: Option<&Session>,
+    operation: &Operation,
+    cx: &App,
+) -> bool {
+    if operation.requires_editor_lock() && workspace_editors_locked(cx) {
+        return true;
+    }
+    cx.try_global::<GitOperations>().is_some_and(|running| {
+        running.0.iter().any(|other| {
+            other.root == root
+                && other.connection.as_deref() == remote.map(|s| s.connection.id.as_str())
+                && !operation.concurrent_with(&other.operation)
+        })
+    })
 }
 
 pub(crate) fn start(
     root: PathBuf,
     remote: Option<Session>,
     operation: Operation,
+    source: ElementId,
     owner: WeakEntity<Changes>,
     cx: &mut App,
 ) -> anyhow::Result<()> {
     glim_services::git::ensure_enabled()?;
     let id = owner.entity_id();
     anyhow::ensure!(
-        !busy(cx),
+        !blocked(&root, remote.as_ref(), &operation, cx),
         glim_services::locale::tr("Another Git operation is in progress")
     );
     let editors_locked = operation.requires_editor_lock();
@@ -41,9 +62,14 @@ pub(crate) fn start(
         lock_workspace_editors(id, &root, false, cx)?;
     }
     let work_operation = operation.clone();
+    let work_root = root.clone();
+    let connection = remote.as_ref().map(|s| s.connection.id.clone());
+    let completed_connection = connection.clone();
+    let completed_operation = operation.clone();
+    let completed_root = root.clone();
     let work = cx.background_executor().spawn(async move {
         glim_services::git::execute(
-            &root,
+            &work_root,
             remote.as_ref(),
             &work_operation,
             &Cancellation::default(),
@@ -55,14 +81,30 @@ pub(crate) fn start(
             if editors_locked {
                 finish_trash_operation(id, None, Default::default(), cx);
             }
-            let _ = owner.update(cx, |view, cx| {
-                view.operation_finished(&operation, result, cx)
+            cx.global_mut::<GitOperations>().0.retain(|job| {
+                !(job.root == completed_root
+                    && job.connection == completed_connection
+                    && job.operation == completed_operation)
             });
-            cx.global_mut::<GitOperation>().0 = None;
+            let _ = owner.update(cx, |view, cx| {
+                view.operation_finished(
+                    completed_root,
+                    completed_connection,
+                    source,
+                    &completed_operation,
+                    result,
+                    cx,
+                )
+            });
             cx.refresh_windows();
         });
     });
-    cx.set_global(GitOperation(Some(task)));
+    cx.default_global::<GitOperations>().0.push(Running {
+        root,
+        connection,
+        operation,
+        _task: task,
+    });
     cx.refresh_windows();
     Ok(())
 }

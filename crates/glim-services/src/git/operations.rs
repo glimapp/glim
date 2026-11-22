@@ -1,7 +1,7 @@
 use super::*;
 use std::{io::Write, sync::Arc};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Operation {
     Init(PathBuf),
     Identity {
@@ -100,6 +100,24 @@ pub enum Operation {
     },
 }
 impl Operation {
+    pub fn concurrent_with(&self, other: &Self) -> bool {
+        // Fetch updates remote-tracking refs; these operations only use local files or the index.
+        let local = |op: &Self| {
+            matches!(
+                op,
+                Self::Stage(_)
+                    | Self::Unstage(_)
+                    | Self::Hunks { .. }
+                    | Self::Ignore(_)
+                    | Self::Discard(_)
+                    | Self::Resolve { .. }
+                    | Self::Identity { .. }
+                    | Self::Commit { .. }
+            )
+        };
+        (matches!(self, Self::Fetch(_)) && local(other))
+            || (matches!(other, Self::Fetch(_)) && local(self))
+    }
     pub fn requires_editor_lock(&self) -> bool {
         !matches!(
             self,
