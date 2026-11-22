@@ -134,6 +134,23 @@ impl Render for TableView {
             .saturating_sub(self.column_start)
             .min(self.columns_limit);
         let width = 64. + columns as f32 * 200.;
+        let range = |start: usize, count: usize| {
+            if count == 0 {
+                "0".to_owned()
+            } else {
+                format!("{}–{}", start + 1, start + count)
+            }
+        };
+        let status = self.error.clone().unwrap_or_else(|| {
+            format!(
+                "{} · {} {} · {} {}",
+                self.format,
+                (self.host.translate)("rows"),
+                range(self.row_start, self.page.rows.len()),
+                (self.host.translate)("columns"),
+                range(self.column_start, columns)
+            )
+        });
         let geographic = matches!(self.format, "GPX" | "KML");
         let horizontal = self.horizontal_scroll.clone();
         let vertical = self.scroll.0.borrow().base_handle.clone();
@@ -208,10 +225,7 @@ impl Render for TableView {
             ))
             .child(div().h(Scrollbar::width()).flex_shrink_0().child(
                 Scrollbar::horizontal(&self.horizontal_scroll).viewport_from_layout(),
-            )).child(super::super::controls::floating("csv-controls", super::super::controls::ActionBindings::new().action("status",div().min_w_0().truncate().child(if busy { (self.host.translate)("Loading table…") } else {
-                    self.error.clone().unwrap_or_else(|| format!("{} · rows {}–{} · columns {}–{}", self.format,
-                        self.row_start + 1, self.row_start + self.page.rows.len(), self.column_start + 1, self.column_start + columns))
-                }))
+            )).child(super::super::controls::floating("csv-controls", super::super::controls::ActionBindings::new().action("status",div().min_w_0().truncate().child(status))
                 .when(self.error.is_some(), |bar| bar.action("retry",
                     Button::new("csv-retry").small().label((self.host.translate)("Retry"))
                         .on_click(cx.listener(|view, _, _, cx| view.request(TableRequest::Retry, cx)))
