@@ -1,5 +1,15 @@
-use gpui_kit::{Bounds, Pixels, Window};
-use std::{cell::RefCell, path::Path};
+#![allow(unsafe_code)]
+
+use gpui_kit::{App, Bounds, ForegroundExecutor, Pixels, Window};
+use raw_window_handle::{
+    HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
+};
+use std::{
+    cell::{Cell, OnceCell, RefCell},
+    path::Path,
+    rc::Rc,
+};
+use windows_sys::Win32::UI::WindowsAndMessaging::IsWindow;
 use wry::{
     Rect, WebView, WebViewBuilder,
     dpi::{LogicalPosition, LogicalSize},
@@ -24,40 +34,96 @@ pub(super) struct FindEvent {
     pub searching: bool,
 }
 
-pub(super) struct NativePreview {
-    content: serde_json::Value,
-    view: RefCell<Option<WebView>>,
+#[derive(Clone, Copy, PartialEq)]
+struct Placement {
+    parent: Win32WindowHandle,
+    bounds: Rect,
 }
 
-impl NativePreview {
-    pub fn new(configuration: &[u8]) -> Self {
-        let configuration: serde_json::Value =
-            serde_json::from_slice(configuration).unwrap_or_default();
-        Self {
-            content: configuration["content"].clone(),
-            view: RefCell::new(None),
+struct PreviewParent(Win32WindowHandle);
+
+impl HasWindowHandle for PreviewParent {
+    fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+        // SAFETY: WebView creation uses this wrapper on the parent window's thread.
+        // The owning preview supplies the handle, and the window is checked below.
+        unsafe { Ok(WindowHandle::borrow_raw(RawWindowHandle::Win32(self.0))) }
+    }
+}
+
+struct PreviewState {
+    content: serde_json::Value,
+    executor: OnceCell<ForegroundExecutor>,
+    desired: Cell<Option<Placement>>,
+    scheduled: Cell<bool>,
+    view: RefCell<Option<(Win32WindowHandle, WebView)>>,
+}
+
+impl PreviewState {
+    fn request(self: &Rc<Self>, placement: Option<Placement>) {
+        if self.desired.replace(placement) != placement {
+            self.schedule();
         }
     }
 
-    pub fn layout(&self, bounds: Bounds<Pixels>, window: &Window) {
-        let bounds = Rect {
-            position: LogicalPosition::new(f32::from(bounds.origin.x), f32::from(bounds.origin.y))
-                .into(),
-            size: LogicalSize::new(
-                f32::from(bounds.size.width).max(0.0),
-                f32::from(bounds.size.height).max(0.0),
-            )
-            .into(),
+    fn schedule(self: &Rc<Self>) {
+        let Some(executor) = self.executor.get() else {
+            return;
         };
-        let mut view = self.view.borrow_mut();
-        if let Some(view) = view.as_ref() {
-            let _ = view.set_bounds(bounds);
-            let _ = view.set_visible(true);
+        if self.scheduled.replace(true) {
             return;
         }
+        let preview = Rc::downgrade(self);
+        // WebView2 creation pumps Win32 messages. Give GPUI back its App borrow
+        // before any of those messages can cause input or another frame.
+        executor
+            .spawn(async move {
+                let Some(preview) = preview.upgrade() else {
+                    return;
+                };
+                let placement = preview.desired.get();
+                preview.apply(placement);
+                preview.scheduled.set(false);
+                if preview.desired.get() != placement {
+                    preview.schedule();
+                }
+            })
+            .detach();
+    }
+
+    fn apply(&self, placement: Option<Placement>) {
+        let mut child = self.view.take();
+        if let Some(placement) = placement {
+            if child
+                .as_ref()
+                .is_some_and(|(parent, _)| *parent != placement.parent)
+            {
+                child = None;
+            }
+            if let Some((_, view)) = &child {
+                let _ = view.set_bounds(placement.bounds);
+                let _ = view.set_visible(self.desired.get().is_some());
+            } else {
+                // SAFETY: this queries the liveness of a Win32 window on its UI thread.
+                if unsafe { IsWindow(placement.parent.hwnd.get() as _) } != 0 {
+                    match self.build(placement) {
+                        Ok(view) => {
+                            let _ = view.set_visible(self.desired.get().is_some());
+                            child = Some((placement.parent, view));
+                        }
+                        Err(error) => log::warn!("Cannot open Windows document preview: {error}"),
+                    }
+                }
+            }
+        } else if let Some((_, view)) = &child {
+            let _ = view.set_visible(false);
+        }
+        self.view.replace(child);
+    }
+
+    fn build(&self, placement: Placement) -> wry::Result<WebView> {
         let kind = self.content["kind"].as_str().unwrap_or_default();
         let mut builder = WebViewBuilder::new()
-            .with_bounds(bounds)
+            .with_bounds(placement.bounds)
             .with_incognito(true)
             .with_devtools(false)
             .with_javascript_disabled()
@@ -97,16 +163,49 @@ impl NativePreview {
             builder = builder
                 .with_html("<p>Embedded preview is unavailable for this format on Windows.</p>");
         }
-        match builder.build_as_child(window) {
-            Ok(child) => *view = Some(child),
-            Err(error) => log::warn!("Cannot open Windows document preview: {error}"),
-        }
+        builder.build_as_child(&PreviewParent(placement.parent))
+    }
+}
+
+pub(super) struct NativePreview(Rc<PreviewState>);
+
+impl NativePreview {
+    pub fn new(configuration: &[u8]) -> Self {
+        let configuration: serde_json::Value =
+            serde_json::from_slice(configuration).unwrap_or_default();
+        Self(Rc::new(PreviewState {
+            content: configuration["content"].clone(),
+            executor: OnceCell::new(),
+            desired: Cell::new(None),
+            scheduled: Cell::new(false),
+            view: RefCell::new(None),
+        }))
+    }
+
+    pub fn layout(&self, bounds: Bounds<Pixels>, window: &Window, cx: &App) {
+        let Ok(handle) = HasWindowHandle::window_handle(window) else {
+            return;
+        };
+        let RawWindowHandle::Win32(parent) = handle.as_raw() else {
+            return;
+        };
+        let bounds = Rect {
+            position: LogicalPosition::new(f32::from(bounds.origin.x), f32::from(bounds.origin.y))
+                .into(),
+            size: LogicalSize::new(
+                f32::from(bounds.size.width).max(0.0),
+                f32::from(bounds.size.height).max(0.0),
+            )
+            .into(),
+        };
+        self.0
+            .executor
+            .get_or_init(|| cx.foreground_executor().clone());
+        self.0.request(Some(Placement { parent, bounds }));
     }
 
     pub fn hide(&self) {
-        if let Some(view) = self.view.borrow().as_ref() {
-            let _ = view.set_visible(false);
-        }
+        self.0.request(None);
     }
 
     pub fn toggle_find(&self) {}

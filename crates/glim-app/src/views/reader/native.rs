@@ -459,7 +459,10 @@ impl Render for NativeReader {
             let surface = canvas(
                 move |bounds, window, cx| {
                     if let Some(preview) = &view.read(cx).preview {
+                        #[cfg(target_os = "macos")]
                         preview.layout(bounds, window);
+                        #[cfg(windows)]
+                        preview.layout(bounds, window, cx);
                     }
                 },
                 |_, _, _, _| {},
