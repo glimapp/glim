@@ -1100,10 +1100,22 @@ mod tests {
             .unwrap();
             cx.run_until_parked();
         };
-        click(cx, "file-panel-files".into());
-        assert!(cx.update(|cx| workspace.read(cx).changes_expanded));
-        click(cx, "file-panel-files".into());
-        assert!(!cx.update(|cx| workspace.read(cx).changes_expanded));
+        let files_heading = |cx: &mut TestAppContext| {
+            cx.update_window(handle, |_, window, cx| {
+                window.render_frame(cx);
+                let bounds = window.find("file-panel-files").bounds();
+                (bounds.top(), bounds.size.height)
+            })
+            .unwrap()
+        };
+        for _ in 0..3 {
+            click(cx, "file-panel-files".into());
+            assert!(cx.update(|cx| workspace.read(cx).changes_expanded));
+            let expanded = files_heading(cx);
+            click(cx, "file-panel-files".into());
+            assert!(!cx.update(|cx| workspace.read(cx).changes_expanded));
+            assert_eq!(expanded, files_heading(cx));
+        }
         click(cx, "file-panel-changes".into());
         click(cx, "expanded-changes-heading".into());
         assert!(!cx.update(|cx| workspace.read(cx).changes_expanded));

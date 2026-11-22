@@ -214,9 +214,9 @@ impl Render for Workspace {
             navigation_width.max(self.header_controls_width(brand_inset, window, cx));
         let rounded_header_join = header_width - navigation_width > 0.5;
         let document_page = self.page == Page::Document;
+        let has_tab_bar = matches!(self.page, Page::Document | Page::Changes);
         // The tab bar's one-pixel bottom border sits inside its height.
-        let header_divider_y =
-            px(super::TITLE_BAR_HEIGHT) - px(if document_page { 1. } else { 0. });
+        let header_divider_y = px(super::TITLE_BAR_HEIGHT) - px(if has_tab_bar { 1. } else { 0. });
         let header_cutout = rounded_header_join
             .then(|| size(px(header_width - navigation_width), header_divider_y));
         let header = self.header(brand_inset, rounded_header_join, cx);
@@ -312,23 +312,17 @@ impl Render for Workspace {
             .when(!self.file_fullscreen, |view| view.rounded(px(12.)))
             .bg(cx.theme().background)
             .when(
-                !document_page
-                    && self.page != Page::Changes
-                    && self.page != Page::Start
-                    && !self.file_fullscreen,
+                !has_tab_bar && self.page != Page::Start && !self.file_fullscreen,
                 |view| view.pt(px(super::TITLE_BAR_HEIGHT)),
             )
-            .when(
-                (document_page || self.page == Page::Changes) && !self.file_fullscreen,
-                |view| {
-                    view.child(self.tab_bar(
-                        (header_width - navigation_width).max(0.),
-                        window_controls_width,
-                        window,
-                        cx,
-                    ))
-                },
-            )
+            .when(has_tab_bar && !self.file_fullscreen, |view| {
+                view.child(self.tab_bar(
+                    (header_width - navigation_width).max(0.),
+                    window_controls_width,
+                    window,
+                    cx,
+                ))
+            })
             .child(
                 div()
                     .relative()
@@ -941,7 +935,7 @@ impl Render for Workspace {
                 cx.stop_propagation();
             }))
             .child(body)
-            .child(outline.render(document_page, cx))
+            .child(outline.render(has_tab_bar, cx))
             .when(!self.file_fullscreen, |view| {
                 view.child(
                     div()
