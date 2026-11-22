@@ -922,6 +922,8 @@
   "Unstaged changes will be permanently discarded. Staged changes are kept.": "Unstaged changes will be permanently discarded. Staged changes are kept.",
   "Use current file": "Use current file",
   "Use incoming file": "Use incoming file",
+  "Refresh status every minute": "Refresh status every minute",
+  "Enable worktrees": "Enable worktrees",
   "Worktree tab": "Worktrees",
   "Worktrees": "Worktrees",
   "staged files": "staged files",

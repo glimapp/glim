@@ -72,6 +72,8 @@ enum Prepared {
 pub(crate) struct Changes {
     pub(super) tabs: Vec<DiffTab>,
     section: Section,
+    monitoring: bool,
+    refresh_timer: Option<Task<()>>,
     available: bool,
     active_root: Option<PathBuf>,
     catalog: Arc<Catalog>,
@@ -129,6 +131,8 @@ pub(crate) struct Changes {
 
 impl Changes {
     pub(super) fn cancel(&mut self, cx: &mut Context<Self>) {
+        self.monitoring = false;
+        self.refresh_timer = None;
         self.generation += 1;
         self.browse_generation += 1;
         self.browse_cancel = None;
@@ -178,11 +182,20 @@ impl Changes {
         let diff = cx.new(|cx| DiffState::new([], cx));
         let subscriptions = vec![
             cx.observe(&message, |_, _, cx| cx.notify()),
+            cx.observe_global::<crate::app::GitSettings>(|view, cx| {
+                view.update_refresh_timer(cx);
+                if view.section == Section::Worktrees && !Self::preferences(cx).worktrees {
+                    view.switch_section(Section::Changes, cx);
+                }
+                cx.notify();
+            }),
             cx.observe(&diff, |_, _, cx| cx.notify()),
         ];
         Self {
             tabs: Vec::new(),
             section: Section::Changes,
+            monitoring: false,
+            refresh_timer: None,
             available: true,
             active_root: None,
             catalog: Arc::default(),
@@ -249,6 +262,8 @@ impl Changes {
             self.disable(cx);
             return;
         }
+        self.monitoring = !roots.is_empty();
+        self.update_refresh_timer(cx);
         self.available = true;
         self.status_cancel = None;
         self.status_task = None;
@@ -586,6 +601,40 @@ impl Changes {
             });
         }));
         cx.notify();
+    }
+
+    fn preferences(cx: &App) -> glim_services::preferences::GitPreferences {
+        cx.try_global::<crate::app::GitSettings>()
+            .map(|settings| settings.preferences)
+            .unwrap_or_default()
+    }
+
+    fn update_refresh_timer(&mut self, cx: &mut Context<Self>) {
+        if !self.monitoring || !Self::preferences(cx).auto_refresh {
+            self.refresh_timer = None;
+        } else if self.refresh_timer.is_none() {
+            self.refresh_timer = Some(cx.spawn(async move |view, cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_secs(60))
+                        .await;
+                    if view
+                        .update(cx, |view, cx| {
+                            if !view.loading
+                                && !view.patch_loading
+                                && !view.browsing
+                                && !view.busy(cx)
+                            {
+                                view.refresh(cx);
+                            }
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }));
+        }
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {

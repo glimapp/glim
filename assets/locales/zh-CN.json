@@ -922,6 +922,8 @@
   "Unstaged changes will be permanently discarded. Staged changes are kept.": "永久放弃未暂存的修改，保留已暂存内容。",
   "Use current file": "使用当前文件",
   "Use incoming file": "使用传入文件",
+  "Refresh status every minute": "每分钟刷新仓库状态",
+  "Enable worktrees": "启用工作树",
   "Worktree tab": "目录",
   "Worktrees": "工作树",
   "staged files": "个已暂存文件",

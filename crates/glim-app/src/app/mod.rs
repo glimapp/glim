@@ -173,6 +173,13 @@ pub(crate) fn remove_recent_workspace(id: String, cx: &mut App) {
     cx.global_mut::<WorkspaceSaveTask>().0 = Some(task);
 }
 
+#[derive(Default)]
+pub(crate) struct GitSettings {
+    pub preferences: glim_services::preferences::GitPreferences,
+    pub save: Option<Task<()>>,
+}
+impl Global for GitSettings {}
+
 pub(crate) struct AppearancePreference(pub glim_services::preferences::Appearance);
 impl Global for AppearancePreference {}
 
@@ -395,6 +402,7 @@ pub fn run() -> Result<()> {
         log::error!("Cannot restore workspace windows: {error:#}");
         Default::default()
     });
+    let git_preferences = glim_services::preferences::git_preferences();
     let word_wrap = glim_services::preferences::word_wrap();
     let appearance = glim_services::preferences::appearance();
     let html_preview = glim_services::preferences::preview_mode("html");
@@ -439,6 +447,10 @@ pub fn run() -> Result<()> {
         #[cfg(target_os = "macos")]
         cx.set_quit_mode(QuitMode::Explicit);
         gpui_kit::component::set_locale(glim_services::locale::code());
+        cx.set_global(GitSettings {
+            preferences: git_preferences,
+            save: None,
+        });
         cx.set_global(LanguageSaveTask::default());
         cx.set_global(LanguagePreference(language));
         cx.set_global(AppearancePreference(appearance));
