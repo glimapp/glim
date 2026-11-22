@@ -32,3 +32,24 @@ MCP 命令使用已安装的 `Glim.app/Contents/MacOS/glim --mcp`，无需额外
 现有配置的备份位于 `~/Library/Application Support/Glim/Integrations/Backups`，受私有目录权限保护，每个文件最多保留两份。取消关联删除识别为 Glim 的条目及 Codex 中指向 Glim 的默认项，保留其他集成与设置。已有配置格式错误或存在同名冲突时不覆盖；可点击对应行的 Finder 按钮检查，再刷新状态。
 
 各客户端的官方配置文档见[英文版参考链接](app-integrations.md#client-references)。
+
+<a id="cursor-mcp"></a>
+
+## Cursor MCP
+
+手动配置时，将下面的 `glim` 条目合并到 `~/.cursor/mcp.json` 的 `mcpServers` 中，再在 Cursor 中重新加载 MCP 服务。
+
+```json
+{
+  "mcpServers": {
+    "glim": {
+      "command": "/Applications/Glim.app/Contents/Resources/glim",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}
+```
+
+调用 `open_in_glim` 时传入本地文件或文件夹的绝对路径。要导出 Markdown，可以让 Cursor 在终端执行 `glim pdf README.md report.pdf`。
