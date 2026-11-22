@@ -1,4 +1,7 @@
 {
+  "Set up": "配置",
+  "Install the glim command and skills for detected agents.": "安装 glim 命令，并为检测到的 Agent 配置技能。",
+  "Terminal and agent tools": "终端与 Agent 工具",
   "Setup incomplete. View details and retry.": "配置未完成。查看详情后重试。",
   "Open a new terminal or agent session.": "请打开新终端或启动新的 Agent 会话。",
   "Set up CLI and Agent Skills": "配置 CLI 与 Agent Skills",
@@ -922,6 +925,8 @@
   "staged files": "个已暂存文件",
   "Local branch": "本地分支",
   "Remote branch": "远端分支",
+  "Git branches": "分支",
+  "Git tags": "标签",
   "Tag": "标签",
   "Reset · soft": "重置 · soft（保留暂存）",
   "Reset · mixed": "重置 · mixed（保留文件）",

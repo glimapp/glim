@@ -101,41 +101,36 @@ impl Render for Changes {
                 },
                 cx,
             ));
-        let owner = cx.entity().downgrade();
-        use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
-        let tabs = h_flex()
+        use gpui_kit::assets::IconName;
+        let mut tabs = h_flex()
+            .id("git-sections")
             .w_full()
             .min_w_0()
-            .px_2()
-            .gap_1()
-            .child(
-                Button::new("git-section-picker")
-                    .small()
-                    .ghost()
-                    .label(tr(self.section.label()))
-                    .icon(gpui_kit::assets::IconName::ChevronDown)
-                    .dropdown_menu(move |mut menu, _, _| {
-                        for section in Section::ALL {
-                            let owner = owner.clone();
-                            menu = menu.item(PopupMenuItem::new(tr(section.label())).on_click(
-                                move |_, _, cx| {
-                                    let _ = owner.update(cx, |view, cx| {
-                                        view.switch_section(section, cx);
-                                        cx.emit(ShowDiff);
-                                    });
-                                },
-                            ));
-                        }
-                        menu
-                    }),
-            )
-            .child(div().flex_1())
-            .when(self.section == Section::Stashes, |row| {
-                row.child(self.form_button("git-stash-save", super::controls::Form::Stash, cx))
-            })
-            .when(self.section == Section::Worktrees, |row| {
-                row.child(self.form_button("git-worktree-add", super::controls::Form::Worktree, cx))
-            });
+            .overflow_x_scroll()
+            .flex_shrink_0()
+            .px_2();
+        for section in Section::ALL {
+            let icon = match section {
+                Section::Changes => IconName::Files,
+                Section::History => IconName::Clock,
+                Section::Branches => IconName::GitBranch,
+                Section::Remotes => IconName::Globe,
+                Section::Stashes => IconName::Archive,
+                Section::Worktrees => IconName::Folders,
+            };
+            tabs = tabs.child(
+                super::controls::icon_action(
+                    Button::new(("git-section", section as usize)),
+                    icon,
+                    section.label(),
+                )
+                .selected(self.section == section)
+                .on_click(cx.listener(move |view, _, _, cx| {
+                    view.switch_section(section, cx);
+                    cx.emit(ShowDiff);
+                })),
+            );
+        }
         let mut status = h_flex().h(px(30.)).flex_shrink_0().min_w_0().px_3().gap_2();
         if let Some(error) = self
             .operation_error
@@ -188,7 +183,7 @@ impl Render for Changes {
         }
         let mut content = v_flex().flex_1().min_h_0().w_full();
         if self.section == Section::Changes {
-            let mut actions = h_flex().px_2().py_1().gap_1().flex_wrap().child(
+            let mut actions = header.overflow_x_scroll().child(
                 super::controls::icon_action(
                     Button::new("all-changes-diff"),
                     gpui_kit::assets::IconName::GitCompareArrows,
@@ -305,67 +300,89 @@ impl Render for Changes {
             if !batch.is_empty() {
                 actions = actions.child(self.operation_menu("git-batch", "All files", batch, cx));
             }
-            content = content.child(self.navigation(cx)).child(actions);
+            content = content.child(actions).child(self.navigation(cx));
             let message = self.message.read(cx).value().to_string();
+            let focused = self.message.read(cx).focus_handle(cx).is_focused(window);
             content = content.child(
-                v_flex()
-                    .flex_shrink_0()
-                    .px_3()
-                    .py_2()
-                    .gap_2()
-                    .child(
-                        Textarea::new(&self.message)
-                            .h(px(56.))
-                            .aria_label(tr("Commit message"))
-                            .disabled(disabled),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!("{} {}", staged, tr("staged files"))),
-                    )
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .flex_wrap()
-                            .justify_between()
-                            .gap_1()
-                            .child(
-                                Button::new("git-amend-toggle")
-                                    .small()
-                                    .icon(gpui_kit::assets::IconName::RotateCcw)
-                                    .tooltip(tr("Amend"))
-                                    .accessibility_label(tr("Amend"))
+                div().p_2().child(
+                    v_flex()
+                        .p_1()
+                        .rounded_md()
+                        .border_1()
+                        .bg(cx.theme().background)
+                        .border_color(if focused {
+                            crate::views::accent(cx)
+                        } else {
+                            cx.theme().input
+                        })
+                        .child(
+                            Textarea::new(&self.message)
+                                .appearance(false)
+                                .bordered(false)
+                                .h(px(54.))
+                                .aria_label(tr("Commit message"))
+                                .disabled(disabled),
+                        )
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .when(staged > 0, |v| {
+                                            v.child(format!("{} {}", staged, tr("staged files")))
+                                        }),
+                                )
+                                .child(
+                                    super::controls::icon_action(
+                                        Button::new("git-amend-toggle"),
+                                        IconName::Undo2,
+                                        "Amend",
+                                    )
                                     .selected(self.amend)
                                     .disabled(disabled || metadata.head.is_empty())
-                                    .on_click(cx.listener(|view, _, _, cx| {
-                                        view.amend = !view.amend;
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                self.operation_button(
-                                    "git-commit",
-                                    Operation::Commit {
-                                        message,
-                                        amend: self.amend,
-                                    },
-                                    disabled
-                                        || conflict_count > 0
-                                        || (staged == 0 && !self.amend)
-                                        || self
-                                            .message
-                                            .read(cx)
-                                            .value()
-                                            .to_string()
-                                            .trim()
-                                            .is_empty(),
-                                    cx,
+                                    .on_click(cx.listener(
+                                        |view, _, _, cx| {
+                                            view.amend = !view.amend;
+                                            cx.notify();
+                                        },
+                                    )),
                                 )
-                                .primary(),
-                            ),
-                    ),
+                                .child(
+                                    super::controls::icon_action(
+                                        Button::new("git-commit-refresh"),
+                                        IconName::RefreshCw,
+                                        "Refresh",
+                                    )
+                                    .disabled(disabled)
+                                    .on_click(cx.listener(|view, _, _, cx| view.refresh(cx))),
+                                )
+                                .child(
+                                    self.operation_button(
+                                        "git-commit",
+                                        Operation::Commit {
+                                            message,
+                                            amend: self.amend,
+                                        },
+                                        disabled
+                                            || conflict_count > 0
+                                            || (staged == 0 && !self.amend)
+                                            || self
+                                                .message
+                                                .read(cx)
+                                                .value()
+                                                .to_string()
+                                                .trim()
+                                                .is_empty(),
+                                        cx,
+                                    )
+                                    .primary(),
+                                ),
+                        ),
+                ),
             );
         } else {
             content = content.child(self.browser_view(window, cx));
@@ -374,7 +391,6 @@ impl Render for Changes {
             .size_full()
             .min_h_0()
             .min_w_0()
-            .child(header)
             .child(tabs)
             .when(
                 self.operation_error.is_some()

@@ -144,34 +144,10 @@ impl Workspace {
             .accessibility_label(glim_services::locale::tr("Error diagnostics"))
             .on_click(|enabled, _, cx| crate::app::telemetry::set_diagnostics(*enabled, cx))
             .into_any_element();
-        let row = |label: &'static str, detail: &'static str, control: AnyElement| {
-            let mut text = v_flex()
-                .flex_1()
-                .min_w(px(0.))
-                .gap_1()
-                .child(div().text_sm().child(glim_services::locale::tr(label)));
-            if !detail.is_empty() {
-                text = text.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(glim_services::locale::tr(detail)),
-                );
-            }
-            h_flex()
-                .w_full()
-                .min_h(px(58.))
-                .py_3()
-                .gap_4()
-                .child(text)
-                .child(div().flex_shrink_0().child(control))
+        let row = |label, detail, control| {
+            crate::views::settings_controls::settings_row(label, detail, control, cx)
         };
-        let group = || {
-            v_flex().w_full().px_4().rounded(px(12.)).bg(cx
-                .theme()
-                .background
-                .blend(cx.theme().foreground.opacity(0.035)))
-        };
+        let group = || crate::views::settings_controls::settings_group(cx);
         let divider = || div().w_full().h(px(1.)).bg(cx.theme().border);
         let heading = |label: &'static str| {
             div()

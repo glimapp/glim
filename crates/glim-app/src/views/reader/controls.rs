@@ -167,7 +167,7 @@ impl RenderOnce for ReaderToolbarDock {
             .into_any_element()
     }
 }
-fn capsule(
+pub(crate) fn capsule(
     controls: AnyElement,
     collapsed: bool,
     reserve_space: bool,

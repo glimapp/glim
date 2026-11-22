@@ -23,6 +23,7 @@ pub(crate) mod workspace_window;
 
 mod file_icons;
 pub(crate) mod integrations;
+mod settings_controls;
 
 pub(crate) mod updates;
 

@@ -190,12 +190,13 @@ impl Changes {
     ) -> Button {
         let button = Button::new(id).small();
         let button = match &operation {
-            Operation::Commit { .. } => icon_action(button, IconName::Check, "Commit"),
+            Operation::Commit { .. } => icon_action(button, IconName::Send, "Commit"),
             Operation::Stage(Some(change)) if change.status == 'U' => {
                 button.label(tr("Mark resolved"))
             }
             Operation::Stage(Some(_)) => icon_action(button, IconName::Plus, "Stage file"),
             Operation::Unstage(Some(_)) => icon_action(button, IconName::Minus, "Unstage"),
+            Operation::Fetch(_) => icon_action(button, IconName::Download, operation.label()),
             _ => button.label(tr(operation.label())),
         };
         button
@@ -216,8 +217,10 @@ impl Changes {
         let root = self.active_root.clone();
         let button = Button::new(id).small();
         let button = match label {
-            "Sync" => icon_action(button, IconName::CloudSync, label),
-            "File actions" | "Commit actions" => icon_action(button, IconName::Ellipsis, label),
+            "Sync" => icon_action(button, IconName::ArrowUpDown, label),
+            "Branch actions" | "Stash actions" | "File actions" | "Commit actions" => {
+                icon_action(button, IconName::Ellipsis, label)
+            }
             "Reset to commit" => icon_action(button, IconName::Undo2, label),
             "All files" => icon_action(button, IconName::Files, label),
             _ => button.label(tr(label)).icon(IconName::ChevronDown),
@@ -260,7 +263,6 @@ impl Changes {
         Button::new("git-repository-menu")
             .small()
             .ghost()
-            .flex_1()
             .min_w_0()
             .justify_start()
             .icon(IconName::GitBranch)
@@ -349,6 +351,20 @@ impl Changes {
         let owner = cx.entity().downgrade();
         let root = self.active_root.clone();
         let validation = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
+        let mut revisions = vec![("HEAD".to_string(), "HEAD".to_string())];
+        revisions.extend(
+            self.catalog
+                .references
+                .iter()
+                .map(|r| (r.name.clone(), r.full.clone())),
+        );
+        revisions.extend(self.commits.iter().map(|c| {
+            (
+                format!("{}  {}", &c.id[..8.min(c.id.len())], c.subject),
+                c.id.clone(),
+            )
+        }));
+        let revisions = Arc::new(revisions);
         let focus = fields
             .first()
             .map(|(_, input)| input.read(cx).focus_handle(cx));
@@ -360,12 +376,58 @@ impl Changes {
             let key = key.clone();
             let validation = validation.clone();
             let mut dialog = dialog.title(tr(form.title())).width(px(480.));
-            for (label, input) in &fields {
+            for (index, (label, input)) in fields.iter().enumerate() {
                 dialog = dialog.child(
                     v_flex()
                         .gap_1()
                         .child(div().text_sm().child(tr(label)))
-                        .child(crate::views::form_input(input, window, cx).aria_label(tr(label))),
+                        .child(
+                            h_flex()
+                                .gap_1()
+                                .child(
+                                    div().flex_1().min_w_0().child(
+                                        crate::views::form_input(input, window, cx)
+                                            .aria_label(tr(label)),
+                                    ),
+                                )
+                                .when(
+                                    matches!(
+                                        *label,
+                                        "Revision" | "Base revision" | "Target revision"
+                                    ),
+                                    |row| {
+                                        let revisions = revisions.clone();
+                                        let input = input.clone();
+                                        row.child(
+                                            icon_action(
+                                                Button::new(("revision-picker", index)),
+                                                IconName::ChevronDown,
+                                                label,
+                                            )
+                                            .dropdown_menu(move |mut menu, _, _| {
+                                                for (label, revision) in revisions.iter() {
+                                                    let revision = revision.clone();
+                                                    let input = input.clone();
+                                                    menu = menu.item(
+                                                        PopupMenuItem::new(label.clone()).on_click(
+                                                            move |_, window, cx| {
+                                                                input.update(cx, |field, cx| {
+                                                                    field.set_value(
+                                                                        revision.clone(),
+                                                                        window,
+                                                                        cx,
+                                                                    )
+                                                                });
+                                                            },
+                                                        ),
+                                                    );
+                                                }
+                                                menu.scrollable(true).max_h(px(320.))
+                                            }),
+                                        )
+                                    },
+                                ),
+                        ),
                 );
             }
             if matches!(form, Form::Worktree) {
