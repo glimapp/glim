@@ -265,17 +265,19 @@ impl Changes {
                 .gap_1()
                 .flex_wrap()
                 .child(
-                    Button::new("git-history-reflog")
-                        .small()
-                        .label(tr("Reflog"))
-                        .selected(self.history_reflog)
-                        .on_click(cx.listener(|view, _, _, cx| {
-                            view.history_reflog = !view.history_reflog;
-                            view.history_path = None;
-                            view.history_page = 0;
-                            view.selected_commit = None;
-                            view.browse(cx);
-                        })),
+                    super::controls::icon_action(
+                        Button::new("git-history-reflog"),
+                        gpui_kit::assets::IconName::Clock,
+                        "Reflog",
+                    )
+                    .selected(self.history_reflog)
+                    .on_click(cx.listener(|view, _, _, cx| {
+                        view.history_reflog = !view.history_reflog;
+                        view.history_path = None;
+                        view.history_page = 0;
+                        view.selected_commit = None;
+                        view.browse(cx);
+                    })),
                 )
                 .child(
                     super::controls::icon_action(
@@ -291,32 +293,38 @@ impl Changes {
                 )
                 .child(self.form_button("git-compare", Form::Compare, cx))
                 .child(
-                    Button::new("git-history-all")
-                        .small()
-                        .label(tr("All files"))
-                        .selected(self.history_path.is_none())
-                        .on_click(cx.listener(|view, _, _, cx| {
-                            view.history_path = None;
-                            view.history_page = 0;
-                            view.selected_commit = None;
-                            view.browse(cx);
-                        })),
+                    super::controls::icon_action(
+                        Button::new("git-history-all"),
+                        gpui_kit::assets::IconName::Files,
+                        "All files",
+                    )
+                    .selected(self.history_path.is_none())
+                    .on_click(cx.listener(|view, _, _, cx| {
+                        view.history_path = None;
+                        view.history_page = 0;
+                        view.selected_commit = None;
+                        view.browse(cx);
+                    })),
                 )
                 .when_some(
                     self.selection.as_ref().map(|(_, c)| c.path.clone()),
                     |bar, path| {
                         bar.child(
-                            Button::new("git-file-history")
-                                .small()
-                                .label(tr("File history"))
-                                .selected(self.history_path.as_ref() == Some(&path))
-                                .on_click(cx.listener(move |view, _, _, cx| {
+                            super::controls::icon_action(
+                                Button::new("git-file-history"),
+                                gpui_kit::assets::IconName::FileClock,
+                                "File history",
+                            )
+                            .selected(self.history_path.as_ref() == Some(&path))
+                            .on_click(cx.listener(
+                                move |view, _, _, cx| {
                                     view.history_reflog = false;
                                     view.history_path = Some(path.clone());
                                     view.history_page = 0;
                                     view.selected_commit = None;
                                     view.browse(cx);
-                                })),
+                                },
+                            )),
                         )
                     },
                 )
@@ -548,15 +556,17 @@ impl Changes {
                         ),
                     )
                     .child(
-                        Button::new("git-search-run")
-                            .small()
-                            .label(tr("Search"))
-                            .disabled(self.browsing)
-                            .on_click(cx.listener(|view, _, _, cx| {
-                                view.history_page = 0;
-                                view.selected_commit = None;
-                                view.browse(cx);
-                            })),
+                        super::controls::icon_action(
+                            Button::new("git-search-run"),
+                            gpui_kit::assets::IconName::Search,
+                            "Search",
+                        )
+                        .disabled(self.browsing)
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.history_page = 0;
+                            view.selected_commit = None;
+                            view.browse(cx);
+                        })),
                     )
                     .child(
                         super::controls::icon_action(
@@ -665,12 +675,16 @@ impl Changes {
                     if let Some(path) = self.history_path.clone() {
                         let blame_path = path.clone();
                         bar = bar.child(
-                            Button::new("git-file-blame")
-                                .small()
-                                .label(tr("Blame"))
-                                .on_click(cx.listener(move |view, _, _, cx| {
+                            super::controls::icon_action(
+                                Button::new("git-file-blame"),
+                                gpui_kit::assets::IconName::List,
+                                "Blame",
+                            )
+                            .on_click(cx.listener(
+                                move |view, _, _, cx| {
                                     view.show_comparison(Comparison::Blame(blame_path.clone()), cx)
-                                })),
+                                },
+                            )),
                         );
                         bar = bar.child(self.operation_button(
                             "git-restore-file",

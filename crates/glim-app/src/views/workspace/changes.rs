@@ -28,6 +28,38 @@ impl EventEmitter<OpenFile> for Changes {}
 pub(super) struct ShowDiff;
 impl EventEmitter<ShowDiff> for Changes {}
 
+#[derive(Clone, PartialEq, Eq)]
+pub(super) enum DiffTab {
+    File(PathBuf, Change),
+    Comparison(PathBuf, Comparison),
+}
+
+impl DiffTab {
+    pub(super) fn label(&self) -> String {
+        match self {
+            Self::File(_, change) => format!(
+                "{} · {}",
+                change
+                    .path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
+                tr(Changes::area(change.area))
+            ),
+            Self::Comparison(_, comparison) => comparison.title(),
+        }
+    }
+
+    pub(super) fn description(&self) -> String {
+        match self {
+            Self::File(root, change) => root.join(&change.path).display().to_string(),
+            Self::Comparison(root, comparison) => {
+                format!("{} · {}", root.display(), comparison.title())
+            }
+        }
+    }
+}
+
 enum Prepared {
     Diff(
         Vec<DiffFile>,
@@ -38,6 +70,7 @@ enum Prepared {
 }
 
 pub(crate) struct Changes {
+    pub(super) tabs: Vec<DiffTab>,
     section: Section,
     available: bool,
     active_root: Option<PathBuf>,
@@ -110,6 +143,7 @@ impl Changes {
 
     pub(super) fn disable(&mut self, cx: &mut Context<Self>) {
         self.cancel(cx);
+        self.tabs.clear();
         self.repositories.clear();
         self.catalog = Arc::default();
         self.commits = Arc::default();
@@ -144,6 +178,7 @@ impl Changes {
             cx.observe(&diff, |_, _, cx| cx.notify()),
         ];
         Self {
+            tabs: Vec::new(),
             section: Section::Changes,
             available: true,
             active_root: None,
@@ -221,6 +256,7 @@ impl Changes {
             || self.remote.as_ref().map(|r| &r.connection.id)
                 != remote.as_ref().map(|r| &r.connection.id)
         {
+            self.tabs.clear();
             self.selection = None;
             self.active_root = None;
             self.comparison = None;
@@ -313,6 +349,8 @@ impl Changes {
                     if let Some((root, comparison)) = view.comparison.clone() {
                         view.load_patch(root, None, Some(comparison), cx);
                     }
+                } else if let Some((root, Comparison::AllChanges)) = view.comparison.clone() {
+                    view.load_patch(root, None, Some(Comparison::AllChanges), cx);
                 } else if let Some((root, change)) = selection {
                     view.select(root, change, cx);
                 } else {
@@ -331,6 +369,74 @@ impl Changes {
         self.memory = None;
         self.patch_error = None;
         self.patch_source = None;
+    }
+
+    fn current_tab(&self) -> Option<DiffTab> {
+        self.comparison
+            .clone()
+            .map(|(root, query)| DiffTab::Comparison(root, query))
+            .or_else(|| {
+                self.selection
+                    .clone()
+                    .filter(|_| self.section == Section::Changes)
+                    .map(|(root, change)| DiffTab::File(root, change))
+            })
+    }
+
+    pub(super) fn active_tab(&self) -> Option<usize> {
+        let current = self.current_tab()?;
+        self.tabs.iter().position(|tab| tab == &current)
+    }
+
+    pub(super) fn activate_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        match self.tabs.get(index).cloned() {
+            Some(DiffTab::File(root, change)) => self.select(root, change, cx),
+            Some(DiffTab::Comparison(root, query)) => {
+                self.cancel_browse();
+                self.active_root = Some(root);
+                self.section = match &query {
+                    Comparison::AllChanges => Section::Changes,
+                    Comparison::Stash(_) => Section::Stashes,
+                    Comparison::Between(_, _) => Section::Branches,
+                    _ => Section::History,
+                };
+                self.selected_commit = match &query {
+                    Comparison::Commit(id)
+                    | Comparison::FileHistory(id, _)
+                    | Comparison::Details(id) => {
+                        self.commits.iter().find(|commit| &commit.id == id).cloned()
+                    }
+                    _ => None,
+                };
+                self.selected_reference = None;
+                self.selected_stash = None;
+                self.selection = None;
+                self.show_comparison(query, cx);
+            }
+            None => return,
+        }
+        cx.notify();
+    }
+
+    pub(super) fn close_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index >= self.tabs.len() {
+            return;
+        }
+        let active = self.active_tab() == Some(index);
+        self.tabs.remove(index);
+        if active {
+            if self.tabs.is_empty() {
+                self.patch_cancel = None;
+                self.patch_task = None;
+                self.patch_loading = false;
+                self.selection = None;
+                self.comparison = None;
+                self.clear_patch(cx);
+            } else {
+                self.activate_tab(index.min(self.tabs.len() - 1), cx);
+            }
+        }
+        cx.notify();
     }
 
     fn select(&mut self, root: PathBuf, change: Change, cx: &mut Context<Self>) {
@@ -352,6 +458,11 @@ impl Changes {
         comparison: Option<Comparison>,
         cx: &mut Context<Self>,
     ) {
+        if let Some(tab) = self.current_tab()
+            && !self.tabs.contains(&tab)
+        {
+            self.tabs.push(tab);
+        }
         self.patch_cancel = None;
         self.patch_task = None;
         self.clear_patch(cx);
@@ -732,7 +843,9 @@ impl Changes {
                 Button::new("diff-wrap")
                     .ghost()
                     .small()
-                    .label(tr("Wrap"))
+                    .icon(gpui_kit::assets::IconName::CornerDownLeft)
+                    .tooltip(tr("Wrap"))
+                    .accessibility_label(tr("Wrap"))
                     .selected(self.soft_wrap)
                     .disabled(!ready)
                     .on_click(cx.listener(|view, _, _, cx| {
@@ -913,6 +1026,7 @@ mod tests {
         git(&["remote", "add", "origin", remote_path]);
         git(&["push", "-u", "origin", "main"]);
         std::fs::write(root.join("schedule.md"), "Tuesday\n").unwrap();
+        std::fs::write(root.join("test-note.md"), "Untracked marker\n").unwrap();
         let (handle, workspace) = cx.update(|cx| {
             gpui_kit::init(cx);
             crate::app::remote::init(Default::default(), cx);
@@ -942,6 +1056,42 @@ mod tests {
         };
         click(cx, "file-panel-changes".into());
         click(cx, "diff-split".into());
+        click(cx, ("git-change", 1usize).into());
+        click(cx, "all-changes-diff".into());
+        let patch = cx.update(|cx| {
+            workspace
+                .read(cx)
+                .changes
+                .read(cx)
+                .patch_source
+                .clone()
+                .unwrap()
+        });
+        assert!(patch.contains("+Tuesday") && patch.contains("Untracked marker"));
+        click(cx, ("diff-tab", 1usize).into());
+        let patch = cx.update(|cx| {
+            workspace
+                .read(cx)
+                .changes
+                .read(cx)
+                .patch_source
+                .clone()
+                .unwrap()
+        });
+        assert!(patch.contains("Untracked marker") && !patch.contains("+Tuesday"));
+        click(cx, ("close-diff-tab", 2usize).into());
+        click(cx, ("diff-tab", 0usize).into());
+        let patch = cx.update(|cx| {
+            workspace
+                .read(cx)
+                .changes
+                .read(cx)
+                .patch_source
+                .clone()
+                .unwrap()
+        });
+        assert!(patch.contains("+Tuesday") && !patch.contains("Untracked marker"));
+        std::fs::remove_file(root.join("test-note.md")).unwrap();
         click(cx, "git-stage-file".into());
         assert_eq!(git(&["diff", "--cached", "--name-only"]), "schedule.md\n");
         click(cx, "git-unstage-file".into());

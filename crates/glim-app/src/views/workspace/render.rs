@@ -305,12 +305,18 @@ impl Render for Workspace {
             .when(!self.file_fullscreen, |view| view.rounded(px(12.)))
             .bg(cx.theme().background)
             .when(
-                !document_page && self.page != Page::Start && !self.file_fullscreen,
+                !document_page
+                    && self.page != Page::Changes
+                    && self.page != Page::Start
+                    && !self.file_fullscreen,
                 |view| view.pt(px(super::TITLE_BAR_HEIGHT)),
             )
-            .when(document_page && !self.file_fullscreen, |view| {
-                view.child(self.tab_bar((header_width - navigation_width).max(0.), window, cx))
-            })
+            .when(
+                (document_page || self.page == Page::Changes) && !self.file_fullscreen,
+                |view| {
+                    view.child(self.tab_bar((header_width - navigation_width).max(0.), window, cx))
+                },
+            )
             .child(
                 div()
                     .relative()
@@ -868,20 +874,8 @@ impl Render for Workspace {
                     }
                 }),
             )
-            .on_action(cx.listener(|v, _: &NextTab, w, cx| {
-                if !v.tabs.is_empty() {
-                    v.activate_tab((v.active.unwrap_or(0) + 1) % v.tabs.len(), w, cx);
-                }
-            }))
-            .on_action(cx.listener(|v, _: &PreviousTab, w, cx| {
-                if !v.tabs.is_empty() {
-                    v.activate_tab(
-                        (v.active.unwrap_or(0) + v.tabs.len() - 1) % v.tabs.len(),
-                        w,
-                        cx,
-                    );
-                }
-            }))
+            .on_action(cx.listener(|v, _: &NextTab, w, cx| v.cycle_tab(true, w, cx)))
+            .on_action(cx.listener(|v, _: &PreviousTab, w, cx| v.cycle_tab(false, w, cx)))
             .on_action(cx.listener(|v, _: &NavigateBack, w, cx| v.navigate(false, w, cx)))
             .on_action(cx.listener(|v, _: &NavigateForward, w, cx| v.navigate(true, w, cx)))
             .on_action(cx.listener(|v, _: &CloseWorkspace, w, cx| {
@@ -908,7 +902,11 @@ impl Render for Workspace {
             })
             .on_action(cx.listener(|v, _: &SaveFile, w, cx| v.save_active(w, cx)))
             .on_action(cx.listener(|v, _: &CloseWindow, w, cx| {
-                if let Some(i) = v.active {
+                if v.page == Page::Changes
+                    && let Some(i) = v.changes.read(cx).active_tab()
+                {
+                    v.close_diff_tab(i, cx);
+                } else if let Some(i) = v.active {
                     v.close_tab(i, w, cx);
                 } else {
                     v.request_close_window(w, cx);

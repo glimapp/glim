@@ -190,6 +190,7 @@ impl Changes {
     ) -> Button {
         let button = Button::new(id).small();
         let button = match &operation {
+            Operation::Commit { .. } => icon_action(button, IconName::Check, "Commit"),
             Operation::Stage(Some(change)) if change.status == 'U' => {
                 button.label(tr("Mark resolved"))
             }
@@ -215,7 +216,9 @@ impl Changes {
         let root = self.active_root.clone();
         let button = Button::new(id).small();
         let button = match label {
+            "Sync" => icon_action(button, IconName::CloudSync, label),
             "File actions" | "Commit actions" => icon_action(button, IconName::Ellipsis, label),
+            "Reset to commit" => icon_action(button, IconName::Undo2, label),
             "All files" => icon_action(button, IconName::Files, label),
             _ => button.label(tr(label)).icon(IconName::ChevronDown),
         };
@@ -285,9 +288,16 @@ impl Changes {
         form: Form,
         cx: &mut Context<Self>,
     ) -> Button {
-        Button::new(id)
-            .small()
-            .label(tr(form.title()))
+        let icon = match &form {
+            Form::Compare => IconName::GitCompareArrows,
+            Form::Tag(_) => IconName::Tag,
+            Form::Branch | Form::Rename(_) => IconName::GitBranch,
+            Form::Remote => IconName::Globe,
+            Form::Worktree | Form::Init | Form::Clone => IconName::FolderPlus,
+            Form::Stash => IconName::Archive,
+            Form::Identity => IconName::Settings2,
+        };
+        icon_action(Button::new(id), icon, form.title())
             .disabled(
                 self.busy(cx)
                     || (self.active_root.is_none() && !matches!(form, Form::Init | Form::Clone)),

@@ -223,7 +223,19 @@ impl Render for Changes {
         }
         let mut content = v_flex().flex_1().min_h_0().w_full();
         if self.section == Section::Changes {
-            let mut actions = h_flex().px_2().py_1().gap_1().flex_wrap();
+            let mut actions = h_flex().px_2().py_1().gap_1().flex_wrap().child(
+                super::controls::icon_action(
+                    Button::new("all-changes-diff"),
+                    gpui_kit::assets::IconName::GitCompareArrows,
+                    "All changes",
+                )
+                .disabled(self.active_root.is_none())
+                .on_click(cx.listener(|view, _, _, cx| {
+                    view.selection = None;
+                    view.show_comparison(Comparison::AllChanges, cx);
+                    cx.emit(ShowDiff);
+                })),
+            );
             if let Some((_, change)) = self
                 .selection
                 .clone()
@@ -357,7 +369,9 @@ impl Render for Changes {
                             .child(
                                 Button::new("git-amend-toggle")
                                     .small()
-                                    .label(tr("Amend"))
+                                    .icon(gpui_kit::assets::IconName::RotateCcw)
+                                    .tooltip(tr("Amend"))
+                                    .accessibility_label(tr("Amend"))
                                     .selected(self.amend)
                                     .disabled(disabled || metadata.head.is_empty())
                                     .on_click(cx.listener(|view, _, _, cx| {
