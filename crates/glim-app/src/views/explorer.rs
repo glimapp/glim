@@ -1484,6 +1484,22 @@ impl Explorer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        #[cfg(windows)]
+        if is_dir && self.remote.is_none() && !self.media_presence.contains_key(&path) {
+            // The first right-click can arrive before the hover probe finishes.
+            self.check_folder_media(path.clone(), cx);
+            if let Some(probe) = self.media_tasks.remove(&path) {
+                self.context_menu_task = Some(cx.spawn_in(window, async move |view, cx| {
+                    probe.await;
+                    let _ = view.update_in(cx, |view, window, cx| {
+                        if view.media_presence.contains_key(&path) {
+                            view.show_file_menu(path, root, root_id, is_dir, window, cx);
+                        }
+                    });
+                }));
+                return;
+            }
+        }
         use FileMenuAction::*;
         let mut items = Vec::new();
         if is_dir {

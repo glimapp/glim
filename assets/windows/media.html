@@ -1,0 +1,82 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; media-src MEDIA_ORIGIN; base-uri 'none'; form-action 'none'">
+<style>
+  :root { color-scheme: light dark; font: 14px "Segoe UI", sans-serif; }
+  body { margin: 0; display: flex; height: 100vh; }
+  main { flex: 1; min-width: 0; position: relative; }
+  video { width: 100%; height: 100%; background: black; }
+  .audio video { position: absolute; inset: auto 0 0; height: 54px; background: Canvas; }
+  #track { position: absolute; inset: 0 12px 54px; display: grid; place-items: center; overflow-wrap: anywhere; }
+  select { width: min(35%, 240px); border: 0; font: inherit; }
+  option { padding: 6px 8px; }
+  p { position: absolute; top: 0; margin: 12px; padding: 4px 8px; background: Canvas; color: CanvasText; }
+  [hidden], #track[hidden] { display: none; }
+</style>
+<main><span id="track" hidden></span><video controls playsinline preload="metadata"></video><p role="status" hidden></p></main>
+<select size="2" hidden></select>
+<script>
+(async () => {
+  const response = await fetch('/queue');
+  const queue = await response.json();
+  const names = queue.names;
+  const player = document.querySelector('video');
+  const list = document.querySelector('select');
+  const status = document.querySelector('[role=status]');
+  const track = document.querySelector('#track');
+  if (queue.shuffle) {
+    for (let i = names.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [names[i], names[j]] = [names[j], names[i]];
+    }
+  }
+  let current = 0;
+  let pending = false;
+  function resume() {
+    if (pending && !document.hidden) {
+      pending = false;
+      player.play().catch(() => {}); // Native controls remain usable if autoplay is declined.
+    }
+  }
+  function select(index, autoplay) {
+    if (index >= names.length) return;
+    current = index;
+    list.selectedIndex = index;
+    track.hidden = true;
+    player.parentElement.classList.remove('audio');
+    player.setAttribute('aria-label', names[index]);
+    player.src = 'MEDIA_ORIGIN/' + encodeURIComponent(names[index]);
+    status.hidden = true;
+    pending = autoplay;
+    resume();
+  }
+  if (names.length > 1) {
+    list.setAttribute('aria-label', queue.label);
+    const options = document.createDocumentFragment();
+    for (const name of names) options.append(new Option(name));
+    list.append(options);
+    list.hidden = false;
+    list.addEventListener('change', () => select(list.selectedIndex, true));
+  }
+  player.addEventListener('ended', () => select(current + 1, true));
+  player.addEventListener('loadedmetadata', () => {
+    const audio = player.videoWidth === 0;
+    player.parentElement.classList.toggle('audio', audio);
+    track.textContent = names[current];
+    track.hidden = !audio;
+  });
+  player.addEventListener('error', () => {
+    if (current + 1 < names.length) select(current + 1, true);
+    else {
+      status.textContent = names[current] + ' · ' + queue.error;
+      status.hidden = false;
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) player.pause();
+    else resume();
+  });
+  select(0, queue.autoplay);
+})();
+</script>

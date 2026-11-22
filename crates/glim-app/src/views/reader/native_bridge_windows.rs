@@ -4,6 +4,8 @@
 mod find;
 #[path = "windows_html.rs"]
 mod html;
+#[path = "windows_media.rs"]
+mod media;
 #[path = "windows_openapi.rs"]
 mod openapi;
 #[path = "windows_pdf.rs"]
@@ -179,6 +181,9 @@ impl PreviewState {
             .with_incognito(true)
             .with_devtools(false)
             .with_download_started_handler(|_, _| false);
+        if kind == "media" {
+            return media::build(builder, placement.parent, &self.content).map(Surface::Browser);
+        }
         if kind == "open_api" {
             let (_, background) = self.executors.get().expect("preview has a placement");
             let database = self.content["database"]
@@ -215,9 +220,6 @@ impl PreviewState {
                 .or_else(|| self.content["source"].as_str()),
             "office" => self.content["reading"].as_str(),
             "pdf" => self.content["source"].as_str(),
-            "media" => self.content["files"]
-                .get(0)
-                .and_then(serde_json::Value::as_str),
             _ => None,
         };
         let file_url = file.and_then(|file| url::Url::from_file_path(Path::new(file)).ok());
