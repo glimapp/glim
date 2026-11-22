@@ -770,12 +770,6 @@ impl Workspace {
         self.loading = true;
         self.error = None;
         self.loading_path = Some(path.clone());
-        self.tab_scroll.scroll_to_item(
-            self.tabs
-                .iter()
-                .position(|reader| reader.document.path == path)
-                .unwrap_or(0),
-        );
         session.received.store(0, Ordering::Relaxed);
         let transfer = session.clone();
         let remote_path = path.clone();
@@ -1015,7 +1009,7 @@ impl Workspace {
                 view.error = None;
                 view.roots.clear();
                 view.explorer = None;
-                view.subscriptions.clear();
+                view.explorer_subscription = None;
                 for folder in folders {
                     view.add_folder(folder, window, cx);
                 }

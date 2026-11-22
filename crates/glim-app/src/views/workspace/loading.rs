@@ -163,7 +163,6 @@ impl Workspace {
         let Some(path) = self.incoming_files.front().cloned() else {
             return;
         };
-        self.tab_scroll.scroll_to_item(0);
         let (cancel, cancel_on_drop) = glim_services::work::Cancellation::task();
         let work = reader_jobs::run(
             cx.background_executor().clone(),
@@ -267,7 +266,6 @@ impl Workspace {
         self.restoring_roots = None;
         self.loading = true;
         self.loading_path = Some(path.clone());
-        self.tab_scroll.scroll_to_item(0);
         self.error = None;
         let (cancel, cancel_on_drop) = glim_services::work::Cancellation::task();
         let read = reader_jobs::run(
@@ -319,7 +317,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.subscriptions.clear();
+        self.explorer_subscription = None;
         self.explorer = None;
         self.roots.clear();
         self.root = None;
@@ -367,7 +365,7 @@ impl Workspace {
                 explorer.set_remote(remote);
                 explorer
             });
-            self.subscriptions.push(cx.subscribe_in(
+            self.explorer_subscription = Some(cx.subscribe_in(
                 &explorer,
                 window,
                 |view, _, event, window, cx| match event {
@@ -626,7 +624,6 @@ impl Workspace {
         } else {
             self.tabs.insert(0, reader);
             self.active = Some(0);
-            self.tab_scroll.scroll_to_item(0);
         }
         if let Some((path, anchor)) = self.pending_anchor.take()
             && let Some(i) = self.active

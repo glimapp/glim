@@ -256,8 +256,7 @@ impl Render for Changes {
                 .disabled(self.active_root.is_none())
                 .on_click(cx.listener(|view, _, _, cx| {
                     view.selection = None;
-                    view.show_comparison(Comparison::AllChanges, cx);
-                    cx.emit(ShowDiff);
+                    view.open_comparison(Comparison::AllChanges, cx);
                 })),
             );
             if let Some((_, change)) = self

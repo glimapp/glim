@@ -61,6 +61,13 @@ impl Render for DraggedTab {
     }
 }
 
+#[derive(PartialEq, Eq)]
+pub(super) enum TabIdentity {
+    Pending(std::path::PathBuf),
+    Document(u64),
+    Diff(super::changes::DiffTab),
+}
+
 enum TabMenuAction {
     Close(Vec<super::header::Target>),
     Trash(std::path::PathBuf),
@@ -272,7 +279,7 @@ impl Workspace {
             {
                 self.tabs[index].focus_source(window, cx);
             }
-            self.tab_scroll.scroll_to_item(index);
+            self.revealed_tab = None;
             window.set_window_title("Glim");
             self.record_history(cx);
             cx.notify();
@@ -530,7 +537,8 @@ impl Workspace {
                 active
             }
         });
-        self.tab_scroll.scroll_to_item(to);
+        self.tab_scroll
+            .scroll_to_item(to + usize::from(self.pending_tab_path().is_some()));
         self.remember_session(cx);
         cx.notify();
     }
@@ -540,7 +548,7 @@ impl Workspace {
         self.page = super::Page::Changes;
         self.changes
             .update(cx, |git, cx| git.activate_tab(index, cx));
-        self.tab_scroll.scroll_to_item(self.tabs.len() + index);
+        self.revealed_tab = None;
         cx.notify();
     }
     pub(super) fn cycle_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -574,7 +582,7 @@ impl Workspace {
     }
 
     pub(super) fn tab_bar(
-        &self,
+        &mut self,
         leading_inset: f32,
         window: &Window,
         cx: &mut Context<Self>,
@@ -786,6 +794,7 @@ impl Workspace {
                     )
             })
             .collect::<Vec<_>>();
+        let pending_tab = self.pending_open_tab(cx);
         let git = self.changes.read(cx);
         let selected = git.active_tab();
         let diff_tabs =
@@ -831,7 +840,35 @@ impl Workspace {
                         )
                 })
                 .collect::<Vec<_>>();
-        let pending_tab = self.pending_open_tab(cx);
+        let first_document = usize::from(pending_tab.is_some());
+        let target = match self.page {
+            super::Page::Document if pending_tab.is_some() => self
+                .pending_open_path()
+                .map(|path| (TabIdentity::Pending(path.clone()), 0)),
+            super::Page::Document => {
+                self.active
+                    .zip(self.active_reader())
+                    .map(|(index, reader)| {
+                        (
+                            TabIdentity::Document(reader.document.id()),
+                            first_document + index,
+                        )
+                    })
+            }
+            super::Page::Changes => selected.map(|index| {
+                (
+                    TabIdentity::Diff(git.tabs[index].clone()),
+                    first_document + tabs.len() + index,
+                )
+            }),
+            _ => None,
+        };
+        if self.revealed_tab != target {
+            if let Some((_, index)) = &target {
+                self.tab_scroll.scroll_to_item(*index);
+            }
+            self.revealed_tab = target;
+        }
         h_flex()
             .h(px(super::TITLE_BAR_HEIGHT))
             .w_full()
@@ -865,15 +902,17 @@ impl Workspace {
             .into_any_element()
     }
 
+    fn pending_tab_path(&self) -> Option<&std::path::PathBuf> {
+        self.pending_open_path().filter(|path| {
+            !self
+                .tabs
+                .iter()
+                .any(|reader| reader.document.owns_path(path))
+        })
+    }
+
     fn pending_open_tab(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let path = self.pending_open_path()?;
-        if self
-            .tabs
-            .iter()
-            .any(|reader| reader.document.owns_path(path))
-        {
-            return None;
-        }
+        let path = self.pending_tab_path()?;
         let label = path
             .file_name()
             .unwrap_or_default()

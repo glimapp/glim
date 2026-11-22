@@ -109,8 +109,7 @@ impl Changes {
                                     cx.write_to_clipboard(ClipboardItem::new_string(id.clone()))
                                 }
                                 RowAction::Compare(comparison) => {
-                                    view.show_comparison(comparison.clone(), cx);
-                                    cx.emit(ShowDiff);
+                                    view.open_comparison(comparison.clone(), cx);
                                 }
                             }
                         });
@@ -237,6 +236,11 @@ impl Changes {
             self.browse(cx);
         }
         cx.notify();
+    }
+
+    pub(super) fn open_comparison(&mut self, comparison: Comparison, cx: &mut Context<Self>) {
+        self.show_comparison(comparison, cx);
+        cx.emit(ShowDiff);
     }
 
     pub(super) fn show_comparison(&mut self, comparison: Comparison, cx: &mut Context<Self>) {
@@ -799,7 +803,7 @@ impl Changes {
                             EntryKind::Commit => {
                                 let commit = view.commits[index].clone();
                                 view.selected_commit = Some(commit.clone());
-                                view.show_comparison(
+                                view.open_comparison(
                                     match view.history_path.clone() {
                                         Some(path) => Comparison::FileHistory(commit.id, path),
                                         None => Comparison::Commit(commit.id),
@@ -811,7 +815,7 @@ impl Changes {
                                 view.selected_remote = None;
                                 view.selected_reference = Some(index);
                                 let reference = view.catalog.references[index].clone();
-                                view.show_comparison(
+                                view.open_comparison(
                                     Comparison::Between("HEAD".into(), reference.full),
                                     cx,
                                 );
@@ -819,7 +823,7 @@ impl Changes {
                             EntryKind::Stash => {
                                 view.selected_stash = Some(index);
                                 let stash = view.catalog.stashes[index].clone();
-                                view.show_comparison(Comparison::Stash(stash.id), cx);
+                                view.open_comparison(Comparison::Stash(stash.id), cx);
                             }
                             EntryKind::Remote => {
                                 view.selected_remote =

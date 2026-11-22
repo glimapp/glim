@@ -120,7 +120,6 @@ impl Workspace {
         self.page = super::Page::Document;
         self.observe_autosave(window, cx);
         self.tabs[0].focus_source(window, cx);
-        self.tab_scroll.scroll_to_item(0);
         cx.notify();
     }
     pub(super) fn checkpoint_editor(&self, id: EntityId, cx: &App) {

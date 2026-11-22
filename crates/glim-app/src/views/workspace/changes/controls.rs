@@ -828,7 +828,7 @@ impl Changes {
                             },
                             Form::Stash => Operation::StashSave(values[0].clone()),
                             Form::Compare => {
-                                view.show_comparison(
+                                view.open_comparison(
                                     Comparison::Between(values[0].clone(), values[1].clone()),
                                     cx,
                                 );

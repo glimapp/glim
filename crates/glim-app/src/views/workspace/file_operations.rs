@@ -69,7 +69,6 @@ impl Workspace {
         self.error = None;
         self.tabs.insert(0, reader);
         self.active = Some(0);
-        self.tab_scroll.scroll_to_item(0);
         self.observe_autosave(window, cx);
         self.tabs[0].focus_source(window, cx);
         cx.notify();

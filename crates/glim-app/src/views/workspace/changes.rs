@@ -1759,6 +1759,42 @@ mod tests {
             std::fs::read_to_string(root.join("receipt.md")).unwrap(),
             "Accepted"
         );
+        click(
+            cx,
+            ("git-section", browser::Section::History as usize).into(),
+        );
+        for index in 0..8 {
+            let path = directory
+                .path()
+                .join(format!("overflow-document-{index}.txt"));
+            std::fs::write(&path, "Tab visibility").unwrap();
+            cx.update_window(handle, |_, window, cx| {
+                workspace.update(cx, |view, cx| view.open_path(path, window, cx));
+            })
+            .unwrap();
+            cx.run_until_parked();
+        }
+        let visible_tab = |cx: &mut TestAppContext, diff: bool| {
+            cx.update_window(handle, |_, window, cx| {
+                window.render_frame(cx);
+                let view = workspace.read(cx);
+                let scroll = &view.tab_scroll;
+                assert!(scroll.max_offset().x > px(0.));
+                assert_eq!(view.page == super::super::Page::Changes, diff);
+                let index = if diff {
+                    view.tabs.len() + view.changes.read(cx).active_tab().unwrap()
+                } else {
+                    view.active.unwrap()
+                };
+                let tab = scroll.bounds_for_item(index).unwrap();
+                assert!(tab.left() + scroll.offset().x >= scroll.bounds().left());
+                assert!(tab.right() + scroll.offset().x <= scroll.bounds().right());
+            })
+            .unwrap();
+        };
+        visible_tab(cx, false);
+        click(cx, ("git-browser-row", 0usize).into());
+        visible_tab(cx, true);
         click(cx, "file-panel-files".into());
     }
 }

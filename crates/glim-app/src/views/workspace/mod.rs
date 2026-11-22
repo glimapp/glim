@@ -123,9 +123,11 @@ pub struct Workspace {
     changes_expanded: bool,
     changes: Entity<changes::Changes>,
     subscriptions: Vec<Subscription>,
+    explorer_subscription: Option<Subscription>,
     tabs: Vec<Reader>,
     active: Option<usize>,
     tab_scroll: ScrollHandle,
+    revealed_tab: Option<(tabs::TabIdentity, usize)>,
     error: Option<SharedString>,
     refresh_notice: Option<(SharedString, SharedString)>,
     loading: bool,
@@ -369,9 +371,11 @@ impl Workspace {
             roots: Vec::new(),
             explorer: None,
             subscriptions: Vec::new(),
+            explorer_subscription: None,
             tabs: Vec::new(),
             active: None,
             tab_scroll: ScrollHandle::new(),
+            revealed_tab: None,
             error: None,
             refresh_notice: None,
             loading: false,
@@ -417,6 +421,7 @@ impl Workspace {
         workspace.subscriptions.push(cx.subscribe(
             &workspace.changes,
             |view, _, _: &changes::ShowDiff, cx| {
+                view.revealed_tab = None;
                 view.page = Page::Changes;
                 cx.notify();
             },
