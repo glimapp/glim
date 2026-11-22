@@ -10,6 +10,8 @@ use std::process::{Command, Stdio};
 #[cfg(windows)]
 #[path = "inline_images_windows.rs"]
 mod windows_thumbnail;
+#[cfg(windows)]
+pub use windows_thumbnail::tiff_page;
 
 const MAX_EDGE: u32 = reader_limits::INLINE_IMAGE_PREVIEW_EDGE;
 // Avoid simultaneous full-size native decode work for a document containing many images.

@@ -66,10 +66,11 @@ pub(super) const READERS: &[FormatReader] = &[
     },
     #[cfg(windows)]
     FormatReader {
-        id: "png",
+        id: "windows-raster",
         accepts: |p| {
             p.extension()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+                || media::is_tiff(p)
         },
         open: |p, cancel| media::read_image_cancellable(p, cancel).map(Content::Image),
     },

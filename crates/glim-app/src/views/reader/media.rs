@@ -16,6 +16,8 @@ use std::{collections::VecDeque, path::Path, sync::Arc};
 pub(super) struct ImageReader {
     pages: Vec<Entity<PreparedImage>>,
     page: Entity<usize>,
+    #[cfg(windows)]
+    tiff_pages: usize,
     _subscriptions: Vec<Subscription>,
 }
 impl ImageReader {
@@ -31,20 +33,50 @@ impl ImageReader {
         Self {
             pages,
             page: cx.new(|_| 0),
+            #[cfg(windows)]
+            tiff_pages: 0,
             _subscriptions: subscriptions,
         }
     }
+    #[cfg(windows)]
+    pub fn with_tiff_pages(mut self, path: std::path::PathBuf, count: u32, cx: &mut App) -> Self {
+        if count > 1 {
+            self.tiff_pages = count as usize;
+            let current = self.pages[0].clone();
+            self._subscriptions
+                .push(cx.observe(&self.page, move |page, cx| {
+                    let index = *page.read(cx) as u32;
+                    current.update(cx, |image, cx| {
+                        image.suspend(cx);
+                        image.pending_tiff = Some((path.clone(), index));
+                        cx.notify();
+                    });
+                }));
+        }
+        self
+    }
+
+    fn displayed_page(&self, page: usize) -> &Entity<PreparedImage> {
+        #[cfg(windows)]
+        if self.tiff_pages > 1 {
+            return &self.pages[0];
+        }
+        &self.pages[page]
+    }
+
     pub fn render(&self, cx: &mut App) -> AnyElement {
         let page = *self.page.read(cx);
-        for (index, image) in self.pages.iter().enumerate() {
-            if index != page {
+        for image in &self.pages {
+            if image != self.displayed_page(page) {
                 image.update(cx, |image, cx| image.suspend(cx));
             }
         }
         let previous = self.page.clone();
         let next = self.page.clone();
         let count = self.pages.len();
-        let retry = self.pages[page].clone();
+        #[cfg(windows)]
+        let count = count.max(self.tiff_pages);
+        let retry = self.displayed_page(page).clone();
         let failed = retry.read(cx).error.is_some();
         div()
             .relative()
@@ -61,7 +93,7 @@ impl ImageReader {
                     .justify_center()
                     .overflow_hidden()
                     .child(
-                        img(PreparedImage::source(&self.pages[page]))
+                        img(PreparedImage::source(&retry))
                             .size_full()
                             .min_w_0()
                             .min_h_0()
@@ -83,6 +115,7 @@ impl ImageReader {
                             .on_click(move |_, _, cx| {
                                 previous.update(cx, |index, cx| {
                                     *index = index.saturating_sub(1);
+                                    cx.notify();
                                     cx.refresh_windows();
                                 })
                             }),
@@ -99,6 +132,7 @@ impl ImageReader {
                             .on_click(move |_, _, cx| {
                                 next.update(cx, |index, cx| {
                                     *index = (*index + 1).min(count - 1);
+                                    cx.notify();
                                     cx.refresh_windows();
                                 })
                             }),
@@ -193,6 +227,8 @@ impl InlineFrameCache {
 
 /// Encoded preview data and its on-demand raster have the same reader owner.
 pub(super) struct PreparedImage {
+    #[cfg(windows)]
+    pending_tiff: Option<(std::path::PathBuf, u32)>,
     encoded: Arc<Image>,
     encoded_memory: glim_services::resources::ResourceLease,
     frame: Option<ManagedFrame>,
@@ -203,6 +239,8 @@ impl PreparedImage {
     pub fn new(bytes: Vec<u8>, cx: &mut Context<Self>) -> Self {
         cx.on_release(|view, cx| view.suspend(cx)).detach();
         Self {
+            #[cfg(windows)]
+            pending_tiff: None,
             encoded_memory: glim_services::resources::pool().track(
                 bytes.capacity() as u64,
                 glim_services::resources::ResourceClass::Working,
@@ -240,6 +278,38 @@ impl PreparedImage {
     }
     fn request(&mut self, cx: &mut Context<Self>) {
         if self.frame.is_some() || self.task.is_some() || self.error.is_some() {
+            return;
+        }
+        #[cfg(windows)]
+        if let Some((path, page)) = self.pending_tiff.clone() {
+            let (cancel, guard) = glim_services::work::Cancellation::task();
+            let work = reader_jobs::run(
+                cx.background_executor().clone(),
+                JobClass::Decode,
+                Priority::Viewport,
+                cancel,
+                move |cancel| glim_services::inline_images::tiff_page(&path, page, cancel),
+            );
+            self.task = Some(cx.spawn(async move |view, cx| {
+                let _guard = guard;
+                let result = work.await;
+                let _ = view.update(cx, |view, cx| {
+                    view.task = None;
+                    match result {
+                        Ok((_, bytes)) => {
+                            view.encoded_memory = glim_services::resources::pool().track(
+                                bytes.capacity() as u64,
+                                glim_services::resources::ResourceClass::Working,
+                            );
+                            view.encoded = Arc::new(Image::from_bytes(ImageFormat::Png, bytes));
+                            view.pending_tiff = None;
+                            view.request(cx);
+                        }
+                        Err(error) => view.error = Some(format!("{error:#}")),
+                    }
+                    cx.notify();
+                });
+            }));
             return;
         }
         let encoded = self.encoded.clone();
@@ -896,12 +966,14 @@ impl crate::views::reader::contract::ReaderView for ImageReader {
 impl super::surface::ReaderSurface for ImageReader {}
 impl crate::views::reader::contract::CopyImage for ImageReader {
     fn copy_image(&self, cx: &mut App) -> bool {
-        if let Some(page) = self.pages.get(*self.page.read(cx)) {
-            cx.write_to_clipboard(ClipboardItem::new_image(&page.read(cx).encoded));
-            true
-        } else {
-            false
+        let page = self.displayed_page(*self.page.read(cx)).read(cx);
+        #[cfg(windows)]
+        if page.pending_tiff.is_some() {
+            return false;
         }
+        let image = page.encoded.clone();
+        cx.write_to_clipboard(ClipboardItem::new_image(&image));
+        true
     }
 }
 impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntity<GifReader> {

@@ -3,7 +3,7 @@ use anyhow::{Context, Result, ensure};
 use std::path::Path;
 use windows::{
     Graphics::Imaging::{
-        BitmapAlphaMode, BitmapDecoder, BitmapInterpolationMode, BitmapPixelFormat,
+        BitmapAlphaMode, BitmapDecoder, BitmapFrame, BitmapInterpolationMode, BitmapPixelFormat,
         BitmapTransform, ColorManagementMode, ExifOrientationMode,
     },
     Storage::{FileAccessMode, StorageFile},
@@ -19,11 +19,42 @@ pub(super) fn write(
     if let Some(size) = svg_preview::dimensions(path, cancel).ok().flatten() {
         return svg(path, output, size, max_edge, cancel);
     }
+    let frame = decoder(path)?.GetFrameAsync(0)?.join()?;
+    encode_frame(&frame, std::fs::File::create(output)?, max_edge, cancel)
+}
+
+fn decoder(path: &Path) -> Result<BitmapDecoder> {
     let absolute = crate::files::windows_shell_path(path)?;
     let file = StorageFile::GetFileFromPathAsync(&HSTRING::from(absolute.as_os_str()))?.join()?;
     let stream = file.OpenAsync(FileAccessMode::Read)?.join()?;
-    let decoder = BitmapDecoder::CreateAsync(&stream)?.join()?;
-    let (width, height) = (decoder.PixelWidth()?, decoder.PixelHeight()?);
+    Ok(BitmapDecoder::CreateAsync(&stream)?.join()?)
+}
+
+/// Decode only the requested directory of the TIFF, at display resolution.
+pub fn tiff_page(path: &Path, index: u32, cancel: &Cancellation) -> Result<(u32, Vec<u8>)> {
+    cancel.check()?;
+    let decoder = decoder(path)?;
+    let count = decoder.FrameCount()?;
+    ensure!(index < count, "TIFF page is no longer available");
+    let frame = decoder.GetFrameAsync(index)?.join()?;
+    let mut bytes = Vec::new();
+    encode_frame(
+        &frame,
+        &mut bytes,
+        crate::limits::IMAGE_PREVIEW_EDGE,
+        cancel,
+    )?;
+    Ok((count, bytes))
+}
+
+fn encode_frame(
+    frame: &BitmapFrame,
+    output: impl std::io::Write,
+    max_edge: u32,
+    cancel: &Cancellation,
+) -> Result<()> {
+    use image::ImageEncoder;
+    let (width, height) = (frame.PixelWidth()?, frame.PixelHeight()?);
     let longest = u64::from(width.max(height));
     ensure!(width > 0 && height > 0, "Invalid image dimensions");
     let edge = longest.min(max_edge.into());
@@ -33,7 +64,7 @@ pub(super) fn write(
     transform.SetScaledWidth(scale(width))?;
     transform.SetScaledHeight(scale(height))?;
     cancel.check()?;
-    let pixels = decoder
+    let pixels = frame
         .GetPixelDataTransformedAsync(
             BitmapPixelFormat::Rgba8,
             BitmapAlphaMode::Straight,
@@ -44,13 +75,11 @@ pub(super) fn write(
         .join()?
         .DetachPixelData()?;
     cancel.check()?;
-    image::save_buffer_with_format(
-        output,
+    image::codecs::png::PngEncoder::new(output).write_image(
         &pixels,
-        scale(decoder.OrientedPixelWidth()?),
-        scale(decoder.OrientedPixelHeight()?),
-        image::ColorType::Rgba8,
-        image::ImageFormat::Png,
+        scale(frame.OrientedPixelWidth()?),
+        scale(frame.OrientedPixelHeight()?),
+        image::ExtendedColorType::Rgba8,
     )?;
     Ok(())
 }

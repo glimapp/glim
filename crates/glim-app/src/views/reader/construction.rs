@@ -231,7 +231,10 @@ impl Reader {
             } else {
                 document.pages
             };
-            Renderer::surface(ImageReader::new(pages, cx))
+            let reader = ImageReader::new(pages, cx);
+            #[cfg(windows)]
+            let reader = reader.with_tiff_pages(document.path.clone(), document.tiff_pages, cx);
+            Renderer::surface(reader)
         };
         Self {
             active: std::cell::Cell::new(None),

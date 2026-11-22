@@ -504,6 +504,8 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<ImageDocument> {
         png: Vec::new(),
         pages,
         gif: false,
+        #[cfg(windows)]
+        tiff_pages: 0,
         fingerprint: format!("drawio:{}:{:?}", stamp.len(), stamp.modified().ok()),
     })
 }

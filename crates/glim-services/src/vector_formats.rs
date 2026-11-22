@@ -44,6 +44,8 @@ pub fn read_preview(path: &Path) -> Result<ImageDocument> {
         png: pixmap.encode_png()?,
         fingerprint: format!("vector:{:x}", hash.finish()),
         gif: false,
+        #[cfg(windows)]
+        tiff_pages: 0,
         pages: Vec::new(),
     })
 }

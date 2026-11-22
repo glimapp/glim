@@ -17,7 +17,15 @@ pub struct ImageDocument {
     pub fingerprint: String,
     pub gif: bool,
     pub pages: Vec<Vec<u8>>,
+    #[cfg(windows)]
+    pub tiff_pages: u32,
 }
+#[cfg(windows)]
+pub(crate) fn is_tiff(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("tif") || ext.eq_ignore_ascii_case("tiff"))
+}
+
 pub fn supports(path: &Path) -> bool {
     glim_core::formats::FormatSet::Image.matches(path)
 }
@@ -41,19 +49,33 @@ pub(crate) fn read_image_cancellable(
             fingerprint: format!("gif:{}:{:?}", stamp.len(), stamp.modified().ok()),
             gif: true,
             pages: Vec::new(),
+            #[cfg(windows)]
+            tiff_pages: 0,
         });
     }
     let stamp = std::fs::metadata(path)?;
-    let png = crate::inline_images::thumbnail_png_cancellable(
-        path,
-        reader_limits::IMAGE_PREVIEW_EDGE,
-        cancel,
-    )?;
+    let thumbnail = || {
+        crate::inline_images::thumbnail_png_cancellable(
+            path,
+            reader_limits::IMAGE_PREVIEW_EDGE,
+            cancel,
+        )
+    };
+    #[cfg(windows)]
+    let (tiff_pages, png) = if is_tiff(path) {
+        crate::inline_images::tiff_page(path, 0, cancel)?
+    } else {
+        (0, thumbnail()?)
+    };
+    #[cfg(not(windows))]
+    let png = thumbnail()?;
     Ok(ImageDocument {
         path: std::path::absolute(path)?,
         png,
         fingerprint: format!("image:{}:{:?}", stamp.len(), stamp.modified().ok()),
         gif: false,
+        #[cfg(windows)]
+        tiff_pages,
         pages: Vec::new(),
     })
 }
