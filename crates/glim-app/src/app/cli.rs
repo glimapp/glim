@@ -1,7 +1,13 @@
 //! Terminal commands shipped in the app bundle.
 use anyhow::{Context, Result, bail, ensure};
-use glim_services::{files, integrations, markdown_export, work::Cancellation};
-use std::{ffi::OsString, path::PathBuf, process::Command};
+use glim_services::{
+    archive, binary, csv, files, integrations, markdown_export, sqlite, work::Cancellation,
+};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 const HELP: &str = "Usage: glim COMMAND [ARGS]
 
@@ -9,6 +15,12 @@ const HELP: &str = "Usage: glim COMMAND [ARGS]
   html MARKDOWN OUTPUT       Write standalone HTML
   pdf MARKDOWN OUTPUT        Write a PDF
   preview MARKDOWN           Open rendered HTML in the default browser
+  hex FILE                   Show a bounded hex and ASCII preview
+  archive FILE               List archive entries as JSON
+  extract FILE DIRECTORY     Extract into a new folder under DIRECTORY
+  tables DATABASE            List SQLite tables as JSON
+  columns DATABASE TABLE     List SQLite column names as JSON
+  rows CSV_OR_TSV [ROW [COL]]  Read a JSON page at zero-based offsets
   formats                    Print the Glim format catalog as JSON
   mcp                        Serve MCP over stdin/stdout
   --version                  Print build information
@@ -27,6 +39,69 @@ pub fn run() -> Result<()> {
         (Some("--version"), []) => super::print_build_info(),
         (Some("formats"), []) => {
             print!("{}", include_str!("../../../../assets/format-catalog.json"))
+        }
+        (Some("hex"), [input]) => print!("{}", binary::read_preview(Path::new(input))?.text),
+        (Some("archive"), [input]) => {
+            let listing = archive::read(Path::new(input), &Cancellation::default())?;
+            serde_json::to_writer(std::io::stdout().lock(), &listing.entries)?;
+            println!();
+        }
+        (Some("extract"), [input, parent]) => {
+            let folder = archive::extract(
+                Path::new(input),
+                Path::new(parent),
+                &Cancellation::default(),
+            )?;
+            println!("{}", folder.display());
+        }
+        (Some("tables"), [input]) => {
+            let db = sqlite::browser::open(Path::new(input), &Cancellation::default())?;
+            println!("{}", serde_json::to_string(&db.tables)?);
+        }
+        (Some("columns"), [input, table]) => {
+            let cancel = Cancellation::default();
+            let db = sqlite::browser::open(Path::new(input), &cancel)?;
+            let table = table.to_str().context("Table name must be UTF-8")?;
+            ensure!(
+                db.tables.iter().any(|name| name == table),
+                "Unknown table: {table}"
+            );
+            println!(
+                "{}",
+                serde_json::to_string(&db.columns(table, &cancel)?.names)?
+            );
+        }
+        (Some("rows"), [input, offsets @ ..]) if offsets.len() <= 2 => {
+            let path = Path::new(input);
+            let delimiter = match path.extension().and_then(|v| v.to_str()) {
+                Some(ext) if ext.eq_ignore_ascii_case("csv") => b',',
+                Some(ext) if ext.eq_ignore_ascii_case("tsv") => b'\t',
+                _ => bail!("Expected a .csv or .tsv file"),
+            };
+            let offset = |i: usize| -> Result<usize> {
+                match offsets.get(i) {
+                    Some(value) => Ok(value
+                        .to_str()
+                        .context("Invalid offset")?
+                        .parse()
+                        .context("Expected a non-negative offset")?),
+                    None => Ok(0),
+                }
+            };
+            let row = offset(0)?;
+            let col = offset(1)?;
+            let page = csv::read_page(
+                std::fs::File::open(path)?,
+                delimiter,
+                row,
+                col,
+                &Cancellation::default(),
+            )?;
+            let next_row = page.more.then(|| row + page.rows.len());
+            println!(
+                "{}",
+                serde_json::json!({"rows": &*page.rows, "next_row": next_row, "columns": page.columns})
+            );
         }
         (Some("mcp"), []) => return integrations::mcp::run(),
         (Some("open"), [input]) => {

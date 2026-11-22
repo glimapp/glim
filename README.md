@@ -93,6 +93,12 @@ glim open README.md
 glim pdf README.md report.pdf
 glim html README.md report.html
 glim preview README.md
+glim rows sales.csv 0 0
+glim tables catalog.sqlite
+glim columns catalog.sqlite products
+glim archive documents.zip
+glim extract documents.zip .
+glim hex sample.bin
 glim formats
 glim --help
 ```

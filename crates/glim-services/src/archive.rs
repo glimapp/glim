@@ -8,7 +8,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct Entry {
     pub name: String,
     pub size: u64,
