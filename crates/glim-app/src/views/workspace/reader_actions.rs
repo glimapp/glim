@@ -661,3 +661,141 @@ impl super::Workspace {
         cx.notify();
     }
 }
+
+impl super::Workspace {
+    fn print_content(&self) -> Option<crate::app::markdown_export::PrintContent> {
+        use crate::app::markdown_export::PrintContent;
+        let reader = self.active_reader()?;
+        if self.page != Page::Document || self.print_task.is_some() || reader.is_unavailable() {
+            return None;
+        }
+        let path = &reader.document.path;
+        if reader.can_export_markdown() {
+            Some(PrintContent::Pdf)
+        } else if (reader.mode() == glim_core::ReaderMode::Preview
+            && reader.telemetry_kind() == "html")
+            || (reader.telemetry_kind() == "native"
+                && path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf")))
+            || (reader.toolbar_profile() == "paged"
+                && reader.mode() == glim_core::ReaderMode::Preview
+                && glim_core::formats::FormatSet::Html.matches(path))
+        {
+            Some(PrintContent::Preview)
+        } else if reader.is_full_text_editor() && reader.editor().is_some() {
+            Some(PrintContent::Text)
+        } else if matches!(reader.telemetry_kind(), "image" | "animated_image")
+            && !reader.document.trashed
+            && reader.document.remote.is_none()
+        {
+            Some(PrintContent::Image)
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn can_print(&self) -> bool {
+        self.print_content().is_some()
+    }
+
+    pub(super) fn print_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::app::{
+            markdown_export::{PrintContent, show_print_panel},
+            reader_jobs::{self, JobClass, Priority},
+        };
+        use glim_services::{locale::tr, work::Cancellation};
+        use std::os::unix::ffi::OsStrExt;
+
+        let Some(content) = self.print_content() else {
+            return;
+        };
+        let Some(reader) = self.active_reader() else {
+            return;
+        };
+        let title = reader.title.to_string();
+        let result = match content {
+            PrintContent::Pdf => {
+                let Some((source, base, format)) = reader.markdown_export_snapshot(cx) else {
+                    return;
+                };
+                let job_title = title.clone();
+                let (cancel, guard) = Cancellation::task();
+                self.print_task = Some(cx.spawn_in(window, async move |view, cx| {
+                    let _guard = guard;
+                    let result = reader_jobs::run(
+                        cx.background_executor().clone(),
+                        JobClass::Native,
+                        Priority::Interactive,
+                        cancel,
+                        move |cancel| {
+                            let directory = tempfile::tempdir()?;
+                            let path = directory.path().join("document.pdf");
+                            let output =
+                                glim_services::files::prepare_save_destination(&path, &[], cancel)?;
+                            let text = source.to_string();
+                            let text = format
+                                .as_ref()
+                                .map(|path| glim_services::text_formats::markdown(path, &text))
+                                .unwrap_or(text);
+                            let missing = glim_services::markdown_export::export_pdf(
+                                &text, &base, &job_title, &output, cancel,
+                            )?;
+                            Ok((directory, path, missing))
+                        },
+                    )
+                    .await;
+                    let _ = view.update_in(cx, |view, window, cx| {
+                        view.print_task = None;
+                        let result = result.and_then(|(directory, path, missing)| {
+                            if missing > 0 {
+                                use gpui_kit::component::WindowExt;
+                                window.push_notification(
+                                    tr("PDF exported with unavailable images or diagrams"),
+                                    cx,
+                                );
+                            }
+                            show_print_panel(
+                                window,
+                                content,
+                                path.as_os_str().as_bytes(),
+                                &title,
+                                Some(directory),
+                            )
+                        });
+                        if let Err(error) = result {
+                            view.error = Some(format!("{error:#}").into());
+                        }
+                        cx.notify();
+                    });
+                }));
+                cx.notify();
+                return;
+            }
+            PrintContent::Preview => show_print_panel(window, content, &[], &title, None),
+            PrintContent::Image => show_print_panel(
+                window,
+                content,
+                reader.document.path.as_os_str().as_bytes(),
+                &title,
+                None,
+            ),
+            PrintContent::Text => {
+                let Some(editor) = reader.editor() else {
+                    return;
+                };
+                show_print_panel(
+                    window,
+                    content,
+                    editor.read(cx).text().to_string().as_bytes(),
+                    &title,
+                    None,
+                )
+            }
+        };
+        if let Err(error) = result {
+            self.error = Some(format!("{error:#}").into());
+            cx.notify();
+        }
+    }
+}

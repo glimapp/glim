@@ -901,6 +901,13 @@ impl Render for Workspace {
                 v.show_remote(None, true, false, w, cx)
             }))
             .on_action(cx.listener(|v, _: &Refresh, w, cx| v.refresh(w, cx)))
+            .when(self.can_print(), |root| {
+                root.on_action(
+                    cx.listener(|v, _: &crate::app::actions::PrintDocument, w, cx| {
+                        v.print_active(w, cx)
+                    }),
+                )
+            })
             .on_action(cx.listener(|v, _: &SaveFile, w, cx| v.save_active(w, cx)))
             .on_action(cx.listener(|v, _: &CloseWindow, w, cx| {
                 if let Some(i) = v.active {

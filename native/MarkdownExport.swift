@@ -117,3 +117,76 @@ public func glimOpenMarkdownInBrowser(
         complete(context, error == nil && app != nil ? 0 : 2)
     }
 }
+
+private final class DocumentPrintSession: NSObject {
+    let finished: () -> Void
+    init(finished: @escaping () -> Void) { self.finished = finished }
+
+    @objc func didPrint(_ operation: NSPrintOperation, success: Bool, context: UnsafeMutableRawPointer?) {
+        finished()
+        Unmanaged<DocumentPrintSession>.fromOpaque(context!).release()
+    }
+}
+
+@_cdecl("glim_show_print_panel")
+func showDocumentPrintPanel(_ parent: UnsafeRawPointer, _ kind: Int32, _ bytes: UnsafePointer<UInt8>,
+                            _ length: Int, _ title: UnsafePointer<CChar>, _ context: UnsafeMutableRawPointer,
+                            _ release: @escaping @convention(c) (UnsafeMutableRawPointer) -> Void) -> Bool {
+    let parentView = Unmanaged<NSView>.fromOpaque(parent).takeUnretainedValue()
+    guard let window = parentView.window, window.attachedSheet == nil else { return false }
+    let info = NSPrintInfo.shared.copy() as! NSPrintInfo
+    info.horizontalPagination = .fit
+    info.verticalPagination = .automatic
+    let operation: NSPrintOperation?
+    func pdfOperation(_ document: PDFDocument?) -> NSPrintOperation? {
+        guard let document = document, document.allowsPrinting else { return nil }
+        return document.printOperation(for: info, scalingMode: .pageScaleToFit, autoRotate: true)
+    }
+    switch kind {
+    case 0:
+        // Search only the visible reader in the requesting workspace window.
+        func previewOperation(_ view: NSView, inReader: Bool) -> NSPrintOperation? {
+            guard !view.isHidden else { return nil }
+            if inReader, let pdf = view as? PDFView { return pdfOperation(pdf.document) }
+            if inReader, let web = view as? WKWebView { return web.printOperation(with: info) }
+            for child in view.subviews.reversed() {
+                if let op = previewOperation(child, inReader: inReader || view is NativePreviewHost) { return op }
+            }
+            return nil
+        }
+        operation = window.contentView.flatMap { previewOperation($0, inReader: false) }
+    case 1, 3:
+        let url = Array(UnsafeBufferPointer(start: bytes, count: length)) + [0]
+        let source = url.withUnsafeBytes { URL(fileURLWithFileSystemRepresentation: $0.bindMemory(to: CChar.self).baseAddress!, isDirectory: false, relativeTo: nil) }
+        if kind == 1 {
+            operation = pdfOperation(PDFDocument(url: source))
+        } else {
+            guard let image = NSImage(contentsOf: source), let page = PDFPage(image: image) else { return false }
+            let document = PDFDocument()
+            document.insert(page, at: 0)
+            operation = pdfOperation(document)
+        }
+    case 2:
+        let width = max(1, info.paperSize.width - info.leftMargin - info.rightMargin)
+        let text = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 1))
+        text.isVerticallyResizable = true
+        text.textContainer?.widthTracksTextView = true
+        text.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+        text.textColor = .black
+        text.drawsBackground = false
+        text.string = String(decoding: UnsafeBufferPointer(start: bytes, count: length), as: UTF8.self)
+        text.sizeToFit()
+        operation = NSPrintOperation(view: text, printInfo: info)
+    default: return false
+    }
+    guard let operation = operation else { return false }
+    operation.jobTitle = String(cString: title)
+    operation.canSpawnSeparateThread = true
+    let session = DocumentPrintSession { release(context) }
+    DispatchQueue.main.async {
+        let retained = Unmanaged.passRetained(session).toOpaque()
+        operation.runModal(for: window, delegate: session,
+                           didRun: #selector(DocumentPrintSession.didPrint(_:success:context:)), contextInfo: retained)
+    }
+    return true
+}
