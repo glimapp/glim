@@ -12,7 +12,7 @@ export GLIM_BUILD_TIMESTAMP="${GLIM_BUILD_TIMESTAMP:-$(date '+%Y-%m-%d %H:%M:%S 
 build_profile="${1:-release}"
 build_target="${2:-}"
 cargo_args=(build --locked)
-case "${GLIM_ENABLE_GIT:-0}" in
+case "${GLIM_ENABLE_GIT:-1}" in
     1) cargo_args+=(--features git) ;;
     0) cargo_args+=(--no-default-features) ;;
     *) echo 'GLIM_ENABLE_GIT must be 0 or 1.' >&2; exit 1 ;;

@@ -267,7 +267,9 @@ impl Changes {
                 }
                 let mut rows = Vec::new();
                 for repository in &view.repositories {
-                    rows.push((repository.root.clone(), None));
+                    if view.repositories.len() > 1 {
+                        rows.push((repository.root.clone(), None));
+                    }
                     for area in [Area::Staged, Area::Working, Area::Untracked] {
                         rows.extend(
                             repository
@@ -868,4 +870,163 @@ fn message(text: String, cx: &App) -> AnyElement {
         .text_color(cx.theme().muted_foreground)
         .child(text.to_owned())
         .into_any_element()
+}
+
+#[cfg(all(test, feature = "git"))]
+mod tests {
+    use super::browser;
+    use gpui_kit::test::TestWindowExt;
+    use gpui_kit::{
+        AppContext, Bounds, ElementId, Point, TestAppContext, WindowBounds, WindowOptions, px, size,
+    };
+    use std::process::Command;
+
+    #[gpui_kit::test]
+    fn review_commit_and_sync_in_workspace(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("field-notes");
+        std::fs::create_dir(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("/usr/bin/git")
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap()
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.name", "Glim QA"]);
+        git(&["config", "user.email", "qa@example.invalid"]);
+        git(&["config", "commit.gpgSign", "false"]);
+        std::fs::write(root.join("schedule.md"), "Monday\n").unwrap();
+        git(&["add", "schedule.md"]);
+        git(&["commit", "-qm", "Initial schedule"]);
+        let remote = directory.path().join("upstream.git");
+        let remote_path = remote.to_str().unwrap();
+        git(&["init", "--bare", "-b", "main", remote_path]);
+        git(&["remote", "add", "origin", remote_path]);
+        git(&["push", "-u", "origin", "main"]);
+        std::fs::write(root.join("schedule.md"), "Tuesday\n").unwrap();
+        let (handle, workspace) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::app::remote::init(Default::default(), cx);
+            gpui_kit::open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds {
+                        origin: Point::default(),
+                        size: size(px(1100.), px(740.)),
+                    })),
+                    ..Default::default()
+                },
+                cx,
+                |window, cx| {
+                    cx.new(|cx| super::super::Workspace::new(Some(root.clone()), window, cx))
+                },
+            )
+            .unwrap()
+        });
+        let click = |cx: &mut TestAppContext, id: ElementId| {
+            cx.run_until_parked();
+            cx.update_window(handle, |_, window, cx| {
+                window.render_frame(cx);
+                window.click(id, cx);
+            })
+            .unwrap();
+            cx.run_until_parked();
+        };
+        click(cx, "file-panel-git".into());
+        click(cx, "diff-split".into());
+        click(cx, "git-stage-file".into());
+        assert_eq!(git(&["diff", "--cached", "--name-only"]), "schedule.md\n");
+        click(cx, "git-unstage-file".into());
+        assert!(git(&["diff", "--cached", "--name-only"]).is_empty());
+        click(cx, "git-stage-file".into());
+        let input = cx.update(|cx| workspace.read(cx).changes.read(cx).message.entity_id());
+        click(cx, ("input", input).into());
+        cx.update_window(handle, |_, window, cx| {
+            window.input("Move opening to Tuesday", cx)
+        })
+        .unwrap();
+        click(cx, "git-commit".into());
+        assert_eq!(
+            git(&["log", "-1", "--format=%s"]),
+            "Move opening to Tuesday\n"
+        );
+        assert!(git(&["status", "--porcelain"]).is_empty());
+        click(
+            cx,
+            ("git-section", browser::Section::History as usize).into(),
+        );
+        assert_eq!(
+            cx.update(|cx| workspace.read(cx).changes.read(cx).commits.len()),
+            2
+        );
+        click(cx, ("git-browser-row", 1usize).into());
+        assert_eq!(
+            cx.update(|cx| workspace
+                .read(cx)
+                .changes
+                .read(cx)
+                .selected_commit
+                .as_ref()
+                .unwrap()
+                .subject
+                .clone()),
+            "Initial schedule"
+        );
+        click(cx, "git-sync".into());
+        cx.update_window(handle, |_, w, cx| {
+            w.render_frame(cx);
+            w.within("popup-menu").click(3usize, cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            git(&["rev-parse", "HEAD"]),
+            git(&["--git-dir", remote_path, "rev-parse", "main"])
+        );
+        let peer = directory.path().join("peer");
+        let peer_path = peer.to_str().unwrap();
+        git(&["clone", "-q", remote_path, peer_path]);
+        std::fs::write(peer.join("receipt.md"), "Accepted").unwrap();
+        git(&["-C", peer_path, "add", "receipt.md"]);
+        git(&[
+            "-C",
+            peer_path,
+            "-c",
+            "user.name=Peer",
+            "-c",
+            "user.email=peer@example.invalid",
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "-qm",
+            "Accept schedule",
+        ]);
+        git(&["-C", peer_path, "push", "origin", "main"]);
+        for index in [0usize, 1] {
+            click(cx, "git-sync".into());
+            cx.update_window(handle, |_, w, cx| {
+                w.render_frame(cx);
+                w.within("popup-menu").click(index, cx);
+            })
+            .unwrap();
+            cx.run_until_parked();
+            assert_eq!(
+                git(&["rev-parse", "origin/main"]),
+                git(&["-C", peer_path, "rev-parse", "HEAD"])
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(root.join("receipt.md")).unwrap(),
+            "Accepted"
+        );
+        click(cx, "file-panel-files".into());
+    }
 }

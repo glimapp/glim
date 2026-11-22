@@ -189,7 +189,7 @@ Workspace 管理标签、Explorer 实体、导航历史及异步加载。新打�
 
 ### Git 工作区
 
-默认构建和正式发布包关闭 Git，设置中不显示 Git 开关，旧 `git-enabled` 偏好不再读取。服务层以 Cargo 的 `git` feature 统一控制仓库发现、导航、查询与操作；未启用该 feature 时服务拒绝执行 Git 操作。开发构建可显式使用 `cargo build -p glim-app --features git --locked` 或 `GLIM_ENABLE_GIT=1 scripts/bundle-macos.sh release`。`--build-info` 报告 `git_available`，发布 CI 校验其为 false。以下实现仅用于显式开启该 feature 的开发构建。
+默认构建和发布包启用 Cargo 的 `git` feature。设置 `GLIM_ENABLE_GIT=0` 可打包关闭仓库发现与 Git 操作的版本。`--build-info` 显示实际构建能力。
 
 `services/git` 负责本地仓库与 SSH 工作区的后台 Git I/O。`git/query` 查询分支、上游、领先／落后数量、进行中的操作、分页历史／引用日志、引用、远端、Stash、Worktree、版本比较与逐行追溯。`git/operations` 提供类型化写操作，覆盖暂存、提交／修改上次提交、分支／标签、合并／变基／拣选／撤销／重置、远端同步、Stash、Worktree、建库、提交身份、忽略规则和子模块更新。历史每页 100 条，只限制活动窗口，不限制历史总量。文件路径保持字面语义及原始字节；版本输入先解析为提交 ID。恢复／删除 Stash 前核对界面显示的 Stash ID。
 

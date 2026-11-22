@@ -206,7 +206,7 @@ The search button retains its magnifying-glass outline and shows a rotating sect
 
 ### Git workspace
 
-Git is disabled in default builds and official release packages. Settings contains no Git switch, and the retired `git-enabled` preference is ignored. The service-level `git` Cargo feature gates repository discovery, navigation, queries and operations; without it, services reject Git operations. Explicit development builds can opt in with `cargo build -p glim-app --features git --locked` or `GLIM_ENABLE_GIT=1 scripts/bundle-macos.sh release`. `--build-info` reports `git_available`, and release CI verifies it is false. The implementation below remains available for explicit development builds.
+Default builds and release packages enable the `git` Cargo feature. To package a viewer without repository discovery or Git actions, set `GLIM_ENABLE_GIT=0`. The executable reports its capability through `--build-info`.
 
 `services/git` owns background Git I/O for local repositories and SSH workspaces. `git/query` loads branch/upstream/ahead/behind and sequencer state, paged history/reflog, references, remotes, stashes, worktrees, comparisons and blame. `git/operations` supplies typed mutations for staging, commits/amend, branch/tag management, merge/rebase/cherry-pick/revert/reset, remote synchronization, stashes, worktrees, repository creation, identity, ignore rules and submodule updates. History pages hold 100 commits; this is a working-set window, not a history limit. Filesystem paths remain literal and byte-preserving; revision inputs resolve to commit IDs before use. Stash pop/drop verify the displayed stash ID before removing its reflog entry.
 

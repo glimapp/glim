@@ -7,6 +7,7 @@ use crate::{
     },
     views::welcome::welcome,
 };
+use gpui_kit::base::Selectable;
 use gpui_kit::{
     base::InteractiveElementExt as _,
     component::{
@@ -21,132 +22,6 @@ use gpui_kit::{
 };
 
 const FILE_PANEL_HEADING_HEIGHT: f32 = 40.;
-const FILE_PANEL_HEADING_BUTTON_HEIGHT: f32 = 34.;
-
-impl Workspace {
-    fn file_panel_heading_style(cx: &App) -> ButtonCustomVariant {
-        ButtonCustomVariant::new(cx)
-            .foreground(cx.theme().foreground)
-            .hover(cx.theme().foreground.opacity(0.04))
-            .active(cx.theme().foreground.opacity(0.08))
-    }
-
-    fn changes_panel_preview(&self, cx: &mut Context<Self>) -> AnyElement {
-        if self.changes_expanded {
-            return v_flex()
-                .id("changes-panel-preview")
-                .w_full()
-                .flex_1()
-                .min_h_0()
-                .child(
-                    h_flex()
-                        .w_full()
-                        .h(px(FILE_PANEL_HEADING_HEIGHT))
-                        .flex_shrink_0()
-                        .px_2()
-                        .gap(px(2.))
-                        .child(
-                            Button::new("expanded-changes-heading")
-                                .custom(Self::file_panel_heading_style(cx))
-                                .flex_1()
-                                .min_w_0()
-                                .h(px(FILE_PANEL_HEADING_BUTTON_HEIGHT))
-                                .px_1()
-                                .rounded(px(6.))
-                                .justify_start()
-                                .accessibility_label(glim_services::locale::tr("Show Files"))
-                                .child(
-                                    h_flex()
-                                        .w_full()
-                                        .min_w_0()
-                                        .gap_2()
-                                        .child(
-                                            Icon::new(gpui_kit::assets::IconName::GitCompareArrows)
-                                                .size(px(16.))
-                                                .flex_shrink_0(),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .truncate()
-                                                .text_sm()
-                                                .font_weight(FontWeight::MEDIUM)
-                                                .child(glim_services::locale::tr("Git")),
-                                        ),
-                                )
-                                .on_click(cx.listener(|view, _, window, cx| {
-                                    view.set_changes_expanded(false, cx);
-                                    window.focus(&view.focus, cx);
-                                    cx.notify();
-                                })),
-                        )
-                        .child(self.file_tree_toggle(cx).w(px(24.))),
-                )
-                .child(super::changes::Changes::navigation(&self.changes, cx))
-                .into_any_element();
-        }
-        h_flex()
-            .id("collapsed-changes-heading")
-            .w_full()
-            .h(px(FILE_PANEL_HEADING_HEIGHT))
-            .flex_shrink_0()
-            .px_2()
-            .cursor_pointer()
-            .on_click(cx.listener(|view, _, window, cx| {
-                view.path_hint.hide();
-                view.set_changes_expanded(true, cx);
-                window.focus(&view.focus, cx);
-                cx.notify();
-            }))
-            .child(
-                Button::new("file-panel-changes")
-                    .custom(Self::file_panel_heading_style(cx))
-                    .w_full()
-                    .min_w_0()
-                    .h(px(FILE_PANEL_HEADING_BUTTON_HEIGHT))
-                    .px_1()
-                    .rounded(px(6.))
-                    .justify_start()
-                    .text_left()
-                    .accessibility_label(glim_services::locale::tr("Show Changes"))
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .min_w_0()
-                            .gap_2()
-                            .child(
-                                Icon::new(gpui_kit::assets::IconName::GitCompareArrows)
-                                    .size(px(16.))
-                                    .flex_shrink_0(),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(glim_services::locale::tr("Git")),
-                            )
-                            .child(
-                                Icon::new(gpui_kit::assets::IconName::ChevronRight)
-                                    .size(px(12.))
-                                    .flex_shrink_0()
-                                    .text_color(cx.theme().muted_foreground),
-                            ),
-                    )
-                    .on_click(cx.listener(|view, _, window, cx| {
-                        cx.stop_propagation();
-                        view.path_hint.hide();
-                        view.set_changes_expanded(true, cx);
-                        window.focus(&view.focus, cx);
-                        cx.notify();
-                    })),
-            )
-            .into_any_element()
-    }
-}
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -419,33 +294,6 @@ impl Render for Workspace {
         let has_git = glim_services::git::enabled()
             && (!self.roots.is_empty() || !self.git_repositories.is_empty());
         let show_changes = has_git && self.changes_expanded;
-        let files_heading = h_flex()
-            .w_full()
-            .min_w_0()
-            .gap_2()
-            .text_left()
-            .text_sm()
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(cx.theme().foreground)
-            .child(
-                Icon::new(gpui_kit::assets::IconName::Folder)
-                    .size(px(16.))
-                    .flex_shrink_0(),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .child(glim_services::locale::tr("Files")),
-            )
-            .when(show_changes, |row| {
-                row.child(
-                    Icon::new(gpui_kit::assets::IconName::ChevronRight)
-                        .size(px(12.))
-                        .flex_shrink_0(),
-                )
-            });
         let files_header = h_flex()
             .id("file-panel-files-header")
             .w_full()
@@ -453,52 +301,40 @@ impl Render for Workspace {
             .h(px(FILE_PANEL_HEADING_HEIGHT))
             .flex_shrink_0()
             .px_2()
-            .gap(px(2.))
-            .when(has_git, |header| header.cursor_pointer())
-            .on_click(cx.listener(move |view, _, window, cx| {
-                if has_git {
-                    view.path_hint.hide();
-                    view.set_changes_expanded(!view.changes_expanded, cx);
-                    window.focus(&view.focus, cx);
-                    cx.notify();
-                }
-            }))
-            .child(if has_git {
+            .gap_1()
+            .child(
                 Button::new("file-panel-files")
-                    .custom(Self::file_panel_heading_style(cx))
+                    .ghost()
                     .small()
-                    .flex_1()
-                    .min_w_0()
-                    .h(px(FILE_PANEL_HEADING_BUTTON_HEIGHT))
-                    .rounded(px(6.))
-                    .px_1()
-                    .justify_start()
-                    .text_left()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().foreground)
-                    .accessibility_label(glim_services::locale::tr(if show_changes {
-                        "Show Files"
-                    } else {
-                        "Show Changes"
-                    }))
-                    .child(files_heading)
+                    .label(glim_services::locale::tr("Files"))
+                    .selected(!show_changes)
                     .on_click(cx.listener(|view, _, window, cx| {
-                        cx.stop_propagation();
-                        view.path_hint.hide();
-                        view.set_changes_expanded(!view.changes_expanded, cx);
+                        if view.changes_expanded {
+                            view.set_changes_expanded(false, cx);
+                        }
                         window.focus(&view.focus, cx);
                         cx.notify();
-                    }))
-                    .into_any_element()
-            } else {
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .h(px(FILE_PANEL_HEADING_BUTTON_HEIGHT))
-                    .px_1()
-                    .child(files_heading)
-                    .into_any_element()
+                    })),
+            )
+            .when(has_git, |header| {
+                header.child(
+                    Button::new("file-panel-git")
+                        .ghost()
+                        .small()
+                        .label(glim_services::locale::tr("Git"))
+                        .selected(show_changes)
+                        .on_click(cx.listener(|view, _, window, cx| {
+                            if !view.changes_expanded || view.page != Page::Changes {
+                                view.set_changes_expanded(true, cx);
+                            }
+                            window.focus(&view.focus, cx);
+                            cx.notify();
+                        })),
+                )
+            })
+            .child(div().flex_1().min_w_0())
+            .when(show_changes, |header| {
+                header.child(self.file_tree_toggle(cx))
             })
             .when(!show_changes, |header| {
                 header
@@ -580,16 +416,8 @@ impl Render for Workspace {
                         .child(panel_content),
                 )
             })
-            .when(has_git, |view| {
-                view.child(
-                    div().w_full().flex_shrink_0().px_3().child(
-                        div()
-                            .w_full()
-                            .h(px(1.))
-                            .bg(cx.theme().foreground.opacity(0.08)),
-                    ),
-                )
-                .child(self.changes_panel_preview(cx))
+            .when(show_changes, |view| {
+                view.child(super::changes::Changes::navigation(&self.changes, cx))
             })
             .id("workspace-file-tree");
         let file_tree = if self.explorer.is_none() {

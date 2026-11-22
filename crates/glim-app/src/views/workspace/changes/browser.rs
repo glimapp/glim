@@ -595,7 +595,7 @@ impl Changes {
             Section::History | Section::Branches | Section::Stashes
         );
         panel = if diff_section {
-            panel.child(div().h(px(190.)).min_h_0().child(rows))
+            panel.child(rows.h(px((count as f32 * 52.).min(190.))))
         } else {
             panel.flex_1().child(rows.flex_1())
         };
