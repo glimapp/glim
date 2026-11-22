@@ -4,6 +4,8 @@
 mod find;
 #[path = "windows_html.rs"]
 mod html;
+#[path = "windows_shell_preview.rs"]
+mod shell;
 
 use gpui_kit::{App, BackgroundExecutor, Bounds, ForegroundExecutor, Pixels, Window};
 use raw_window_handle::{
@@ -43,6 +45,31 @@ pub(super) struct FindEvent {
 struct Placement {
     parent: Win32WindowHandle,
     bounds: Rect,
+    scale: f64,
+}
+
+enum Surface {
+    Browser(WebView),
+    Shell(shell::Preview),
+}
+
+impl Surface {
+    fn place(&self, placement: Placement) {
+        match self {
+            Self::Browser(view) => {
+                let _ = view.set_bounds(placement.bounds);
+            }
+            Self::Shell(preview) => preview.place(placement),
+        }
+    }
+    fn show(&self, visible: bool) {
+        match self {
+            Self::Browser(view) => {
+                let _ = view.set_visible(visible);
+            }
+            Self::Shell(preview) => preview.show(visible),
+        }
+    }
 }
 
 struct PreviewParent(Win32WindowHandle);
@@ -63,7 +90,7 @@ struct PreviewState {
     find: RefCell<Option<find::Session>>,
     desired: Cell<Option<Placement>>,
     scheduled: Cell<bool>,
-    view: RefCell<Option<(Win32WindowHandle, WebView)>>,
+    view: RefCell<Option<(Win32WindowHandle, Surface)>>,
 }
 
 impl PreviewState {
@@ -109,20 +136,21 @@ impl PreviewState {
                 self.find.take();
             }
             if let Some((_, view)) = &child {
-                let _ = view.set_bounds(placement.bounds);
-                let _ = view.set_visible(self.desired.get().is_some());
+                view.place(placement);
+                view.show(self.desired.get().is_some());
             } else {
                 // SAFETY: this queries the liveness of a Win32 window on its UI thread.
                 if unsafe { IsWindow(placement.parent.hwnd.get() as _) } != 0 {
                     match self.build(placement) {
                         Ok(view) => {
-                            if self.content["kind"] == "html"
-                                || self.content["kind"] == "office"
-                                    && self.content["reading"].is_string()
+                            if let Surface::Browser(web) = &view
+                                && (self.content["kind"] == "html"
+                                    || self.content["kind"] == "office"
+                                        && self.content["reading"].is_string())
                             {
-                                self.find.replace(find::Session::new(&view).ok());
+                                self.find.replace(find::Session::new(web).ok());
                             }
-                            let _ = view.set_visible(self.desired.get().is_some());
+                            view.show(self.desired.get().is_some());
                             child = Some((placement.parent, view));
                         }
                         Err(error) => log::warn!("Cannot open Windows document preview: {error}"),
@@ -130,13 +158,22 @@ impl PreviewState {
                 }
             }
         } else if let Some((_, view)) = &child {
-            let _ = view.set_visible(false);
+            view.show(false);
         }
         self.view.replace(child);
     }
 
-    fn build(&self, placement: Placement) -> wry::Result<WebView> {
+    fn build(&self, placement: Placement) -> wry::Result<Surface> {
         let kind = self.content["kind"].as_str().unwrap_or_default();
+        if (matches!(kind, "font" | "workbook")
+            || kind == "office" && self.content["reading"].is_null())
+            && let Some(source) = self.content["source"].as_str()
+        {
+            match shell::Preview::new(Path::new(source), placement) {
+                Ok(preview) => return Ok(Surface::Shell(preview)),
+                Err(error) => log::warn!("Windows preview handler unavailable: {error:#}"),
+            }
+        }
         let mut builder = WebViewBuilder::new()
             .with_bounds(placement.bounds)
             .with_incognito(true)
@@ -154,7 +191,7 @@ impl PreviewState {
                 foreground.clone(),
                 background.clone(),
             )?;
-            return Ok(view);
+            return Ok(Surface::Browser(view));
         }
         builder = builder
             .with_javascript_disabled()
@@ -183,10 +220,14 @@ impl PreviewState {
                     })
                 });
         } else {
-            builder = builder
-                .with_html("<p>Embedded preview is unavailable for this format on Windows.</p>");
+            builder = builder.with_html(format!(
+                "<meta charset=utf-8><p>{}</p>",
+                glim_services::locale::tr("Document preview is unavailable")
+            ));
         }
-        builder.build_as_child(&PreviewParent(placement.parent))
+        builder
+            .build_as_child(&PreviewParent(placement.parent))
+            .map(Surface::Browser)
     }
 }
 
@@ -230,7 +271,11 @@ impl NativePreview {
                 cx.background_executor().clone(),
             )
         });
-        self.0.request(Some(Placement { parent, bounds }));
+        self.0.request(Some(Placement {
+            parent,
+            bounds,
+            scale: f64::from(window.scale_factor()),
+        }));
     }
 
     pub fn hide(&self) {
@@ -245,7 +290,7 @@ impl NativePreview {
     pub fn update_find(&self, open: bool, focus: bool) {
         if let Some(session) = &*self.0.find.borrow() {
             session.set_open(open);
-            if focus && let Some((_, view)) = &*self.0.view.borrow() {
+            if focus && let Some((_, Surface::Browser(view))) = &*self.0.view.borrow() {
                 if open {
                     let _ = view.focus_parent();
                 } else {
@@ -283,7 +328,7 @@ impl NativePreview {
     }
     pub fn reveal_anchor(&self, anchor: &str) {
         self.0.anchor.replace(Some(anchor.into()));
-        if let Some((_, view)) = &*self.0.view.borrow() {
+        if let Some((_, Surface::Browser(view))) = &*self.0.view.borrow() {
             let id = serde_json::Value::String(anchor.to_owned());
             let _ = view.evaluate_script(&format!("location.hash = encodeURIComponent({id});"));
         }

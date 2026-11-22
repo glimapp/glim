@@ -159,14 +159,15 @@ pub fn prepare_cancellable(
     } else {
         Some(tempfile::tempdir()?)
     };
-    let spreadsheet = if !folder && crate::spreadsheet::supports(path) {
+    let spreadsheet = if cfg!(target_os = "macos") && !folder && crate::spreadsheet::supports(path)
+    {
         crate::spreadsheet::prepare(path, cancel)?
     } else {
         None
     };
     let word_reading = if !folder && crate::word_preview::supports(path) {
-        match crate::word_preview::prepare(path, cancel) {
-            Ok(reading) => Some(reading),
+        match crate::word_preview::prepare_for_preview(path, cancel) {
+            Ok(reading) => reading,
             Err(error) => {
                 cancel.check()?;
                 log::warn!("Word reading view unavailable; retaining native layout: {error:#}");

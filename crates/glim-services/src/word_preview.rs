@@ -24,6 +24,31 @@ pub fn supports(path: &Path) -> bool {
         .and_then(|s| s.to_str())
         .is_some_and(|s| matches!(s.to_ascii_lowercase().as_str(), "doc" | "docx" | "rtf"))
 }
+pub(crate) fn prepare_for_preview(
+    path: &Path,
+    cancel: &Cancellation,
+) -> Result<Option<ReadingDocument>> {
+    #[cfg(target_os = "macos")]
+    {
+        prepare(path, cancel).map(Some)
+    }
+    #[cfg(windows)]
+    {
+        // Keep the image-page reader for scanned DOCX files. Other documents
+        // are opened by the registered Explorer preview handler.
+        let directory = tempfile::tempdir()?;
+        let html = directory.path().join("reading.html");
+        if scans::prepare(path, directory.path(), &html, cancel)? {
+            Ok(Some(ReadingDocument {
+                html: html.canonicalize()?,
+                image_pages: true,
+                _directory: directory,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+}
 pub fn prepare(path: &Path, cancel: &Cancellation) -> Result<ReadingDocument> {
     let _conversion = loop {
         cancel.check()?;
