@@ -83,8 +83,9 @@ pub(crate) struct Changes {
     active_root: Option<PathBuf>,
     catalog: Arc<Catalog>,
     commits: Arc<Vec<Commit>>,
-    history_page: usize,
-    history_reflog: bool,
+    history_limit: usize,
+    history_search: String,
+    history_scroll: UniformListScrollHandle,
     history_more: bool,
     history_path: Option<PathBuf>,
     search_open: bool,
@@ -213,8 +214,9 @@ impl Changes {
             active_root: None,
             catalog: Arc::default(),
             commits: Arc::default(),
-            history_page: 0,
-            history_reflog: false,
+            history_limit: git::HISTORY_PAGE,
+            history_search: String::new(),
+            history_scroll: UniformListScrollHandle::new(),
             history_more: false,
             history_path: None,
             search_open: false,
@@ -299,7 +301,7 @@ impl Changes {
             self.selected_commit = None;
             self.selected_reference = None;
             self.selected_stash = None;
-            self.history_page = 0;
+            self.reset_history();
             self.history_path = None;
             self.cancel_browse();
             self.repositories.clear();

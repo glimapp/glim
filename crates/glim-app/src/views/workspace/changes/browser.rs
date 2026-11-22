@@ -154,7 +154,7 @@ impl Changes {
         self.selected_commit = None;
         self.selected_reference = None;
         self.selected_stash = None;
-        self.history_page = 0;
+        self.reset_history();
         self.history_path = None;
         self.clear_patch(cx);
         if self.section == Section::Changes {
@@ -179,6 +179,10 @@ impl Changes {
         }
         self.cancel_browse();
         self.section = section;
+        if section == Section::History {
+            self.reset_history();
+            self.history_path = None;
+        }
         self.comparison = None;
         self.selected_commit = None;
         self.selected_reference = None;
@@ -221,6 +225,74 @@ impl Changes {
         cx.notify();
     }
 
+    pub(super) fn reset_history(&mut self) {
+        self.history_limit = git::HISTORY_PAGE;
+        self.history_more = false;
+        self.history_scroll = UniformListScrollHandle::new();
+    }
+
+    fn append_history(&mut self, generation: u64, cx: &mut Context<Self>) {
+        if self.section != Section::History
+            || self.browse_generation != generation
+            || self.browsing
+            || !self.history_more
+            || self.browser_error.is_some()
+        {
+            return;
+        }
+        let (Some(root), Some(last)) = (self.active_root.clone(), self.commits.last()) else {
+            return;
+        };
+        let last_id = last.id.clone();
+        let offset = self.commits.len() - 1;
+        let search = self.history_search.clone();
+        let path = self.history_path.clone();
+        let remote = self.remote.clone();
+        self.browsing = true;
+        self.browse_generation += 1;
+        let generation = self.browse_generation;
+        let (cancel, guard) = Cancellation::task();
+        self.browse_cancel = Some(guard);
+        let query = cx.background_executor().spawn(async move {
+            git::history(
+                &root,
+                remote.as_ref(),
+                offset,
+                git::HISTORY_PAGE + 1,
+                &search,
+                path.as_deref(),
+                &cancel,
+            )
+        });
+        self.browse_task = Some(cx.spawn(async move |view, cx| {
+            let result = query.await;
+            let _ = view.update(cx, |view, cx| {
+                if view.browse_generation != generation {
+                    return;
+                }
+                view.browsing = false;
+                match result {
+                    Ok(page)
+                        if page
+                            .commits
+                            .first()
+                            .is_some_and(|commit| commit.id == last_id) =>
+                    {
+                        view.history_more = page.more;
+                        Arc::make_mut(&mut view.commits).extend(page.commits.into_iter().skip(1));
+                        view.history_limit = view.commits.len().max(git::HISTORY_PAGE);
+                    }
+                    Ok(_) => view.browse(cx),
+                    Err(error) => {
+                        view.browser_error =
+                            Some(format!("{}\n{error:#}", tr("Git query failed")).into())
+                    }
+                }
+                cx.notify();
+            });
+        }));
+    }
+
     pub(super) fn browse(&mut self, cx: &mut Context<Self>) {
         self.browse_cancel = None;
         self.browse_task = None;
@@ -231,9 +303,8 @@ impl Changes {
         };
         let remote = self.remote.clone();
         let section = self.section;
-        let page = self.history_page;
-        let reflog = self.history_reflog;
-        let search = self.search.read(cx).value().to_string();
+        let limit = self.history_limit;
+        let search = self.history_search.clone();
         let path = self.history_path.clone();
         self.browsing = true;
         self.browser_error = None;
@@ -245,8 +316,8 @@ impl Changes {
                 Some(git::history(
                     &root,
                     remote.as_ref(),
-                    page,
-                    reflog,
+                    0,
+                    limit,
                     &search,
                     path.as_deref(),
                     &cancel,
@@ -257,7 +328,18 @@ impl Changes {
             let revisions = if matches!(section, Section::Branches | Section::Worktrees)
                 && !catalog.references.is_empty()
             {
-                Some(git::history(&root, remote.as_ref(), 0, false, "", None, &cancel)?.commits)
+                Some(
+                    git::history(
+                        &root,
+                        remote.as_ref(),
+                        0,
+                        git::HISTORY_PAGE,
+                        "",
+                        None,
+                        &cancel,
+                    )?
+                    .commits,
+                )
             } else {
                 None
             };
@@ -372,33 +454,6 @@ impl Changes {
             Section::History => h_flex()
                 .gap_1()
                 .flex_wrap()
-                .child(
-                    super::controls::icon_action(
-                        Button::new("git-history-reflog"),
-                        gpui_kit::assets::IconName::Clock,
-                        "Reflog",
-                    )
-                    .selected(self.history_reflog)
-                    .on_click(cx.listener(|view, _, _, cx| {
-                        view.history_reflog = !view.history_reflog;
-                        view.history_path = None;
-                        view.history_page = 0;
-                        view.selected_commit = None;
-                        view.browse(cx);
-                    })),
-                )
-                .child(
-                    super::controls::icon_action(
-                        Button::new("git-history-search"),
-                        gpui_kit::assets::IconName::Search,
-                        "Search",
-                    )
-                    .selected(self.search_open)
-                    .on_click(cx.listener(|view, _, _, cx| {
-                        view.search_open = !view.search_open;
-                        cx.notify();
-                    })),
-                )
                 .child(self.form_button("git-compare", Form::Compare, cx))
                 .child(
                     super::controls::icon_action(
@@ -409,7 +464,7 @@ impl Changes {
                     .selected(self.history_path.is_none())
                     .on_click(cx.listener(|view, _, _, cx| {
                         view.history_path = None;
-                        view.history_page = 0;
+                        view.reset_history();
                         view.selected_commit = None;
                         view.browse(cx);
                     })),
@@ -426,9 +481,8 @@ impl Changes {
                             .selected(self.history_path.as_ref() == Some(&path))
                             .on_click(cx.listener(
                                 move |view, _, _, cx| {
-                                    view.history_reflog = false;
                                     view.history_path = Some(path.clone());
-                                    view.history_page = 0;
+                                    view.reset_history();
                                     view.selected_commit = None;
                                     view.browse(cx);
                                 },
@@ -438,34 +492,14 @@ impl Changes {
                 )
                 .child(
                     super::controls::icon_action(
-                        Button::new("git-log-prev"),
-                        gpui_kit::assets::IconName::ChevronLeft,
-                        "Previous",
+                        Button::new("git-history-search"),
+                        gpui_kit::assets::IconName::Search,
+                        "Search",
                     )
-                    .disabled(self.history_page == 0 || self.browsing)
+                    .selected(self.search_open)
                     .on_click(cx.listener(|view, _, _, cx| {
-                        view.history_page = view.history_page.saturating_sub(1);
-                        view.selected_commit = None;
-                        view.browse(cx);
-                    })),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child((self.history_page + 1).to_string()),
-                )
-                .child(
-                    super::controls::icon_action(
-                        Button::new("git-log-next"),
-                        gpui_kit::assets::IconName::ChevronRight,
-                        "Next",
-                    )
-                    .disabled(!self.history_more || self.browsing)
-                    .on_click(cx.listener(|view, _, _, cx| {
-                        view.history_page += 1;
-                        view.selected_commit = None;
-                        view.browse(cx);
+                        view.search_open = !view.search_open;
+                        cx.notify();
                     })),
                 )
                 .into_any_element(),
@@ -511,6 +545,16 @@ impl Changes {
         let owner = cx.entity();
         let section = self.section;
         let rows = uniform_list("git-browser-list", count, move |range, _, cx| {
+            if section == Section::History && range.end >= count {
+                let view = owner.read(cx);
+                if view.history_more && !view.browsing && view.browser_error.is_none() {
+                    let generation = view.browse_generation;
+                    let owner = owner.clone();
+                    cx.defer(move |cx| {
+                        owner.update(cx, |view, cx| view.append_history(generation, cx))
+                    });
+                }
+            }
             let view = owner.read(cx);
             range
                 .map(|index| {
@@ -565,12 +609,12 @@ impl Changes {
                         Section::History => {
                             let commit = &view.commits[index];
                             (
+                                commit.subject.clone(),
                                 format!(
-                                    "{}  {}",
+                                    "{} · {}",
                                     &commit.id[..8.min(commit.id.len())],
-                                    commit.subject
+                                    commit.date.get(5..16).unwrap_or(&commit.date)
                                 ),
-                                format!("{} · {}  {}", commit.author, commit.date, commit.refs),
                                 view.selected_commit
                                     .as_ref()
                                     .is_some_and(|c| c.id == commit.id),
@@ -666,22 +710,54 @@ impl Changes {
                         })
                         .justify_start()
                         .selected(selected)
-                        .tooltip(format!("{title}\n{subtitle}"))
+                        .tooltip(if section == Section::History {
+                            let commit = &view.commits[index];
+                            format!(
+                                "{}\n{} · {}\n{}",
+                                title, commit.author, commit.id, commit.date
+                            )
+                        } else {
+                            format!("{title}\n{subtitle}")
+                        })
                         .child(
                             v_flex()
                                 .w_full()
                                 .min_w_0()
                                 .gap_1()
                                 .child(div().truncate().text_sm().child(title))
-                                .when(section != Section::Branches, |row| {
+                                .when(section == Section::History, |row| {
                                     row.child(
-                                        div()
-                                            .truncate()
+                                        h_flex()
+                                            .w_full()
+                                            .min_w_0()
+                                            .gap_1()
                                             .text_xs()
                                             .text_color(cx.theme().muted_foreground)
-                                            .child(subtitle),
+                                            .child(
+                                                div()
+                                                    .min_w_0()
+                                                    .truncate()
+                                                    .child(view.commits[index].author.clone()),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex_shrink_0()
+                                                    .child(format!("· {subtitle}")),
+                                            ),
                                     )
-                                }),
+                                })
+                                .when(
+                                    !matches!(section, Section::Branches | Section::History),
+                                    |row| {
+                                        row.child(
+                                            div()
+                                                .truncate()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(subtitle),
+                                        )
+                                    },
+                                ),
                         )
                         .on_click(move |_, _, cx| {
                             owner.update(cx, |view, cx| {
@@ -739,6 +815,9 @@ impl Changes {
                 })
                 .collect()
         })
+        .when(section == Section::History, |list| {
+            list.track_scroll(&self.history_scroll)
+        })
         .min_h_0()
         .w_full();
         let mut panel = v_flex()
@@ -765,7 +844,8 @@ impl Changes {
                         )
                         .disabled(self.browsing)
                         .on_click(cx.listener(|view, _, _, cx| {
-                            view.history_page = 0;
+                            view.history_search = view.search.read(cx).value().to_string();
+                            view.reset_history();
                             view.selected_commit = None;
                             view.browse(cx);
                         })),
@@ -780,7 +860,8 @@ impl Changes {
                             view.search
                                 .update(cx, |input, cx| input.set_value("", window, cx));
                             view.search_open = false;
-                            view.history_page = 0;
+                            view.history_search.clear();
+                            view.reset_history();
                             view.selected_commit = None;
                             view.browse(cx);
                         })),

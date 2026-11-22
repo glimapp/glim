@@ -132,10 +132,8 @@ pub fn metadata(root: &Path, remote: Option<&Session>, cancel: &Cancellation) ->
 #[derive(Clone, Debug)]
 pub struct Commit {
     pub id: String,
-    pub parents: String,
     pub author: String,
     pub date: String,
-    pub refs: String,
     pub subject: String,
 }
 
@@ -148,8 +146,8 @@ pub struct History {
 pub fn history(
     root: &Path,
     remote: Option<&Session>,
-    page: usize,
-    reflog: bool,
+    offset: usize,
+    limit: usize,
     search: &str,
     path: Option<&Path>,
     cancel: &Cancellation,
@@ -157,15 +155,12 @@ pub fn history(
     let mut args: Vec<OsString> = vec![
         "log".into(),
         "--all".into(),
-        if reflog {
-            "--walk-reflogs".into()
-        } else {
-            "--date-order".into()
-        },
+        "--date-order".into(),
+        "--date=format:%Y-%m-%d %H:%M:%S".into(),
         "-z".into(),
-        "--format=%H%x00%P%x00%an%x00%aI%x00%D %gD%x00%s".into(),
-        format!("--max-count={}", HISTORY_PAGE + 1).into(),
-        format!("--skip={}", page.saturating_mul(HISTORY_PAGE)).into(),
+        "--format=%H%x00%an%x00%ad%x00%s".into(),
+        format!("--max-count={}", limit.saturating_add(1)).into(),
+        format!("--skip={offset}").into(),
     ];
     if !search.trim().is_empty() {
         args.extend([
@@ -196,15 +191,13 @@ pub fn history(
         };
         commits.push(Commit {
             id,
-            parents: next()?,
             author: next()?,
             date: next()?,
-            refs: next()?,
             subject: next()?,
         });
     }
-    let more = commits.len() > HISTORY_PAGE;
-    commits.truncate(HISTORY_PAGE);
+    let more = commits.len() > limit;
+    commits.truncate(limit);
     Ok(History { commits, more })
 }
 
