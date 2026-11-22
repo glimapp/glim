@@ -99,11 +99,12 @@ pub(crate) struct Changes {
     form_values: std::collections::HashMap<String, Vec<String>>,
     comparison: Option<(PathBuf, Comparison)>,
     selected_commit: Option<Commit>,
-    collapsed_refs: [bool; 2],
+    collapsed_refs: [bool; 3],
     reference_groups: [Vec<usize>; 2],
     reference_list: ListState,
-    visible_group_sizes: [usize; 2],
+    visible_group_sizes: [usize; 3],
     selected_reference: Option<usize>,
+    selected_remote: Option<String>,
     selected_stash: Option<usize>,
     displayed_patch: Option<(DiffTab, [u8; 32])>,
     patch_source: Option<Arc<String>>,
@@ -236,11 +237,12 @@ impl Changes {
             form_values: Default::default(),
             comparison: None,
             selected_commit: None,
-            collapsed_refs: [false; 2],
+            collapsed_refs: [false; 3],
             reference_groups: Default::default(),
-            reference_list: ListState::new(2, ListAlignment::Top, px(100.)),
-            visible_group_sizes: [0; 2],
+            reference_list: ListState::new(3, ListAlignment::Top, px(100.)),
+            visible_group_sizes: [0; 3],
             selected_reference: None,
+            selected_remote: None,
             selected_stash: None,
             displayed_patch: None,
             patch_source: None,
@@ -315,6 +317,7 @@ impl Changes {
             self.commits = Arc::default();
             self.selected_commit = None;
             self.selected_reference = None;
+            self.selected_remote = None;
             self.selected_stash = None;
             self.reset_history();
             self.history_path = None;
@@ -467,6 +470,7 @@ impl Changes {
                     _ => None,
                 };
                 self.selected_reference = None;
+                self.selected_remote = None;
                 self.selected_stash = None;
                 self.selection = None;
                 self.show_comparison(query, cx);
@@ -1493,7 +1497,16 @@ mod tests {
                 ]
             );
         });
-        for group in [0usize, 1] {
+        cx.update_window(handle, |_, w, cx| {
+            w.render_frame(cx);
+            let toolbar = ["git-new-branch", "git-new-tag", "git-add-remote", "git-compare-refs", "git-fetch-all"]
+                .map(|id| w.find(id).bounds());
+            assert!(toolbar.windows(2).all(|pair| pair[0].top() == pair[1].top() && pair[0].right() <= pair[1].left()));
+        }).unwrap();
+        click(cx, "git-add-remote".into());
+        click(cx, "git-form-cancel".into());
+        click(cx, "git-fetch-all".into());
+        for group in [0usize, 1, 2] {
             click(cx, ("git-reference-group", group).into());
             assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).collapsed_refs[group]));
             click(cx, ("git-reference-group", group).into());
@@ -1628,14 +1641,16 @@ mod tests {
             .unwrap();
             click(cx, "git-form-cancel".into());
         }
-        for (section, id) in [
-            (browser::Section::Remotes, "git-subsection"),
-            (browser::Section::Worktrees, "git-section"),
-        ] {
-            click(cx, (id, section as usize).into());
+        for row_id in ["git-remote-row", "git-browser-row"] {
+            if row_id == "git-browser-row" {
+                click(
+                    cx,
+                    ("git-section", browser::Section::Worktrees as usize).into(),
+                );
+            }
             cx.update_window(handle, |_, w, cx| {
                 w.render_frame(cx);
-                w.right_click(("git-browser-row", 0usize), cx);
+                w.right_click((row_id, 0usize), cx);
             })
             .unwrap();
             cx.run_until_parked();

@@ -865,6 +865,7 @@
   "Detached HEAD": "Detached HEAD",
   "Discard changes": "Discard changes",
   "Drop stash": "Drop stash",
+  "Fetch updates from all remotes": "Fetch updates from all remotes",
   "Fetch": "Fetch",
   "File history": "File history",
   "Git operation failed": "Git operation failed",

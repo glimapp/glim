@@ -8,7 +8,6 @@ pub(super) enum Section {
     Changes,
     History,
     Branches,
-    Remotes,
     Stashes,
     Worktrees,
 }
@@ -22,7 +21,6 @@ impl Section {
     pub(super) fn parent(self) -> Self {
         match self {
             Self::Stashes => Self::Changes,
-            Self::Remotes => Self::Branches,
             other => other,
         }
     }
@@ -31,11 +29,19 @@ impl Section {
             Self::Changes => "Changes",
             Self::History => "History",
             Self::Branches => "Branches & tags",
-            Self::Remotes => "Remotes",
             Self::Stashes => "Stashes",
             Self::Worktrees => "Worktrees",
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EntryKind {
+    Commit,
+    Reference,
+    Remote,
+    Stash,
+    Worktree,
 }
 
 #[derive(Clone)]
@@ -167,6 +173,7 @@ impl Changes {
         self.comparison = None;
         self.selected_commit = None;
         self.selected_reference = None;
+        self.selected_remote = None;
         self.selected_stash = None;
         self.reset_history();
         self.history_path = None;
@@ -201,6 +208,7 @@ impl Changes {
         self.comparison = None;
         self.selected_commit = None;
         self.selected_reference = None;
+        self.selected_remote = None;
         self.selected_stash = None;
         self.patch_cancel = None;
         self.patch_task = None;
@@ -379,9 +387,6 @@ impl Changes {
                                     Section::Branches => {
                                         view.catalog.references.get(index).map(|r| r.full.clone())
                                     }
-                                    Section::Remotes => {
-                                        view.catalog.remotes.get(index).map(|r| r.name.clone())
-                                    }
                                     Section::Worktrees => view
                                         .catalog
                                         .worktrees
@@ -399,14 +404,14 @@ impl Changes {
                                 [usize::from(reference.full.starts_with("refs/tags/"))]
                             .push(index);
                         }
+                        view.selected_remote = view.selected_remote.take().filter(|name| {
+                            catalog.remotes.iter().any(|remote| &remote.name == name)
+                        });
                         view.catalog = Arc::new(catalog);
                         view.selected_reference =
                             reference_key.as_ref().and_then(|key| match view.section {
                                 Section::Branches => {
                                     view.catalog.references.iter().position(|r| &r.full == key)
-                                }
-                                Section::Remotes => {
-                                    view.catalog.remotes.iter().position(|r| &r.name == key)
                                 }
                                 Section::Worktrees => view
                                     .catalog
@@ -503,14 +508,18 @@ impl Changes {
                 .flex_wrap()
                 .child(self.form_button("git-new-branch", Form::Branch, cx))
                 .child(self.form_button("git-new-tag", Form::Tag, cx))
-                .child(self.form_button("git-compare-refs", Form::Compare, cx))
-                .child(self.subsection_button(Section::Remotes, IconName::Server, cx))
-                .into_any_element(),
-            Section::Remotes => h_flex()
-                .gap_1()
-                .child(self.subsection_button(Section::Remotes, IconName::Server, cx))
                 .child(self.form_button("git-add-remote", Form::Remote, cx))
-                .child(self.operation_button("git-fetch-all", Operation::Fetch(None), false, cx))
+                .child(self.form_button("git-compare-refs", Form::Compare, cx))
+                .child(
+                    self.operation_button(
+                        "git-fetch-all",
+                        Operation::Fetch(None),
+                        self.catalog.remotes.is_empty(),
+                        cx,
+                    )
+                    .tooltip(tr("Fetch updates from all remotes"))
+                    .accessibility_label(tr("Fetch updates from all remotes")),
+                )
                 .into_any_element(),
             Section::Stashes => h_flex()
                 .gap_1()
@@ -522,17 +531,19 @@ impl Changes {
                 .into_any_element(),
             Section::Changes => div().into_any_element(),
         };
-        let visible_refs = std::array::from_fn::<_, 2, _>(|group| {
-            if self.collapsed_refs[group] {
-                0
-            } else {
-                self.reference_groups[group].len()
+        let mut visible_refs = [
+            self.reference_groups[0].len(),
+            self.reference_groups[1].len(),
+            self.catalog.remotes.len(),
+        ];
+        for (count, collapsed) in visible_refs.iter_mut().zip(self.collapsed_refs) {
+            if collapsed {
+                *count = 0;
             }
-        });
+        }
         let count = match self.section {
             Section::History => self.commits.len(),
-            Section::Branches => 2 + visible_refs.iter().sum::<usize>(),
-            Section::Remotes => self.catalog.remotes.len(),
+            Section::Branches => visible_refs.len() + visible_refs.iter().sum::<usize>(),
             Section::Stashes => self.catalog.stashes.len(),
             Section::Worktrees => self.catalog.worktrees.len(),
             Section::Changes => 0,
@@ -541,59 +552,70 @@ impl Changes {
         let section = self.section;
         let render_row = move |index: usize, owner: &Entity<Self>, cx: &App| {
             let view = owner.read(cx);
-            let index = if section == Section::Branches {
-                let group = usize::from(index > visible_refs[0]);
-                let offset = if group == 0 {
-                    index
-                } else {
-                    index - visible_refs[0] - 1
-                };
-                if offset == 0 {
-                    let owner = owner.clone();
-                    let (icon, label) = if group == 0 {
-                        (IconName::GitBranch, "Git branches")
-                    } else {
-                        (IconName::Tag, "Git tags")
-                    };
-                    let arrow = if view.collapsed_refs[group] {
-                        IconName::ChevronRight
-                    } else {
-                        IconName::ChevronDown
-                    };
-                    return Button::new(("git-reference-group", group))
-                        .ghost()
-                        .small()
-                        .w_full()
-                        .h(px(30.))
-                        .px(px(5.))
-                        .tooltip(tr(label))
-                        .accessibility_label(tr(label))
-                        .child(
-                            h_flex()
-                                .w_full()
-                                .justify_start()
-                                .gap_1()
-                                .child(gpui_kit::component::Icon::new(icon).size(px(14.)))
-                                .child(tr(label))
-                                .child(gpui_kit::component::Icon::new(arrow).size(px(12.))),
-                        )
-                        .on_click(move |_, _, cx| {
-                            owner.update(cx, |view, cx| {
-                                view.collapsed_refs[group] = !view.collapsed_refs[group];
-                                cx.notify();
+            let (kind, index) = match section {
+                Section::History => (EntryKind::Commit, index),
+                Section::Stashes => (EntryKind::Stash, index),
+                Section::Worktrees => (EntryKind::Worktree, index),
+                Section::Changes => unreachable!(),
+                Section::Branches => {
+                    let mut group = 0;
+                    let mut offset = index;
+                    while offset > visible_refs[group] {
+                        offset -= visible_refs[group] + 1;
+                        group += 1;
+                    }
+                    if offset == 0 {
+                        let owner = owner.clone();
+                        let (icon, label) = [
+                            (IconName::GitBranch, "Git branches"),
+                            (IconName::Tag, "Git tags"),
+                            (IconName::Server, "Remotes"),
+                        ][group];
+                        let arrow = if view.collapsed_refs[group] {
+                            IconName::ChevronRight
+                        } else {
+                            IconName::ChevronDown
+                        };
+                        return Button::new(("git-reference-group", group))
+                            .ghost()
+                            .small()
+                            .w_full()
+                            .h(px(30.))
+                            .px(px(5.))
+                            .tooltip(tr(label))
+                            .accessibility_label(tr(label))
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .justify_start()
+                                    .gap_1()
+                                    .child(gpui_kit::component::Icon::new(icon).size(px(14.)))
+                                    .child(tr(label))
+                                    .child(gpui_kit::component::Icon::new(arrow).size(px(12.))),
+                            )
+                            .on_click(move |_, _, cx| {
+                                owner.update(cx, |view, cx| {
+                                    view.collapsed_refs[group] = !view.collapsed_refs[group];
+                                    cx.notify();
+                                })
                             })
-                        })
-                        .into_any_element();
+                            .into_any_element();
+                    }
+                    if group == 2 {
+                        (EntryKind::Remote, offset - 1)
+                    } else {
+                        (
+                            EntryKind::Reference,
+                            view.reference_groups[group][offset - 1],
+                        )
+                    }
                 }
-                view.reference_groups[group][offset - 1]
-            } else {
-                index
             };
-            let tag = (section == Section::Branches)
+            let tag = (kind == EntryKind::Reference)
                 .then(|| view.catalog.references[index].tag.as_deref())
                 .flatten();
-            let (title, subtitle, selected) = match section {
-                Section::History => {
+            let (title, subtitle, selected) = match kind {
+                EntryKind::Commit => {
                     let commit = &view.commits[index];
                     (
                         commit.subject.clone(),
@@ -607,7 +629,7 @@ impl Changes {
                             .is_some_and(|c| c.id == commit.id),
                     )
                 }
-                Section::Branches => {
+                EntryKind::Reference => {
                     let reference = &view.catalog.references[index];
                     (
                         format!(
@@ -629,18 +651,18 @@ impl Changes {
                                 reference.tracking
                             )
                         },
-                        view.selected_reference == Some(index),
+                        view.selected_remote.is_none() && view.selected_reference == Some(index),
                     )
                 }
-                Section::Remotes => {
+                EntryKind::Remote => {
                     let remote = &view.catalog.remotes[index];
                     (
                         remote.name.clone(),
                         remote.url.clone(),
-                        view.selected_reference == Some(index),
+                        view.selected_remote.as_ref() == Some(&remote.name),
                     )
                 }
-                Section::Stashes => {
+                EntryKind::Stash => {
                     let stash = &view.catalog.stashes[index];
                     (
                         stash.subject.clone(),
@@ -648,7 +670,7 @@ impl Changes {
                         view.selected_stash == Some(index),
                     )
                 }
-                Section::Worktrees => {
+                EntryKind::Worktree => {
                     let tree = &view.catalog.worktrees[index];
                     (
                         tree.path.display().to_string(),
@@ -674,20 +696,18 @@ impl Changes {
                         view.selected_reference == Some(index),
                     )
                 }
-                _ => unreachable!(),
             };
             let owner = owner.clone();
             let menu_owner = owner.clone();
-            let target = match section {
-                Section::History => view.commits[index].id.as_str(),
-                Section::Branches => view.catalog.references[index].full.as_str(),
-                Section::Remotes => view.catalog.remotes[index].name.as_str(),
-                Section::Stashes => view.catalog.stashes[index].id.as_str(),
-                Section::Worktrees => &view.catalog.worktrees[index].path.to_string_lossy(),
-                _ => unreachable!(),
+            let target = match kind {
+                EntryKind::Commit => view.commits[index].id.as_str(),
+                EntryKind::Reference => view.catalog.references[index].full.as_str(),
+                EntryKind::Remote => view.catalog.remotes[index].name.as_str(),
+                EntryKind::Stash => view.catalog.stashes[index].id.as_str(),
+                EntryKind::Worktree => &view.catalog.worktrees[index].path.to_string_lossy(),
             };
-            let source = ElementId::Name(format!("git-row-{}-{target}", section as usize).into());
-            let author = if section == Section::History {
+            let source = ElementId::Name(format!("git-row-{}-{target}", kind as usize).into());
+            let author = if kind == EntryKind::Commit {
                 Some(view.commits[index].author.as_str())
             } else {
                 tag.map(|tag| tag.author.as_str())
@@ -698,7 +718,7 @@ impl Changes {
                     .filter(|value| !value.is_empty())
                     .collect::<Vec<_>>()
                     .join("\n")
-            } else if section == Section::History {
+            } else if kind == EntryKind::Commit {
                 let commit = &view.commits[index];
                 format!(
                     "{}\n{} · {}\n{}",
@@ -710,11 +730,16 @@ impl Changes {
             } else {
                 format!("{title}\n{subtitle}")
             };
+            let row_id = if kind == EntryKind::Remote {
+                "git-remote-row"
+            } else {
+                "git-browser-row"
+            };
             let row = view
-                .feedback_button(source.clone(), Button::new(("git-browser-row", index)))
+                .feedback_button(source.clone(), Button::new((row_id, index)))
                 .ghost()
                 .w_full()
-                .h(if section == Section::Branches && tag.is_none() {
+                .h(if kind == EntryKind::Reference && tag.is_none() {
                     px(30.)
                 } else {
                     px(52.)
@@ -756,7 +781,7 @@ impl Changes {
                             )
                         })
                         .when(
-                            !matches!(section, Section::Branches | Section::History),
+                            !matches!(kind, EntryKind::Reference | EntryKind::Commit),
                             |row| {
                                 row.child(
                                     div()
@@ -770,8 +795,8 @@ impl Changes {
                 )
                 .on_click(move |_, _, cx| {
                     owner.update(cx, |view, cx| {
-                        match section {
-                            Section::History => {
+                        match kind {
+                            EntryKind::Commit => {
                                 let commit = view.commits[index].clone();
                                 view.selected_commit = Some(commit.clone());
                                 view.show_comparison(
@@ -782,7 +807,8 @@ impl Changes {
                                     cx,
                                 );
                             }
-                            Section::Branches => {
+                            EntryKind::Reference => {
+                                view.selected_remote = None;
                                 view.selected_reference = Some(index);
                                 let reference = view.catalog.references[index].clone();
                                 view.show_comparison(
@@ -790,23 +816,33 @@ impl Changes {
                                     cx,
                                 );
                             }
-                            Section::Stashes => {
+                            EntryKind::Stash => {
                                 view.selected_stash = Some(index);
                                 let stash = view.catalog.stashes[index].clone();
                                 view.show_comparison(Comparison::Stash(stash.id), cx);
                             }
-                            Section::Remotes | Section::Worktrees => {
+                            EntryKind::Remote => {
+                                view.selected_remote =
+                                    Some(view.catalog.remotes[index].name.clone());
+                            }
+                            EntryKind::Worktree => {
                                 view.selected_reference = Some(index);
                             }
-                            _ => {}
                         }
                         cx.notify();
                     })
                 });
             let root = view.active_root.clone();
-            let actions = view.item_actions(section, index);
+            let actions = view.item_actions(kind, index);
             div()
-                .id(("git-context-row", index))
+                .id((
+                    if kind == EntryKind::Remote {
+                        "git-remote-context"
+                    } else {
+                        "git-context-row"
+                    },
+                    index,
+                ))
                 .child(row)
                 .context_menu(move |menu, _, cx| {
                     menu_owner
@@ -816,7 +852,7 @@ impl Changes {
                 .into_any_element()
         };
         let rows = if section == Section::Branches {
-            // The two group headers and branch names are compact. Tag details
+            // Group headers and branch names are compact. Tag and remote details
             // need taller rows, so measure visible items individually.
             let mut start = 1;
             for (previous, &visible) in self.visible_group_sizes.iter_mut().zip(&visible_refs) {
@@ -936,13 +972,13 @@ impl Changes {
 
     fn item_actions(
         &self,
-        section: Section,
+        kind: EntryKind,
         index: usize,
     ) -> Vec<(IconName, String, RowAction, bool)> {
         let mut items = Vec::new();
         let mut operations = Vec::new();
-        match section {
-            Section::History => {
+        match kind {
+            EntryKind::Commit => {
                 let commit = &self.commits[index];
                 let id = commit.id.clone();
                 items.push((
@@ -985,7 +1021,7 @@ impl Changes {
                     operations.push(Operation::RestoreFile { revision: id, path });
                 }
             }
-            Section::Branches => {
+            EntryKind::Reference => {
                 let reference = &self.catalog.references[index];
                 let local = reference.full.starts_with("refs/heads/");
                 let tag = reference.full.starts_with("refs/tags/");
@@ -1036,7 +1072,7 @@ impl Changes {
                     ));
                 }
             }
-            Section::Stashes => {
+            EntryKind::Stash => {
                 let stash = &self.catalog.stashes[index];
                 operations.extend([
                     Operation::StashApply(stash.id.clone()),
@@ -1050,7 +1086,7 @@ impl Changes {
                     },
                 ]);
             }
-            Section::Remotes => {
+            EntryKind::Remote => {
                 let remote = &self.catalog.remotes[index];
                 operations.extend([
                     Operation::Fetch(Some(remote.name.clone())),
@@ -1081,7 +1117,7 @@ impl Changes {
                     }
                 }
             }
-            Section::Worktrees => {
+            EntryKind::Worktree => {
                 let tree = &self.catalog.worktrees[index];
                 items.push((
                     IconName::FolderOpen,
@@ -1097,7 +1133,6 @@ impl Changes {
                     tree.locked || self.active_root.as_ref() == Some(&tree.path),
                 ));
             }
-            _ => {}
         }
         items.extend(operations.into_iter().map(|op| {
             (

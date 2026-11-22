@@ -865,6 +865,7 @@
   "Detached HEAD": "游离 HEAD",
   "Discard changes": "放弃修改",
   "Drop stash": "删除 Stash",
+  "Fetch updates from all remotes": "获取所有远端更新",
   "Fetch": "获取",
   "File history": "文件历史",
   "Git operation failed": "Git 操作失败",
