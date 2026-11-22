@@ -181,10 +181,25 @@ impl Integrations {
 
 impl Render for Integrations {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut rows = v_flex().w_full().px_4().rounded(px(12.)).bg(cx
-            .theme()
-            .background
-            .blend(cx.theme().foreground.opacity(0.035)));
+        let setup = Button::new("install-terminal-tools")
+            .small()
+            .h(px(30.))
+            .min_w(px(110.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(cx.theme().border)
+            .disabled(self.busy)
+            .loading(self.installing_tools)
+            .label(tr("Set up"))
+            .on_click(cx.listener(|view, _, _, cx| view.install_tools(cx)));
+        let mut rows = super::settings_controls::settings_group(cx).child(
+            super::settings_controls::settings_row(
+                "Terminal and agent tools",
+                "Install the glim command and skills for detected agents.",
+                setup.into_any_element(),
+                cx,
+            ),
+        );
         for (index, target) in self.targets.iter().enumerate() {
             let configured = target.status == Status::Configured;
             let blocked = matches!(target.status, Status::Conflict | Status::Unreadable);
@@ -208,7 +223,7 @@ impl Render for Integrations {
             let button = Button::new(("integration-action", index))
                 .small()
                 .h(px(30.))
-                .min_w(px(90.))
+                .min_w(px(110.))
                 .border_1()
                 .border_color(cx.theme().border)
                 .rounded(px(8.))
@@ -246,9 +261,7 @@ impl Render for Integrations {
                     )
                     .into_any_element()
             };
-            if index > 0 {
-                rows = rows.child(div().h(px(1.)).w_full().bg(cx.theme().border));
-            }
+            rows = rows.child(div().h(px(1.)).w_full().bg(cx.theme().border));
             let label = h_flex().gap_2().child(div().text_sm().child(target.kind.label()))
                 .when(configured || blocked, |row| {
                     let status = tr(match target.status {
@@ -264,7 +277,7 @@ impl Render for Integrations {
             rows = rows.child(
                 h_flex()
                     .w_full()
-                    .min_h(px(64.))
+                    .min_h(px(58.))
                     .py_3()
                     .gap_3()
                     .child(
@@ -297,7 +310,7 @@ impl Render for Integrations {
         if self.targets.is_empty() {
             rows = rows.child(
                 h_flex()
-                    .min_h(px(64.))
+                    .min_h(px(58.))
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .when(self.loaded, |row| {
@@ -348,41 +361,6 @@ impl Render for Integrations {
             .w_full()
             .gap_3()
             .mt_3()
-            .child(
-                h_flex()
-                    .w_full()
-                    .gap_3()
-                    .px_4()
-                    .py_3()
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(div().text_sm().child(tr("Terminal and agent tools")))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(tr(
-                                        "Install the glim command and skills for detected agents.",
-                                    )),
-                            ),
-                    )
-                    .child(
-                        Button::new("install-terminal-tools")
-                            .small()
-                            .h(px(30.))
-                            .min_w(px(90.))
-                            .rounded(px(8.))
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .disabled(self.busy)
-                            .loading(self.installing_tools)
-                            .label(tr("Set up"))
-                            .on_click(cx.listener(|view, _, _, cx| view.install_tools(cx))),
-                    ),
-            )
             .child(
                 h_flex()
                     .w_full()
