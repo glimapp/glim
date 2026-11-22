@@ -123,7 +123,11 @@ impl ToolbarItem {
             ToolbarAction::Source => "chevron.left.forwardslash.chevron.right",
             ToolbarAction::WordWrap => "arrow.turn.down.left",
             ToolbarAction::Find => "magnifyingglass",
-            ToolbarAction::ExportPdf if matches!(self.icon, Some(IconName::X)) => "xmark",
+            ToolbarAction::ExportPdf | ToolbarAction::OpenInBrowser
+                if matches!(self.icon, Some(IconName::Hourglass)) =>
+            {
+                "hourglass"
+            }
             ToolbarAction::ExportPdf => "arrow.down.document",
             ToolbarAction::OpenInBrowser => "arrow.up.right.square",
             ToolbarAction::FileFullscreen if self.selected => "arrow.down.right.and.arrow.up.left",
@@ -544,15 +548,16 @@ impl super::Workspace {
         {
             let mut export = ToolbarItem::new(ToolbarAction::ExportPdf);
             export.enabled = !self.picking;
-            if self.pdf_export_task.is_some() {
-                export.label = "Cancel PDF export";
-                export.icon = Some(IconName::X);
+            if self.pdf_export_task.is_some() && !self.picking {
+                export.label = "Rendering PDF… · Cancel";
+                export.icon = Some(IconName::Hourglass);
             }
             document.push(export);
             let mut browser = ToolbarItem::new(ToolbarAction::OpenInBrowser);
             if self.markdown_browser_task.is_some() {
                 browser.enabled = false;
                 browser.label = "Preparing browser preview…";
+                browser.icon = Some(IconName::Hourglass);
             }
             document.push(browser);
         }

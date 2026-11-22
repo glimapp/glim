@@ -4,10 +4,8 @@ use crate::{
     work::{self, Cancellation},
 };
 use anyhow::{Context, Result, ensure};
-use base64::{Engine, engine::general_purpose::STANDARD};
+use base64::{engine::general_purpose::STANDARD, write::EncoderWriter};
 use diagrams::{Diagram, DiagramSvg};
-use html5ever::{parse_document, tendril::TendrilSink};
-use markup5ever_rcdom::{NodeData, RcDom};
 use pulldown_cmark::{BlockQuoteKind, CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
 use sha2::{Digest, Sha256};
 use std::{
@@ -18,6 +16,9 @@ use std::{
     process::{Command, Stdio},
 };
 use url::Url;
+
+#[path = "markdown_export_html.rs"]
+mod raw_html;
 
 pub fn export_pdf(
     markdown: &str,
@@ -160,17 +161,11 @@ fn write_html(
                 Event::Start(Tag::Image { link_type, dest_url: path.into(), title, id })
             }
             DocumentEvent::Markdown(Event::Start(Tag::Link { link_type, dest_url, title, id }), _) => {
-                let url = if dest_url.starts_with('#') {
-                    dest_url
-                } else {
-                    base.join(&dest_url).ok()
-                        .filter(|url| matches!(url.scheme(), "https" | "http" | "mailto" | "file"))
-                        .map_or_else(|| "#".into(), |url| url.to_string().into())
-                };
-                Event::Start(Tag::Link { link_type, dest_url: url, title, id })
+                let url = link_target(base, &dest_url).unwrap_or_else(|| "#".into());
+                Event::Start(Tag::Link { link_type, dest_url: url.into(), title, id })
             }
             DocumentEvent::Markdown(Event::Html(fragment) | Event::InlineHtml(fragment), _) => {
-                assets.html_fragment(fragment, base)
+                Event::Html(raw_html::render(&fragment, &mut assets, base).into())
             }
             DocumentEvent::Markdown(event, _) => event,
         })
@@ -202,6 +197,18 @@ fn document_events(markdown: &str) -> impl Iterator<Item = DocumentEvent<'_>> {
         }
         let (event, range) = parser.next()?;
         let source = &markdown[range];
+        if matches!(event, Event::Start(Tag::HtmlBlock)) {
+            // Keep multiline attributes together when tokenizing raw HTML.
+            let mut raw = String::new();
+            for (event, _) in parser.by_ref() {
+                match event {
+                    Event::Html(fragment) => raw.push_str(&fragment),
+                    Event::End(TagEnd::HtmlBlock) => break,
+                    _ => {}
+                }
+            }
+            return Some(DocumentEvent::Markdown(Event::Html(raw.into()), source));
+        }
         let diagram = match &event {
             Event::InlineMath(value) => Some(Diagram {
                 kind: "inline-math".into(),
@@ -264,11 +271,17 @@ fn document_events(markdown: &str) -> impl Iterator<Item = DocumentEvent<'_>> {
 struct Assets<'a> {
     directory: &'a Path,
     diagrams: HashMap<[u8; 32], std::result::Result<VectorImage, String>>,
-    images: HashMap<Url, Option<String>>,
+    images: HashMap<Url, Option<StagedImage>>,
     next_asset: usize,
     unavailable: usize,
     embedded: bool,
     cancel: &'a Cancellation,
+}
+
+#[derive(Clone)]
+struct StagedImage {
+    path: String,
+    media_type: &'static str,
 }
 
 struct VectorImage {
@@ -329,11 +342,14 @@ impl Assets<'_> {
         if !self.embedded {
             return Some(path.to_owned());
         }
-        let bytes = fs::read(self.directory.join(path)).ok()?;
-        Some(format!(
-            "data:{media_type};base64,{}",
-            STANDARD.encode(bytes)
-        ))
+        let mut url = format!("data:{media_type};base64,").into_bytes();
+        let mut encoder = EncoderWriter::new(&mut url, &STANDARD);
+        self.cancel
+            .copy(File::open(self.directory.join(path)).ok()?, &mut encoder)
+            .ok()?;
+        encoder.finish().ok()?;
+        drop(encoder);
+        String::from_utf8(url).ok()
     }
 
     fn vector(&mut self, svg: DiagramSvg) -> Result<VectorImage> {
@@ -420,14 +436,14 @@ impl Assets<'_> {
             self.images.insert(url, path.clone());
             path
         });
-        path.and_then(|path| self.asset_url(&path, "image/png"))
+        path.and_then(|image| self.asset_url(&image.path, image.media_type))
             .unwrap_or_else(|| {
                 self.unavailable += 1;
                 "image-unavailable".into()
             })
     }
 
-    fn prepare_image(&mut self, url: &Url) -> Result<String> {
+    fn prepare_image(&mut self, url: &Url) -> Result<StagedImage> {
         let downloaded;
         let source = match url.scheme() {
             "file" => url.to_file_path().ok().context("Invalid image path")?,
@@ -437,8 +453,23 @@ impl Assets<'_> {
             }
             _ => anyhow::bail!("Unsupported image URL"),
         };
-        // Exports use a bounded still image, including for animated inputs.
         ensure!(source.metadata()?.is_file(), "Image is not a regular file");
+        if crate::svg_preview::dimensions(&source, self.cancel)
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            // Isolated image documents preserve vectors without launching Quick Look.
+            let svg = crate::svg_preview::prepare_browser_image(&source, self.cancel)?;
+            let path = self.next_path("svg");
+            self.cancel
+                .copy(svg.reopen()?, File::create(self.directory.join(&path))?)?;
+            return Ok(StagedImage {
+                path,
+                media_type: "image/svg+xml",
+            });
+        }
+        // Raster exports use a bounded still image, including for animated inputs.
         let bytes = inline_images::thumbnail_png_cancellable(
             &source,
             limits::INLINE_IMAGE_PREVIEW_EDGE,
@@ -446,67 +477,19 @@ impl Assets<'_> {
         )?;
         let path = self.next_path("png");
         fs::write(self.directory.join(&path), bytes)?;
-        Ok(path)
+        Ok(StagedImage {
+            path,
+            media_type: "image/png",
+        })
     }
+}
 
-    fn html_fragment<'a>(&mut self, fragment: pulldown_cmark::CowStr<'a>, base: &Url) -> Event<'a> {
-        let trimmed = fragment.trim();
-        if matches!(
-            trimmed.to_ascii_lowercase().as_str(),
-            "<br>"
-                | "<br/>"
-                | "<br />"
-                | "<sub>"
-                | "</sub>"
-                | "<sup>"
-                | "</sup>"
-                | "<kbd>"
-                | "</kbd>"
-                | "<mark>"
-                | "</mark>"
-                | "<del>"
-                | "</del>"
-        ) {
-            return Event::Html(fragment);
-        }
-        if trimmed.starts_with("<!--") {
-            return Event::Html("".into());
-        }
-        let lower = trimmed.to_ascii_lowercase();
-        if lower.starts_with("<img") || lower.starts_with("<picture") || lower.starts_with("<p ") {
-            let dom = parse_document(RcDom::default(), Default::default()).one(trimmed);
-            let mut pending = vec![dom.document.clone()];
-            let mut images = String::new();
-            while let Some(node) = pending.pop() {
-                pending.extend(node.children.borrow().iter().rev().cloned());
-                if let NodeData::Element { name, attrs, .. } = &node.data
-                    && name.local.as_ref() == "img"
-                {
-                    let attrs = attrs.borrow();
-                    let attr = |name: &str| {
-                        attrs
-                            .iter()
-                            .find(|attr| attr.name.local.as_ref() == name)
-                            .map(|attr| attr.value.as_ref())
-                            .unwrap_or_default()
-                    };
-                    let uri = attr("src");
-                    let path = self.image(base, uri);
-                    let alt = attr("alt");
-                    let alt = escaped(if alt.is_empty() { uri } else { alt });
-                    let width = attr("width")
-                        .parse::<u32>()
-                        .ok()
-                        .map_or_else(String::new, |width| format!(" width=\"{width}\""));
-                    images.push_str(&format!("<img src=\"{path}\" alt=\"{alt}\"{width}>"));
-                }
-            }
-            if !images.is_empty() {
-                return Event::Html(images.into());
-            }
-        }
-        Event::Text(fragment)
+fn link_target(base: &Url, target: &str) -> Option<String> {
+    if target.starts_with('#') {
+        return Some(target.into());
     }
+    let url = base.join(target).ok()?;
+    matches!(url.scheme(), "https" | "http" | "mailto" | "file").then(|| url.into())
 }
 
 fn diagram_key(diagram: &Diagram) -> [u8; 32] {
@@ -529,4 +512,63 @@ fn escaped(value: &str) -> String {
         }
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn readme_html_preserves_structure_and_assets() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        fs::write(
+            directory.path().join("badge.svg"),
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10"/></svg>"#,
+        )?;
+        let base = Url::from_file_path(directory.path().join("README.md"))
+            .expect("absolute temporary path");
+        let markdown = r##"<p align="center"><a
+href="#intro" onclick="ignore()"><img src="badge.svg" width="100%" alt="Badge" /> English &amp; 简体中文</a></p>
+
+<details>
+<summary>Read more</summary>
+
+## Intro
+
+`<p>`
+
+</details>
+
+<script>ignore <a href="https://example.com">this</a></script>
+"##;
+        for embedded in [false, true] {
+            let mut html = Vec::new();
+            let missing = write_html(
+                markdown,
+                &base,
+                "README",
+                directory.path(),
+                &mut html,
+                embedded,
+                &Cancellation::default(),
+            )?;
+            let html = String::from_utf8(html)?;
+            assert_eq!(missing, 0);
+            assert!(html.contains(r##"<p align="center"><a href="#intro"><img src=""##));
+            assert!(html.contains(r#"width="100%" alt="Badge"> English &amp; 简体中文</a></p>"#));
+            assert!(html.contains(if embedded {
+                "<details>"
+            } else {
+                "<details open>"
+            }));
+            assert!(html.contains("<code>&lt;p&gt;</code>"));
+            assert!(html.contains(if embedded {
+                "data:image/svg+xml;base64,"
+            } else {
+                "asset-0.svg"
+            }));
+            assert!(!html.contains("onclick") && !html.contains("ignore"));
+        }
+        Ok(())
+    }
 }

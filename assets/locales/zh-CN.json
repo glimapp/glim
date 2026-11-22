@@ -225,7 +225,7 @@
   "No default browser is available": "找不到默认浏览器",
   "The default browser could not open the HTML file": "默认浏览器无法打开该 HTML 文件",
   "Some images or diagrams could not be included in the HTML preview": "HTML 预览中有部分图片或图表无法显示",
-  "Cancel PDF export": "取消 PDF 导出",
+  "Rendering PDF… · Cancel": "正在生成 PDF… · 取消",
   "Choose a filename ending in .pdf": "请使用以 .pdf 结尾的文件名",
   "PDF exported": "PDF 已导出",
   "PDF exported with unavailable images or diagrams": "PDF 已导出，部分图片或图表无法显示",

@@ -9,6 +9,7 @@ gpui_kit::assets::icon_assets!(
         ArrowRight,
         Download,
         ExternalLink,
+        Hourglass,
         X,
         House,
         PanelTop,
