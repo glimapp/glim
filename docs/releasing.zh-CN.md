@@ -13,7 +13,19 @@
 | macOS Apple Silicon — `aarch64-apple-darwin` | Rust、包含 Swift 的 Apple Command Line Tools、Python 3 |
 | macOS Intel — `x86_64-apple-darwin` | 同样的 macOS 工具及目标工具链 |
 
-Rust 版本以 [CI](../.github/workflows/ci.yml) 固定值为准。当前仅维护并打包 macOS Apple Silicon 与 Intel；构建脚本拒绝非 macOS 目标，既有公开附件继续保留。
+Rust 版本以 [CI](../.github/workflows/ci.yml) 固定值为准。当前仅维护并打包 macOS Apple Silicon 与 Intel；既有公开附件继续保留。
+
+### 本地 Windows 开发
+
+使用项目固定版本的 Rust 和 `x86_64-pc-windows-msvc` 目标。安装包含 MSVC x64/x86 工具和 Windows SDK 的 Visual Studio Build Tools，并确保终端可以调用 `python3`。内嵌网页预览使用 Microsoft Edge WebView2 Runtime。
+
+在仓库根目录的 PowerShell 中运行：
+
+```powershell
+cargo run --locked
+```
+
+`cargo build --locked` 会生成可在本地运行的 `target\debug\glim.exe`。Finder 集成、Markdown 直接导出 PDF 和 macOS 原生预览后端属于 macOS 功能。
 
 ## 开发与验证
 

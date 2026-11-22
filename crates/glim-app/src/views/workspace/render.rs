@@ -153,6 +153,7 @@ impl Render for Workspace {
         let outline = super::layout::WorkspaceOutline::default();
         self.update_usage(window, cx);
         let owner = cx.entity().downgrade();
+        #[cfg(target_os = "macos")]
         let native_toolbar = std::rc::Rc::downgrade(&self.reader_toolbar);
         crate::views::reader::set_toolbar_host(
             crate::views::reader::ReaderToolbarHost::new(
@@ -165,9 +166,12 @@ impl Render for Workspace {
                     }
                 }),
                 std::rc::Rc::new(move |window| {
+                    #[cfg(target_os = "macos")]
                     if let Some(toolbar) = native_toolbar.upgrade() {
                         toolbar.update(Bounds::default(), b"[]", false, true, window);
                     }
+                    #[cfg(windows)]
+                    let _ = window;
                 }),
             ),
             window,
@@ -316,7 +320,19 @@ impl Render for Workspace {
                     .min_h_0()
                     .w_full()
                     .child(content)
-                    .child(self.floating_reader_toolbar(window, cx))
+                    .when(cfg!(target_os = "macos"), |view| {
+                        #[cfg(target_os = "macos")]
+                        let view = view.child(self.floating_reader_toolbar(window, cx));
+                        view
+                    })
+                    .when(
+                        cfg!(windows) && document_page && !self.reader_toolbar_collapsed,
+                        |view| {
+                            #[cfg(windows)]
+                            let view = view.child(self.windows_reader_toolbar(window, cx));
+                            view
+                        },
+                    )
                     .child(crate::views::reader::ReaderToolbarDock)
                     .child(
                         canvas(

@@ -234,9 +234,7 @@ impl super::Workspace {
         let name = path.with_extension("pdf");
         let name = name.file_name().unwrap_or_default().to_string_lossy();
         let directory = if reader.document.remote.is_some() {
-            std::env::var_os("HOME")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| "/".into())
+            std::env::home_dir().unwrap_or_else(|| "/".into())
         } else {
             path.parent()
                 .unwrap_or_else(|| std::path::Path::new("/"))
@@ -564,6 +562,7 @@ impl super::Workspace {
         document
     }
 
+    #[cfg(target_os = "macos")]
     pub(super) fn run_native_toolbar_action(
         &mut self,
         id: &str,

@@ -448,9 +448,7 @@ impl Workspace {
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
-        let directory = std::env::var_os("HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| "/".into());
+        let directory = std::env::home_dir().unwrap_or_else(|| "/".into());
         let selection = cx.prompt_for_new_path(&directory, Some(&name));
         let page = reader.page_save_request(cx);
         let text = reader
@@ -584,7 +582,7 @@ impl Workspace {
                 .skip(1)
                 .find(|path| self.roots.iter().any(|root| root == *path))
                 .map(ToOwned::to_owned)
-                .or_else(|| std::env::var_os("HOME").map(std::path::PathBuf::from))
+                .or_else(|| std::env::home_dir())
                 .unwrap_or_else(|| "/".into())
         });
         let name = if std::path::Path::new(reader.title.as_ref())

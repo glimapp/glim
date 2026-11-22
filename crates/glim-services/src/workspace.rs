@@ -202,6 +202,7 @@ pub fn trash_entry(path: &Path) -> Result<()> {
     run_file_operation(&[std::ffi::OsStr::new("--trash"), path.as_os_str()])
 }
 
+#[cfg(target_os = "macos")]
 fn run_file_operation(arguments: &[&std::ffi::OsStr]) -> Result<()> {
     use std::{os::unix::fs::PermissionsExt, process::Command};
     let directory = tempfile::tempdir()?;
@@ -212,6 +213,52 @@ fn run_file_operation(arguments: &[&std::ffi::OsStr]) -> Result<()> {
     )?;
     std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700))?;
     let output = Command::new(helper).args(arguments).output()?;
+    ensure!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+fn run_file_operation(arguments: &[&std::ffi::OsStr]) -> Result<()> {
+    use std::{ffi::OsStr, os::windows::process::CommandExt, process::Command};
+
+    let mut command = Command::new("powershell.exe");
+    command
+        .creation_flags(0x08000000)
+        .args(["-NoProfile", "-NonInteractive", "-Command"]);
+    match arguments {
+        [operation, source, destination] if *operation == OsStr::new("--move") => {
+            command
+                .env("GLIM_MOVE_SOURCE", source)
+                .env("GLIM_MOVE_DESTINATION", destination)
+                .arg(
+                    r#"$ErrorActionPreference = 'Stop'
+if ([IO.Directory]::Exists($env:GLIM_MOVE_SOURCE)) {
+  [IO.Directory]::Move($env:GLIM_MOVE_SOURCE, $env:GLIM_MOVE_DESTINATION)
+} else {
+  [IO.File]::Move($env:GLIM_MOVE_SOURCE, $env:GLIM_MOVE_DESTINATION)
+}"#,
+                );
+        }
+        [operation, path] if *operation == OsStr::new("--trash") => {
+            command.env("GLIM_TRASH_PATH", path).arg(
+                r#"$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName Microsoft.VisualBasic
+$recycle = [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin
+$ui = [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs
+if ([IO.Directory]::Exists($env:GLIM_TRASH_PATH)) {
+  [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:GLIM_TRASH_PATH, $ui, $recycle)
+} else {
+  [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:GLIM_TRASH_PATH, $ui, $recycle)
+}"#,
+            );
+        }
+        _ => anyhow::bail!("Unsupported file operation"),
+    }
+    let output = command.output()?;
     ensure!(
         output.status.success(),
         "{}",
@@ -257,6 +304,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(unix)]
     #[test]
     fn directory_symlinks_do_not_create_recursive_trees() -> Result<()> {
         let temp = tempfile::tempdir()?;

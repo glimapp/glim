@@ -2,7 +2,7 @@
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
-use std::{os::unix::fs::OpenOptionsExt, path::Path};
+use std::path::Path;
 
 pub(crate) struct CacheStore {
     db: Connection,
@@ -16,12 +16,7 @@ impl CacheStore {
     pub(crate) fn open_at(directory: &Path) -> Result<Self> {
         std::fs::create_dir_all(directory)?;
         let path = directory.join("glim-cache.sqlite3");
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(&path)?;
+        crate::platform::open_private_file(&path)?;
         let mut db = Connection::open(path).context("Cannot open Glim cache database")?;
         db.busy_timeout(std::time::Duration::from_millis(
             crate::limits::SQLITE_BUSY_MILLISECONDS as u64,

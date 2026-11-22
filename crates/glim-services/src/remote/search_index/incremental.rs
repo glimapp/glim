@@ -76,7 +76,7 @@ pub(super) fn refresh(
     }
     for (bytes, modified, verified, failures) in directories {
         cancel.check()?;
-        let path = PathBuf::from(OsString::from_vec(bytes.clone()));
+        let path = PathBuf::from(crate::platform::decode_path_bytes(bytes.clone())?);
         // A parent processed earlier in this batch may have removed this subtree.
         if !db.query_row(
             "SELECT EXISTS(SELECT 1 FROM directories WHERE path=?1)",
@@ -178,7 +178,7 @@ fn seed(db: &mut Database, roots: &[PathBuf], cancel: &Cancellation) -> Result<(
         let mut rows = statement.query([])?;
         while let Some(row) = rows.next()? {
             cancel.check()?;
-            let path = PathBuf::from(OsString::from_vec(row.get(0)?));
+            let path = PathBuf::from(crate::platform::decode_path_bytes(row.get(0)?)?);
             for parent in path.ancestors().skip(1) {
                 if !roots.iter().any(|root| parent.starts_with(root)) {
                     break;
@@ -195,11 +195,11 @@ fn seed(db: &mut Database, roots: &[PathBuf], cancel: &Cancellation) -> Result<(
 
 fn insert_directory(db: &Database, path: &Path, roots: &[PathBuf]) -> Result<usize> {
     let parent = (!roots.iter().any(|root| root == path))
-        .then(|| path.parent().map(|p| p.as_os_str().as_bytes()))
+        .then(|| path.parent().map(|p| p.as_os_str().as_encoded_bytes()))
         .flatten();
     Ok(db.execute(
         "INSERT OR IGNORE INTO directories(path,parent) VALUES(?1,?2)",
-        (path.as_os_str().as_bytes(), parent),
+        (path.as_os_str().as_encoded_bytes(), parent),
     )?)
 }
 
@@ -241,7 +241,7 @@ fn update_directory(
         staging.execute(
             "INSERT OR REPLACE INTO listing VALUES(?1,?2,?3)",
             (
-                entry.path.as_os_str().as_bytes(),
+                entry.path.as_os_str().as_encoded_bytes(),
                 entry.is_dir,
                 entry.path.to_string_lossy().to_lowercase(),
             ),
@@ -256,11 +256,14 @@ fn update_directory(
     loop {
         let removed: Option<Vec<u8>> = tx.query_row(
             "SELECT path FROM directories WHERE parent=?1 AND path NOT IN (SELECT path FROM listing WHERE directory=1) LIMIT 1",
-            [path.as_os_str().as_bytes()], |r| r.get(0),
+            [path.as_os_str().as_encoded_bytes()], |r| r.get(0),
         ).optional()?;
         let Some(removed) = removed else { break };
         cancel.check()?;
-        remove_tree(&tx, &PathBuf::from(OsString::from_vec(removed)))?;
+        remove_tree(
+            &tx,
+            &PathBuf::from(crate::platform::decode_path_bytes(removed)?),
+        )?;
         changes += 1;
     }
     let (prefix, end) = descendants(path);
@@ -273,10 +276,14 @@ fn update_directory(
         "INSERT INTO files SELECT path,folded,(SELECT generation FROM state) FROM listing WHERE directory=0
          ON CONFLICT(path) DO NOTHING", [],
     )?;
-    changes += tx.execute("INSERT OR IGNORE INTO directories(path,parent) SELECT path,?1 FROM listing WHERE directory=1", [path.as_os_str().as_bytes()])?;
+    changes += tx.execute("INSERT OR IGNORE INTO directories(path,parent) SELECT path,?1 FROM listing WHERE directory=1", [path.as_os_str().as_encoded_bytes()])?;
     tx.execute(
         "UPDATE directories SET modified=?2,verified_ms=?3 WHERE path=?1",
-        (path.as_os_str().as_bytes(), stamp.modified, now_ms()),
+        (
+            path.as_os_str().as_encoded_bytes(),
+            stamp.modified,
+            now_ms(),
+        ),
     )?;
     if changes > 0 {
         tx.execute("UPDATE state SET revision=revision+1", [])?;
@@ -286,7 +293,7 @@ fn update_directory(
 }
 
 fn descendants(path: &Path) -> (Vec<u8>, Vec<u8>) {
-    let mut prefix = path.as_os_str().as_bytes().to_vec();
+    let mut prefix = path.as_os_str().as_encoded_bytes().to_vec();
     if !prefix.ends_with(b"/") {
         prefix.push(b'/');
     }
@@ -303,7 +310,7 @@ fn remove_tree(db: &Database, path: &Path) -> Result<()> {
     )?;
     db.execute(
         "DELETE FROM directories WHERE (path>=?1 AND path<?2) OR path=?3",
-        (&prefix, &end, path.as_os_str().as_bytes()),
+        (&prefix, &end, path.as_os_str().as_encoded_bytes()),
     )?;
     Ok(())
 }

@@ -111,6 +111,7 @@ impl Workspace {
             .accessibility_label(glim_services::locale::tr("Default File Types…"))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(DefaultApplications), cx))
             .into_any_element();
+        #[cfg(target_os = "macos")]
         let finder = action_button("settings-finder", "Manage…")
             .accessibility_label(glim_services::locale::tr("Finder Integration"))
             .on_click(|_, _, cx| crate::app::finder_integration::manage(cx))
@@ -255,11 +256,15 @@ impl Workspace {
                             "Default File Types…",
                             "Choose which file types open in Glim.",
                             associations,
-                        )).child(divider()).child(row(
-                            "Finder Integration",
-                            "Open folders as workspaces from the Finder context menu.",
-                            finder,
-                        )).child(divider()).child(row("SSH Connections", "Manage saved SSH connections.", connections)))
+                        )).when(cfg!(target_os = "macos"), |group| {
+                            #[cfg(target_os = "macos")]
+                            let group = group.child(divider()).child(row(
+                                "Finder Integration",
+                                "Open folders as workspaces from the Finder context menu.",
+                                finder,
+                            ));
+                            group
+                        }).child(divider()).child(row("SSH Connections", "Manage saved SSH connections.", connections)))
                         .child(heading("Application").mt_3())
                         .child(
                             group()

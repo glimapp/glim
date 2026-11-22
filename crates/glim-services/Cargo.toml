@@ -70,6 +70,10 @@ roxmltree = "0.21"
 encoding_rs = "0.8"
 rusqlite = { version = "=0.37.0", default-features = false, features = ["hooks"] }
 
+[target.'cfg(windows)'.dependencies]
+winapi-util = "0.1"
+rusqlite = { version = "=0.37.0", default-features = false, features = ["bundled"] }
+
 [lints]
 workspace = true
 

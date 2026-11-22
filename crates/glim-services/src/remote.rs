@@ -32,11 +32,11 @@ pub struct Connection {
 }
 impl Connection {
     fn ssh_command(&self) -> Result<std::process::Command> {
-        use std::{
-            os::unix::process::CommandExt,
-            process::{Command, Stdio},
-        };
+        use std::process::{Command, Stdio};
+        #[cfg(unix)]
         let mut command = Command::new("/usr/bin/ssh");
+        #[cfg(windows)]
+        let mut command = Command::new("ssh.exe");
         command
             .args([
                 "-T",
@@ -74,7 +74,16 @@ impl Connection {
                 .arg(identity)
                 .args(["-o", "IdentitiesOnly=yes"]);
         }
-        command.process_group(0);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
         Ok(command)
     }
     pub fn label(&self) -> String {

@@ -169,6 +169,7 @@ impl WorkspaceWatch {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn deleted_parent_does_not_match_unrelated_changes_but_recreation_does() -> Result<()> {
         let directory = tempfile::tempdir()?;
@@ -227,6 +228,7 @@ mod tests {
         assert!(changes.affects(Path::new("/elsewhere/file")));
     }
 
+    #[cfg(unix)]
     #[test]
     fn alias_events_reach_the_open_document() -> Result<()> {
         let dir = tempfile::tempdir()?;

@@ -6,9 +6,7 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use std::{
-    ffi::OsString,
     io::{BufRead, BufReader},
-    os::unix::ffi::{OsStrExt, OsStringExt},
     path::PathBuf,
     process::Stdio,
 };
@@ -112,7 +110,7 @@ fn shell_search(
     for root in roots {
         ensure!(root.is_absolute(), "Invalid remote content search root");
         script.push(b' ');
-        quote(root.as_os_str().as_bytes(), &mut script);
+        quote(root.as_os_str().as_encoded_bytes(), &mut script);
     }
     if roots.is_empty() {
         return Ok(Some(Page::default()));
@@ -121,7 +119,7 @@ fn shell_search(
     let mut child = command
         .args(["-o", "BatchMode=yes"])
         .arg(&session.connection.host)
-        .arg(OsString::from_vec(script))
+        .arg(crate::platform::decode_path_bytes(script)?)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -150,7 +148,7 @@ fn shell_search(
         let Some(path) = field(&mut reader, 0, limits::REMOTE_SEARCH_RECORD_BYTES, false)? else {
             break;
         };
-        let path = PathBuf::from(OsString::from_vec(path));
+        let path = PathBuf::from(crate::platform::decode_path_bytes(path)?);
         ensure!(
             roots.iter().any(|root| path.starts_with(root))
                 && !path

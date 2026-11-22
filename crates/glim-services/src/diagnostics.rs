@@ -140,9 +140,14 @@ impl log::Log for Logger {
 }
 
 pub fn initialize() -> io::Result<()> {
-    let directory =
-        PathBuf::from(std::env::var_os("HOME").ok_or_else(|| io::Error::other("HOME missing"))?)
-            .join("Library/Logs/Glim");
+    #[cfg(target_os = "macos")]
+    let directory = std::env::home_dir()
+        .ok_or_else(|| io::Error::other("Home directory is unavailable"))?
+        .join("Library/Logs/Glim");
+    #[cfg(windows)]
+    let directory = crate::preferences::directory()
+        .map_err(io::Error::other)?
+        .join("Logs");
     fs::create_dir_all(&directory)?;
     prune(&directory)?;
     let _ = DIRECTORY.set(directory.clone());

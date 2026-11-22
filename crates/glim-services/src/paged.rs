@@ -4,7 +4,6 @@ use anyhow::{Context, Result, ensure};
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     sync::Arc,
     time::SystemTime,
@@ -373,7 +372,7 @@ fn read_source_with_pool(
         end,
         total,
         modified: metadata.modified().ok(),
-        identity: (metadata.dev(), metadata.ino()),
+        identity: crate::file_identity::from_file(&file, &metadata)?,
     })
 }
 
@@ -426,7 +425,7 @@ impl PageRefresh {
         if (
             metadata.len(),
             metadata.modified().ok(),
-            (metadata.dev(), metadata.ino()),
+            crate::file_identity::from_path(&self.source.original, &metadata)?,
         ) == (self.total, self.modified, self.identity)
         {
             return Ok(None);
@@ -482,7 +481,7 @@ pub fn save_page_cancellable(
     ensure!(
         before.len() == page.total
             && before.modified().ok() == page.modified
-            && (before.dev(), before.ino()) == page.identity,
+            && crate::file_identity::from_file(&source, &before)? == page.identity,
         "File changed on disk. Save canceled; your edits are still open."
     );
     ensure!(
@@ -516,8 +515,7 @@ pub fn save_page_cancellable(
     ensure!(
         after.len() == before.len()
             && after.modified().ok() == before.modified().ok()
-            && after.ino() == before.ino()
-            && after.dev() == before.dev(),
+            && crate::file_identity::from_path(&target, &after)? == page.identity,
         "File changed while saving; your edits are still open."
     );
     output.as_file().set_permissions(before.permissions())?;
@@ -529,7 +527,7 @@ pub fn save_page_cancellable(
         end: page.start + text.len() as u64,
         total: saved.len(),
         modified: saved.modified().ok(),
-        identity: (saved.dev(), saved.ino()),
+        identity: crate::file_identity::from_path(&target, &saved)?,
     })
 }
 

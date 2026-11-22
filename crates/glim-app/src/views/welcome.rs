@@ -114,7 +114,7 @@ pub fn welcome(
         .unwrap_or_default();
     let more = recent.len() > current.recent_visible();
     let recent_count = recent.len();
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let home = std::env::home_dir();
     let visible = recent
         .into_iter()
         .take(current.recent_visible())

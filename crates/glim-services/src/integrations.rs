@@ -12,7 +12,6 @@ use std::{
     collections::BTreeSet,
     fs,
     io::Write,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -86,9 +85,7 @@ pub struct Target {
 }
 
 fn home() -> Result<PathBuf> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .context("Home directory is unavailable")
+    std::env::home_dir().context("Home directory is unavailable")
 }
 
 pub fn bundle() -> Result<PathBuf> {
@@ -525,16 +522,14 @@ fn configure_inner(target: &Target, install: bool, preferences: bool) -> Result<
         "Integration update validation failed"
     );
     let directory = crate::preferences::directory()?.join("Integrations");
-    fs::create_dir_all(&directory)?;
-    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
+    crate::platform::create_private_directory(&directory, true)?;
     if let Some(original) = &current {
         let hash = format!(
             "{:x}",
             Sha256::digest(target.config.as_os_str().as_encoded_bytes())
         );
         let backup_dir = directory.join("Backups").join(hash);
-        fs::create_dir_all(&backup_dir)?;
-        fs::set_permissions(&backup_dir, fs::Permissions::from_mode(0o700))?;
+        crate::platform::create_private_directory(&backup_dir, true)?;
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos();

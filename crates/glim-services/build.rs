@@ -16,6 +16,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../../scripts/generate-reader-actions.py");
     assert!(
         Command::new("python3")
+            .arg("-X")
+            .arg("utf8")
             .arg("../../scripts/generate-reader-actions.py")
             .arg("--out-dir")
             .arg(env::var_os("OUT_DIR").unwrap())
@@ -27,6 +29,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../../scripts/generate-reader-limits.py");
     let limits_out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let generated = Command::new("python3")
+        .arg("-X")
+        .arg("utf8")
         .arg("../../scripts/generate-reader-limits.py")
         .arg("--out-dir")
         .arg(&limits_out)
@@ -39,6 +43,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../../crates/glim-app/src");
     println!("cargo:rerun-if-changed=src");
     let checked = Command::new("python3")
+        .arg("-X")
+        .arg("utf8")
         .arg("../../scripts/check-locales.py")
         .status()
         .expect("Check locale catalogs");
@@ -79,6 +85,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../../scripts/embed-openapi.py");
     assert!(
         Command::new("python3")
+            .arg("-X")
+            .arg("utf8")
             .arg("../../scripts/embed-openapi.py")
             .arg(&limits_out)
             .status()

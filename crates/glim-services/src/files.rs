@@ -22,15 +22,13 @@ pub struct DraftDestination {
 }
 #[derive(PartialEq, Eq)]
 struct FileStamp {
-    device: u64,
-    inode: u64,
+    identity: (u64, u64),
     length: u64,
     modified: Option<std::time::SystemTime>,
     digest: [u8; 32],
 }
 fn file_stamp(path: &Path, cancel: &crate::work::Cancellation) -> Result<FileStamp> {
     use sha2::{Digest, Sha256};
-    use std::os::unix::fs::MetadataExt;
     let mut file = File::open(path)?;
     let metadata = file.metadata()?;
     ensure!(metadata.is_file(), "Not a regular file");
@@ -50,8 +48,7 @@ fn file_stamp(path: &Path, cancel: &crate::work::Cancellation) -> Result<FileSta
         "File changed while preparing to save"
     );
     Ok(FileStamp {
-        device: metadata.dev(),
-        inode: metadata.ino(),
+        identity: crate::file_identity::from_file(&file, &metadata)?,
         length: metadata.len(),
         modified: metadata.modified().ok(),
         digest: digest.finalize().into(),
@@ -261,7 +258,7 @@ impl RetainedFile {
         page: Option<(&crate::paged::PageEdit, &str)>,
         cancel: &crate::work::Cancellation,
     ) -> Result<std::path::PathBuf> {
-        use std::{io::SeekFrom, os::unix::fs::MetadataExt};
+        use std::io::SeekFrom;
         let mut source = self
             .0
             .lock()
@@ -273,7 +270,7 @@ impl RetainedFile {
                 ensure!(
                     before.len() == page.total
                         && before.modified().ok() == page.modified
-                        && (before.dev(), before.ino()) == page.identity,
+                        && crate::file_identity::from_file(&source, &before)? == page.identity,
                     "File changed; your edits are still open."
                 );
                 ensure!(
@@ -520,6 +517,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(unix)]
     #[test]
     fn saving_keeps_symlink_and_permissions_and_respects_readonly() -> Result<()> {
         use std::os::unix::fs::{PermissionsExt, symlink};
@@ -592,7 +590,6 @@ mod retained_tests {
     use super::*;
     #[test]
     fn retained_binary_and_edited_page_save_after_source_is_removed() -> Result<()> {
-        use std::os::unix::fs::MetadataExt;
         let directory = tempfile::tempdir()?;
         let source = directory.path().join("source.bin");
         let bytes = [0, 1, 255, 42, 0, 16];
@@ -621,7 +618,7 @@ mod retained_tests {
             end: 11,
             total: metadata.len(),
             modified: metadata.modified().ok(),
-            identity: (metadata.dev(), metadata.ino()),
+            identity: crate::file_identity::from_path(&source, &metadata)?,
             expected: "old\n".into(),
         };
         let retained = RetainedFile::open(&source)?.unwrap();

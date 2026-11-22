@@ -3,9 +3,8 @@ use crate::work::Cancellation;
 use anyhow::{Context, Result, ensure};
 use std::{
     fs::{self, File},
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader},
     path::{Component, Path, PathBuf},
-    process::{Command, Stdio},
 };
 
 #[derive(serde::Deserialize)]
@@ -40,12 +39,16 @@ fn stem(path: &Path) -> String {
         .into_owned()
 }
 
+#[cfg(target_os = "macos")]
 fn native(
     path: &Path,
     destination: Option<&Path>,
     cancel: &Cancellation,
 ) -> Result<tempfile::NamedTempFile> {
-    use std::os::unix::fs::PermissionsExt;
+    use std::{
+        os::unix::fs::PermissionsExt,
+        process::{Command, Stdio},
+    };
     cancel.check()?;
     let directory = tempfile::tempdir()?;
     let helper = directory.path().join("glim-archive");
@@ -129,12 +132,17 @@ fn safe(name: &str) -> Result<PathBuf> {
     let path = Path::new(name);
     ensure!(
         !name.contains('\\')
-            && !path.is_absolute()
+            && !path.has_root()
             && !name.contains('\0')
             && !path
                 .components()
                 .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_))),
         "Unsafe ZIP path: {name}"
+    );
+    #[cfg(windows)]
+    ensure!(
+        !name.contains(':'),
+        "Windows ZIP path contains a stream name: {name}"
     );
     ensure!(!path.as_os_str().is_empty(), "Empty ZIP path");
     Ok(path.to_path_buf())
@@ -275,7 +283,19 @@ fn extract_zip(path: &Path, stage: &Path, cancel: &Cancellation) -> Result<()> {
             (&mut entry).take(4097).read_to_end(&mut value)?;
             ensure!(value.len() <= 4096, "Invalid symlink target");
             let value = String::from_utf8(value)?;
-            ensure!(!Path::new(&value).is_absolute(), "Absolute ZIP symlink");
+            let link_path = Path::new(&value);
+            ensure!(
+                !link_path.has_root()
+                    && !link_path
+                        .components()
+                        .any(|part| matches!(part, Component::Prefix(_))),
+                "Absolute ZIP symlink"
+            );
+            #[cfg(windows)]
+            ensure!(
+                !value.contains(':'),
+                "Windows ZIP symlink contains a stream name"
+            );
             let mut depth = relative.parent().map_or(0, |p| p.components().count());
             for c in Path::new(&value).components() {
                 match c {
@@ -298,8 +318,8 @@ fn extract_zip(path: &Path, stage: &Path, cancel: &Cancellation) -> Result<()> {
                 .create_new(true)
                 .open(&target)?;
             cancel.copy(&mut entry, &mut output)?;
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&target, fs::Permissions::from_mode(mode & 0o777))?;
+            #[cfg(unix)]
+            crate::platform::set_unix_permissions(&target, mode & 0o777)?;
         }
     }
     for (target, value) in &links {
@@ -309,7 +329,21 @@ fn extract_zip(path: &Path, stage: &Path, cancel: &Cancellation) -> Result<()> {
             parent.canonicalize()?.starts_with(stage.canonicalize()?),
             "ZIP symlink parent escapes destination"
         );
+        #[cfg(unix)]
         std::os::unix::fs::symlink(value, target)?;
+        #[cfg(windows)]
+        {
+            let resolved = parent.join(value).canonicalize()?;
+            ensure!(
+                resolved.starts_with(stage.canonicalize()?),
+                "ZIP symlink escapes destination"
+            );
+            if resolved.is_dir() {
+                std::os::windows::fs::symlink_dir(value, target)?;
+            } else {
+                std::os::windows::fs::symlink_file(value, target)?;
+            }
+        }
     }
     for (target, _) in &links {
         cancel.check()?;
@@ -320,4 +354,13 @@ fn extract_zip(path: &Path, stage: &Path, cancel: &Cancellation) -> Result<()> {
     }
     cancel.check()?;
     Ok(())
+}
+
+#[cfg(windows)]
+fn native(
+    _path: &Path,
+    _destination: Option<&Path>,
+    _cancel: &Cancellation,
+) -> Result<tempfile::NamedTempFile> {
+    anyhow::bail!("This archive format needs a Windows archive backend")
 }

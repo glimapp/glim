@@ -59,11 +59,10 @@ fn relocate_entry(source: &Path, destination: &Path, renaming: bool) -> Result<P
     match std::fs::symlink_metadata(&destination) {
         Ok(existing) => {
             // Case-insensitive volumes can resolve both spellings to one entry.
-            use std::os::unix::fs::MetadataExt;
             ensure!(
                 renaming
-                    && metadata.dev() == existing.dev()
-                    && metadata.ino() == existing.ino()
+                    && crate::file_identity::from_entry(&source, &metadata)?
+                        == crate::file_identity::from_entry(&destination, &existing)?
                     && source.canonicalize()? == destination.canonicalize()?,
                 "An item with this name already exists in the destination folder"
             );
@@ -81,7 +80,7 @@ fn relocate_entry(source: &Path, destination: &Path, renaming: bool) -> Result<P
     Ok(destination)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod local_file_action_tests {
     use super::*;
     use std::{fs, os::unix::fs::symlink};

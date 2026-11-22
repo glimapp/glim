@@ -4,11 +4,9 @@ use crate::{limits, work::Cancellation};
 use anyhow::{Context, Result, bail, ensure};
 use glim_core::DirectoryEntry;
 use std::{
-    ffi::OsString,
     io::{Read, Write},
-    os::unix::{ffi::OsStringExt, fs::PermissionsExt},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    process::{Child, ChildStdin, ChildStdout},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -49,10 +47,11 @@ impl Drop for Sftp {
     }
 }
 fn terminate(child: &mut Child) {
-    let _ = Command::new("/bin/kill")
+    #[cfg(unix)]
+    let _ = std::process::Command::new("/bin/kill")
         .args(["-TERM", "--", &format!("-{}", child.id())])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status();
     let _ = child.kill();
 }
@@ -379,7 +378,9 @@ impl Sftp {
         let reply = self.request(16, &string(path.as_os_str().as_encoded_bytes())?)?;
         let mut packet = Packet::body(&reply, 104)?;
         ensure!(packet.u32()? == 1, "Invalid canonical SFTP path");
-        Ok(PathBuf::from(OsString::from_vec(packet.string()?.to_vec())))
+        Ok(PathBuf::from(crate::platform::decode_path_bytes(
+            packet.string()?.to_vec(),
+        )?))
     }
     pub fn stat(&mut self, path: &Path, cancel: &Cancellation) -> Result<super::FileStamp> {
         self.read_stamp(path, 17, cancel)
@@ -483,7 +484,7 @@ impl Sftp {
                     !name.is_empty() && !name.contains(&b'/') && !name.contains(&0),
                     "Invalid SFTP filename"
                 );
-                let target = path.join(OsString::from_vec(name));
+                let target = path.join(crate::platform::decode_path_bytes(name)?);
                 let symlink = mode & 0o170000 == 0o120000;
                 let mode = if symlink {
                     self.request(17, &string(target.as_os_str().as_encoded_bytes())?)
@@ -562,8 +563,9 @@ impl Sftp {
             Ok(true)
         })?;
         cancel.check()?;
-        file.as_file()
-            .set_permissions(std::fs::Permissions::from_mode(0o400))?;
+        let mut permissions = file.as_file().metadata()?.permissions();
+        permissions.set_readonly(true);
+        file.as_file().set_permissions(permissions)?;
         file.persist(target).map_err(|error| error.error)?;
         Ok(())
     }
@@ -642,10 +644,13 @@ impl<'a> Packet<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 impl Sftp {
     pub(super) fn local_test(directory: &Path) -> Result<Self> {
-        use std::os::unix::process::CommandExt;
+        use std::{
+            os::unix::process::CommandExt,
+            process::{Command, Stdio},
+        };
         let mut child = Command::new("/usr/libexec/sftp-server")
             .current_dir(directory)
             .process_group(0)

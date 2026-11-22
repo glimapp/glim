@@ -13,7 +13,19 @@ Write release notes around user tasks: who encounters the change, what they can 
 | macOS Apple Silicon — `aarch64-apple-darwin` | Rust, Apple Command Line Tools with Swift, Python 3 |
 | macOS Intel — `x86_64-apple-darwin` | Same macOS tooling and target toolchain |
 
-Use the Rust version pinned in [CI](../.github/workflows/ci.yml). Only macOS Apple Silicon and Intel are maintained and packaged. The build script rejects non-macOS targets; existing public release assets are retained.
+Use the Rust version pinned in [CI](../.github/workflows/ci.yml). Only macOS Apple Silicon and Intel are maintained and packaged. Existing public release assets are retained.
+
+### Local Windows development
+
+Use the pinned Rust toolchain with the `x86_64-pc-windows-msvc` target, Visual Studio Build Tools with the MSVC x64/x86 tools and Windows SDK, and Python on PATH as `python3`. Embedded web previews use Microsoft Edge WebView2 Runtime.
+
+In PowerShell at the repository root, run:
+
+```powershell
+cargo run --locked
+```
+
+`cargo build --locked` creates `target\debug\glim.exe` for local use. Finder integration, direct Markdown PDF export and the macOS native preview backends are macOS features.
 
 ## Development and validation
 

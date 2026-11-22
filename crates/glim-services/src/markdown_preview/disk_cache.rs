@@ -94,8 +94,7 @@ fn with_cache<R>(
         .lock()
         .unwrap_or_else(|error| error.into_inner());
     if cache.is_none() {
-        let home = std::env::var_os("HOME")
-            .map(std::path::PathBuf::from)
+        let home = std::env::home_dir()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home directory unavailable"))?;
         *cache = Some(DiskCache {
             database: CacheStore::open().map_err(io::Error::other)?,

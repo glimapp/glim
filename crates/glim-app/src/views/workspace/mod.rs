@@ -63,7 +63,9 @@ pub struct Workspace {
     reader_toolbar_expanded: bool,
     toolbar_feedback: Option<&'static str>,
     toolbar_feedback_task: Option<Task<()>>,
+    #[cfg(target_os = "macos")]
     reader_toolbar: std::rc::Rc<super::native_toolbar_bridge::NativeToolbar>,
+    #[cfg(target_os = "macos")]
     reader_toolbar_task: Option<Task<()>>,
     file_fullscreen_entered_window: bool,
     file_fullscreen_seen_window: bool,
@@ -226,9 +228,11 @@ impl Workspace {
     }
 
     pub fn new(path: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        #[cfg(target_os = "macos")]
         let toolbar_events = std::rc::Rc::new(std::cell::RefCell::new(
             super::native_toolbar_bridge::ToolbarEvents::default(),
         ));
+        #[cfg(target_os = "macos")]
         let reader_toolbar = std::rc::Rc::new(super::native_toolbar_bridge::NativeToolbar::new(
             toolbar_events.clone(),
             window,
@@ -321,7 +325,9 @@ impl Workspace {
             reader_toolbar_expanded: false,
             toolbar_feedback: None,
             toolbar_feedback_task: None,
+            #[cfg(target_os = "macos")]
             reader_toolbar,
+            #[cfg(target_os = "macos")]
             reader_toolbar_task: None,
             file_fullscreen_entered_window: false,
             file_fullscreen_seen_window: false,
@@ -443,24 +449,29 @@ impl Workspace {
                 cx.notify();
             }));
         workspace.start_usage_timer(window, cx);
-        workspace.reader_toolbar_task = Some(cx.spawn_in(window, async move |workspace, cx| {
-            loop {
-                let id = super::native_toolbar_bridge::ToolbarEvents::next(&toolbar_events).await;
-                // Native actions belong to this window even while the workspace
-                // temporarily leaves its render tree (for example, tab switching).
-                if cx
-                    .update(|window, cx| {
-                        workspace.update(cx, |view, cx| {
-                            view.run_native_toolbar_action(&id, window, cx);
-                        })
-                    })
-                    .and_then(|result| result)
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        }));
+        #[cfg(target_os = "macos")]
+        {
+            workspace.reader_toolbar_task =
+                Some(cx.spawn_in(window, async move |workspace, cx| {
+                    loop {
+                        let id = super::native_toolbar_bridge::ToolbarEvents::next(&toolbar_events)
+                            .await;
+                        // Native actions belong to this window even while the workspace
+                        // temporarily leaves its render tree (for example, tab switching).
+                        if cx
+                            .update(|window, cx| {
+                                workspace.update(cx, |view, cx| {
+                                    view.run_native_toolbar_action(&id, window, cx);
+                                })
+                            })
+                            .and_then(|result| result)
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                }));
+        }
         if let Some(path) = path {
             workspace.open_path(path, window, cx);
         }

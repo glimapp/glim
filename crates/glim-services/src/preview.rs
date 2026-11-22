@@ -295,6 +295,7 @@ pub fn open_associations(cancelled: std::sync::Arc<std::sync::atomic::AtomicBool
     )
 }
 
+#[cfg(target_os = "macos")]
 fn launch(
     configuration: NativeRequest,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -358,4 +359,12 @@ fn launch(
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn launch(
+    _configuration: NativeRequest,
+    _cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Result<()> {
+    anyhow::bail!("System file-association settings must be opened from Windows Settings")
 }

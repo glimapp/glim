@@ -9,9 +9,7 @@ use std::{
 };
 
 pub fn state_directory() -> Result<PathBuf> {
-    let base = PathBuf::from(std::env::var_os("HOME").context("Home directory is unavailable")?)
-        .join("Library/Application Support");
-    Ok(base.join("Glim"))
+    crate::preferences::directory()
 }
 fn digest(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;

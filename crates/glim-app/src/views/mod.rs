@@ -1,8 +1,17 @@
 pub(crate) mod about;
 pub mod explorer;
 mod minimap;
+#[cfg(target_os = "macos")]
 mod native_menu_bridge;
+#[cfg(windows)]
+#[path = "native_menu_bridge_windows.rs"]
+mod native_menu_bridge;
+#[cfg(target_os = "macos")]
 mod native_toolbar_bridge;
+#[cfg(target_os = "macos")]
+mod path_hint;
+#[cfg(windows)]
+#[path = "path_hint_windows.rs"]
 mod path_hint;
 mod reader;
 #[cfg(feature = "reader-measurements")]

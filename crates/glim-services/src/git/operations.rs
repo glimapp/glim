@@ -290,10 +290,10 @@ fn paths(change: &Change) -> Result<Vec<OsString>> {
     if let Some(previous) = &change.previous
         && matches!(change.status, 'R' | 'C')
     {
-        relative(previous.as_os_str().as_bytes().to_vec())?;
+        relative(previous.as_os_str().as_encoded_bytes().to_vec())?;
         paths.push(previous.as_os_str().to_owned());
     }
-    relative(change.path.as_os_str().as_bytes().to_vec())?;
+    relative(change.path.as_os_str().as_encoded_bytes().to_vec())?;
     paths.push(change.path.as_os_str().to_owned());
     Ok(paths)
 }
@@ -375,7 +375,7 @@ pub fn execute(
         }
         Operation::Submodules => simple(&["submodule", "update", "--init", "--recursive"]),
         Operation::Ignore(path) => {
-            relative(path.as_os_str().as_bytes().to_vec())?;
+            relative(path.as_os_str().as_encoded_bytes().to_vec())?;
             let filename = path.to_str().context("Ignore requires a UTF-8 filename")?;
             ensure!(
                 !filename.contains(['\n', '\r']),
@@ -546,7 +546,7 @@ pub fn execute(
             simple(&["reset", &format!("--{mode}"), &resolved(revision)?])
         }
         Operation::RestoreFile { revision, path } => {
-            relative(path.as_os_str().as_bytes().to_vec())?;
+            relative(path.as_os_str().as_encoded_bytes().to_vec())?;
             run_args(
                 vec![
                     "restore".into(),
@@ -720,7 +720,7 @@ pub fn execute(
             ])
         }
         Operation::ConflictSide { path, incoming } => {
-            relative(path.as_os_str().as_bytes().to_vec())?;
+            relative(path.as_os_str().as_encoded_bytes().to_vec())?;
             run_args(
                 vec![
                     "checkout".into(),
@@ -740,7 +740,7 @@ pub fn execute(
             original,
             text,
         } => {
-            relative(path.as_os_str().as_bytes().to_vec())?;
+            relative(path.as_os_str().as_encoded_bytes().to_vec())?;
             let patch = replacement_patch(path, original, text)?;
             let input = input_file(patch.as_bytes())?;
             simple_apply(root, remote, &input, false, false, cancel)?;
@@ -827,7 +827,7 @@ fn selected_hunks(patch: &str, start: usize, end: usize, original: bool) -> Resu
 
 fn quoted_path(prefix: &str, path: &Path) -> String {
     let mut value = format!("\"{prefix}/");
-    for byte in path.as_os_str().as_bytes() {
+    for byte in path.as_os_str().as_encoded_bytes() {
         match byte {
             b'"' => value.push_str("\\\""),
             b'\\' => value.push_str("\\\\"),

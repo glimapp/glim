@@ -6,15 +6,10 @@ use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection as Database, OpenFlags, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::{
-    ffi::OsString,
-    fs::{OpenOptions, TryLockError},
+    fs::TryLockError,
     io::Read,
-    os::unix::{
-        ffi::{OsStrExt, OsStringExt},
-        fs::{DirBuilderExt, OpenOptionsExt},
-    },
     path::{Component, Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -124,7 +119,18 @@ impl Session {
                     limits::WORKSPACE_SEARCH_RESULTS as i64 + 1,
                     i64::try_from(offset)?,
                 ),
-                |r| Ok(PathBuf::from(OsString::from_vec(r.get(0)?))),
+                |row| {
+                    let path: Vec<u8> = row.get(0)?;
+                    crate::platform::decode_path_bytes(path)
+                        .map(PathBuf::from)
+                        .map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                0,
+                                rusqlite::types::Type::Blob,
+                                Box::new(error),
+                            )
+                        })
+                },
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         cancel.check()?;
@@ -152,29 +158,19 @@ impl Session {
             "Invalid remote search root"
         );
         let path = index_path(&self.connection, &roots)?;
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(path.parent().context("Missing search cache directory")?)?;
+        crate::platform::create_private_directory(
+            path.parent().context("Missing search cache directory")?,
+            true,
+        )?;
         // Serialize publishers across windows and processes without holding a SQLite
         // transaction over the whole scan. Readers can use every committed batch.
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .mode(0o600)
-            .open(path.with_extension("lock"))?;
+        let lock = crate::platform::open_private_file(&path.with_extension("lock"))?;
         match lock.try_lock() {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => return Ok(SearchIndexUpdate::Busy),
             Err(TryLockError::Error(error)) => return Err(error.into()),
         }
-        OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .mode(0o600)
-            .open(&path)?;
+        crate::platform::open_private_file(&path)?;
         let mut db = Database::open(path)?;
         configure(&db, cancel)?;
         db.execute_batch(
@@ -249,13 +245,13 @@ fn scope(connection: &Connection, roots: &[PathBuf]) -> String {
             .as_deref()
             .unwrap_or(Path::new(""))
             .as_os_str()
-            .as_bytes(),
+            .as_encoded_bytes(),
     ] {
         hash.update((part.len() as u64).to_le_bytes());
         hash.update(part);
     }
     for root in normalized_roots(roots) {
-        let bytes = root.as_os_str().as_bytes();
+        let bytes = root.as_os_str().as_encoded_bytes();
         hash.update((bytes.len() as u64).to_le_bytes());
         hash.update(bytes);
     }
@@ -304,7 +300,7 @@ impl Writer<'_> {
         if self.changes == 0 {
             self.db.execute_batch("BEGIN IMMEDIATE")?;
         }
-        let bytes = path.as_os_str().as_bytes();
+        let bytes = path.as_os_str().as_encoded_bytes();
         let added = self.db.execute("INSERT INTO files VALUES(?1,?2,?3) ON CONFLICT(path) DO UPDATE SET generation=excluded.generation,folded=excluded.folded WHERE files.generation<>excluded.generation", (bytes, path.to_string_lossy().to_lowercase(), self.generation))?;
         self.files += added as u64;
         self.changes += 1;
@@ -338,7 +334,7 @@ fn scan_shell(
     for root in roots {
         cancel.check()?;
         let mut script = b"printf 'GLIM_SEARCH_V1\\000'; find '".to_vec();
-        for byte in root.as_os_str().as_bytes() {
+        for byte in root.as_os_str().as_encoded_bytes() {
             if *byte == b'\'' {
                 script.extend_from_slice(b"'\"'\"'");
             } else {
@@ -350,7 +346,7 @@ fn scan_shell(
         command
             .args(["-o", "BatchMode=yes"])
             .arg(&connection.host)
-            .arg(OsString::from_vec(script))
+            .arg(crate::platform::decode_path_bytes(script)?)
             .stdin(Stdio::null())
             .stderr(Stdio::null());
         let mut child = command
@@ -384,7 +380,9 @@ fn scan_shell(
                     );
                     header = true;
                 } else {
-                    let path = PathBuf::from(OsString::from_vec(std::mem::take(&mut record)));
+                    let path = PathBuf::from(crate::platform::decode_path_bytes(std::mem::take(
+                        &mut record,
+                    ))?);
                     ensure!(
                         valid_path(&path) && path.starts_with(root),
                         "Remote search returned an invalid path"
@@ -485,7 +483,8 @@ impl Drop for ScanProcess {
     }
 }
 fn terminate(child: &mut Child) {
-    let _ = Command::new("/bin/kill")
+    #[cfg(unix)]
+    let _ = std::process::Command::new("/bin/kill")
         .args(["-TERM", "--", &format!("-{}", child.id())])
         .stdout(Stdio::null())
         .stderr(Stdio::null())

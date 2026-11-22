@@ -32,7 +32,7 @@ impl Workspace {
                     .or_else(|| reader.document.path.parent().map(Path::to_path_buf))
             })
             .or_else(|| self.root.clone())
-            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+            .or_else(|| std::env::home_dir())
             .unwrap_or_else(|| PathBuf::from("/"));
         self.choose_new_file_in(directory, window, cx);
     }

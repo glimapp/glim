@@ -24,6 +24,10 @@ mod media;
 mod native;
 mod text;
 
+#[cfg(target_os = "macos")]
+mod native_bridge;
+#[cfg(windows)]
+#[path = "native_bridge_windows.rs"]
 mod native_bridge;
 pub(crate) use native_bridge::begin_native_preview_shutdown;
 mod openapi;

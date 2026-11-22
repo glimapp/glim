@@ -6,6 +6,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../../scripts/generate-reader-actions.py");
     assert!(
         Command::new("python3")
+            .arg("-X")
+            .arg("utf8")
             .arg("../../scripts/generate-reader-actions.py")
             .arg("--out-dir")
             .arg(env::var_os("OUT_DIR").unwrap())
@@ -17,6 +19,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../../scripts/generate-reader-limits.py");
     let limits_out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let generated = Command::new("python3")
+        .arg("-X")
+        .arg("utf8")
         .arg("../../scripts/generate-reader-limits.py")
         .arg("--out-dir")
         .arg(&limits_out)
@@ -35,13 +39,15 @@ fn main() {
     assert!(build.parse::<u64>().is_ok(), "Invalid release build number");
     println!("cargo:rustc-env=GLIM_BUILD_NUMBER={build}");
     println!("cargo:rerun-if-env-changed=GLIM_UPDATE_PUBLIC_KEY");
-    assert!(
-        env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos"),
-        "Glim supports only macOS (Apple Silicon and Intel)"
-    );
-    build_native_preview();
-    if env::var_os("CARGO_FEATURE_MACOS_UPDATER").is_some() {
-        build_updater();
+    match env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("macos") => {
+            build_native_preview();
+            if env::var_os("CARGO_FEATURE_MACOS_UPDATER").is_some() {
+                build_updater();
+            }
+        }
+        Ok("windows") => {}
+        _ => panic!("Unsupported Glim desktop target"),
     }
 }
 
@@ -86,7 +92,21 @@ fn embed_build_identity() {
     );
     let timestamp = env::var("GLIM_BUILD_TIMESTAMP")
         .ok()
-        .or_else(|| output("date", &["+%Y-%m-%d %H:%M:%S %z"]))
+        .or_else(|| {
+            if cfg!(windows) {
+                output(
+                    "powershell.exe",
+                    &[
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        "Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'",
+                    ],
+                )
+            } else {
+                output("date", &["+%Y-%m-%d %H:%M:%S %z"])
+            }
+        })
         .expect("Cannot determine build time");
     let hash = output("git", &["rev-parse", "--short=12", "HEAD"]).unwrap_or_default();
     let dirty = output(
@@ -131,6 +151,8 @@ fn build_native_preview() {
     println!("cargo:rerun-if-changed=../../scripts/embed-openapi.py");
     assert!(
         Command::new("python3")
+            .arg("-X")
+            .arg("utf8")
             .arg("../../scripts/embed-openapi.py")
             .arg(&output)
             .status()
@@ -278,7 +300,15 @@ fn embed_diagram_assets() {
     let entries = files
         .iter()
         .map(|path| {
-            let route = format!("/{}", path.strip_prefix(&root).unwrap().to_string_lossy());
+            let route = format!(
+                "/{}",
+                path.strip_prefix(&root)
+                    .unwrap()
+                    .iter()
+                    .map(|part| part.to_str().expect("UTF-8 diagram asset path"))
+                    .collect::<Vec<_>>()
+                    .join("/")
+            );
             let mime = match path.extension().unwrap().to_str().unwrap() {
                 "html" => "text/html; charset=utf-8",
                 "wasm" => "application/wasm",

@@ -232,7 +232,7 @@ fn matches_remote_text(
     Ok(complete && remaining.is_empty())
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
     #[test]

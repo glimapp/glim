@@ -230,6 +230,7 @@ impl Workspace {
             .into_any_element()
     }
 
+    #[cfg(target_os = "macos")]
     pub(super) fn floating_reader_toolbar(&self, window: &mut Window, cx: &mut App) -> AnyElement {
         use gpui_kit::component::WindowExt;
         let mut items: Vec<_> = self.reader_actions(cx).into_iter().map(|item| {
@@ -271,6 +272,23 @@ impl Workspace {
         .absolute()
         .size_full()
         .into_any_element()
+    }
+
+    #[cfg(windows)]
+    pub(super) fn windows_reader_toolbar(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .absolute()
+            .bottom(px(6.))
+            .left_0()
+            .right_0()
+            .flex()
+            .justify_center()
+            .child(self.content_toolbar(Vec::new(), window, cx))
+            .into_any_element()
     }
 
     pub(super) fn workspace_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {

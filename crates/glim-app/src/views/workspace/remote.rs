@@ -189,7 +189,7 @@ impl RemoteDialog {
         let identity = value(4);
         let identity = if !identity.is_empty() {
             Some(if let Some(path) = identity.strip_prefix("~/") {
-                PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(path)
+                std::env::home_dir().unwrap_or_default().join(path)
             } else {
                 identity.into()
             })

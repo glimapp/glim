@@ -6,7 +6,6 @@ use std::{
     collections::BTreeMap,
     fs::{File, OpenOptions},
     io::BufReader,
-    os::unix::fs::{DirBuilderExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc},
 };
@@ -112,11 +111,7 @@ impl Worker {
     }
     fn run_at(&self, root: &Path) -> Result<()> {
         let locks = root.join("DraftLocks");
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&locks)?;
-        std::fs::set_permissions(&locks, std::fs::Permissions::from_mode(0o700))?;
+        crate::platform::create_private_directory(&locks, true)?;
         let session = locks.join(format!(
             "session-{}-{}",
             std::process::id(),
@@ -124,7 +119,7 @@ impl Worker {
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_nanos()
         ));
-        std::fs::DirBuilder::new().mode(0o700).create(&session)?;
+        crate::platform::create_private_directory(&session, false)?;
         let lock_path = session.join(".lock.pending");
         let lock = OpenOptions::new()
             .write(true)

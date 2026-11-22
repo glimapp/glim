@@ -94,7 +94,7 @@ pub fn metadata(root: &Path, remote: Option<&Session>, cancel: &Cancellation) ->
         if path.last() == Some(&b'\n') {
             path.pop();
         }
-        let path = PathBuf::from(OsString::from_vec(path));
+        let path = PathBuf::from(crate::platform::decode_path_bytes(path)?);
         let path = if path.is_absolute() {
             path
         } else {
@@ -159,7 +159,7 @@ pub fn history(
     }
     args.push("--".into());
     if let Some(path) = path {
-        relative(path.as_os_str().as_bytes().to_vec())?;
+        relative(path.as_os_str().as_encoded_bytes().to_vec())?;
         args.push(path.as_os_str().to_owned());
     }
     let output = run(command(root, remote, &args)?, false, cancel)?;
@@ -290,7 +290,7 @@ pub fn catalog(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> 
         let field = field?;
         if let Some(path) = field.strip_prefix(b"worktree ") {
             result.worktrees.push(Worktree {
-                path: PathBuf::from(OsString::from_vec(path.to_vec())),
+                path: PathBuf::from(crate::platform::decode_path_bytes(path.to_vec())?),
                 head: String::new(),
                 branch: String::new(),
                 locked: false,
@@ -384,7 +384,7 @@ pub fn comparison_patch(
         );
     }
     if let Comparison::Blame(path) = comparison {
-        relative(path.as_os_str().as_bytes().to_vec())?;
+        relative(path.as_os_str().as_encoded_bytes().to_vec())?;
         return run(
             command(
                 root,
@@ -435,7 +435,7 @@ pub fn comparison_patch(
     );
     args.push("--".into());
     if let Comparison::FileHistory(_, path) = comparison {
-        relative(path.as_os_str().as_bytes().to_vec())?;
+        relative(path.as_os_str().as_encoded_bytes().to_vec())?;
         args.push(path.as_os_str().to_owned());
     }
     run(command(root, remote, &args)?, false, cancel)
@@ -448,7 +448,7 @@ pub fn conflict_source(
     cancel: &Cancellation,
 ) -> Result<tempfile::NamedTempFile> {
     ensure_enabled()?;
-    relative(path.as_os_str().as_bytes().to_vec())?;
+    relative(path.as_os_str().as_encoded_bytes().to_vec())?;
     let source = match remote {
         Some(session) => session.download(&root.join(path), cancel)?,
         None => root.join(path),

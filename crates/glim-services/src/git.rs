@@ -8,7 +8,6 @@ pub use query::*;
 use std::{
     ffi::OsString,
     io::{BufRead, BufReader, Read},
-    os::unix::ffi::{OsStrExt, OsStringExt},
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -66,7 +65,15 @@ fn command(root: &Path, remote: Option<&Session>, args: &[OsString]) -> Result<C
     arguments.extend_from_slice(args);
     match remote {
         None => {
+            #[cfg(unix)]
             let mut command = Command::new("/usr/bin/git");
+            #[cfg(windows)]
+            let mut command = {
+                use std::os::windows::process::CommandExt;
+                let mut command = Command::new("git.exe");
+                command.creation_flags(0x08000000);
+                command
+            };
             command
                 .args(arguments)
                 .env("GIT_OPTIONAL_LOCKS", "0")
@@ -130,7 +137,7 @@ fn run_input(
 }
 
 fn relative(bytes: Vec<u8>) -> Result<PathBuf> {
-    let path = PathBuf::from(OsString::from_vec(bytes));
+    let path = PathBuf::from(crate::platform::decode_path_bytes(bytes)?);
     ensure!(
         !path.as_os_str().is_empty()
             && path
@@ -209,7 +216,7 @@ pub fn patch(
     cancel: &Cancellation,
 ) -> Result<tempfile::NamedTempFile> {
     // Status paths remain literal even for names containing Git pathspec syntax.
-    relative(change.path.as_os_str().as_bytes().to_vec())?;
+    relative(change.path.as_os_str().as_encoded_bytes().to_vec())?;
     let mut args: Vec<OsString> = [
         "diff",
         "--no-ext-diff",
@@ -233,7 +240,7 @@ pub fn patch(
     if change.area == Area::Untracked {
         args.push("/dev/null".into());
     } else if let Some(previous) = &change.previous {
-        relative(previous.as_os_str().as_bytes().to_vec())?;
+        relative(previous.as_os_str().as_encoded_bytes().to_vec())?;
         args.push(previous.as_os_str().to_owned());
     }
     args.push(change.path.as_os_str().to_owned());

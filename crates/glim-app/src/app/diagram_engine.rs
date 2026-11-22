@@ -57,6 +57,7 @@ pub fn run() -> anyhow::Result<()> {
     let mut results = vec![serde_json::Value::Null; count];
     let mut event_loop = EventLoopBuilder::<serde_json::Value>::with_user_event().build();
 
+    #[cfg(target_os = "macos")]
     {
         use tao::platform::macos::{
             ActivationPolicy, EventLoopExtMacOS, EventLoopWindowTargetExtMacOS,

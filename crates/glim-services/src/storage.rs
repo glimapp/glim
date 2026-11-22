@@ -1,10 +1,7 @@
 //! Application-owned SQLite state. All entry points are blocking services.
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
-use std::{
-    os::unix::fs::OpenOptionsExt,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 pub(crate) mod cache;
 mod migration;
@@ -34,12 +31,7 @@ pub(crate) fn open() -> Result<Connection> {
 pub(crate) fn open_at(directory: &Path) -> Result<Connection> {
     std::fs::create_dir_all(directory)?;
     let path = directory.join("glim.sqlite3");
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(&path)?;
+    crate::platform::open_private_file(&path)?;
     let mut db = Connection::open(&path).context("Cannot open Glim application database")?;
     db.busy_timeout(std::time::Duration::from_secs(10))?;
     db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;

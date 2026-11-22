@@ -10,6 +10,10 @@ pub(crate) mod finder_integration;
 pub(crate) mod git_operation;
 mod image_http;
 pub(crate) mod languages;
+#[cfg(target_os = "macos")]
+pub(crate) mod markdown_export;
+#[cfg(windows)]
+#[path = "markdown_export_windows.rs"]
 pub(crate) mod markdown_export;
 pub(crate) mod media_prepare;
 mod menus;

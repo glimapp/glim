@@ -3,12 +3,21 @@ use crate::storage::{self, set_setting, setting};
 use anyhow::{Context, Result};
 use std::{collections::BTreeMap, path::PathBuf};
 
+#[cfg(target_os = "macos")]
 pub(crate) fn directory() -> Result<PathBuf> {
     Ok(
         PathBuf::from(std::env::var_os("HOME").context("Home directory is unavailable")?)
             .join("Library/Application Support/Glim"),
     )
 }
+#[cfg(windows)]
+pub(crate) fn directory() -> Result<PathBuf> {
+    Ok(PathBuf::from(
+        std::env::var_os("LOCALAPPDATA").context("Local application data is unavailable")?,
+    )
+    .join("Glim"))
+}
+
 pub fn workspace_folders() -> Result<Vec<PathBuf>> {
     storage::paths(&storage::open()?, "workspace", "")
 }
