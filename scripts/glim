@@ -1,0 +1,11 @@
+#!/bin/sh
+# Follow the PATH symlink back to the application bundle.
+launcher=$0
+while [ -L "$launcher" ]; do
+    target=$(readlink "$launcher") || exit 1
+    case "$target" in
+        /*) launcher=$target ;;
+        *) launcher=$(dirname "$launcher")/$target ;;
+    esac
+done
+exec "$(dirname "$launcher")/../MacOS/glim" --cli "$@"

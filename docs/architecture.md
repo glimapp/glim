@@ -20,6 +20,7 @@ crates/
   glim-services/src/   filesystem, watchers, format parsing, backups and preferences; no UI
   glim-app/src/
     app/              startup, actions, menus, locale, diagram engine and updater coordination
+      cli.rs          terminal dispatch for Markdown export, file opening, format catalog and MCP
     views/
       workspace_window.rs  window-level ownership and workspace-tab switching
       workspace/      readers, tabs, loading, navigation, search dialog, editing and update-session restoration

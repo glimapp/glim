@@ -59,6 +59,22 @@ pub fn export_pdf(
     Ok(unavailable)
 }
 
+pub fn export_html_to(
+    markdown: &str,
+    base: &Url,
+    title: &str,
+    destination: &crate::files::DraftDestination,
+    cancel: &Cancellation,
+) -> Result<usize> {
+    let scratch = tempfile::tempdir()?;
+    let mut unavailable = 0;
+    crate::files::publish_document(destination, cancel, |output| {
+        unavailable = write_html(markdown, base, title, scratch.path(), output, true, cancel)?;
+        Ok(())
+    })?;
+    Ok(unavailable)
+}
+
 pub fn export_html(
     markdown: &str,
     base: &Url,

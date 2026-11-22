@@ -128,6 +128,31 @@ pub fn prepare_draft_destination(
     prepare_save_destination(path, open_files, cancel)
 }
 
+/// Reserve a new name for exclusive publication without reading an existing file.
+pub fn prepare_new_destination(
+    path: &Path,
+    cancel: &crate::work::Cancellation,
+) -> Result<DraftDestination> {
+    cancel.check()?;
+    let parent = path
+        .parent()
+        .context("Missing output directory")?
+        .canonicalize()?;
+    let selected = parent.join(path.file_name().context("Missing output filename")?);
+    ensure!(
+        selected
+            .symlink_metadata()
+            .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound),
+        "Choose a new output file: {}",
+        selected.display()
+    );
+    Ok(DraftDestination {
+        target: selected.clone(),
+        selected,
+        existing: None,
+    })
+}
+
 pub fn prepare_save_destination(
     path: &Path,
     open_files: &[std::path::PathBuf],

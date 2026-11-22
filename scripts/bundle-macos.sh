@@ -40,6 +40,7 @@ fi
 bundle_dir="${GLIM_BUNDLE_DIR:-${GLIMPSE_BUNDLE_DIR:-$PWD/dist/Glim.app}}"
 mkdir -p "$bundle_dir/Contents/MacOS" "$bundle_dir/Contents/Resources"
 cp "$target_dir/$build_profile/glim" "$bundle_dir/Contents/MacOS/glim"
+install -m 755 scripts/glim "$bundle_dir/Contents/Resources/glim"
 cp assets/macos/Glim.icns "$bundle_dir/Contents/Resources/Glim.icns"
 cp assets/macos/Info.plist "$bundle_dir/Contents/Info.plist"
 renderer_dir="$bundle_dir/Contents/Helpers/GlimRenderer.app"

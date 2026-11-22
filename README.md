@@ -84,6 +84,26 @@ If a local database sits beside your report, open it in Glim. Choose a table, fi
 - Files open locally. Markdown remote images, HTML scripts and network resources, updates and enabled usage statistics can use the network. See [privacy and network access](docs/privacy.md).
 - Apple Silicon and Intel Macs are supported. Installers are not yet notarized by Apple; first-launch instructions follow.
 
+## Terminal and AI tools
+
+Link the bundled command into a directory on your PATH once.
+
+```sh
+mkdir -p ~/.local/bin
+ln -s /Applications/Glim.app/Contents/Resources/glim ~/.local/bin/glim
+```
+
+```sh
+glim open README.md
+glim pdf README.md report.pdf
+glim html README.md report.html
+glim preview README.md
+glim formats
+glim --help
+```
+
+Exports require a new output filename and print its path on success. For Cursor’s MCP configuration, use the absolute launcher path as the command and `["mcp"]` as its arguments. MCP exposes `open_in_glim`. Agents can run the export commands directly in a terminal.
+
 ## Download
 
 Open the [latest Release page](https://github.com/glimapp/glim/releases/latest) and choose the matching installer under **Assets**. That page contains the current version, release notes and checksums.

@@ -1,6 +1,7 @@
 mod about;
 pub mod actions;
 mod assets;
+pub(crate) mod cli;
 pub(crate) mod diagram_engine;
 pub(crate) mod document_session;
 pub(crate) mod edit_session;
