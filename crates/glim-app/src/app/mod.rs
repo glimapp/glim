@@ -1,6 +1,7 @@
 mod about;
 pub mod actions;
 mod assets;
+pub(crate) mod cli;
 pub(crate) mod diagram_engine;
 pub(crate) mod document_session;
 pub(crate) mod edit_session;
@@ -39,8 +40,8 @@ use actions::{
     About, AddFolder, CheckForUpdates, CloseWindow, CloseWorkspace, DefaultApplications,
     KeyboardShortcuts, LanguageChinese, LanguageEnglish, LanguageSystem, NavigateBack,
     NavigateForward, NewFile, NewWindow, NextTab, OpenFile, OpenFolder, OpenSettings, PreviousTab,
-    Quit, Refresh, SaveFile, SearchWorkspace, ToggleDarkMode, ToggleFileTree, TogglePreview,
-    ToggleSidebar, ToggleWordWrap,
+    PrintDocument, Quit, Refresh, SaveFile, SearchWorkspace, ToggleDarkMode, ToggleFileTree,
+    TogglePreview, ToggleSidebar, ToggleWordWrap,
 };
 
 pub struct ReaderPreferences {
@@ -555,6 +556,7 @@ pub fn run() -> Result<()> {
             KeyBinding::new("secondary-shift-n", NewWindow, None),
             KeyBinding::new("secondary-n", NewFile, None),
             KeyBinding::new("secondary-o", OpenFile, None),
+            KeyBinding::new("secondary-p", PrintDocument, None),
             KeyBinding::new("secondary-s", SaveFile, None),
             KeyBinding::new("secondary-shift-o", OpenFolder, None),
             KeyBinding::new("secondary-r", Refresh, None),

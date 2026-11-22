@@ -28,6 +28,38 @@ impl EventEmitter<OpenFile> for Changes {}
 pub(super) struct ShowDiff;
 impl EventEmitter<ShowDiff> for Changes {}
 
+#[derive(Clone, PartialEq, Eq)]
+pub(super) enum DiffTab {
+    File(PathBuf, Change),
+    Comparison(PathBuf, Comparison),
+}
+
+impl DiffTab {
+    pub(super) fn label(&self) -> String {
+        match self {
+            Self::File(_, change) => format!(
+                "{} · {}",
+                change
+                    .path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
+                tr(Changes::area(change.area))
+            ),
+            Self::Comparison(_, comparison) => comparison.title(),
+        }
+    }
+
+    pub(super) fn description(&self) -> String {
+        match self {
+            Self::File(root, change) => root.join(&change.path).display().to_string(),
+            Self::Comparison(root, comparison) => {
+                format!("{} · {}", root.display(), comparison.title())
+            }
+        }
+    }
+}
+
 enum Prepared {
     Diff(
         Vec<DiffFile>,
@@ -38,6 +70,7 @@ enum Prepared {
 }
 
 pub(crate) struct Changes {
+    pub(super) tabs: Vec<DiffTab>,
     section: Section,
     available: bool,
     active_root: Option<PathBuf>,
@@ -110,6 +143,7 @@ impl Changes {
 
     pub(super) fn disable(&mut self, cx: &mut Context<Self>) {
         self.cancel(cx);
+        self.tabs.clear();
         self.repositories.clear();
         self.catalog = Arc::default();
         self.commits = Arc::default();
@@ -144,6 +178,7 @@ impl Changes {
             cx.observe(&diff, |_, _, cx| cx.notify()),
         ];
         Self {
+            tabs: Vec::new(),
             section: Section::Changes,
             available: true,
             active_root: None,
@@ -221,6 +256,7 @@ impl Changes {
             || self.remote.as_ref().map(|r| &r.connection.id)
                 != remote.as_ref().map(|r| &r.connection.id)
         {
+            self.tabs.clear();
             self.selection = None;
             self.active_root = None;
             self.comparison = None;
@@ -267,7 +303,9 @@ impl Changes {
                 }
                 let mut rows = Vec::new();
                 for repository in &view.repositories {
-                    rows.push((repository.root.clone(), None));
+                    if view.repositories.len() > 1 {
+                        rows.push((repository.root.clone(), None));
+                    }
                     for area in [Area::Staged, Area::Working, Area::Untracked] {
                         rows.extend(
                             repository
@@ -311,6 +349,8 @@ impl Changes {
                     if let Some((root, comparison)) = view.comparison.clone() {
                         view.load_patch(root, None, Some(comparison), cx);
                     }
+                } else if let Some((root, Comparison::AllChanges)) = view.comparison.clone() {
+                    view.load_patch(root, None, Some(Comparison::AllChanges), cx);
                 } else if let Some((root, change)) = selection {
                     view.select(root, change, cx);
                 } else {
@@ -329,6 +369,74 @@ impl Changes {
         self.memory = None;
         self.patch_error = None;
         self.patch_source = None;
+    }
+
+    fn current_tab(&self) -> Option<DiffTab> {
+        self.comparison
+            .clone()
+            .map(|(root, query)| DiffTab::Comparison(root, query))
+            .or_else(|| {
+                self.selection
+                    .clone()
+                    .filter(|_| self.section == Section::Changes)
+                    .map(|(root, change)| DiffTab::File(root, change))
+            })
+    }
+
+    pub(super) fn active_tab(&self) -> Option<usize> {
+        let current = self.current_tab()?;
+        self.tabs.iter().position(|tab| tab == &current)
+    }
+
+    pub(super) fn activate_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        match self.tabs.get(index).cloned() {
+            Some(DiffTab::File(root, change)) => self.select(root, change, cx),
+            Some(DiffTab::Comparison(root, query)) => {
+                self.cancel_browse();
+                self.active_root = Some(root);
+                self.section = match &query {
+                    Comparison::AllChanges => Section::Changes,
+                    Comparison::Stash(_) => Section::Stashes,
+                    Comparison::Between(_, _) => Section::Branches,
+                    _ => Section::History,
+                };
+                self.selected_commit = match &query {
+                    Comparison::Commit(id)
+                    | Comparison::FileHistory(id, _)
+                    | Comparison::Details(id) => {
+                        self.commits.iter().find(|commit| &commit.id == id).cloned()
+                    }
+                    _ => None,
+                };
+                self.selected_reference = None;
+                self.selected_stash = None;
+                self.selection = None;
+                self.show_comparison(query, cx);
+            }
+            None => return,
+        }
+        cx.notify();
+    }
+
+    pub(super) fn close_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index >= self.tabs.len() {
+            return;
+        }
+        let active = self.active_tab() == Some(index);
+        self.tabs.remove(index);
+        if active {
+            if self.tabs.is_empty() {
+                self.patch_cancel = None;
+                self.patch_task = None;
+                self.patch_loading = false;
+                self.selection = None;
+                self.comparison = None;
+                self.clear_patch(cx);
+            } else {
+                self.activate_tab(index.min(self.tabs.len() - 1), cx);
+            }
+        }
+        cx.notify();
     }
 
     fn select(&mut self, root: PathBuf, change: Change, cx: &mut Context<Self>) {
@@ -350,6 +458,11 @@ impl Changes {
         comparison: Option<Comparison>,
         cx: &mut Context<Self>,
     ) {
+        if let Some(tab) = self.current_tab()
+            && !self.tabs.contains(&tab)
+        {
+            self.tabs.push(tab);
+        }
         self.patch_cancel = None;
         self.patch_task = None;
         self.clear_patch(cx);
@@ -481,11 +594,11 @@ impl Changes {
         }
     }
 
-    pub(super) fn navigation(entity: &Entity<Self>, cx: &App) -> AnyElement {
-        let view = entity.read(cx);
+    fn navigation(&self, cx: &Context<Self>) -> AnyElement {
+        let view = self;
         let rows = view.rows.clone();
         let scroll = view.scroll.clone();
-        let owner = entity.clone();
+        let owner = cx.entity();
         v_flex()
             .flex_1()
             .min_h_0()
@@ -652,7 +765,7 @@ impl Changes {
 }
 
 impl Changes {
-    fn diff_view(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn diff_view(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let mode = self.diff.read(cx).mode();
         let ready = !self.patch_loading && !self.diff.read(cx).files().is_empty();
         let toolbar = h_flex()
@@ -730,7 +843,9 @@ impl Changes {
                 Button::new("diff-wrap")
                     .ghost()
                     .small()
-                    .label(tr("Wrap"))
+                    .icon(gpui_kit::assets::IconName::CornerDownLeft)
+                    .tooltip(tr("Wrap"))
+                    .accessibility_label(tr("Wrap"))
                     .selected(self.soft_wrap)
                     .disabled(!ready)
                     .on_click(cx.listener(|view, _, _, cx| {
@@ -868,4 +983,200 @@ fn message(text: String, cx: &App) -> AnyElement {
         .text_color(cx.theme().muted_foreground)
         .child(text.to_owned())
         .into_any_element()
+}
+
+#[cfg(all(test, feature = "git"))]
+mod tests {
+    use super::browser;
+    use gpui_kit::test::TestWindowExt;
+    use gpui_kit::{
+        AppContext, Bounds, ElementId, Point, TestAppContext, WindowBounds, WindowOptions, px, size,
+    };
+    use std::process::Command;
+
+    #[gpui_kit::test]
+    fn review_commit_and_sync_in_workspace(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("field-notes");
+        std::fs::create_dir(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("/usr/bin/git")
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap()
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.name", "Glim QA"]);
+        git(&["config", "user.email", "qa@example.invalid"]);
+        git(&["config", "commit.gpgSign", "false"]);
+        std::fs::write(root.join("schedule.md"), "Monday\n").unwrap();
+        git(&["add", "schedule.md"]);
+        git(&["commit", "-qm", "Initial schedule"]);
+        let remote = directory.path().join("upstream.git");
+        let remote_path = remote.to_str().unwrap();
+        git(&["init", "--bare", "-b", "main", remote_path]);
+        git(&["remote", "add", "origin", remote_path]);
+        git(&["push", "-u", "origin", "main"]);
+        std::fs::write(root.join("schedule.md"), "Tuesday\n").unwrap();
+        std::fs::write(root.join("test-note.md"), "Untracked marker\n").unwrap();
+        let (handle, workspace) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::app::remote::init(Default::default(), cx);
+            gpui_kit::open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds {
+                        origin: Point::default(),
+                        size: size(px(1100.), px(740.)),
+                    })),
+                    ..Default::default()
+                },
+                cx,
+                |window, cx| {
+                    cx.new(|cx| super::super::Workspace::new(Some(root.clone()), window, cx))
+                },
+            )
+            .unwrap()
+        });
+        let click = |cx: &mut TestAppContext, id: ElementId| {
+            cx.run_until_parked();
+            cx.update_window(handle, |_, window, cx| {
+                window.render_frame(cx);
+                window.click(id, cx);
+            })
+            .unwrap();
+            cx.run_until_parked();
+        };
+        click(cx, "file-panel-changes".into());
+        click(cx, "diff-split".into());
+        click(cx, ("git-change", 1usize).into());
+        click(cx, "all-changes-diff".into());
+        let patch = cx.update(|cx| {
+            workspace
+                .read(cx)
+                .changes
+                .read(cx)
+                .patch_source
+                .clone()
+                .unwrap()
+        });
+        assert!(patch.contains("+Tuesday") && patch.contains("Untracked marker"));
+        click(cx, ("diff-tab", 1usize).into());
+        let patch = cx.update(|cx| {
+            workspace
+                .read(cx)
+                .changes
+                .read(cx)
+                .patch_source
+                .clone()
+                .unwrap()
+        });
+        assert!(patch.contains("Untracked marker") && !patch.contains("+Tuesday"));
+        click(cx, ("close-diff-tab", 2usize).into());
+        click(cx, ("diff-tab", 0usize).into());
+        let patch = cx.update(|cx| {
+            workspace
+                .read(cx)
+                .changes
+                .read(cx)
+                .patch_source
+                .clone()
+                .unwrap()
+        });
+        assert!(patch.contains("+Tuesday") && !patch.contains("Untracked marker"));
+        std::fs::remove_file(root.join("test-note.md")).unwrap();
+        click(cx, "git-stage-file".into());
+        assert_eq!(git(&["diff", "--cached", "--name-only"]), "schedule.md\n");
+        click(cx, "git-unstage-file".into());
+        assert!(git(&["diff", "--cached", "--name-only"]).is_empty());
+        click(cx, "git-stage-file".into());
+        let input = cx.update(|cx| workspace.read(cx).changes.read(cx).message.entity_id());
+        click(cx, ("input", input).into());
+        cx.update_window(handle, |_, window, cx| {
+            window.input("Move opening to Tuesday", cx)
+        })
+        .unwrap();
+        click(cx, "git-commit".into());
+        assert_eq!(
+            git(&["log", "-1", "--format=%s"]),
+            "Move opening to Tuesday\n"
+        );
+        assert!(git(&["status", "--porcelain"]).is_empty());
+        click(
+            cx,
+            ("git-section", browser::Section::History as usize).into(),
+        );
+        assert_eq!(
+            cx.update(|cx| workspace.read(cx).changes.read(cx).commits.len()),
+            2
+        );
+        click(cx, ("git-browser-row", 1usize).into());
+        assert_eq!(
+            cx.update(|cx| workspace
+                .read(cx)
+                .changes
+                .read(cx)
+                .selected_commit
+                .as_ref()
+                .unwrap()
+                .subject
+                .clone()),
+            "Initial schedule"
+        );
+        click(cx, "git-sync".into());
+        cx.update_window(handle, |_, w, cx| {
+            w.render_frame(cx);
+            w.within("popup-menu").click(3usize, cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            git(&["rev-parse", "HEAD"]),
+            git(&["--git-dir", remote_path, "rev-parse", "main"])
+        );
+        let peer = directory.path().join("peer");
+        let peer_path = peer.to_str().unwrap();
+        git(&["clone", "-q", remote_path, peer_path]);
+        std::fs::write(peer.join("receipt.md"), "Accepted").unwrap();
+        git(&["-C", peer_path, "add", "receipt.md"]);
+        git(&[
+            "-C",
+            peer_path,
+            "-c",
+            "user.name=Peer",
+            "-c",
+            "user.email=peer@example.invalid",
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "-qm",
+            "Accept schedule",
+        ]);
+        git(&["-C", peer_path, "push", "origin", "main"]);
+        for index in [0usize, 1] {
+            click(cx, "git-sync".into());
+            cx.update_window(handle, |_, w, cx| {
+                w.render_frame(cx);
+                w.within("popup-menu").click(index, cx);
+            })
+            .unwrap();
+            cx.run_until_parked();
+            assert_eq!(
+                git(&["rev-parse", "origin/main"]),
+                git(&["-C", peer_path, "rev-parse", "HEAD"])
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(root.join("receipt.md")).unwrap(),
+            "Accepted"
+        );
+        click(cx, "file-panel-files".into());
+    }
 }

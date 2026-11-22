@@ -54,7 +54,7 @@ impl Workspace {
                                 .px_1()
                                 .rounded(px(6.))
                                 .justify_start()
-                                .accessibility_label(glim_services::locale::tr("Show Files"))
+                                .accessibility_label(glim_services::locale::tr("Git"))
                                 .child(
                                     h_flex()
                                         .w_full()
@@ -76,14 +76,16 @@ impl Workspace {
                                         ),
                                 )
                                 .on_click(cx.listener(|view, _, window, cx| {
-                                    view.set_changes_expanded(false, cx);
+                                    if view.page != Page::Changes {
+                                        view.set_changes_expanded(true, cx);
+                                    }
                                     window.focus(&view.focus, cx);
                                     cx.notify();
                                 })),
                         )
                         .child(self.file_tree_toggle(cx).w(px(24.))),
                 )
-                .child(super::changes::Changes::navigation(&self.changes, cx))
+                .child(self.changes.clone())
                 .into_any_element();
         }
         h_flex()
@@ -265,7 +267,7 @@ impl Render for Workspace {
                 });
             });
         let content = match self.page {
-            Page::Changes => self.changes.clone().into_any_element(),
+            Page::Changes => self.changes.update(cx, |git, cx| git.diff_view(cx)),
             Page::Settings => self.settings_page(cx),
             Page::Start => welcome(self, cx.entity_id(), cx).into_any_element(),
             Page::Document => match self.active.and_then(|i| self.tabs.get_mut(i)) {
@@ -307,12 +309,18 @@ impl Render for Workspace {
             .when(!self.file_fullscreen, |view| view.rounded(px(12.)))
             .bg(cx.theme().background)
             .when(
-                !document_page && self.page != Page::Start && !self.file_fullscreen,
+                !document_page
+                    && self.page != Page::Changes
+                    && self.page != Page::Start
+                    && !self.file_fullscreen,
                 |view| view.pt(px(super::TITLE_BAR_HEIGHT)),
             )
-            .when(document_page && !self.file_fullscreen, |view| {
-                view.child(self.tab_bar((header_width - navigation_width).max(0.), window, cx))
-            })
+            .when(
+                (document_page || self.page == Page::Changes) && !self.file_fullscreen,
+                |view| {
+                    view.child(self.tab_bar((header_width - navigation_width).max(0.), window, cx))
+                },
+            )
             .child(
                 div()
                     .relative()
@@ -472,9 +480,9 @@ impl Render for Workspace {
             .gap(px(2.))
             .when(has_git, |header| header.cursor_pointer())
             .on_click(cx.listener(move |view, _, window, cx| {
-                if has_git {
+                if show_changes {
                     view.path_hint.hide();
-                    view.set_changes_expanded(!view.changes_expanded, cx);
+                    view.set_changes_expanded(false, cx);
                     window.focus(&view.focus, cx);
                     cx.notify();
                 }
@@ -493,16 +501,12 @@ impl Render for Workspace {
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(cx.theme().foreground)
-                    .accessibility_label(glim_services::locale::tr(if show_changes {
-                        "Show Files"
-                    } else {
-                        "Show Changes"
-                    }))
+                    .accessibility_label(glim_services::locale::tr("Show Files"))
                     .child(files_heading)
                     .on_click(cx.listener(|view, _, window, cx| {
                         cx.stop_propagation();
                         view.path_hint.hide();
-                        view.set_changes_expanded(!view.changes_expanded, cx);
+                        view.set_changes_expanded(false, cx);
                         window.focus(&view.focus, cx);
                         cx.notify();
                     }))
@@ -886,20 +890,8 @@ impl Render for Workspace {
                     }
                 }),
             )
-            .on_action(cx.listener(|v, _: &NextTab, w, cx| {
-                if !v.tabs.is_empty() {
-                    v.activate_tab((v.active.unwrap_or(0) + 1) % v.tabs.len(), w, cx);
-                }
-            }))
-            .on_action(cx.listener(|v, _: &PreviousTab, w, cx| {
-                if !v.tabs.is_empty() {
-                    v.activate_tab(
-                        (v.active.unwrap_or(0) + v.tabs.len() - 1) % v.tabs.len(),
-                        w,
-                        cx,
-                    );
-                }
-            }))
+            .on_action(cx.listener(|v, _: &NextTab, w, cx| v.cycle_tab(true, w, cx)))
+            .on_action(cx.listener(|v, _: &PreviousTab, w, cx| v.cycle_tab(false, w, cx)))
             .on_action(cx.listener(|v, _: &NavigateBack, w, cx| v.navigate(false, w, cx)))
             .on_action(cx.listener(|v, _: &NavigateForward, w, cx| v.navigate(true, w, cx)))
             .on_action(cx.listener(|v, _: &CloseWorkspace, w, cx| {
@@ -917,9 +909,20 @@ impl Render for Workspace {
                 v.show_remote(None, true, false, w, cx)
             }))
             .on_action(cx.listener(|v, _: &Refresh, w, cx| v.refresh(w, cx)))
+            .when(self.can_print(), |root| {
+                root.on_action(
+                    cx.listener(|v, _: &crate::app::actions::PrintDocument, w, cx| {
+                        v.print_active(w, cx)
+                    }),
+                )
+            })
             .on_action(cx.listener(|v, _: &SaveFile, w, cx| v.save_active(w, cx)))
             .on_action(cx.listener(|v, _: &CloseWindow, w, cx| {
-                if let Some(i) = v.active {
+                if v.page == Page::Changes
+                    && let Some(i) = v.changes.read(cx).active_tab()
+                {
+                    v.close_diff_tab(i, cx);
+                } else if let Some(i) = v.active {
                     v.close_tab(i, w, cx);
                 } else {
                     v.request_close_window(w, cx);

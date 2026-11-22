@@ -4,6 +4,21 @@
 
 Glim is a file-viewing workspace for Mac. Use it to read a contract, study reference material, or inspect data and code. Open files you already have. Browse [topics](topics.md) to find tasks that fit your work.
 
+<a id="cli"></a>
+
+## Work with Markdown in the terminal
+
+Run these commands from your project directory. Relative paths work, and quotes preserve spaces in filenames. [Install the terminal command](../README.md#terminal-and-ai-tools)
+
+```sh
+glim open .
+glim preview "meeting notes.md"
+glim pdf "meeting notes.md" "meeting notes.pdf"
+glim html "meeting notes.md" "meeting notes.html"
+```
+
+Exports use Glim’s Markdown renderer. Supply a UTF-8 input file and a new output filename in an existing directory. Scripts can check the exit status and read the generated path from standard output. An export can succeed with missing images or diagrams. The command reports their count on standard error.
+
 ## Open a file or a folder
 
 See [installation](../README.md#download) first.

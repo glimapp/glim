@@ -36,3 +36,5 @@ You do not need implementation documents to use Glim. Start with [Contributing](
 Documentation describes current source. Consult [Release notes](https://github.com/glimapp/glim/releases) for a published build.
 
 Maintenance convention: keep open work and acceptance gaps in `TODO.md`; architecture, contracts and policies describe current design and implemented behavior. Keep raw performance reports, session logs and temporary validation artifacts outside the repository. Publish release changes in GitHub Releases.
+
+[Terminal guide](user-guide.md#cli) · [Cursor configuration example](app-integrations.md#cursor-mcp)

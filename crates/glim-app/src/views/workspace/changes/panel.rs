@@ -70,47 +70,47 @@ impl Render for Changes {
             .flex_shrink_0()
             .px_2()
             .gap_2()
-            .child(div().flex_1().min_w_0().truncate().text_sm().child(format!(
-                    "{} · {}",
-                    self.active_root
-                        .as_ref()
-                        .map(|p| p
-                            .file_name()
-                            .unwrap_or(p.as_os_str())
-                            .to_string_lossy()
-                            .into_owned())
-                        .unwrap_or_else(|| tr("No Git repository")),
-                    if metadata.branch == "(detached)" {
-                        tr("Detached HEAD")
-                    } else {
-                        metadata.branch.clone()
-                    }
-                )))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(format!(
-                        "{}  ↑{} ↓{}",
-                        metadata.upstream, metadata.ahead, metadata.behind
-                    )),
-            )
-            .child(self.repository_menu(cx))
-            .child(self.operation_button("git-fetch", Operation::Fetch(None), disabled, cx))
-            .child(self.operation_menu(
-                "git-pull",
-                "Pull",
-                if metadata.upstream.is_empty() {
-                    vec![]
+            .child(div().flex_1().min_w_0().truncate().text_sm().child(
+                if metadata.branch == "(detached)" {
+                    tr("Detached HEAD")
+                } else if metadata.branch.is_empty() {
+                    tr("No Git repository")
                 } else {
-                    vec![Operation::Pull(false), Operation::Pull(true)]
+                    metadata.branch.clone()
                 },
-                cx,
             ))
-            .child(self.operation_button(
-                "git-push",
-                Operation::Push(None),
-                disabled || metadata.upstream.is_empty(),
+            .when(!metadata.upstream.is_empty(), |row| {
+                row.child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!(
+                            "{}  ↑{} ↓{}",
+                            metadata.upstream, metadata.ahead, metadata.behind
+                        )),
+                )
+            });
+        let commands = h_flex()
+            .flex_wrap()
+            .px_2()
+            .gap_1()
+            .child(self.repository_menu(cx))
+            .child(self.operation_menu(
+                "git-sync",
+                "Sync",
+                {
+                    let mut operations = vec![Operation::Fetch(None)];
+                    if !metadata.upstream.is_empty() {
+                        operations.extend([
+                            Operation::Pull(false),
+                            Operation::Pull(true),
+                            Operation::Push(None),
+                        ]);
+                    }
+                    operations
+                },
                 cx,
             ))
             .child(
@@ -123,20 +123,13 @@ impl Render for Changes {
                     .disabled(self.loading || self.operation_busy)
                     .on_click(cx.listener(|view, _, _, cx| view.refresh(cx))),
             );
-        let mut tabs = h_flex()
-            .id("git-sections")
-            .overflow_x_scroll()
-            .min_w_0()
-            .w_full()
-            .flex_shrink_0()
-            .px_2()
-            .gap_1();
-        for section in Section::ALL {
+        let owner = cx.entity().downgrade();
+        let mut tabs = h_flex().w_full().flex_wrap().px_2().gap_1();
+        for section in [Section::Changes, Section::History] {
             tabs = tabs.child(
                 Button::new(("git-section", section as usize))
-                    .ghost()
                     .small()
-                    .flex_shrink_0()
+                    .ghost()
                     .label(tr(section.label()))
                     .selected(self.section == section)
                     .on_click(cx.listener(move |view, _, _, cx| {
@@ -145,6 +138,39 @@ impl Render for Changes {
                     })),
             );
         }
+        use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
+        tabs = tabs.child(
+            Button::new("git-other-sections")
+                .small()
+                .ghost()
+                .map(|button| {
+                    if matches!(self.section, Section::Changes | Section::History) {
+                        super::controls::icon_action(
+                            button,
+                            gpui_kit::assets::IconName::Ellipsis,
+                            "More",
+                        )
+                    } else {
+                        button
+                            .label(tr(self.section.label()))
+                            .icon(gpui_kit::assets::IconName::ChevronDown)
+                    }
+                })
+                .dropdown_menu(move |mut menu, _, _| {
+                    for section in Section::ALL.into_iter().skip(2) {
+                        let owner = owner.clone();
+                        menu = menu.item(PopupMenuItem::new(tr(section.label())).on_click(
+                            move |_, _, cx| {
+                                let _ = owner.update(cx, |view, cx| {
+                                    view.switch_section(section, cx);
+                                    cx.emit(ShowDiff);
+                                });
+                            },
+                        ));
+                    }
+                    menu
+                }),
+        );
         let mut status = h_flex().h(px(30.)).flex_shrink_0().min_w_0().px_3().gap_2();
         if let Some(error) = self
             .operation_error
@@ -173,21 +199,6 @@ impl Render for Changes {
                     .truncate()
                     .child(label),
             );
-        } else {
-            status = status.child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(
-                        self.active_root
-                            .as_ref()
-                            .map(|p| p.display().to_string())
-                            .unwrap_or_default(),
-                    ),
-            );
         }
         if let Some(operation) = metadata.operation.clone() {
             status = status
@@ -212,29 +223,19 @@ impl Render for Changes {
         }
         let mut content = v_flex().flex_1().min_h_0().w_full();
         if self.section == Section::Changes {
-            let mut actions = h_flex()
-                .px_2()
-                .py_1()
-                .gap_1()
-                .flex_wrap()
-                .child(
-                    self.operation_button(
-                        "git-stage-all",
-                        Operation::Stage(None),
-                        disabled || working == 0 || conflict_count > 0,
-                        cx,
-                    )
-                    .label(tr("Stage all")),
+            let mut actions = h_flex().px_2().py_1().gap_1().flex_wrap().child(
+                super::controls::icon_action(
+                    Button::new("all-changes-diff"),
+                    gpui_kit::assets::IconName::GitCompareArrows,
+                    "All changes",
                 )
-                .child(
-                    self.operation_button(
-                        "git-unstage-all",
-                        Operation::Unstage(None),
-                        disabled || staged == 0,
-                        cx,
-                    )
-                    .label(tr("Unstage all")),
-                );
+                .disabled(self.active_root.is_none())
+                .on_click(cx.listener(|view, _, _, cx| {
+                    view.selection = None;
+                    view.show_comparison(Comparison::AllChanges, cx);
+                    cx.emit(ShowDiff);
+                })),
+            );
             if let Some((_, change)) = self
                 .selection
                 .clone()
@@ -248,45 +249,37 @@ impl Render for Changes {
                         cx,
                     ));
                 } else {
-                    actions = actions.child(
-                        self.operation_button(
-                            "git-stage-file",
-                            Operation::Stage(Some(change.clone())),
-                            disabled,
-                            cx,
-                        )
-                        .label(tr(if change.status == 'U' {
-                            "Mark resolved"
-                        } else {
-                            "Stage file"
-                        })),
-                    );
-                }
-                if change.area == Area::Untracked {
                     actions = actions.child(self.operation_button(
-                        "git-ignore-file",
-                        Operation::Ignore(change.path.clone()),
+                        "git-stage-file",
+                        Operation::Stage(Some(change.clone())),
                         disabled,
                         cx,
                     ));
                 }
+                let mut file_options = Vec::new();
+                if change.area == Area::Untracked {
+                    file_options.push(Operation::Ignore(change.path.clone()));
+                }
                 if change.area == Area::Working && change.status != 'U' {
-                    actions = actions.child(self.operation_button(
-                        "git-discard-file",
-                        Operation::Discard(change.clone()),
-                        disabled,
+                    file_options.push(Operation::Discard(change.clone()));
+                }
+                if !file_options.is_empty() {
+                    actions = actions.child(self.operation_menu(
+                        "git-file-options",
+                        "File actions",
+                        file_options,
                         cx,
                     ));
                 }
                 if change.status == 'M'
                     && change.previous.is_none()
                     && change.area != Area::Untracked
-                {
-                    let selected = self
+                    && self
                         .diff
                         .read(cx)
                         .selected_lines()
-                        .is_some_and(|range| range.side() == range.end_side());
+                        .is_some_and(|range| range.side() == range.end_side())
+                {
                     actions = actions.child(
                         Button::new("git-stage-blocks")
                             .small()
@@ -295,7 +288,7 @@ impl Render for Changes {
                             } else {
                                 "Stage selected blocks"
                             }))
-                            .disabled(disabled || !selected || self.patch_source.is_none())
+                            .disabled(disabled || self.patch_source.is_none())
                             .on_click(
                                 cx.listener(|view, _, window, cx| view.selected_blocks(window, cx)),
                             ),
@@ -337,9 +330,17 @@ impl Render for Changes {
                     );
                 }
             }
-            content = content
-                .child(actions)
-                .child(div().flex_1().min_h_0().w_full().child(self.diff_view(cx)));
+            let mut batch = Vec::new();
+            if working > 0 && conflict_count == 0 {
+                batch.push(Operation::Stage(None));
+            }
+            if staged > 0 {
+                batch.push(Operation::Unstage(None));
+            }
+            if !batch.is_empty() {
+                actions = actions.child(self.operation_menu("git-batch", "All files", batch, cx));
+            }
+            content = content.child(self.navigation(cx)).child(actions);
             let message = self.message.read(cx).value().to_string();
             content = content.child(
                 v_flex()
@@ -349,26 +350,28 @@ impl Render for Changes {
                     .gap_2()
                     .child(
                         Textarea::new(&self.message)
-                            .h(px(78.))
+                            .h(px(56.))
                             .aria_label(tr("Commit message"))
                             .disabled(disabled),
                     )
                     .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("{} {}", staged, tr("staged files"))),
+                    )
+                    .child(
                         h_flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("{} {}", staged, tr("staged files"))),
-                            )
+                            .w_full()
+                            .flex_wrap()
+                            .justify_between()
+                            .gap_1()
                             .child(
                                 Button::new("git-amend-toggle")
                                     .small()
-                                    .label(tr("Amend"))
+                                    .icon(gpui_kit::assets::IconName::RotateCcw)
+                                    .tooltip(tr("Amend"))
+                                    .accessibility_label(tr("Amend"))
                                     .selected(self.amend)
                                     .disabled(disabled || metadata.head.is_empty())
                                     .on_click(cx.listener(|view, _, _, cx| {
@@ -376,37 +379,46 @@ impl Render for Changes {
                                         cx.notify();
                                     })),
                             )
-                            .child(self.operation_button(
-                                "git-commit",
-                                Operation::Commit {
-                                    message,
-                                    amend: self.amend,
-                                },
-                                disabled
-                                    || conflict_count > 0
-                                    || (staged == 0 && !self.amend)
-                                    || self.message.read(cx).value().to_string().trim().is_empty(),
-                                cx,
-                            )),
+                            .child(
+                                self.operation_button(
+                                    "git-commit",
+                                    Operation::Commit {
+                                        message,
+                                        amend: self.amend,
+                                    },
+                                    disabled
+                                        || conflict_count > 0
+                                        || (staged == 0 && !self.amend)
+                                        || self
+                                            .message
+                                            .read(cx)
+                                            .value()
+                                            .to_string()
+                                            .trim()
+                                            .is_empty(),
+                                    cx,
+                                )
+                                .primary(),
+                            ),
                     ),
             );
         } else {
             content = content.child(self.browser_view(window, cx));
-            if matches!(
-                self.section,
-                Section::History | Section::Branches | Section::Stashes
-            ) {
-                content =
-                    content.child(div().flex_1().min_h_0().w_full().child(self.diff_view(cx)));
-            }
         }
         v_flex()
             .size_full()
             .min_h_0()
             .min_w_0()
             .child(header)
+            .child(commands)
             .child(tabs)
-            .child(status)
+            .when(
+                self.operation_error.is_some()
+                    || self.browser_error.is_some()
+                    || self.operation_label.is_some()
+                    || metadata.operation.is_some(),
+                |panel| panel.child(status),
+            )
             .child(content)
             .into_any_element()
     }

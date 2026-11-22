@@ -334,6 +334,7 @@ pub(super) fn revision(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Comparison {
+    AllChanges,
     Commit(String),
     Between(String, String),
     Stash(String),
@@ -345,6 +346,7 @@ pub enum Comparison {
 impl Comparison {
     pub fn title(&self) -> String {
         match self {
+            Self::AllChanges => tr("All changes"),
             Self::Commit(id) => format!("{} · {}", tr("Commit"), &id[..id.len().min(12)]),
             Self::Between(base, target) => format!("{base} → {target}"),
             Self::Stash(id) => format!("Stash · {}", &id[..id.len().min(12)]),
@@ -366,6 +368,24 @@ pub fn comparison_patch(
     comparison: &Comparison,
     cancel: &Cancellation,
 ) -> Result<tempfile::NamedTempFile> {
+    if *comparison == Comparison::AllChanges {
+        use std::io::{Read, Write};
+        let mut output = tempfile::NamedTempFile::new()?;
+        let mut buffer = vec![0; crate::limits::IO_BUFFER_BYTES];
+        for change in super::changes(root, remote, cancel)?.changes {
+            let patch = super::patch(root, &change, remote, cancel)?;
+            let mut input = patch.reopen()?;
+            loop {
+                cancel.check()?;
+                let n = input.read(&mut buffer)?;
+                if n == 0 {
+                    break;
+                }
+                output.write_all(&buffer[..n])?;
+            }
+        }
+        return Ok(output);
+    }
     if let Comparison::Details(id) = comparison {
         return run(
             command(
@@ -412,7 +432,7 @@ pub fn comparison_patch(
             revision(root, remote, left, cancel)?.into(),
             revision(root, remote, right, cancel)?.into(),
         ],
-        Comparison::Details(_) | Comparison::Blame(_) => unreachable!(),
+        Comparison::AllChanges | Comparison::Details(_) | Comparison::Blame(_) => unreachable!(),
         Comparison::Stash(id) => vec![
             "stash".into(),
             "show".into(),

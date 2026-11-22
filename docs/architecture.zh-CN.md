@@ -14,7 +14,7 @@
 
 ## 模块与数据流
 
-`views/integrations` 是设置页持续持有的实体，负责发现应用、展示各应用的配置状态及短暂反馈。`services/integrations/discovery` 合并常见配置目录、Profile 目录、应用 bundle 标识、支持的环境变量覆盖和用户指定文件，按工具与真实路径去重。`services/integrations` 进行带备份的原子修改，保留 TOML 和 JSON/JSONC 中的其他配置与注释；遇到同名冲突或扫描后发生的修改时拒绝覆盖。`services/integrations/mcp` 仅在 `glim --mcp` 模式下运行，早于界面初始化，通过本地 stdio 工具将已有文件或文件夹交给 macOS 打开。它不返回文件内容、不访问远端 URL，也不修改调用方的工具审批策略。支持范围与配置路径见[应用集成](app-integrations.zh-CN.md)。
+`views/integrations` 是设置页持续持有的实体，负责发现应用、展示各应用的配置状态及短暂反馈。`services/integrations/discovery` 合并常见配置目录、Profile 目录、应用 bundle 标识、支持的环境变量覆盖和用户指定文件，按工具与真实路径去重。`services/integrations` 进行带备份的原子修改，保留 TOML 和 JSON/JSONC 中的其他配置与注释；遇到同名冲突或扫描后发生的修改时拒绝覆盖。`services/integrations/mcp` 由应用集成入口或终端命令 `glim mcp` 启动，早于界面初始化，通过本地 stdio 工具将已有文件或文件夹交给 macOS 打开。它不返回文件内容、不访问远端 URL，也不修改调用方的工具审批策略。支持范围与配置路径见[应用集成](app-integrations.zh-CN.md)。
 
 `services/integrations/codex` 在界面启动前处理 Codex 的 JSON 标准输入请求，通过 LaunchServices 打开本地路径，通过经过校验的 `glim://open-remote` 元数据处理 SSH 文件，不执行传入的终端命令。`app/remote_open` 保留串行验证任务，复用已有连接和工作区，将远端文件交给现有恢复与下载队列。独立的启动任务迁移已识别的旧版 Glim 文件处理器和图标，保留 Codex 编辑器偏好；内嵌 PNG 的 data URL 同时用于网页视图与原生右键菜单。配置发现本身只读。
 
@@ -26,6 +26,7 @@ crates/
   glim-services/src/   文件系统、监听、格式解析、备份和偏好；无 UI
   glim-app/src/
     app/              启动、动作、菜单、语言、图表引擎和更新协调
+      cli.rs          分派终端的 Markdown 导出、文件打开、格式目录和 MCP 命令
     views/
       workspace_window.rs  窗口级工作区 tab 的持有与切换
       workspace/      标签、加载、导航、编辑和更新会话恢复
@@ -189,7 +190,7 @@ Workspace 管理标签、Explorer 实体、导航历史及异步加载。新打�
 
 ### Git 工作区
 
-默认构建和正式发布包关闭 Git，设置中不显示 Git 开关，旧 `git-enabled` 偏好不再读取。服务层以 Cargo 的 `git` feature 统一控制仓库发现、导航、查询与操作；未启用该 feature 时服务拒绝执行 Git 操作。开发构建可显式使用 `cargo build -p glim-app --features git --locked` 或 `GLIM_ENABLE_GIT=1 scripts/bundle-macos.sh release`。`--build-info` 报告 `git_available`，发布 CI 校验其为 false。以下实现仅用于显式开启该 feature 的开发构建。
+默认构建和发布包启用 Cargo 的 `git` feature。设置 `GLIM_ENABLE_GIT=0` 可打包关闭仓库发现与 Git 操作的版本。`--build-info` 显示实际构建能力。
 
 `services/git` 负责本地仓库与 SSH 工作区的后台 Git I/O。`git/query` 查询分支、上游、领先／落后数量、进行中的操作、分页历史／引用日志、引用、远端、Stash、Worktree、版本比较与逐行追溯。`git/operations` 提供类型化写操作，覆盖暂存、提交／修改上次提交、分支／标签、合并／变基／拣选／撤销／重置、远端同步、Stash、Worktree、建库、提交身份、忽略规则和子模块更新。历史每页 100 条，只限制活动窗口，不限制历史总量。文件路径保持字面语义及原始字节；版本输入先解析为提交 ID。恢复／删除 Stash 前核对界面显示的 Stash ID。
 

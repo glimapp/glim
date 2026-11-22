@@ -535,6 +535,44 @@ impl Workspace {
         cx.notify();
     }
 
+    fn activate_diff_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.changes_expanded = true;
+        self.page = super::Page::Changes;
+        self.changes
+            .update(cx, |git, cx| git.activate_tab(index, cx));
+        self.tab_scroll.scroll_to_item(self.tabs.len() + index);
+        cx.notify();
+    }
+    pub(super) fn cycle_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let git = self.changes.read(cx);
+        let n = self.tabs.len() + git.tabs.len();
+        if n == 0 {
+            return;
+        }
+        let current = if self.page == super::Page::Changes {
+            self.tabs.len() + git.active_tab().unwrap_or(0)
+        } else {
+            self.active.unwrap_or(0)
+        };
+        let index = if forward {
+            (current + 1) % n
+        } else {
+            (current + n - 1) % n
+        };
+        if index < self.tabs.len() {
+            self.activate_tab(index, window, cx);
+        } else {
+            self.activate_diff_tab(index - self.tabs.len(), cx);
+        }
+    }
+    pub(super) fn close_diff_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.changes.update(cx, |git, cx| git.close_tab(index, cx));
+        if self.changes.read(cx).tabs.is_empty() && self.page == super::Page::Changes {
+            self.page = super::Page::Document;
+        }
+        cx.notify();
+    }
+
     pub(super) fn tab_bar(
         &self,
         leading_inset: f32,
@@ -546,7 +584,7 @@ impl Workspace {
             .iter()
             .enumerate()
             .map(|(index, reader)| {
-                let active = self.active == Some(index);
+                let active = self.page == super::Page::Document && self.active == Some(index);
                 let target = super::header::Target::from_reader(reader);
                 let label = if reader.document.draft_directory.is_some() {
                     reader.title.to_string()
@@ -748,6 +786,51 @@ impl Workspace {
                     )
             })
             .collect::<Vec<_>>();
+        let git = self.changes.read(cx);
+        let selected = git.active_tab();
+        let diff_tabs =
+            git.tabs
+                .iter()
+                .enumerate()
+                .map(|(index, tab)| {
+                    let label = tab.label();
+                    let active = self.page == super::Page::Changes && selected == Some(index);
+                    h_flex()
+                        .h(px(TAB_HEIGHT))
+                        .gap_1()
+                        .px_1()
+                        .flex_shrink_0()
+                        .rounded_md()
+                        .when(active, |row| row.bg(cx.theme().secondary))
+                        .child(
+                            Button::new(("diff-tab", index))
+                                .ghost()
+                                .small()
+                                .icon(gpui_kit::assets::IconName::GitCompareArrows)
+                                .tooltip(tab.description())
+                                .accessibility_label(label.clone())
+                                .child(div().max_w(px(210.)).truncate().text_xs().child(label))
+                                .on_click(cx.listener(move |view, _, _, cx| {
+                                    view.activate_diff_tab(index, cx)
+                                })),
+                        )
+                        .child(
+                            Button::new(("close-diff-tab", index))
+                                .ghost()
+                                .xsmall()
+                                .icon(gpui_kit::assets::IconName::X)
+                                .tooltip(glim_services::locale::tr("Close"))
+                                .accessibility_label(format!(
+                                    "{} {}",
+                                    glim_services::locale::tr("Close"),
+                                    tab.label()
+                                ))
+                                .on_click(cx.listener(move |view, _, _, cx| {
+                                    view.close_diff_tab(index, cx)
+                                })),
+                        )
+                })
+                .collect::<Vec<_>>();
         let pending_tab = self.pending_open_tab(cx);
         h_flex()
             .h(px(super::TITLE_BAR_HEIGHT))
@@ -760,21 +843,25 @@ impl Workspace {
             .rounded_tr(px(11.))
             .border_b_1()
             .border_color(cx.theme().border)
-            .when(!tabs.is_empty() || pending_tab.is_some(), |bar| {
-                bar.child(
-                    h_flex()
-                        .id("document-tabs")
-                        .role(Role::TabList)
-                        .gap_1()
-                        .track_scroll(&self.tab_scroll)
-                        .flex_1()
-                        .min_w_0()
-                        .h_full()
-                        .overflow_x_scroll()
-                        .children(pending_tab)
-                        .children(tabs),
-                )
-            })
+            .when(
+                !tabs.is_empty() || !diff_tabs.is_empty() || pending_tab.is_some(),
+                |bar| {
+                    bar.child(
+                        h_flex()
+                            .id("document-tabs")
+                            .role(Role::TabList)
+                            .gap_1()
+                            .track_scroll(&self.tab_scroll)
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .overflow_x_scroll()
+                            .children(pending_tab)
+                            .children(tabs)
+                            .children(diff_tabs),
+                    )
+                },
+            )
             .into_any_element()
     }
 

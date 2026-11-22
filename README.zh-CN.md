@@ -84,6 +84,28 @@ Glim 是免费开源的 Mac 文件查看器。在同一工作区阅读带 Mermai
 - 文件在本地打开。Markdown 的远程图片、HTML 的脚本与网络资源，以及更新和启用的使用统计可能联网，见[隐私与联网说明](docs/privacy.zh-CN.md)。
 - 支持 Apple Silicon 和 Intel Mac。安装包尚未经过 Apple 公证，首次打开步骤见下文。
 
+## 终端与 AI 工具
+
+将应用自带的命令链接到 PATH 中的目录。例如，若 PATH 包含 ~/.local/bin，可执行以下命令。
+
+```sh
+mkdir -p ~/.local/bin
+ln -s /Applications/Glim.app/Contents/Resources/glim ~/.local/bin/glim
+```
+
+```sh
+glim open README.md
+glim pdf README.md report.pdf
+glim html README.md report.html
+glim preview README.md
+glim formats
+glim --help
+```
+
+导出时请指定新文件名。成功后，标准输出会返回文件路径。配置 Cursor MCP 时，命令填写启动器的绝对路径，参数填写 `["mcp"]`。MCP 提供 `open_in_glim` 工具，AI 也可以直接在终端调用导出命令。
+
+[终端使用指南](docs/user-guide.zh-CN.md#cli) · [Cursor 配置示例](docs/app-integrations.zh-CN.md#cursor-mcp)
+
 ## 下载与安装
 
 在[最新 Release 页面](https://github.com/glimapp/glim/releases/latest)的 **Assets** 中，按设备选择对应安装包；版本号、更新说明和校验文件以该页面为准。

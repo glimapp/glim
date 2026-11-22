@@ -29,6 +29,7 @@ gpui_kit::actions!(
         ManageConnections,
         AddFolder,
         SaveFile,
+        PrintDocument,
         Refresh,
         CloseWindow
     ]

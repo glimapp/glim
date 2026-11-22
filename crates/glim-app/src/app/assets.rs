@@ -4,6 +4,12 @@ use std::borrow::Cow;
 gpui_kit::assets::icon_assets!(
     ViewerIcons,
     [
+        CloudSync,
+        Tag,
+        Archive,
+        Undo2,
+        FileClock,
+        CornerDownLeft,
         Files,
         ArrowLeft,
         ArrowRight,

@@ -21,12 +21,13 @@ path = "benches/minimap_edit.rs"
 harness = false
 
 [features]
-default = []
+default = ["git"]
 git = ["glim-services/git"]
 macos-updater = []
 reader-measurements = ["gpui-kit/profiler"]
 
 [dependencies]
+tempfile = "3"
 log = "0.4"
 futures-channel = "0.3"
 glim-core.workspace = true
@@ -46,7 +47,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Shel
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
-tempfile = "3"
 
 # Unsafe is confined to the main-thread native view, context-menu, path-hint and updater bridges.
 [lints.rust]

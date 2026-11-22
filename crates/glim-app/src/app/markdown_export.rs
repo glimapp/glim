@@ -53,3 +53,60 @@ pub(crate) async fn open_in_browser(path: &Path) -> Result<()> {
         _ => anyhow::bail!("{}", tr("The default browser could not open the HTML file")),
     }
 }
+
+#[repr(i32)]
+#[derive(Clone, Copy)]
+pub(crate) enum PrintContent {
+    Preview,
+    Pdf,
+    Text,
+    Image,
+}
+
+pub(crate) fn show_print_panel(
+    window: &gpui_kit::Window,
+    content: PrintContent,
+    bytes: &[u8],
+    title: &str,
+    directory: Option<tempfile::TempDir>,
+) -> anyhow::Result<()> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    unsafe extern "C" {
+        fn glim_show_print_panel(
+            parent: *mut c_void,
+            kind: i32,
+            bytes: *const u8,
+            length: usize,
+            title: *const std::ffi::c_char,
+            context: *mut c_void,
+            release: extern "C" fn(*mut c_void),
+        ) -> bool;
+    }
+    extern "C" fn release(context: *mut c_void) {
+        // AppKit keeps the temporary PDF until printing or cancellation finishes.
+        drop(unsafe { Box::from_raw(context.cast::<Option<tempfile::TempDir>>()) });
+    }
+    let RawWindowHandle::AppKit(parent) = HasWindowHandle::window_handle(window)?.as_raw() else {
+        anyhow::bail!("Missing document window");
+    };
+    let title = CString::new(title)?;
+    let context = Box::into_raw(Box::new(directory)).cast();
+    if !unsafe {
+        glim_show_print_panel(
+            parent.ns_view.as_ptr(),
+            content as i32,
+            bytes.as_ptr(),
+            bytes.len(),
+            title.as_ptr(),
+            context,
+            release,
+        )
+    } {
+        release(context);
+        anyhow::bail!(
+            "{}",
+            glim_services::locale::tr("Could not print this document")
+        );
+    }
+    Ok(())
+}
