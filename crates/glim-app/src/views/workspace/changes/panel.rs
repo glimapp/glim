@@ -108,6 +108,7 @@ impl Render for Changes {
             .min_w_0()
             .overflow_x_scroll()
             .flex_shrink_0()
+            .justify_around()
             .px_1()
             .border_b_1()
             .border_color(cx.theme().border);
@@ -135,13 +136,14 @@ impl Render for Changes {
                             .ghost()
                             .small()
                             .toggled(active)
-                            .h(px(40.))
+                            .h(px(46.))
                             .px(px(3.))
                             .tooltip(tr(section.label()))
                             .accessibility_label(tr(section.label()))
                             .child(
                                 v_flex()
                                     .items_center()
+                                    .gap(px(3.))
                                     .child(gpui_kit::component::Icon::new(icon).size(px(14.)))
                                     .child(div().text_xs().child(tr(label))),
                             )
