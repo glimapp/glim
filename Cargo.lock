@@ -2623,6 +2623,7 @@ dependencies = [
  "toml_edit 0.22.27",
  "url",
  "winapi-util",
+ "windows 0.62.2",
  "xz2",
  "zip",
  "zstd",

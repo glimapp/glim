@@ -2,6 +2,8 @@
 
 [English](file-format-support.md) · **简体中文** · [文档目录](README.zh-CN.md)
 
+Windows 移植版见 [Windows 功能支持清单](windows-support.zh-CN.md)。
+
 如果你想先了解软件适不适合自己，看[场景专题](topics.zh-CN.md)；本页用于查一份具体文件能看什么。以下按使用场景分组，格式名保留为查询依据，支持范围为 Apple Silicon 与 Intel Mac。
 
 预览主要用于查看；普通 UTF-8 原文可以基础编辑并自动保存。基础预览可能只显示结构、坐标或元数据。这里的“支持”以每行列出的行为为准，专业排版、编辑和执行能力分别说明。

@@ -1,11 +1,15 @@
 //! Bounded raster previews for inline document images. Call from a background executor.
 use crate::limits as reader_limits;
-use anyhow::{Context, Result, ensure};
-use std::{
-    path::Path,
-    process::{Command, Stdio},
-    sync::Mutex,
-};
+#[cfg(target_os = "macos")]
+use anyhow::Context;
+use anyhow::{Result, ensure};
+use std::{path::Path, sync::Mutex};
+
+#[cfg(target_os = "macos")]
+use std::process::{Command, Stdio};
+#[cfg(windows)]
+#[path = "inline_images_windows.rs"]
+mod windows_thumbnail;
 
 const MAX_EDGE: u32 = reader_limits::INLINE_IMAGE_PREVIEW_EDGE;
 // Avoid simultaneous full-size native decode work for a document containing many images.
@@ -51,6 +55,32 @@ pub(crate) fn thumbnail_png_cancellable(
         None
     };
     let path = converted.as_ref().map_or(path, |file| file.path());
+    #[cfg(windows)]
+    windows_thumbnail::write(path, &output, max_edge, cancel)?;
+    #[cfg(target_os = "macos")]
+    write_system_thumbnail(path, &output, directory.path(), max_edge, cancel)?;
+    ensure!(
+        std::fs::metadata(&output)?.len()
+            <= u64::from(max_edge) * u64::from(max_edge) * 4
+                + reader_limits::INLINE_IMAGE_OUTPUT_OVERHEAD_BYTES,
+        "Image thumbnail exceeds output budget"
+    );
+    let (width, height) = image::ImageReader::open(&output)?.into_dimensions()?;
+    ensure!(
+        width > 0 && height > 0 && width <= max_edge && height <= max_edge,
+        "Invalid thumbnail dimensions"
+    );
+    Ok(std::fs::read(output)?)
+}
+
+#[cfg(target_os = "macos")]
+fn write_system_thumbnail(
+    path: &Path,
+    output: &Path,
+    directory: &Path,
+    max_edge: u32,
+    cancel: &crate::work::Cancellation,
+) -> Result<()> {
     let dimensions = image::ImageReader::open(path)
         .ok()
         .and_then(|reader| reader.with_guessed_format().ok())
@@ -67,7 +97,7 @@ pub(crate) fn thumbnail_png_cancellable(
         let mut command = Command::new("/usr/bin/qlmanage");
         command
             .args(["-t", "-s", &edge.to_string(), "-o"])
-            .arg(directory.path())
+            .arg(directory)
             .arg(svg.path())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -77,7 +107,6 @@ pub(crate) fn thumbnail_png_cancellable(
             "Cannot prepare SVG thumbnail"
         );
         let thumbnail = directory
-            .path()
             .join(svg.path().file_name().context("Missing SVG filename")?)
             .with_extension("svg.png");
         let (width, height) = image::ImageReader::open(&thumbnail)?.into_dimensions()?;
@@ -98,27 +127,17 @@ pub(crate) fn thumbnail_png_cancellable(
         cancel.check()?;
         image
             .crop_imm(0, 0, width, height)
-            .save_with_format(&output, image::ImageFormat::Png)?;
+            .save_with_format(output, image::ImageFormat::Png)?;
     } else {
         ensure!(
-            sips_thumbnail(path, &output, max_edge, dimensions, cancel)?,
+            sips_thumbnail(path, output, max_edge, dimensions, cancel)?,
             "Cannot prepare inline image thumbnail"
         );
     }
-    ensure!(
-        std::fs::metadata(&output)?.len()
-            <= u64::from(max_edge) * u64::from(max_edge) * 4
-                + reader_limits::INLINE_IMAGE_OUTPUT_OVERHEAD_BYTES,
-        "Image thumbnail exceeds output budget"
-    );
-    let (width, height) = image::ImageReader::open(&output)?.into_dimensions()?;
-    ensure!(
-        width > 0 && height > 0 && width <= max_edge && height <= max_edge,
-        "Invalid thumbnail dimensions"
-    );
-    Ok(std::fs::read(output)?)
+    Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn sips_thumbnail(
     path: &Path,
     output: &Path,
