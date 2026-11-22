@@ -4,6 +4,8 @@
 mod find;
 #[path = "windows_html.rs"]
 mod html;
+#[path = "windows_pdf.rs"]
+mod pdf;
 #[path = "windows_shell_preview.rs"]
 mod shell;
 
@@ -25,13 +27,7 @@ use wry::{
 pub(crate) fn set_telemetry_consent(_consent: glim_services::telemetry::Consent) {}
 pub(crate) fn begin_native_preview_shutdown() {}
 
-pub(super) enum PdfReloadFailure {}
-
-impl PdfReloadFailure {
-    pub fn failure_kind(self) -> Option<glim_services::documents::ReadFailureKind> {
-        match self {}
-    }
-}
+pub(super) use pdf::PdfReloadFailure;
 
 pub(super) struct FindEvent {
     pub command: i32,
@@ -311,7 +307,7 @@ impl NativePreview {
     pub fn start_pdf_reload(
         &self,
     ) -> Option<futures_channel::oneshot::Receiver<Result<(), PdfReloadFailure>>> {
-        None
+        pdf::reload(&self.0)
     }
     pub fn find(&self, show: bool) -> bool {
         let session = self.0.find.borrow();
