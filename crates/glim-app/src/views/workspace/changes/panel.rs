@@ -72,11 +72,21 @@ impl Render for Changes {
             .id("git-repository-toolbar")
             .w_full()
             .min_w_0()
-            .h(px(34.))
+            .flex_wrap()
+            .py_1()
             .flex_shrink_0()
             .px_2()
             .gap_1()
-            .child(self.repository_menu(&branch, &metadata.upstream, cx))
+            .child(self.branch_picker(
+                &branch,
+                repository.map(|r| r.branches.clone()).unwrap_or_default(),
+                cx,
+            ))
+            .child(self.subsection_button(
+                Section::Stashes,
+                gpui_kit::assets::IconName::Archive,
+                cx,
+            ))
             .when(metadata.ahead > 0 || metadata.behind > 0, |row| {
                 row.child(
                     div()
@@ -85,22 +95,21 @@ impl Render for Changes {
                         .child(format!("↑{} ↓{}", metadata.ahead, metadata.behind)),
                 )
             })
-            .child(self.operation_menu(
-                "git-sync",
-                "Sync",
-                {
-                    let mut operations = vec![Operation::Fetch(None)];
-                    if !metadata.upstream.is_empty() {
-                        operations.extend([
-                            Operation::Pull(false),
-                            Operation::Pull(true),
-                            Operation::Push(None),
-                        ]);
-                    }
-                    operations
-                },
-                cx,
-            ));
+            .child(self.operation_button("git-fetch", Operation::Fetch(None), disabled, cx))
+            .when(!metadata.upstream.is_empty(), |row| {
+                row.child(self.operation_button(
+                    "git-pull",
+                    Operation::Pull(Self::preferences(cx).pull_rebase),
+                    disabled,
+                    cx,
+                ))
+                .child(self.operation_button(
+                    "git-push",
+                    Operation::Push(None),
+                    disabled,
+                    cx,
+                ))
+            });
         use gpui_kit::assets::IconName;
         let mut tabs = h_flex()
             .id("git-sections")
@@ -112,7 +121,7 @@ impl Render for Changes {
             .px_1()
             .border_b_1()
             .border_color(cx.theme().border);
-        for section in Section::ALL {
+        for section in Section::PRIMARY {
             if section == Section::Worktrees && !Self::preferences(cx).worktrees {
                 continue;
             }
@@ -124,7 +133,7 @@ impl Render for Changes {
                 Section::Stashes => (IconName::Archive, "Stashes"),
                 Section::Worktrees => (IconName::Folders, "Worktree tab"),
             };
-            let active = self.section == section;
+            let active = !self.settings_open && self.section.parent() == section;
             tabs = tabs.child(
                 div()
                     .flex_shrink_0()
@@ -143,7 +152,9 @@ impl Render for Changes {
                         )
                         .toggled(active)
                         .on_click(cx.listener(move |view, _, _, cx| {
+                            view.settings_open = false;
                             view.switch_section(section, cx);
+                            cx.notify();
                             cx.emit(ShowDiff);
                         })),
                     ),
@@ -153,8 +164,25 @@ impl Render for Changes {
             div()
                 .flex_shrink_0()
                 .border_b_2()
-                .border_color(transparent_black())
-                .child(self.settings_menu(cx)),
+                .border_color(if self.settings_open {
+                    crate::views::accent(cx)
+                } else {
+                    transparent_black()
+                })
+                .child(
+                    super::controls::navigation_button(
+                        "git-settings",
+                        IconName::Settings,
+                        "Settings",
+                        "Settings",
+                    )
+                    .toggled(self.settings_open)
+                    .on_click(cx.listener(|view, _, window, cx| {
+                        view.settings_open = true;
+                        view.load_identity(window, cx);
+                        cx.notify();
+                    })),
+                ),
         );
         let mut status = h_flex().h(px(30.)).flex_shrink_0().min_w_0().px_3().gap_2();
         if let Some(error) = self
@@ -207,8 +235,10 @@ impl Render for Changes {
                 ));
         }
         let mut content = v_flex().flex_1().min_h_0().w_full();
-        if self.section == Section::Changes {
-            let mut actions = header.overflow_x_scroll().child(
+        if self.settings_open {
+            content = content.child(self.settings_view(window, cx));
+        } else if self.section == Section::Changes {
+            let mut actions = header.child(
                 super::controls::icon_action(
                     Button::new("all-changes-diff"),
                     gpui_kit::assets::IconName::Layers,
@@ -241,21 +271,6 @@ impl Render for Changes {
                         cx,
                     ));
                 }
-                let mut file_options = Vec::new();
-                if change.area == Area::Untracked {
-                    file_options.push(Operation::Ignore(change.path.clone()));
-                }
-                if change.area == Area::Working && change.status != 'U' {
-                    file_options.push(Operation::Discard(change.clone()));
-                }
-                if !file_options.is_empty() {
-                    actions = actions.child(self.operation_menu(
-                        "git-file-options",
-                        "File actions",
-                        file_options,
-                        cx,
-                    ));
-                }
                 if change.status == 'M'
                     && change.previous.is_none()
                     && change.area != Area::Untracked
@@ -280,21 +295,17 @@ impl Render for Changes {
                     );
                 }
                 if change.status == 'U' {
-                    actions = actions.child(self.operation_menu(
-                        "git-conflict-sides",
-                        "Resolve file",
-                        vec![
+                    for incoming in [false, true] {
+                        actions = actions.child(self.operation_button(
+                            ("git-conflict-side", usize::from(incoming)),
                             Operation::ConflictSide {
                                 path: change.path.clone(),
-                                incoming: false,
+                                incoming,
                             },
-                            Operation::ConflictSide {
-                                path: change.path.clone(),
-                                incoming: true,
-                            },
-                        ],
-                        cx,
-                    ));
+                            disabled,
+                            cx,
+                        ));
+                    }
                     let resolved = self.diff.read(cx).files().first().is_some_and(|file| {
                         !file.conflicts().is_empty()
                             && file.conflicts().iter().enumerate().all(|(index, _)| {
@@ -322,9 +333,16 @@ impl Render for Changes {
             if staged > 0 {
                 batch.push(Operation::Unstage(None));
             }
-            if !batch.is_empty() {
-                actions = actions.child(self.operation_menu("git-batch", "All files", batch, cx));
+            for (index, op) in batch.into_iter().enumerate() {
+                actions =
+                    actions.child(self.operation_button(("git-batch", index), op, disabled, cx));
             }
+            actions = actions.child(self.operation_button(
+                "git-submodules",
+                Operation::Submodules,
+                disabled,
+                cx,
+            ));
             content = content.child(actions).child(self.navigation(cx));
             let message = self.message.read(cx).value().to_string();
             let focused = self.message.read(cx).focus_handle(cx).is_focused(window);

@@ -72,6 +72,11 @@ enum Prepared {
 pub(crate) struct Changes {
     pub(super) tabs: Vec<DiffTab>,
     section: Section,
+    settings_open: bool,
+    identity: [Entity<InputState>; 2],
+    identity_root: Option<PathBuf>,
+    identity_task: Option<Task<()>>,
+    identity_ready: bool,
     monitoring: bool,
     refresh_timer: Option<Task<()>>,
     available: bool,
@@ -131,6 +136,9 @@ pub(crate) struct Changes {
 
 impl Changes {
     pub(super) fn cancel(&mut self, cx: &mut Context<Self>) {
+        self.settings_open = false;
+        self.identity_root = None;
+        self.identity_task = None;
         self.monitoring = false;
         self.refresh_timer = None;
         self.generation += 1;
@@ -194,6 +202,11 @@ impl Changes {
         Self {
             tabs: Vec::new(),
             section: Section::Changes,
+            settings_open: false,
+            identity: std::array::from_fn(|_| cx.new(|cx| InputState::new(window, cx))),
+            identity_root: None,
+            identity_task: None,
+            identity_ready: false,
             monitoring: false,
             refresh_timer: None,
             available: true,
@@ -743,7 +756,31 @@ impl Changes {
                                     );
                                     let (root, change) = (root.clone(), change.clone());
                                     let click_owner = owner.clone();
-                                    Button::new(("git-change", index))
+                                    let target_root = Some(root.clone());
+                                    let menu_owner = owner.clone();
+                                    let mut ops = vec![if change.area == Area::Staged {
+                                        Operation::Unstage(Some(change.clone()))
+                                    } else {
+                                        Operation::Stage(Some(change.clone()))
+                                    }];
+                                    if change.area == Area::Untracked {
+                                        ops.push(Operation::Ignore(change.path.clone()));
+                                    }
+                                    if change.area == Area::Working && change.status != 'U' {
+                                        ops.push(Operation::Discard(change.clone()));
+                                    }
+                                    let actions: Vec<_> = ops
+                                        .into_iter()
+                                        .map(|op| {
+                                            (
+                                                controls::operation_icon(&op),
+                                                op.menu_label(),
+                                                browser::RowAction::Run(op),
+                                                false,
+                                            )
+                                        })
+                                        .collect();
+                                    let row = Button::new(("git-change", index))
                                         .ghost()
                                         .w_full()
                                         .h(px(32.))
@@ -803,6 +840,24 @@ impl Changes {
                                             click_owner.update(cx, |view, cx| {
                                                 cx.emit(ShowDiff);
                                                 view.select(root.clone(), change.clone(), cx)
+                                            })
+                                        });
+                                    use gpui_kit::component::menu::ContextMenuExt;
+                                    div()
+                                        .id(("git-change-context", index))
+                                        .child(row)
+                                        .context_menu(move |menu, _, cx| {
+                                            menu_owner.update(cx, |view, cx| {
+                                                if let Some(root) = &target_root {
+                                                    view.activate_root(root.clone(), cx);
+                                                }
+                                                view.row_menu(
+                                                    menu,
+                                                    &actions,
+                                                    &target_root,
+                                                    &menu_owner,
+                                                    cx,
+                                                )
                                             })
                                         })
                                         .into_any_element()
@@ -1177,6 +1232,38 @@ mod tests {
             cx,
             ("git-section", browser::Section::Branches as usize).into(),
         );
+        git(&["branch", "ui-switch-test"]);
+        click(
+            cx,
+            ("git-section", browser::Section::Changes as usize).into(),
+        );
+        click(cx, "git-commit-refresh".into());
+        for index in [1usize, 0] {
+            click(cx, "git-branch-picker".into());
+            cx.update_window(handle, |_, w, cx| {
+                w.render_frame(cx);
+                w.within("popup-menu").click(index, cx);
+            })
+            .unwrap();
+            cx.run_until_parked();
+            assert_eq!(
+                git(&["branch", "--show-current"]).trim(),
+                if index == 1 { "ui-switch-test" } else { "main" }
+            );
+        }
+        click(cx, "git-settings".into());
+        assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).identity_ready));
+        assert_eq!(
+            cx.update(|cx| workspace.read(cx).changes.read(cx).identity[0]
+                .read(cx)
+                .value()
+                .to_string()),
+            "Glim QA"
+        );
+        click(
+            cx,
+            ("git-section", browser::Section::Branches as usize).into(),
+        );
         for group in [0usize, 1] {
             click(cx, ("git-reference-group", group).into());
             assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).collapsed_refs[group]));
@@ -1192,8 +1279,11 @@ mod tests {
             .unwrap();
             click(cx, "git-form-cancel".into());
         }
-        for section in [browser::Section::Remotes, browser::Section::Worktrees] {
-            click(cx, ("git-section", section as usize).into());
+        for (section, id) in [
+            (browser::Section::Remotes, "git-subsection"),
+            (browser::Section::Worktrees, "git-section"),
+        ] {
+            click(cx, (id, section as usize).into());
             cx.update_window(handle, |_, w, cx| {
                 w.render_frame(cx);
                 w.right_click(("git-browser-row", 0usize), cx);
@@ -1207,8 +1297,15 @@ mod tests {
             })
             .unwrap();
         }
-        for section in [browser::Section::Stashes, browser::Section::History] {
-            click(cx, ("git-section", section as usize).into());
+        click(
+            cx,
+            ("git-section", browser::Section::Changes as usize).into(),
+        );
+        for (section, id) in [
+            (browser::Section::Stashes, "git-subsection"),
+            (browser::Section::History, "git-section"),
+        ] {
+            click(cx, (id, section as usize).into());
             assert!(cx.update(|cx| workspace.read(cx).changes.read(cx).section == section));
         }
         assert_eq!(
@@ -1232,13 +1329,7 @@ mod tests {
             cx,
             ("git-section", browser::Section::Changes as usize).into(),
         );
-        click(cx, "git-sync".into());
-        cx.update_window(handle, |_, w, cx| {
-            w.render_frame(cx);
-            w.within("popup-menu").click(3usize, cx);
-        })
-        .unwrap();
-        cx.run_until_parked();
+        click(cx, "git-push".into());
         assert_eq!(
             git(&["rev-parse", "HEAD"]),
             git(&["--git-dir", remote_path, "rev-parse", "main"])
@@ -1262,14 +1353,8 @@ mod tests {
             "Accept schedule",
         ]);
         git(&["-C", peer_path, "push", "origin", "main"]);
-        for index in [0usize, 1] {
-            click(cx, "git-sync".into());
-            cx.update_window(handle, |_, w, cx| {
-                w.render_frame(cx);
-                w.within("popup-menu").click(index, cx);
-            })
-            .unwrap();
-            cx.run_until_parked();
+        for action in ["git-fetch", "git-pull"] {
+            click(cx, action.into());
             assert_eq!(
                 git(&["rev-parse", "origin/main"]),
                 git(&["-C", peer_path, "rev-parse", "HEAD"])
