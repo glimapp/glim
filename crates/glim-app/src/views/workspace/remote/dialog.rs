@@ -1,5 +1,6 @@
 use super::*;
 use crate::views::primary_button;
+use crate::views::settings_controls::{field_choice, field_dropdown};
 use gpui_kit::component::tooltip::Tooltip;
 
 fn connection_dot(id: impl Into<ElementId>, connected: bool, cx: &App) -> AnyElement {
@@ -417,34 +418,37 @@ impl RemoteDialog {
             .into_any_element()
     }
 
-    fn render_directories(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render_directories(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let connections = cx.global::<Connections>().catalog.connections.clone();
         let owner = cx.entity().downgrade();
         let same_connection = self.add_folder.then(|| self.connection.id.clone());
-        let selector = Button::new("ssh-location")
-            .small()
-            .outline()
-            .text_color(cx.theme().muted_foreground)
-            .disabled(self.blocked() || self.add_folder)
-            .accessibility_label(tr("SSH Connection"))
-            .child(
-                h_flex()
-                    .min_w_0()
-                    .gap_2()
-                    .child(connection_dot(
-                        "ssh-current-status",
-                        self.session.as_ref().is_some_and(Session::is_connected),
-                        cx,
-                    ))
-                    .child(
-                        div()
-                            .truncate()
-                            .max_w(px(260.))
-                            .child(self.connection.label()),
-                    )
-                    .child(Icon::new(IconName::ChevronDown).size(px(14.))),
-            )
-            .dropdown_menu(move |mut menu, _, _| {
+        let selector = field_dropdown(
+            Button::new("ssh-location")
+                .small()
+                .outline()
+                .text_color(cx.theme().muted_foreground)
+                .disabled(self.blocked() || self.add_folder)
+                .accessibility_label(tr("SSH Connection"))
+                .child(
+                    h_flex()
+                        .min_w_0()
+                        .gap_2()
+                        .child(connection_dot(
+                            "ssh-current-status",
+                            self.session.as_ref().is_some_and(Session::is_connected),
+                            cx,
+                        ))
+                        .child(
+                            div()
+                                .truncate()
+                                .max_w(px(260.))
+                                .child(self.connection.label()),
+                        )
+                        .child(Icon::new(IconName::ChevronDown).size(px(14.))),
+                ),
+            window,
+            cx,
+            move |mut menu| {
                 for connection in &connections {
                     if same_connection
                         .as_ref()
@@ -454,7 +458,7 @@ impl RemoteDialog {
                     }
                     let connection = connection.clone();
                     let owner = owner.clone();
-                    menu = menu.item(PopupMenuItem::new(connection.label()).on_click(
+                    menu = menu.item(field_choice(connection.label()).on_click(
                         move |_, window, cx| {
                             let _ = owner.update(cx, |view, cx| {
                                 view.connect(connection.clone(), window, cx)
@@ -463,7 +467,8 @@ impl RemoteDialog {
                     ));
                 }
                 menu
-            });
+            },
+        );
         let entries = self
             .entries
             .iter()

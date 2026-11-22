@@ -1283,6 +1283,10 @@ mod tests {
             ("git-section", browser::Section::Branches as usize).into(),
         );
         git(&["branch", "ui-switch-test"]);
+        git(&[
+            "branch",
+            &format!("work/{}", "long-branch-name-".repeat(10)),
+        ]);
         git(&["tag", "0.2.3"]);
         git(&["tag", "0.2.26"]);
         click(
@@ -1352,6 +1356,8 @@ mod tests {
             click(cx, ("revision-picker", field).into());
             cx.update_window(handle, |_, w, cx| {
                 w.render_frame(cx);
+                let field_width = w.find(("revision-picker", field)).bounds().size.width;
+                assert_eq!(w.find("popup-menu").bounds().size.width, field_width);
                 w.within("popup-menu").click(1usize, cx);
             })
             .unwrap();

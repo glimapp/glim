@@ -128,7 +128,7 @@ impl Render for Changes {
                 Section::Branches => (IconName::GitBranch, "Git branches"),
                 Section::Remotes => (IconName::Server, "Remotes"),
                 Section::Stashes => (IconName::Archive, "Stashes"),
-                Section::Worktrees => (IconName::Folders, "Worktree tab"),
+                Section::Worktrees => (IconName::Network, "Worktree tab"),
             };
             let active = !self.settings_open && self.section.parent() == section;
             tabs = tabs.child(

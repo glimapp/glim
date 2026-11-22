@@ -936,6 +936,8 @@
   "Reset · soft": "Reset · soft",
   "Reset · mixed": "Reset · mixed",
   "Reset · hard": "Reset · hard",
+  "Pull strategy": "Pull strategy",
+  "Fast-forward only": "Fast-forward only",
   "Pull with rebase": "Pull with rebase",
   "Pull · fast-forward": "Pull · fast-forward",
   "Publish branch": "Publish branch",

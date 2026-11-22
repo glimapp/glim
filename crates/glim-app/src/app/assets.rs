@@ -73,6 +73,7 @@ gpui_kit::assets::icon_assets!(
         Folder,
         FolderPlus,
         Folders,
+        Network,
         PanelsTopLeft,
         ArrowUp,
         Bookmark,
