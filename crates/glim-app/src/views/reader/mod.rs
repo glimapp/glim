@@ -25,6 +25,7 @@ mod native;
 mod text;
 
 mod native_bridge;
+pub(crate) use native_bridge::begin_native_preview_shutdown;
 mod openapi;
 mod opml;
 pub(crate) mod paged;

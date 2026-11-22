@@ -448,6 +448,7 @@ pub fn run() -> Result<()> {
             restoring: false,
         });
         cx.on_app_quit(|cx| {
+            crate::views::begin_native_preview_shutdown();
             log::info!("application quit requested");
             log::logger().flush();
             for (view, _) in OpenWorkspaces::windows(cx) {

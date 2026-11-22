@@ -245,6 +245,21 @@ struct EmbeddedPreviewTests {
             if !windowClosesFirst { window.close() }
             pump()
         }
-        print("Quick Look lifecycle: tab-first, window-first and repeated reader cleanup passed")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let reader = NativePreviewController()
+        reader.urls = [url]
+        window.contentView!.addSubview(reader.host)
+        reader.showOffice(url)
+        pump()
+        guard let preview = reader.officeView else { preconditionFailure("Missing Office preview") }
+        preview.close()
+        beginNativePreviewShutdown()
+        window.close()
+        reader.close()
+        precondition(reader.closed && reader.officeView == nil)
+        pump()
+        print("Quick Look lifecycle: tab-first, window-first, repeated cleanup and app termination passed")
     }
 }

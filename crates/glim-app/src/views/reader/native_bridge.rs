@@ -231,6 +231,7 @@ extern "C" fn pdf_reload_complete(context: *mut c_void, status: i32) {
 }
 
 unsafe extern "C" {
+    fn glim_begin_native_preview_shutdown();
     fn glim_set_reader_resources(callback: Option<extern "C" fn(u64, u64, bool) -> u64>);
     fn glim_set_telemetry_consent(usage: i32, diagnostics: i32);
     fn glim_set_reader_telemetry(
@@ -276,6 +277,10 @@ unsafe extern "C" {
     fn glim_preview_take_navigation(handle: *mut c_void) -> *mut std::ffi::c_char;
     fn glim_preview_free_string(string: *mut std::ffi::c_char);
     fn glim_preview_reveal_anchor(handle: *mut c_void, bytes: *const u8, length: usize);
+}
+
+pub(crate) fn begin_native_preview_shutdown() {
+    unsafe { glim_begin_native_preview_shutdown() }
 }
 
 pub(super) struct NativePreview {

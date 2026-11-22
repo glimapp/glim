@@ -244,7 +244,7 @@ final class WorkbookPreview: NSObject {
                     guard let self = self, !self.closed, self.generation == generation else {
                         try? FileManager.default.removeItem(at: folder); return
                     }
-                    self.preview?.previewItem = nil; self.preview?.close(); self.preview?.removeFromSuperview()
+                    closeQuickLook(self.preview); self.preview?.removeFromSuperview()
                     if let previous = self.previewDirectory { try? FileManager.default.removeItem(at: previous) }
                     self.previewDirectory = folder
                     guard let preview = QLPreviewView(frame: .zero, style: .normal) else {
@@ -310,7 +310,7 @@ final class WorkbookPreview: NSObject {
     func close() {
         cancelCopy()
         closed = true; generation += 1; preparation?.cancel(); preparation = nil
-        preview?.previewItem = nil; preview?.close(); preview = nil
+        closeQuickLook(preview); preview = nil
         if let directory = previewDirectory { try? FileManager.default.removeItem(at: directory) }; previewDirectory = nil
     }
 }

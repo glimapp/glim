@@ -164,6 +164,6 @@ final class WordPreview: NSObject, WKNavigationDelegate {
         findBar?.close()
         if let monitor = copyMonitor { NSEvent.removeMonitor(monitor); copyMonitor = nil }
         closed = true; web.navigationDelegate = nil; web.stopLoading()
-        original?.previewItem = nil; original?.close(); original = nil
+        closeQuickLook(original); original = nil
     }
 }

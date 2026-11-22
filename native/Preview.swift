@@ -11,6 +11,25 @@ import CoreText
 
 
 var nativeTranslations: [String: String] = [:]
+private var quittingWithQuickLook = false
+private var terminatingPreviews: [QLPreviewView] = []
+
+@_cdecl("glim_begin_native_preview_shutdown")
+func beginNativePreviewShutdown() {
+    precondition(Thread.isMainThread)
+    quittingWithQuickLook = true
+}
+
+func closeQuickLook(_ preview: QLPreviewView?) {
+    guard let preview = preview else { return }
+    if quittingWithQuickLook {
+        // AppKit may already have deactivated the view during termination.
+        // Keep it alive until process exit so neither close nor deinit reenters Quick Look.
+        terminatingPreviews.append(preview)
+    } else {
+        preview.close()
+    }
+}
 func L(_ text: String) -> String { nativeTranslations[text] ?? text }
 func localizeMenu(_ menu: NSMenu) {
     for item in menu.items {
@@ -1699,7 +1718,7 @@ final class NativePreviewController: NSObject, NSTableViewDataSource, NSTableVie
         htmlPreview?.close()
         workbookPreview?.close()
         wordPreview?.close()
-        officeView?.close()
+        closeQuickLook(officeView)
         officeView = nil
         if !host.isHidden {
             host.isHidden = true

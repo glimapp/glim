@@ -171,7 +171,7 @@ fn connection_icon(
         .into_any_element()
 }
 
-pub(crate) use reader::set_native_telemetry_consent;
+pub(crate) use reader::{begin_native_preview_shutdown, set_native_telemetry_consent};
 
 pub(crate) use reader::{
     BookContents, BookNextChapter, BookNextPage, BookPreviousChapter, BookPreviousPage,
