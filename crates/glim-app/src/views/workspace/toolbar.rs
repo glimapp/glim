@@ -274,23 +274,6 @@ impl Workspace {
         .into_any_element()
     }
 
-    #[cfg(windows)]
-    pub(super) fn windows_reader_toolbar(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        div()
-            .absolute()
-            .bottom(px(6.))
-            .left_0()
-            .right_0()
-            .flex()
-            .justify_center()
-            .child(self.content_toolbar(Vec::new(), window, cx))
-            .into_any_element()
-    }
-
     pub(super) fn workspace_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
         let has_update = crate::app::updates::state(cx)
             .is_some_and(|state| state.read(cx).snapshot.has_update());

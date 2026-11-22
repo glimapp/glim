@@ -165,7 +165,11 @@ pub fn welcome(
                             quick_action(
                                 "welcome-new-workspace",
                                 "Open Workspace…",
-                                "⌘⇧O",
+                                if cfg!(windows) {
+                                    "Ctrl+Shift+O"
+                                } else {
+                                    "⌘⇧O"
+                                },
                                 IconName::FolderOpen,
                                 1.0,
                                 cx,
@@ -210,12 +214,19 @@ pub fn welcome(
                                     "Choose Workspace Location",
                                 ))
                                 .dropdown_menu(move |mut menu, _, _| {
-                                    menu = menu.item(
-                                        PopupMenuItem::new(glim_services::locale::tr("This Mac…"))
+                                    menu =
+                                        menu.item(
+                                            PopupMenuItem::new(glim_services::locale::tr(
+                                                if cfg!(windows) {
+                                                    "This PC…"
+                                                } else {
+                                                    "This Mac…"
+                                                },
+                                            ))
                                             .on_click(|_, window, cx| {
                                                 window.dispatch_action(Box::new(OpenFolder), cx)
                                             }),
-                                    );
+                                        );
                                     if !locations.is_empty() {
                                         menu = menu.separator();
                                     }
@@ -258,7 +269,7 @@ pub fn welcome(
                     quick_action(
                         "welcome-open-file",
                         "Open File…",
-                        "⌘O",
+                        if cfg!(windows) { "Ctrl+O" } else { "⌘O" },
                         IconName::FileText,
                         0.25,
                         cx,
@@ -269,7 +280,7 @@ pub fn welcome(
                     quick_action(
                         "welcome-new-file",
                         "New File",
-                        "⌘N",
+                        if cfg!(windows) { "Ctrl+N" } else { "⌘N" },
                         IconName::FilePlus,
                         0.25,
                         cx,

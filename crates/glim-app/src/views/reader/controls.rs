@@ -26,6 +26,10 @@ impl FluentBuilder for ActionBindings {}
 
 pub(crate) struct ReaderToolbarHost {
     collapsed: bool,
+    #[cfg(windows)]
+    workspace_search: bool,
+    #[cfg(windows)]
+    native_surface: Cell<bool>,
     compose: ComposeToolbar,
     hide_native: Rc<dyn Fn(&Window)>,
     controls: RefCell<ActionElements>,
@@ -34,11 +38,16 @@ pub(crate) struct ReaderToolbarHost {
 impl ReaderToolbarHost {
     pub(crate) fn new(
         collapsed: bool,
+        #[cfg(windows)] workspace_search: bool,
         compose: ComposeToolbar,
         hide_native: Rc<dyn Fn(&Window)>,
     ) -> Self {
         Self {
             collapsed,
+            #[cfg(windows)]
+            workspace_search,
+            #[cfg(windows)]
+            native_surface: Cell::new(false),
             compose,
             hide_native,
             controls: RefCell::new(Vec::new()),
@@ -74,6 +83,18 @@ pub(crate) fn toolbar_trailing_inset(window: &Window, cx: &App) -> Pixels {
     host(window, cx).map_or(px(0.), |host| host.trailing_inset.get())
 }
 
+#[cfg(windows)]
+pub(super) fn workspace_search_visible(window: &Window, cx: &App) -> bool {
+    host(window, cx).is_some_and(|host| host.workspace_search)
+}
+
+#[cfg(windows)]
+pub(super) fn reserve_toolbar_for_native_surface(window: &Window, cx: &App) {
+    if let Some(host) = host(window, cx) {
+        host.native_surface.set(true);
+    }
+}
+
 #[derive(IntoElement)]
 pub(super) struct ToolbarTrailingInset(pub Pixels);
 impl RenderOnce for ToolbarTrailingInset {
@@ -101,6 +122,7 @@ impl RenderOnce for ReaderControls {
                     .children(self.controls.0.into_iter().map(|(_, view)| view))
                     .into_any_element(),
                 false,
+                false,
                 px(0.),
                 cx,
             )
@@ -116,12 +138,20 @@ impl RenderOnce for ReaderToolbarDock {
             return div().into_any_element();
         };
         let controls = std::mem::take(&mut *host.controls.borrow_mut());
-        if controls.is_empty() {
+        if controls.is_empty() && cfg!(target_os = "macos") {
+            return div().into_any_element();
+        }
+        #[cfg(windows)]
+        if host.collapsed || host.workspace_search {
             return div().into_any_element();
         }
         let controls = (host.compose)(controls, window, cx);
         let collapsed = host.collapsed;
         let trailing_inset = host.trailing_inset.get();
+        #[cfg(windows)]
+        if host.native_surface.get() {
+            return capsule(controls, collapsed, true, trailing_inset, cx);
+        }
         div()
             .absolute()
             .size_full()
@@ -133,16 +163,27 @@ impl RenderOnce for ReaderToolbarDock {
                 .absolute()
                 .size_full(),
             )
-            .child(capsule(controls, collapsed, trailing_inset, cx))
+            .child(capsule(controls, collapsed, false, trailing_inset, cx))
             .into_any_element()
     }
 }
-fn capsule(controls: AnyElement, collapsed: bool, trailing_inset: Pixels, cx: &App) -> AnyElement {
+fn capsule(
+    controls: AnyElement,
+    collapsed: bool,
+    reserve_space: bool,
+    trailing_inset: Pixels,
+    cx: &App,
+) -> AnyElement {
     div()
-        .absolute()
-        .left(px(16.))
-        .right(px(16.) + trailing_inset)
-        .bottom(px(8.))
+        .when(reserve_space, |view| {
+            view.flex_shrink_0().pt_1().pb_2().px_4()
+        })
+        .when(!reserve_space, |view| {
+            view.absolute()
+                .left(px(16.))
+                .right(px(16.) + trailing_inset)
+                .bottom(px(8.))
+        })
         .flex()
         .justify_center()
         .when(!collapsed, |view| {

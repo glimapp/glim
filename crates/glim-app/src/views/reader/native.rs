@@ -417,7 +417,12 @@ impl NativeReader {
 }
 impl Render for NativeReader {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Native views sit above GPUI's Metal surface. Hide them while a toolkit
+        #[cfg(windows)]
+        if super::controls::workspace_search_visible(window, cx) {
+            self.hide();
+            return div().size_full().into_any_element();
+        }
+        // Native views sit above GPUI's drawing surface. Hide them while a toolkit
         // menu/dialog is open so the overlay remains visible and clickable.
         let view = cx.entity().downgrade();
         window.on_next_frame(move |window, cx| {
@@ -453,6 +458,9 @@ impl Render for NativeReader {
             && !glim_services::preview::is_image(&self.path)
             && !glim_services::preview::is_iwork(&self.path);
         if self.preview.is_some() {
+            // A child WebView2 window covers GPUI overlays at the same position.
+            #[cfg(windows)]
+            super::controls::reserve_toolbar_for_native_surface(window, cx);
             self.start_find(window, cx);
             self.start_html_navigation(window, cx);
             let view = cx.entity();

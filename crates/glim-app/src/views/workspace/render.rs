@@ -160,6 +160,8 @@ impl Render for Workspace {
         crate::views::reader::set_toolbar_host(
             crate::views::reader::ReaderToolbarHost::new(
                 self.reader_toolbar_collapsed && self.page == Page::Document,
+                #[cfg(windows)]
+                self.search_visible,
                 std::rc::Rc::new(move |controls, window, cx| {
                     if let Some(owner) = owner.upgrade() {
                         owner.update(cx, |view, cx| view.content_toolbar(controls, window, cx))
@@ -217,7 +219,8 @@ impl Render for Workspace {
             px(super::TITLE_BAR_HEIGHT) - px(if document_page { 1. } else { 0. });
         let header_cutout = rounded_header_join
             .then(|| size(px(header_width - navigation_width), header_divider_y));
-        let header = self.header(None, rounded_header_join, cx);
+        let header = self.header(rounded_header_join, cx);
+        let window_controls_width = super::header::window_controls_width(window);
         let view = cx.entity().downgrade();
         let open: crate::views::reader::OpenLink =
             std::sync::Arc::new(move |path, anchor, window, cx| {
@@ -318,7 +321,12 @@ impl Render for Workspace {
             .when(
                 (document_page || self.page == Page::Changes) && !self.file_fullscreen,
                 |view| {
-                    view.child(self.tab_bar((header_width - navigation_width).max(0.), window, cx))
+                    view.child(self.tab_bar(
+                        (header_width - navigation_width).max(0.),
+                        window_controls_width,
+                        window,
+                        cx,
+                    ))
                 },
             )
             .child(
@@ -330,18 +338,11 @@ impl Render for Workspace {
                     .child(content)
                     .when(cfg!(target_os = "macos"), |view| {
                         #[cfg(target_os = "macos")]
-                        let view = view.child(self.floating_reader_toolbar(window, cx));
+                        let view = view
+                            .child(self.floating_reader_toolbar(window, cx))
+                            .child(crate::views::reader::ReaderToolbarDock);
                         view
                     })
-                    .when(
-                        cfg!(windows) && document_page && !self.reader_toolbar_collapsed,
-                        |view| {
-                            #[cfg(windows)]
-                            let view = view.child(self.windows_reader_toolbar(window, cx));
-                            view
-                        },
-                    )
-                    .child(crate::views::reader::ReaderToolbarDock)
                     .child(
                         canvas(
                             |_, _, _| (),
@@ -943,6 +944,26 @@ impl Render for Workspace {
                         .child(header),
                 )
             })
+            .when(
+                !self.file_fullscreen && window_controls_width > px(0.),
+                |view| {
+                    view.child(
+                        div()
+                            .absolute()
+                            .top(px(super::CONTENT_INSET))
+                            .right(px(super::CONTENT_INSET))
+                            .w(window_controls_width)
+                            .child(
+                                gpui_kit::component::TitleBar::new()
+                                    .pl_0()
+                                    .pr_0()
+                                    .border_b_0()
+                                    .bg(cx.theme().transparent)
+                                    .h(px(super::TITLE_BAR_HEIGHT)),
+                            ),
+                    )
+                },
+            )
             .when(
                 self.file_fullscreen && self.reader_toolbar_collapsed,
                 |view| {

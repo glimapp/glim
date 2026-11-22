@@ -576,6 +576,7 @@ impl Workspace {
     pub(super) fn tab_bar(
         &self,
         leading_inset: f32,
+        trailing_inset: Pixels,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -838,6 +839,7 @@ impl Workspace {
             .flex_shrink_0()
             .px_1()
             .pl(px(4. + leading_inset))
+            .pr(px(4.) + trailing_inset)
             .bg(cx.theme().background)
             .rounded_tl(px(11.))
             .rounded_tr(px(11.))

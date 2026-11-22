@@ -6,6 +6,8 @@ use gpui_kit::{
 };
 use std::path::PathBuf;
 
+const HEADER_LEFT_PADDING: f32 = if cfg!(windows) { 12. } else { 94. };
+
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Target {
     pub path: PathBuf,
@@ -40,7 +42,8 @@ impl Workspace {
             None,
         );
         // Match the title bar's padding, separator, gaps and navigation buttons.
-        94. + f32::from(brand.width)
+        HEADER_LEFT_PADDING
+            + f32::from(brand.width)
             + 16.
             + 1.
             + 64.
@@ -385,51 +388,62 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn header(
-        &self,
-        tabs: Option<AnyElement>,
-        rounded_join: bool,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    pub(super) fn header(&self, rounded_join: bool, cx: &mut Context<Self>) -> AnyElement {
+        let navigation = h_flex()
+            .relative()
+            .size_full()
+            .pl(px(HEADER_LEFT_PADDING))
+            .pr(px(8.))
+            .gap_2()
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .h(px(28.))
+                    .flex()
+                    .items_center()
+                    .text_size(px(16.))
+                    .line_height(px(16.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .when(cfg!(windows), |brand| {
+                        brand.window_control_area(WindowControlArea::Drag)
+                    })
+                    .child("Glim"),
+            )
+            .child(title_bar_separator(cx))
+            .child(self.navigation_toolbar(cx))
+            .when(cfg!(windows), |row| {
+                row.child(
+                    div()
+                        .h_full()
+                        .flex_1()
+                        .window_control_area(WindowControlArea::Drag),
+                )
+            });
+        if cfg!(windows) {
+            // Keep the interactive navigation outside TitleBar's caption hitbox.
+            return div()
+                .w_full()
+                .h(px(super::TITLE_BAR_HEIGHT))
+                .when(!rounded_join, |bar| bar.bg(cx.theme().sidebar))
+                .child(navigation)
+                .into_any_element();
+        }
         v_flex()
             .relative()
             .w_full()
             .flex_shrink_0()
-            .child(workspace_title_bar(
-                h_flex()
-                    .relative()
-                    .w_full()
-                    .h_full()
-                    .pl(px(94.))
-                    .pr(px(8.))
-                    .gap_3()
-                    .child(
-                        h_flex()
-                            .flex_shrink_0()
-                            .h_full()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .h(px(28.))
-                                    .flex()
-                                    .items_center()
-                                    .text_size(px(16.))
-                                    .line_height(px(16.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Glim"),
-                            )
-                            .child(title_bar_separator(cx))
-                            .child(self.navigation_toolbar(cx)),
-                    )
-                    .when(tabs.is_some(), |row| row.child(title_bar_separator(cx)))
-                    .children(tabs.map(|tabs| div().flex_1().min_w_0().h_full().child(tabs))),
-                rounded_join,
-                cx,
-            ))
+            .child(workspace_title_bar(navigation, rounded_join, cx))
             .into_any_element()
     }
+}
+
+pub(super) fn window_controls_width(window: &Window) -> Pixels {
+    if !cfg!(windows) || window.is_fullscreen() {
+        return px(0.);
+    }
+    let controls = window.window_controls();
+    let count = 1 + u8::from(controls.minimize) + u8::from(controls.maximize);
+    gpui_kit::component::TITLE_BAR_HEIGHT * f32::from(count)
 }
 
 fn title_bar_separator(cx: &App) -> Div {

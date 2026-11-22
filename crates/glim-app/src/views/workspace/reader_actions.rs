@@ -147,7 +147,14 @@ impl ToolbarItem {
             ToolbarAction::Preview => ("Preview", Some(IconName::Eye)),
             ToolbarAction::Source => ("Source", Some(IconName::Code)),
             ToolbarAction::WordWrap => ("Word wrap", None),
-            ToolbarAction::Find => ("Find in file · ⌘F", Some(IconName::Search)),
+            ToolbarAction::Find => (
+                if cfg!(windows) {
+                    "Find in file · Ctrl+F"
+                } else {
+                    "Find in file · ⌘F"
+                },
+                Some(IconName::Search),
+            ),
             ToolbarAction::ExportPdf => ("Export PDF…", Some(IconName::FileDown)),
             ToolbarAction::OpenInBrowser => ("Open in Browser", Some(IconName::ExternalLink)),
             ToolbarAction::FileFullscreen => ("Enter File Fullscreen", None),

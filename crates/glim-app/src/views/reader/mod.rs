@@ -7,9 +7,9 @@ mod boundary;
 mod construction;
 mod contract;
 pub(crate) mod controls;
-pub(crate) use controls::{
-    ReaderToolbarDock, ReaderToolbarHost, set_toolbar_host, toolbar_trailing_inset,
-};
+#[cfg(target_os = "macos")]
+pub(crate) use controls::ReaderToolbarDock;
+pub(crate) use controls::{ReaderToolbarHost, set_toolbar_host, toolbar_trailing_inset};
 mod csv;
 mod diagrams;
 mod editing;
@@ -334,6 +334,15 @@ impl Reader {
         } else {
             content
         };
+        #[cfg(windows)]
+        let content = div()
+            .relative()
+            .flex()
+            .flex_col()
+            .size_full()
+            .child(div().flex_1().min_h_0().w_full().child(content))
+            .child(controls::ReaderToolbarDock)
+            .into_any_element();
         boundary::FileBoundary {
             path: self.document.path.clone(),
             content,

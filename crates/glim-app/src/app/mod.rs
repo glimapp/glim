@@ -436,6 +436,7 @@ pub fn run() -> Result<()> {
         finder_integration::init(cx);
         remote_open::init(cx);
         telemetry::initialize(telemetry_consent, cx);
+        #[cfg(target_os = "macos")]
         cx.set_quit_mode(QuitMode::Explicit);
         gpui_kit::component::set_locale(glim_services::locale::code());
         cx.set_global(LanguageSaveTask::default());
