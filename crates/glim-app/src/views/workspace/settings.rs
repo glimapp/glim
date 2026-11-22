@@ -14,6 +14,9 @@ use gpui_kit::{
     *,
 };
 
+// Keep the controls ready to restore without changing saved preferences.
+const SHOW_TELEMETRY_CONTROLS: bool = false;
+
 #[derive(Clone, Copy)]
 enum PreferenceChoice {
     Theme(Appearance),
@@ -130,19 +133,6 @@ impl Workspace {
             .accessibility_label(glim_services::locale::tr("Keyboard Shortcuts…"))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(KeyboardShortcuts), cx))
             .into_any_element();
-        let consent = cx.global::<crate::app::telemetry::Telemetry>().consent;
-        let usage = Switch::new("settings-usage-statistics")
-            .small()
-            .checked(consent.usage)
-            .accessibility_label(glim_services::locale::tr("Usage statistics"))
-            .on_click(|enabled, _, cx| crate::app::telemetry::set_usage(*enabled, cx))
-            .into_any_element();
-        let diagnostics = Switch::new("settings-error-diagnostics")
-            .small()
-            .checked(consent.diagnostics)
-            .accessibility_label(glim_services::locale::tr("Error diagnostics"))
-            .on_click(|enabled, _, cx| crate::app::telemetry::set_diagnostics(*enabled, cx))
-            .into_any_element();
         let row = |label, detail, control| {
             crate::views::settings_controls::settings_row(label, detail, control, cx)
         };
@@ -192,23 +182,6 @@ impl Workspace {
                 about = about.child(information("Commit", revision));
             }
         }
-        let telemetry = cx.global::<crate::app::telemetry::Telemetry>();
-        let privacy_status = h_flex()
-            .w_full()
-            .gap_2()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .when(telemetry.persistence_error, |row| {
-                row.child(div().flex_1().min_w(px(0.)).child(glim_services::locale::tr(
-                    "Could not save privacy settings. Your choices apply only until Glim quits."
-                ))).child(Button::new("retry-privacy-save")
-                    .small()
-                    .label(glim_services::locale::tr("Retry"))
-                    .on_click(|_, _, cx| crate::app::telemetry::persist(cx)))
-            })
-            .when(telemetry.saving, |row| {
-                row.child(glim_services::locale::tr("Saving…"))
-            });
         div()
             .id("workspace-settings-scroll")
             .size_full()
@@ -227,15 +200,26 @@ impl Workspace {
                                 .child(row("Language", "", language)),
                         )
                         .child(heading("Files").mt_3())
-                        .child(group().child(row(
-                            "Default File Types…",
-                            "Choose which file types open in Glim.",
-                            associations,
-                        )).child(divider()).child(row(
-                            "Finder Integration",
-                            "Open folders as workspaces from the Finder context menu.",
-                            finder,
-                        )).child(divider()).child(row("SSH Connections", "Manage saved SSH connections.", connections)))
+                        .child(
+                            group()
+                                .child(row(
+                                    "Default File Types…",
+                                    "Choose which file types open in Glim.",
+                                    associations,
+                                ))
+                                .child(divider())
+                                .child(row(
+                                    "Finder Integration",
+                                    "Open folders as workspaces from the Finder context menu.",
+                                    finder,
+                                ))
+                                .child(divider())
+                                .child(row(
+                                    "SSH Connections",
+                                    "Manage saved SSH connections.",
+                                    connections,
+                                )),
+                        )
                         .child(heading("Application").mt_3())
                         .child(
                             group()
@@ -244,27 +228,76 @@ impl Workspace {
                                 .child(row("Keyboard Shortcuts…", "", shortcuts)),
                         )
                         .child(self.integrations.clone())
-                        .child(heading("Help improve Glim").mt_3())
-                        .child(group()
-                            .child(row("Error diagnostics", "Help the developer find failures and fix crashes. Sends sanitized error types, application source locations and version information.", diagnostics))
-                            .child(divider())
-                            .child(row("Usage statistics", "Help measure active installations and improve frequently used formats and features. A random installation ID links usage across sessions.", usage)))
-                        .child(div().text_xs().text_color(cx.theme().muted_foreground).child(glim_services::locale::tr(
-                            "Each option is independent. Turning both off stops usage and diagnostic reports. Document contents, filenames and paths are never included."
-                        )))
-                        .child(h_flex().child(Button::new("settings-privacy")
-                            .small()
-                            .label(glim_services::locale::tr("Privacy details"))
-                            .on_click(|_, _, cx| cx.open_url(if glim_services::locale::code() == "zh-CN" {
+                        .when(SHOW_TELEMETRY_CONTROLS, |view| {
+                            view.child(telemetry_controls(cx))
+                        })
+                        .child(
+                            h_flex().child(
+                                Button::new("settings-privacy")
+                                    .small()
+                                    .label(glim_services::locale::tr("Privacy details"))
+                                    .on_click(|_, _, cx| {
+                                        cx.open_url(if glim_services::locale::code() == "zh-CN" {
                                 "https://github.com/glimapp/glim/blob/main/docs/privacy.zh-CN.md"
                             } else {
                                 "https://github.com/glimapp/glim/blob/main/docs/privacy.md"
-                            }))))
-                        .when(telemetry.persistence_error || telemetry.saving, |view| view.child(privacy_status))
+                            })
+                                    }),
+                            ),
+                        )
                         .child(heading("About").mt_3())
                         .child(about),
                 ),
             )
             .into_any_element()
     }
+}
+
+fn telemetry_controls(cx: &App) -> impl IntoElement {
+    use crate::views::settings_controls::{settings_group, settings_row};
+    let telemetry = cx.global::<crate::app::telemetry::Telemetry>();
+    let consent = telemetry.consent;
+    let usage = Switch::new("settings-usage-statistics")
+        .small()
+        .checked(consent.usage)
+        .accessibility_label(glim_services::locale::tr("Usage statistics"))
+        .on_click(|enabled, _, cx| crate::app::telemetry::set_usage(*enabled, cx))
+        .into_any_element();
+    let diagnostics = Switch::new("settings-error-diagnostics")
+        .small()
+        .checked(consent.diagnostics)
+        .accessibility_label(glim_services::locale::tr("Error diagnostics"))
+        .on_click(|enabled, _, cx| crate::app::telemetry::set_diagnostics(*enabled, cx))
+        .into_any_element();
+    let privacy_status = h_flex()
+        .w_full()
+        .gap_2()
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .when(telemetry.persistence_error, |row| {
+            row.child(div().flex_1().min_w(px(0.)).child(glim_services::locale::tr(
+                    "Could not save privacy settings. Your choices apply only until Glim quits."
+                ))).child(Button::new("retry-privacy-save")
+                    .small()
+                    .label(glim_services::locale::tr("Retry"))
+                    .on_click(|_, _, cx| crate::app::telemetry::persist(cx)))
+        })
+        .when(telemetry.saving, |row| {
+            row.child(glim_services::locale::tr("Saving…"))
+        });
+
+    v_flex()
+        .w_full()
+        .gap_3()
+        .mt_3()
+        .child(div().text_xs().text_color(cx.theme().muted_foreground)
+            .child(glim_services::locale::tr("Help improve Glim")))
+        .child(settings_group(cx)
+            .child(settings_row("Error diagnostics", "Help the developer find failures and fix crashes. Sends sanitized error types, application source locations and version information.", diagnostics, cx))
+            .child(div().w_full().h(px(1.)).bg(cx.theme().border))
+            .child(settings_row("Usage statistics", "Help measure active installations and improve frequently used formats and features. A random installation ID links usage across sessions.", usage, cx)))
+        .child(div().text_xs().text_color(cx.theme().muted_foreground).child(glim_services::locale::tr(
+            "Each option is independent. Turning both off stops usage and diagnostic reports. Document contents, filenames and paths are never included."
+        )))
+        .when(telemetry.persistence_error || telemetry.saving, |view| view.child(privacy_status))
 }

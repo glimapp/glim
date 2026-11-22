@@ -19,13 +19,12 @@ Glim locally saves preferences, recent workspaces, paths, windows and file tabs,
 | Usage statistics | Send feature and foreground activity events only when this option is enabled |
 | Error diagnostics | Send sanitized failure and panic reports only when this separate option is enabled |
 
-Ebooks do not fetch remote images or execute active content. Offline diagram engines ship with the app. Disabling updates, statistics and diagnostics does not disable HTML or Markdown network content. Inspect unfamiliar HTML cautiously as source code first.
+Ebooks do not fetch remote images or execute active content. Offline diagram engines ship with the app. Inspect unfamiliar HTML cautiously as source code first.
 
-## How do I choose what to share?
+## When are statistics and diagnostics sent?
 
-Settings → Help improve Glim has independent **Error diagnostics** and **Usage statistics** switches. Both options are enabled by default on installations with no recorded choice; there is no startup prompt. Disable either option in Settings at any time. Error diagnostics help the developer locate failures and fix crashes without collecting feature-use history. Either choice can be changed later; declining does not restrict file viewing or editing.
+Usage statistics and error diagnostics are enabled by default when there is no saved choice. Glim 0.3.0 hides the switches in Settings. It honors any choices saved in earlier versions, including the legacy combined switch. If preferences cannot be read, both channels are disabled.
 
-An explicit old combined-switch choice is preserved for both new switches. An old installation with no saved choice uses the same defaults as a new installation. Unreadable preferences disable both channels. Choices are stored together; a save failure is shown in Settings with a retry action, and the live choices still apply for the current run.
 
 ## What do usage statistics send?
 
