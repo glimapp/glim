@@ -6,6 +6,27 @@ use gpui_kit::component::{
 
 use gpui_kit::assets::IconName;
 
+pub(super) fn navigation_button(
+    id: impl Into<ElementId>,
+    icon: IconName,
+    label: &str,
+    hint: &str,
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .small()
+        .h(px(46.))
+        .px(px(3.))
+        .tooltip(tr(hint))
+        .accessibility_label(tr(hint))
+        .child(
+            v_flex()
+                .items_center()
+                .gap(px(3.))
+                .child(gpui_kit::component::Icon::new(icon).size(px(14.)))
+                .child(div().text_xs().child(tr(label))),
+        )
+}
 pub(super) fn icon_action(button: Button, icon: IconName, label: &str) -> Button {
     let label = tr(label);
     button
@@ -303,16 +324,70 @@ impl Changes {
 
     pub(super) fn settings_menu(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let owner = cx.entity().downgrade();
-        icon_action(Button::new("git-settings"), IconName::Settings, "Settings")
-            .disabled(self.busy(cx) || self.active_root.is_none())
-            .dropdown_menu(move |menu, _, _| {
-                let owner = owner.clone();
-                menu.item(PopupMenuItem::new(tr(Form::Identity.title())).on_click(
-                    move |_, window, cx| {
-                        let _ = owner.update(cx, |view, cx| view.form(Form::Identity, window, cx));
-                    },
-                ))
-            })
+        let prefs = Self::preferences(cx);
+        let identity_disabled = self.busy(cx) || self.active_root.is_none();
+        navigation_button("git-settings", IconName::Settings, "Settings", "Settings").dropdown_menu(
+            move |menu, _, _| {
+                let identity_owner = owner.clone();
+                let mut menu = menu
+                    .item(
+                        PopupMenuItem::new(tr(Form::Identity.title()))
+                            .disabled(identity_disabled)
+                            .on_click(move |_, window, cx| {
+                                let _ = identity_owner
+                                    .update(cx, |view, cx| view.form(Form::Identity, window, cx));
+                            }),
+                    )
+                    .separator();
+                for (label, checked) in [
+                    ("Refresh status every minute", prefs.auto_refresh),
+                    ("Enable worktrees", prefs.worktrees),
+                ] {
+                    let owner = owner.clone();
+                    menu = menu.item(PopupMenuItem::new(tr(label)).checked(checked).on_click(
+                        move |_, _, cx| {
+                            let _ = owner.update(cx, |view, cx| {
+                                let mut prefs = Self::preferences(cx);
+                                if label == "Enable worktrees" {
+                                    prefs.worktrees = !prefs.worktrees;
+                                } else {
+                                    prefs.auto_refresh = !prefs.auto_refresh;
+                                }
+                                view.save_preferences(prefs, cx);
+                            });
+                        },
+                    ));
+                }
+                menu
+            },
+        )
+    }
+
+    fn save_preferences(
+        &self,
+        preferences: glim_services::preferences::GitPreferences,
+        cx: &mut Context<Self>,
+    ) {
+        let settings = cx.default_global::<crate::app::GitSettings>();
+        settings.preferences = preferences;
+        let previous = settings.save.take();
+        let owner = cx.entity().downgrade();
+        let task = cx.spawn(async move |_, cx| {
+            if let Some(previous) = previous {
+                previous.await;
+            }
+            if let Err(error) = cx
+                .background_executor()
+                .spawn(async move { glim_services::preferences::save_git_preferences(preferences) })
+                .await
+            {
+                let _ = owner.update(cx, |view, cx| {
+                    view.operation_error = Some(error.to_string().into());
+                    cx.notify();
+                });
+            }
+        });
+        cx.global_mut::<crate::app::GitSettings>().save = Some(task);
     }
 
     pub(super) fn form_button(

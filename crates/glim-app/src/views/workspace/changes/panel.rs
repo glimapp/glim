@@ -113,6 +113,9 @@ impl Render for Changes {
             .border_b_1()
             .border_color(cx.theme().border);
         for section in Section::ALL {
+            if section == Section::Worktrees && !Self::preferences(cx).worktrees {
+                continue;
+            }
             let (icon, label) = match section {
                 Section::Changes => (IconName::Files, "Changes"),
                 Section::History => (IconName::Clock, "History"),
@@ -132,29 +135,27 @@ impl Render for Changes {
                         transparent_black()
                     })
                     .child(
-                        Button::new(("git-section", section as usize))
-                            .ghost()
-                            .small()
-                            .toggled(active)
-                            .h(px(46.))
-                            .px(px(3.))
-                            .tooltip(tr(section.label()))
-                            .accessibility_label(tr(section.label()))
-                            .child(
-                                v_flex()
-                                    .items_center()
-                                    .gap(px(3.))
-                                    .child(gpui_kit::component::Icon::new(icon).size(px(14.)))
-                                    .child(div().text_xs().child(tr(label))),
-                            )
-                            .on_click(cx.listener(move |view, _, _, cx| {
-                                view.switch_section(section, cx);
-                                cx.emit(ShowDiff);
-                            })),
+                        super::controls::navigation_button(
+                            ("git-section", section as usize),
+                            icon,
+                            label,
+                            section.label(),
+                        )
+                        .toggled(active)
+                        .on_click(cx.listener(move |view, _, _, cx| {
+                            view.switch_section(section, cx);
+                            cx.emit(ShowDiff);
+                        })),
                     ),
             );
         }
-        let tabs = tabs.child(self.settings_menu(cx));
+        let tabs = tabs.child(
+            div()
+                .flex_shrink_0()
+                .border_b_2()
+                .border_color(transparent_black())
+                .child(self.settings_menu(cx)),
+        );
         let mut status = h_flex().h(px(30.)).flex_shrink_0().min_w_0().px_3().gap_2();
         if let Some(error) = self
             .operation_error
