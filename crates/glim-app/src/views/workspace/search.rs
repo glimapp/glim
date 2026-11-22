@@ -258,14 +258,16 @@ impl Workspace {
             )
             .accessibility_label(label.clone())
             .when(cfg!(windows), |button| button.tooltip(label.clone()))
-            .on_hover(cx.listener(move |view, hovered: &bool, window, _| {
-                if *hovered {
-                    view.path_hint
-                        .show(&label, "", false, hint_bounds.get(), window);
-                } else {
-                    view.path_hint.hide_for("", hint_bounds.get());
-                }
-            }))
+            .when(!cfg!(windows), |button| {
+                button.on_hover(cx.listener(move |view, hovered: &bool, window, _| {
+                    if *hovered {
+                        view.path_hint
+                            .show(&label, "", false, hint_bounds.get(), window);
+                    } else {
+                        view.path_hint.hide_for("", hint_bounds.get());
+                    }
+                }))
+            })
             .selected(self.search_visible)
             .on_click(cx.listener(|view, _, window, cx| view.show_search(window, cx)))
     }
