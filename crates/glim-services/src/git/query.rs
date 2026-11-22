@@ -232,6 +232,9 @@ pub struct Stash {
 }
 #[derive(Clone, Debug)]
 pub struct Worktree {
+    pub changes: Vec<Change>,
+    pub changed_paths: usize,
+    pub status_error: Option<String>,
     pub path: PathBuf,
     pub head: String,
     pub branch: String,
@@ -370,6 +373,9 @@ pub fn catalog(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> 
         let field = field?;
         if let Some(path) = field.strip_prefix(b"worktree ") {
             result.worktrees.push(Worktree {
+                changes: Vec::new(),
+                changed_paths: 0,
+                status_error: None,
                 path: PathBuf::from(OsString::from_vec(path.to_vec())),
                 head: String::new(),
                 branch: String::new(),

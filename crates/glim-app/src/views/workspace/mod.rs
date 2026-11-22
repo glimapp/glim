@@ -418,6 +418,13 @@ impl Workspace {
                 view.open_path(event.0.clone(), window, cx);
             },
         ));
+        workspace.subscriptions.push(cx.subscribe_in(
+            &workspace.changes,
+            window,
+            |view, _, event: &changes::OpenWorktree, window, cx| {
+                view.open_worktree_workspace(event.0.clone(), window, cx)
+            },
+        ));
         workspace.subscriptions.push(cx.subscribe(
             &workspace.changes,
             |view, _, _: &changes::ShowDiff, cx| {

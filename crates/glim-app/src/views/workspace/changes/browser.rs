@@ -47,7 +47,7 @@ enum EntryKind {
 #[derive(Clone)]
 pub(super) enum RowAction {
     Run(Operation),
-    Open(PathBuf),
+    OpenWorktree(PathBuf),
     Compare(Comparison),
     FileHistory(PathBuf),
     Form(Form),
@@ -104,7 +104,9 @@ impl Changes {
                                     view.browse(cx);
                                     cx.emit(ShowDiff);
                                 }
-                                RowAction::Open(path) => cx.emit(OpenFile(path.clone())),
+                                RowAction::OpenWorktree(path) => {
+                                    cx.emit(OpenWorktree(path.clone()))
+                                }
                                 RowAction::Copy(id) => {
                                     cx.write_to_clipboard(ClipboardItem::new_string(id.clone()))
                                 }
@@ -198,6 +200,9 @@ impl Changes {
             return;
         }
         self.cancel_browse();
+        if section == Section::Worktrees || self.section == Section::Worktrees {
+            self.selection = None;
+        }
         self.section = section;
         self.catalog_ready = false;
         if section == Section::History {
@@ -337,7 +342,27 @@ impl Changes {
         let (cancel, guard) = Cancellation::task();
         self.browse_cancel = Some(guard);
         let work = cx.background_executor().spawn(async move {
-            let catalog = git::catalog(&root, remote.as_ref(), &cancel)?;
+            let mut catalog = git::catalog(&root, remote.as_ref(), &cancel)?;
+            if section == Section::Worktrees {
+                for tree in &mut catalog.worktrees {
+                    cancel.check()?;
+                    if tree.prunable {
+                        tree.status_error = Some(tr("Prunable"));
+                        continue;
+                    }
+                    match git::changed_files(&tree.path, remote.as_ref(), &cancel) {
+                        Ok(changes) => {
+                            tree.changed_paths = changes
+                                .iter()
+                                .map(|change| &change.path)
+                                .collect::<std::collections::HashSet<_>>()
+                                .len();
+                            tree.changes = changes;
+                        }
+                        Err(error) => tree.status_error = Some(format!("{error:#}")),
+                    }
+                }
+            }
             let history = if section == Section::History {
                 Some(git::history(
                     &root,
@@ -545,11 +570,22 @@ impl Changes {
                 *count = 0;
             }
         }
+        let mut ends = Vec::new();
+        if self.section == Section::Worktrees {
+            let mut end = 0;
+            for tree in &self.catalog.worktrees {
+                end += 1;
+                if self.expanded_worktrees.contains(&tree.path) {
+                    end += tree.changes.len();
+                }
+                ends.push(end);
+            }
+        }
         let count = match self.section {
             Section::History => self.commits.len(),
             Section::Branches => visible_refs.len() + visible_refs.iter().sum::<usize>(),
             Section::Stashes => self.catalog.stashes.len(),
-            Section::Worktrees => self.catalog.worktrees.len(),
+            Section::Worktrees => ends.last().copied().unwrap_or(0),
             Section::Changes => 0,
         };
         let owner = cx.entity();
@@ -559,7 +595,58 @@ impl Changes {
             let (kind, index) = match section {
                 Section::History => (EntryKind::Commit, index),
                 Section::Stashes => (EntryKind::Stash, index),
-                Section::Worktrees => (EntryKind::Worktree, index),
+                Section::Worktrees => {
+                    let tree_index = ends.partition_point(|&end| end <= index);
+                    let offset = index - tree_index.checked_sub(1).map_or(0, |prev| ends[prev]);
+                    if offset > 0 {
+                        let tree = &view.catalog.worktrees[tree_index];
+                        let change = tree.changes[offset - 1].clone();
+                        let root = tree.path.clone();
+                        let owner = owner.clone();
+                        let selected = view
+                            .selection
+                            .as_ref()
+                            .is_some_and(|(r, c)| r == &root && c == &change);
+                        let path = change.path.to_string_lossy().into_owned();
+                        let detail = format!(
+                            "{} · {}",
+                            root.join(&change.path).display(),
+                            tr(Self::area(change.area))
+                        );
+                        return Button::new(("git-worktree-file", index))
+                            .ghost()
+                            .w_full()
+                            .h(px(52.))
+                            .pl_4()
+                            .justify_start()
+                            .selected(selected)
+                            .accessibility_label(detail.clone())
+                            .tooltip(detail)
+                            .child(
+                                v_flex()
+                                    .min_w_0()
+                                    .child(div().truncate().child(path))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(format!(
+                                                "{} · {}",
+                                                change.status,
+                                                tr(Self::area(change.area))
+                                            )),
+                                    ),
+                            )
+                            .on_click(move |_, _, cx| {
+                                owner.update(cx, |view, cx| {
+                                    view.preview_worktree_file(root.clone(), change.clone(), cx);
+                                    cx.emit(ShowDiff);
+                                })
+                            })
+                            .into_any_element();
+                    }
+                    (EntryKind::Worktree, tree_index)
+                }
                 Section::Changes => unreachable!(),
                 Section::Branches => {
                     let mut group = 0;
@@ -677,27 +764,17 @@ impl Changes {
                 EntryKind::Worktree => {
                     let tree = &view.catalog.worktrees[index];
                     (
+                        if tree.branch.is_empty() {
+                            format!(
+                                "{} {}",
+                                tr("Detached HEAD"),
+                                &tree.head[..8.min(tree.head.len())]
+                            )
+                        } else {
+                            tree.branch.clone()
+                        },
                         tree.path.display().to_string(),
-                        format!(
-                            "{} · {}{}{}",
-                            if tree.branch.is_empty() {
-                                tr("Detached HEAD")
-                            } else {
-                                tree.branch.clone()
-                            },
-                            &tree.head[..8.min(tree.head.len())],
-                            if tree.locked {
-                                format!(" · {}", tr("Locked"))
-                            } else {
-                                String::new()
-                            },
-                            if tree.prunable {
-                                format!(" · {}", tr("Prunable"))
-                            } else {
-                                String::new()
-                            }
-                        ),
-                        view.selected_reference == Some(index),
+                        view.expanded_worktrees.contains(&tree.path),
                     )
                 }
             };
@@ -716,6 +793,16 @@ impl Changes {
             } else {
                 tag.map(|tag| tag.author.as_str())
             };
+            let count = (kind == EntryKind::Worktree).then(|| {
+                let tree = &view.catalog.worktrees[index];
+                if tree.status_error.is_some() {
+                    tr("Status unavailable")
+                } else if !view.catalog_ready {
+                    "…".to_owned()
+                } else {
+                    tree.changed_paths.to_string()
+                }
+            });
             let description = if let Some(tag) = tag {
                 [title.as_str(), &tag.subject, &tag.author, &tag.date]
                     .into_iter()
@@ -734,6 +821,24 @@ impl Changes {
             } else {
                 format!("{title}\n{subtitle}")
             };
+            let description = if kind == EntryKind::Worktree {
+                let tree = &view.catalog.worktrees[index];
+                let details = [
+                    tree.locked.then(|| tr("Locked")),
+                    tree.prunable.then(|| tr("Prunable")),
+                    tree.status_error.clone(),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+                std::iter::once(description)
+                    .chain(count.clone())
+                    .chain(details)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            } else {
+                description
+            };
             let row_id = if kind == EntryKind::Remote {
                 "git-remote-row"
             } else {
@@ -750,6 +855,13 @@ impl Changes {
                 })
                 .justify_start()
                 .selected(selected)
+                .when(kind == EntryKind::Worktree, |row| {
+                    row.icon(if selected {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                })
                 .accessibility_label(description.clone())
                 .tooltip(description)
                 .child(
@@ -757,13 +869,27 @@ impl Changes {
                         .w_full()
                         .min_w_0()
                         .gap_1()
-                        .child(div().truncate().text_sm().child(
-                            if let Some(tag) = tag.filter(|t| !t.subject.is_empty()) {
-                                format!("{title}  {}", tag.subject)
-                            } else {
-                                title
-                            },
-                        ))
+                        .child(
+                            h_flex()
+                                .min_w_0()
+                                .gap_1()
+                                .child(div().truncate().text_sm().child(
+                                    if let Some(tag) = tag.filter(|t| !t.subject.is_empty()) {
+                                        format!("{title}  {}", tag.subject)
+                                    } else {
+                                        title
+                                    },
+                                ))
+                                .when_some(count, |line, count| {
+                                    line.child(
+                                        div()
+                                            .flex_shrink_0()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(count),
+                                    )
+                                }),
+                        )
                         .when_some(author, |row, author| {
                             row.child(
                                 h_flex()
@@ -797,7 +923,7 @@ impl Changes {
                             },
                         ),
                 )
-                .on_click(move |_, _, cx| {
+                .on_click(move |event, _, cx| {
                     owner.update(cx, |view, cx| {
                         match kind {
                             EntryKind::Commit => {
@@ -830,14 +956,21 @@ impl Changes {
                                     Some(view.catalog.remotes[index].name.clone());
                             }
                             EntryKind::Worktree => {
-                                view.selected_reference = Some(index);
+                                let path = view.catalog.worktrees[index].path.clone();
+                                if event.click_count() == 2 {
+                                    if !view.catalog.worktrees[index].prunable {
+                                        cx.emit(OpenWorktree(path));
+                                    }
+                                } else if !view.expanded_worktrees.remove(&path) {
+                                    view.expanded_worktrees.insert(path);
+                                }
                             }
                         }
                         cx.notify();
                     })
                 });
             let root = view.active_root.clone();
-            let actions = view.item_actions(kind, index);
+            let actions = view.item_actions(kind, index, cx);
             div()
                 .id((
                     if kind == EntryKind::Remote {
@@ -974,10 +1107,29 @@ impl Changes {
         panel.into_any_element()
     }
 
+    fn create_worktree_action(
+        &self,
+        checkout: git::WorktreeCheckout,
+        name: &str,
+    ) -> (IconName, String, RowAction, bool) {
+        let path = self
+            .active_root
+            .as_ref()
+            .map(|root| super::controls::suggested_worktree_path(root, name))
+            .unwrap_or_default();
+        (
+            IconName::FolderPlus,
+            tr("Create worktree"),
+            RowAction::Form(Form::CheckoutWorktree(checkout, path)),
+            self.active_root.is_none(),
+        )
+    }
+
     fn item_actions(
         &self,
         kind: EntryKind,
         index: usize,
+        cx: &App,
     ) -> Vec<(IconName, String, RowAction, bool)> {
         let mut items = Vec::new();
         let mut operations = Vec::new();
@@ -1014,6 +1166,12 @@ impl Changes {
                         revision: id.clone(),
                         mode: mode.into(),
                     });
+                }
+                if Self::preferences(cx).worktrees {
+                    items.push(self.create_worktree_action(
+                        git::WorktreeCheckout::Detached(id.clone()),
+                        &id[..8.min(id.len())],
+                    ));
                 }
                 if let Some(path) = self.history_path.clone() {
                     items.push((
@@ -1067,6 +1225,40 @@ impl Changes {
                     }
                 }
 
+                if Self::preferences(cx).worktrees {
+                    if local {
+                        let branch = reference.full.trim_start_matches("refs/heads/");
+                        if let Some(tree) = self
+                            .catalog
+                            .worktrees
+                            .iter()
+                            .find(|tree| tree.branch == branch)
+                        {
+                            items.insert(
+                                0,
+                                (
+                                    IconName::FolderOpen,
+                                    tr("Open worktree"),
+                                    RowAction::OpenWorktree(tree.path.clone()),
+                                    tree.prunable,
+                                ),
+                            );
+                        } else {
+                            items.insert(
+                                0,
+                                self.create_worktree_action(
+                                    git::WorktreeCheckout::Branch(branch.to_owned()),
+                                    branch,
+                                ),
+                            );
+                        }
+                    } else if tag {
+                        items.push(self.create_worktree_action(
+                            git::WorktreeCheckout::Detached(reference.full.clone()),
+                            &reference.name,
+                        ));
+                    }
+                }
                 if local {
                     items.push((
                         IconName::Pencil,
@@ -1125,9 +1317,9 @@ impl Changes {
                 let tree = &self.catalog.worktrees[index];
                 items.push((
                     IconName::FolderOpen,
-                    tr("Open Folder"),
-                    RowAction::Open(tree.path.clone()),
-                    false,
+                    tr("Open worktree"),
+                    RowAction::OpenWorktree(tree.path.clone()),
+                    tree.prunable,
                 ));
                 let op = Operation::RemoveWorktree(tree.path.clone());
                 items.push((

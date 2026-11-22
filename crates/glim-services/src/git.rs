@@ -178,6 +178,32 @@ pub fn fetch_remote_updates(
 }
 
 pub fn changes(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> Result<Repository> {
+    let changes = changed_files(root, remote, cancel)?;
+    let branches = query::strings(
+        root,
+        remote,
+        &[
+            "for-each-ref",
+            "--sort=refname",
+            "--sort=-committerdate",
+            "--format=%(refname:lstrip=2)",
+            "refs/heads",
+        ],
+        cancel,
+    )?;
+    Ok(Repository {
+        branches: std::sync::Arc::new(branches.lines().map(String::from).collect()),
+        root: root.to_owned(),
+        changes,
+        metadata: metadata(root, remote, cancel)?,
+    })
+}
+
+pub fn changed_files(
+    root: &Path,
+    remote: Option<&Session>,
+    cancel: &Cancellation,
+) -> Result<Vec<Change>> {
     let args = [
         "status",
         "--porcelain=v1",
@@ -231,24 +257,7 @@ pub fn changes(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> 
             }
         }
     }
-    let branches = query::strings(
-        root,
-        remote,
-        &[
-            "for-each-ref",
-            "--sort=refname",
-            "--sort=-committerdate",
-            "--format=%(refname:lstrip=2)",
-            "refs/heads",
-        ],
-        cancel,
-    )?;
-    Ok(Repository {
-        branches: std::sync::Arc::new(branches.lines().map(String::from).collect()),
-        root: root.to_owned(),
-        changes,
-        metadata: metadata(root, remote, cancel)?,
-    })
+    Ok(changes)
 }
 
 pub fn patch(

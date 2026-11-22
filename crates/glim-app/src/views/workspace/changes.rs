@@ -25,6 +25,8 @@ type NavigationRow = (PathBuf, Option<Change>);
 
 pub(super) struct OpenFile(pub PathBuf);
 impl EventEmitter<OpenFile> for Changes {}
+pub(super) struct OpenWorktree(pub PathBuf);
+impl EventEmitter<OpenWorktree> for Changes {}
 pub(super) struct ShowDiff;
 impl EventEmitter<ShowDiff> for Changes {}
 
@@ -84,6 +86,7 @@ pub(crate) struct Changes {
     available: bool,
     active_root: Option<PathBuf>,
     catalog: Arc<Catalog>,
+    expanded_worktrees: std::collections::HashSet<PathBuf>,
     commits: Arc<Vec<Commit>>,
     history_limit: usize,
     history_search: String,
@@ -142,6 +145,12 @@ pub(crate) struct Changes {
 }
 
 impl Changes {
+    pub(super) fn resume_worktree_list(&mut self, cx: &mut Context<Self>) {
+        if self.monitoring && self.section == Section::Worktrees {
+            self.browse(cx);
+        }
+    }
+
     pub(super) fn cancel(&mut self, cx: &mut Context<Self>) {
         self.manual_refresh = None;
         self.settings_open = false;
@@ -222,6 +231,7 @@ impl Changes {
             available: true,
             active_root: None,
             catalog: Arc::default(),
+            expanded_worktrees: Default::default(),
             commits: Arc::default(),
             history_limit: git::HISTORY_PAGE,
             history_search: String::new(),
@@ -308,6 +318,7 @@ impl Changes {
             self.remote_updates.clear();
             self.errors.clear();
             self.tabs.clear();
+            self.expanded_worktrees.clear();
             self.selection = None;
             self.active_root = None;
             self.comparison = None;
@@ -408,6 +419,10 @@ impl Changes {
                     view.browse(cx);
                     if let Some((root, comparison)) = view.comparison.clone() {
                         view.load_patch(root, None, Some(comparison), cx);
+                    } else if view.section == Section::Worktrees
+                        && let Some((root, change)) = view.selection.clone()
+                    {
+                        view.load_patch(root, Some(change), None, cx);
                     }
                 } else if let Some((root, Comparison::AllChanges)) = view.comparison.clone() {
                     view.load_patch(root, None, Some(Comparison::AllChanges), cx);
@@ -439,7 +454,7 @@ impl Changes {
             .or_else(|| {
                 self.selection
                     .clone()
-                    .filter(|_| self.section == Section::Changes)
+                    .filter(|_| matches!(self.section, Section::Changes | Section::Worktrees))
                     .map(|(root, change)| DiffTab::File(root, change))
             })
     }
@@ -451,6 +466,17 @@ impl Changes {
 
     pub(super) fn activate_tab(&mut self, index: usize, cx: &mut Context<Self>) {
         match self.tabs.get(index).cloned() {
+            Some(DiffTab::File(root, change))
+                if self.section == Section::Worktrees || !self.roots.contains(&root) =>
+            {
+                let enter = self.section != Section::Worktrees;
+                self.section = Section::Worktrees;
+                self.expanded_worktrees.insert(root.clone());
+                if enter {
+                    self.browse(cx);
+                }
+                self.preview_worktree_file(root, change, cx);
+            }
             Some(DiffTab::File(root, change)) => self.select(root, change, cx),
             Some(DiffTab::Comparison(root, query)) => {
                 self.cancel_browse();
@@ -499,6 +525,12 @@ impl Changes {
             }
         }
         cx.notify();
+    }
+
+    fn preview_worktree_file(&mut self, root: PathBuf, change: Change, cx: &mut Context<Self>) {
+        self.comparison = None;
+        self.selection = Some((root.clone(), change.clone()));
+        self.load_patch(root, Some(change), None, cx);
     }
 
     fn select(&mut self, root: PathBuf, change: Change, cx: &mut Context<Self>) {

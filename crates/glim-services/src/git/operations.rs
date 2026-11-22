@@ -2,6 +2,13 @@ use super::*;
 use std::{io::Write, sync::Arc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WorktreeCheckout {
+    Branch(String),
+    NewBranch { name: String, from: String },
+    Detached(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Operation {
     Init(PathBuf),
     Identity {
@@ -76,7 +83,7 @@ pub enum Operation {
     },
     AddWorktree {
         path: PathBuf,
-        revision: String,
+        checkout: WorktreeCheckout,
     },
     RemoveWorktree(PathBuf),
     Continue(String),
@@ -700,19 +707,28 @@ pub fn execute(
                 name,
             ])
         }
-        Operation::AddWorktree { path, revision } => {
+        Operation::AddWorktree { path, checkout } => {
             ensure!(path.is_absolute(), "Enter an absolute worktree path");
-            run_args(
-                vec![
-                    "worktree".into(),
-                    "add".into(),
-                    "--detach".into(),
-                    "--".into(),
-                    path.as_os_str().to_owned(),
-                    resolved(revision)?.into(),
-                ],
-                None,
-            )
+            let mut args = vec!["worktree".into(), "add".into()];
+            let target = match checkout {
+                WorktreeCheckout::NewBranch { name: branch, from } => {
+                    name(branch)?;
+                    simple(&["check-ref-format", "--branch", branch])?;
+                    args.extend(["-b".into(), branch.into()]);
+                    resolved(from)?
+                }
+                WorktreeCheckout::Branch(branch) => {
+                    name(branch)?;
+                    simple(&["show-ref", "--verify", &format!("refs/heads/{branch}")])?;
+                    branch.clone()
+                }
+                WorktreeCheckout::Detached(revision) => {
+                    args.push("--detach".into());
+                    resolved(revision)?
+                }
+            };
+            args.extend(["--".into(), path.as_os_str().to_owned(), target.into()]);
+            run_args(args, None)
         }
         Operation::RemoveWorktree(path) => {
             ensure!(

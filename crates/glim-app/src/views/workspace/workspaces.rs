@@ -198,6 +198,8 @@ impl Workspace {
     }
 
     pub(crate) fn resume_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.changes
+            .update(cx, |git, cx| git.resume_worktree_list(cx));
         self.sidebar_window_width = 0.;
         self.explorer_container_width = 0.;
         if self.roots.is_empty()
@@ -263,6 +265,49 @@ impl Workspace {
                 });
             });
         }
+    }
+
+    pub(super) fn open_worktree_workspace(
+        &mut self,
+        path: std::path::PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let folders = vec![path.clone()];
+        let id = if let Some(remote) = &self.remote {
+            let id = glim_services::remote::workspace_id(&remote.connection.id, &folders);
+            cx.global_mut::<crate::app::remote::Connections>()
+                .catalog
+                .workspaces
+                .insert(
+                    id.clone(),
+                    glim_services::remote::RemoteWorkspace {
+                        connection: remote.connection.id.clone(),
+                        roots: folders.clone(),
+                    },
+                );
+            crate::app::remote::persist(cx);
+            id
+        } else {
+            format!("worktree-{}", path.display())
+        };
+        let recent = cx
+            .try_global::<crate::app::RecentWorkspaces>()
+            .and_then(|recent| {
+                recent.0.iter().find(|item| {
+                    item.id == id
+                        || (self.remote.is_none()
+                            && !glim_services::remote::is_remote_id(&item.id)
+                            && item.folders == folders)
+                })
+            })
+            .cloned()
+            .unwrap_or(RecentWorkspace {
+                id,
+                folders,
+                name: None,
+            });
+        self.open_recent_here(recent, window, cx);
     }
 
     pub(crate) fn open_recent_here(

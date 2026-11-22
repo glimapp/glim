@@ -81,6 +81,7 @@ pub(super) enum Form {
     Tag,
     Remote,
     Worktree,
+    CheckoutWorktree(git::WorktreeCheckout, String),
     Stash,
     Compare,
 }
@@ -91,7 +92,7 @@ impl Form {
             Self::Rename(_) => "Rename branch",
             Self::Tag => "Create tag",
             Self::Remote => "Add remote",
-            Self::Worktree => "Add worktree",
+            Self::Worktree | Self::CheckoutWorktree(..) => "Create worktree",
             Self::Stash => "Save stash",
             Self::Compare => "Compare revisions",
         }
@@ -112,9 +113,11 @@ impl Form {
                 ("Remote name", String::new()),
                 ("Remote URL", String::new()),
             ],
+            Self::CheckoutWorktree(_, path) => vec![("Absolute worktree path", path.clone())],
             Self::Worktree => vec![
-                ("Absolute worktree path", String::new()),
-                ("Revision", String::new()),
+                ("Branch name", String::new()),
+                ("From branch", String::new()),
+                ("Worktree path (automatic if empty)", String::new()),
             ],
             Self::Stash => vec![("Stash message", String::new())],
             Self::Compare => vec![
@@ -250,6 +253,9 @@ impl Changes {
             Ok(()) => {
                 if let Operation::Init(path) | Operation::Clone { path, .. } = operation {
                     cx.emit(OpenFile(path.clone()));
+                }
+                if active && let Operation::AddWorktree { path, .. } = operation {
+                    cx.emit(OpenWorktree(path.clone()));
                 }
                 if let Operation::Commit { message, .. } = operation {
                     if active && self.message_root.as_ref() == Some(&root) {
@@ -596,7 +602,7 @@ impl Changes {
             Form::Branch => IconName::GitBranchPlus.into(),
             Form::Rename(_) => IconName::GitBranch.into(),
             Form::Remote => IconName::Server.into(),
-            Form::Worktree => IconName::FolderPlus.into(),
+            Form::Worktree | Form::CheckoutWorktree(..) => IconName::FolderPlus.into(),
             Form::Stash => IconName::Archive.into(),
         };
         self.feedback_button(id.into(), icon_action(Button::new(id), icon, form.title()))
@@ -621,7 +627,13 @@ impl Changes {
             return;
         }
         let key = format!("{}:{:?}", form.title(), self.active_root);
-        let saved = self.form_values.get(&key).cloned().unwrap_or_default();
+        let worktree = matches!(form, Form::Worktree | Form::CheckoutWorktree(..));
+        let saved = self
+            .form_values
+            .get(&key)
+            .filter(|_| !worktree)
+            .cloned()
+            .unwrap_or_default();
         let fields: Vec<_> = form
             .fields()
             .into_iter()
@@ -646,7 +658,7 @@ impl Changes {
         let owner = cx.entity().downgrade();
         let root = self.active_root.clone();
         let validation = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
-        let branch_only = matches!(form, Form::Branch);
+        let branch_only = matches!(form, Form::Branch | Form::Worktree);
         let mut revisions = Vec::new();
         if !branch_only {
             revisions.push(("HEAD".to_string(), "HEAD".to_string()));
@@ -680,6 +692,18 @@ impl Changes {
             let key = key.clone();
             let validation = validation.clone();
             let mut dialog = dialog.title(tr(form.title())).width(px(480.));
+            if let Form::CheckoutWorktree(checkout, _) = &form {
+                let context = match checkout {
+                    git::WorktreeCheckout::Branch(branch) => branch.clone(),
+                    git::WorktreeCheckout::Detached(revision) => format!(
+                        "{} · {}",
+                        tr("Detached HEAD"),
+                        revision.trim_start_matches("refs/tags/")
+                    ),
+                    git::WorktreeCheckout::NewBranch { name, .. } => name.clone(),
+                };
+                dialog = dialog.child(div().text_sm().child(context));
+            }
             for (index, (label, input)) in fields.iter().enumerate() {
                 if form.revision_field(index) {
                     let current = input.read(cx).value().to_string();
@@ -744,16 +768,6 @@ impl Changes {
                         .child(crate::views::form_input(input, window, cx).aria_label(tr(label))),
                 );
             }
-            if matches!(form, Form::Worktree) {
-                dialog = dialog.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(tr(
-                            "Creates a detached worktree. Create a branch there before committing.",
-                        )),
-                );
-            }
             if let Some(error) = validation.borrow().clone() {
                 dialog = dialog.child(div().text_sm().text_color(cx.theme().danger).child(error));
             }
@@ -786,17 +800,25 @@ impl Changes {
                         .cancel_text(tr("Cancel")),
                 )
                 .on_ok(move |_, window, cx| {
-                    let values: Vec<_> = fields
+                    let mut values: Vec<_> = fields
                         .iter()
                         .map(|(_, input)| input.read(cx).value().to_string().trim().to_owned())
                         .collect();
+                    if matches!(form, Form::Worktree)
+                        && values[2].is_empty()
+                        && !values[0].is_empty()
+                        && let Some(root) = &root
+                    {
+                        values[2] = suggested_worktree_path(root, &values[0]);
+                    }
                     if values.iter().any(String::is_empty) {
                         *validation.borrow_mut() = Some(tr("Complete the required fields"));
                         window.refresh();
                         return false;
                     }
                     let path_index = match form {
-                        Form::Worktree => Some(0),
+                        Form::Worktree => Some(2),
+                        Form::CheckoutWorktree(..) => Some(0),
                         _ => None,
                     };
                     if path_index.is_some_and(|index| !PathBuf::from(&values[index]).is_absolute())
@@ -809,7 +831,9 @@ impl Changes {
                         if view.active_root != root {
                             return;
                         }
-                        view.form_values.insert(key.clone(), values.clone());
+                        if !worktree {
+                            view.form_values.insert(key.clone(), values.clone());
+                        }
                         let operation = match &form {
                             Form::Branch => Operation::CreateBranch {
                                 name: values[0].clone(),
@@ -823,8 +847,15 @@ impl Changes {
                                 Operation::AddRemote(values[0].clone(), values[1].clone())
                             }
                             Form::Worktree => Operation::AddWorktree {
+                                path: PathBuf::from(&values[2]),
+                                checkout: git::WorktreeCheckout::NewBranch {
+                                    name: values[0].clone(),
+                                    from: values[1].clone(),
+                                },
+                            },
+                            Form::CheckoutWorktree(checkout, _) => Operation::AddWorktree {
                                 path: PathBuf::from(&values[0]),
-                                revision: values[1].clone(),
+                                checkout: checkout.clone(),
                             },
                             Form::Stash => Operation::StashSave(values[0].clone()),
                             Form::Compare => {
@@ -929,4 +960,11 @@ impl Changes {
             cx,
         );
     }
+}
+
+pub(super) fn suggested_worktree_path(root: &std::path::Path, branch: &str) -> String {
+    let repo = root.file_name().unwrap_or_default().to_string_lossy();
+    root.with_file_name(format!("{repo}-{}", branch.replace('/', "-")))
+        .display()
+        .to_string()
 }
