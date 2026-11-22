@@ -6,7 +6,11 @@ use gpui_kit::{
 };
 use std::path::PathBuf;
 
-const HEADER_LEFT_PADDING: f32 = if cfg!(windows) { 12. } else { 94. };
+pub(super) const HOME_ICON_SIZE: f32 = 17.;
+pub(super) const SIDEBAR_INSET_REM: f32 = 0.75;
+#[cfg(windows)]
+pub(super) const HOME_BUTTON_INSET_REM: f32 = 0.625;
+pub(super) const HOME_LABEL_GAP_REM: f32 = 0.75;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Target {
@@ -22,7 +26,29 @@ impl Target {
     }
 }
 impl Workspace {
-    pub(super) fn header_controls_width(&self, window: &Window, cx: &App) -> f32 {
+    pub(super) fn header_left_padding(&self, window: &Window) -> Pixels {
+        #[cfg(windows)]
+        {
+            if self.workspace_sidebar_visible() {
+                return window.rem_size()
+                    * (SIDEBAR_INSET_REM + HOME_BUTTON_INSET_REM + HOME_LABEL_GAP_REM)
+                    + px(HOME_ICON_SIZE);
+            }
+            px((super::COLLAPSED_WORKSPACE_WIDTH - HOME_ICON_SIZE) / 2.)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = window;
+            px(94.)
+        }
+    }
+
+    pub(super) fn header_controls_width(
+        &self,
+        left_padding: Pixels,
+        window: &Window,
+        cx: &App,
+    ) -> f32 {
         let restore = self.reader_toolbar_collapsed && self.page == super::Page::Document;
         let update = crate::app::updates::state(cx)
             .is_some_and(|state| state.read(cx).snapshot.has_update());
@@ -42,7 +68,7 @@ impl Workspace {
             None,
         );
         // Match the title bar's padding, separator, gaps and navigation buttons.
-        HEADER_LEFT_PADDING
+        f32::from(left_padding)
             + f32::from(brand.width)
             + 16.
             + 1.
@@ -388,11 +414,16 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn header(&self, rounded_join: bool, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn header(
+        &self,
+        left_padding: Pixels,
+        rounded_join: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let navigation = h_flex()
             .relative()
             .size_full()
-            .pl(px(HEADER_LEFT_PADDING))
+            .pl(left_padding)
             .pr(px(8.))
             .gap_2()
             .child(

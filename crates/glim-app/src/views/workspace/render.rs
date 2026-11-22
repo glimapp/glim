@@ -209,7 +209,9 @@ impl Render for Workspace {
         let sidebar_width = self.workspace_column_width(window_width);
         let explorer_width = self.explorer_column_width(window_width);
         let navigation_width = sidebar_width + explorer_width;
-        let header_width = navigation_width.max(self.header_controls_width(window, cx));
+        let brand_inset = self.header_left_padding(window);
+        let header_width =
+            navigation_width.max(self.header_controls_width(brand_inset, window, cx));
         let rounded_header_join = header_width - navigation_width > 0.5;
         let document_page = self.page == Page::Document;
         // The tab bar's one-pixel bottom border sits inside its height.
@@ -217,7 +219,7 @@ impl Render for Workspace {
             px(super::TITLE_BAR_HEIGHT) - px(if document_page { 1. } else { 0. });
         let header_cutout = rounded_header_join
             .then(|| size(px(header_width - navigation_width), header_divider_y));
-        let header = self.header(rounded_header_join, cx);
+        let header = self.header(brand_inset, rounded_header_join, cx);
         let window_controls_width = super::header::window_controls_width(window);
         let view = cx.entity().downgrade();
         let open: crate::views::reader::OpenLink =
@@ -385,7 +387,10 @@ impl Render for Workspace {
             } else {
                 cx.theme().sidebar
             };
-            Button::new(id)
+            let button = Button::new(id);
+            #[cfg(windows)]
+            let button = button.pl(rems(super::header::HOME_BUTTON_INSET_REM));
+            button
                 .custom(
                     ButtonCustomVariant::new(cx)
                         .color(background)
@@ -407,8 +412,8 @@ impl Render for Workspace {
                 .child(
                     h_flex()
                         .w_full()
-                        .gap_3()
-                        .child(Icon::new(icon).size(px(17.)))
+                        .gap(rems(super::header::HOME_LABEL_GAP_REM))
+                        .child(Icon::new(icon).size(px(super::header::HOME_ICON_SIZE)))
                         .child(glim_services::locale::tr(label)),
                 )
         };
@@ -425,7 +430,7 @@ impl Render for Workspace {
         let sidebar = v_flex()
             .size_full()
             .pt(px(super::TITLE_BAR_HEIGHT))
-            .pl_3()
+            .pl(rems(super::header::SIDEBAR_INSET_REM))
             .pb_1()
             .gap_1()
             .bg(cx.theme().sidebar)
@@ -685,7 +690,8 @@ impl Render for Workspace {
                                     .h(px(super::WORKSPACE_ROW_HEIGHT))
                                     .flex_shrink_0()
                                     .icon(
-                                        Icon::new(gpui_kit::assets::IconName::House).size(px(17.)),
+                                        Icon::new(gpui_kit::assets::IconName::House)
+                                            .size(px(super::header::HOME_ICON_SIZE)),
                                     )
                                     .tooltip(glim_services::locale::tr("Start"))
                                     .accessibility_label(glim_services::locale::tr("Start"))
