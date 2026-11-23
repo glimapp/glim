@@ -6,12 +6,13 @@ Glim 是 Mac 上的文件查看工作区。你可以是来读合同的职场人�
 
 <a id="cli"></a>
 
-## 在终端处理 Markdown
+## 在终端打开文件和处理 Markdown
 
 从项目目录运行以下命令。路径可以是相对路径，文件名含空格时用引号括起来。 [安装终端命令](../README.zh-CN.md#终端与-ai-工具)
 
 ```sh
-glim open .
+glim "meeting notes.md"
+glim .
 glim preview "meeting notes.md"
 glim pdf "meeting notes.md" "meeting notes.pdf"
 glim html "meeting notes.md" "meeting notes.html"

@@ -6,12 +6,13 @@ Glim is a file-viewing workspace for Mac. Use it to read a contract, study refer
 
 <a id="cli"></a>
 
-## Work with Markdown in the terminal
+## Open files and work with Markdown in the terminal
 
 Run these commands from your project directory. Relative paths work, and quotes preserve spaces in filenames. [Install the terminal command](../README.md#terminal-and-ai-tools)
 
 ```sh
-glim open .
+glim "meeting notes.md"
+glim .
 glim preview "meeting notes.md"
 glim pdf "meeting notes.md" "meeting notes.pdf"
 glim html "meeting notes.md" "meeting notes.html"

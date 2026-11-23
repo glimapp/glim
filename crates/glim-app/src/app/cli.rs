@@ -4,14 +4,16 @@ use glim_services::{
     archive, binary, csv, files, integrations, markdown_export, sqlite, work::Cancellation,
 };
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     path::{Path, PathBuf},
     process::Command,
 };
 
-const HELP: &str = "Usage: glim COMMAND [ARGS]
+const HELP: &str = "Usage: glim PATH
+       glim -- PATH
+       glim COMMAND [ARGS]
 
-  open PATH                  Open a file or folder in Glim
+  PATH                       Open a file or folder in Glim
   html MARKDOWN OUTPUT       Write standalone HTML
   pdf MARKDOWN OUTPUT        Write a PDF
   preview MARKDOWN           Open rendered HTML in the default browser
@@ -104,28 +106,33 @@ pub fn run() -> Result<()> {
             );
         }
         (Some("mcp"), []) => return integrations::mcp::run(),
-        (Some("open"), [input]) => {
-            let path = PathBuf::from(input)
-                .canonicalize()
-                .context("Cannot resolve input path")?;
-            ensure!(
-                Command::new("/usr/bin/open")
-                    .arg("-a")
-                    .arg(integrations::bundle()?)
-                    .arg("--")
-                    .arg(path)
-                    .status()?
-                    .success(),
-                "macOS could not open the path in Glim"
-            );
-        }
         (Some("html" | "pdf"), [input, output]) => {
             let output = std::env::current_dir()?.join(output);
             render(input, Some((&output, name == "pdf")))?;
         }
         (Some("preview"), [input]) => render(input, None)?,
+        (Some("--"), [input]) => open_path(input)?,
+        (_, []) if !name.as_encoded_bytes().starts_with(b"-") => open_path(name)?,
         _ => bail!("Invalid command or arguments.\n{HELP}"),
     }
+    Ok(())
+}
+
+fn open_path(input: &OsStr) -> Result<()> {
+    let input = Path::new(input);
+    let path = input
+        .canonicalize()
+        .with_context(|| format!("Cannot resolve path {}", input.display()))?;
+    ensure!(
+        Command::new("/usr/bin/open")
+            .arg("-a")
+            .arg(integrations::bundle()?)
+            .arg("--")
+            .arg(path)
+            .status()?
+            .success(),
+        "macOS could not open the path in Glim"
+    );
     Ok(())
 }
 

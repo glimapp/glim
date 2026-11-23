@@ -89,7 +89,8 @@ If a local database sits beside your report, open it in Glim. Choose a table, fi
 Choose **Settings → App integrations → Terminal and agent tools → Set up**. Glim configures your shell PATH and installs its skill for detected compatible agents. Open a new terminal or agent session to use it.
 
 ```sh
-glim open README.md
+glim README.md
+glim docs/
 glim pdf README.md report.pdf
 glim html README.md report.html
 glim preview README.md
