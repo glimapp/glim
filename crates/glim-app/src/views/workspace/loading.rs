@@ -363,6 +363,7 @@ impl Workspace {
             let explorer = cx.new(|cx| {
                 let mut explorer = Explorer::new(snapshot.root, snapshot.entries, cx);
                 explorer.set_remote(remote);
+                explorer.set_git_repositories(self.git_repositories.clone());
                 explorer
             });
             self.explorer_subscription = Some(cx.subscribe_in(
@@ -373,6 +374,7 @@ impl Workspace {
                         cx.notify();
                     }
                     ExplorerEvent::OpenFile(path) => view.open_path(path.clone(), window, cx),
+                    ExplorerEvent::FileHistory(path) => view.open_git_file_history(path, cx),
                     ExplorerEvent::NewFile(path) => view.file_action_dialog(
                         super::file_actions::FileAction::NewFile,
                         path.clone(),
@@ -532,6 +534,11 @@ impl Workspace {
                     return;
                 }
                 if let Ok(repositories) = result {
+                    if let Some(explorer) = &view.explorer {
+                        explorer.update(cx, |explorer, _| {
+                            explorer.set_git_repositories(repositories.clone())
+                        });
+                    }
                     view.git_repositories = repositories;
                     if view.git_repositories.is_empty() {
                         view.set_changes_expanded(false, cx);

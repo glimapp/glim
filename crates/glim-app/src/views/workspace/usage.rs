@@ -105,6 +105,28 @@ impl Workspace {
         telemetry::track("workspace_layout_changed", props);
     }
 
+    pub(super) fn open_git_file_history(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
+        let Some(root) = self
+            .git_repositories
+            .iter()
+            .filter(|root| path.starts_with(root))
+            .max_by_key(|root| root.components().count())
+            .cloned()
+        else {
+            return;
+        };
+        let Ok(relative) = path.strip_prefix(&root) else {
+            return;
+        };
+        if !self.changes_expanded {
+            self.set_changes_expanded(true, cx);
+        }
+        let relative = relative.to_path_buf();
+        self.changes.update(cx, |changes, cx| {
+            changes.open_file_history(root, relative, cx);
+        });
+    }
+
     pub(super) fn set_changes_expanded(&mut self, expanded: bool, cx: &mut Context<Self>) {
         let expanded = expanded && glim_services::git::enabled();
         if self.changes_expanded != expanded {

@@ -857,6 +857,8 @@
   "Clear": "清除",
   "Commit actions": "提交操作",
   "Commit message": "提交说明",
+  "Choose two revisions…": "选择两个版本…",
+  "Select a commit": "选择一条提交",
   "Compare revisions": "比较版本",
   "Conflicts": "冲突",
   "Continue": "继续",

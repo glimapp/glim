@@ -31,23 +31,6 @@ pub(super) fn strings(
     )
 }
 
-pub fn commit_identity(
-    root: &Path,
-    remote: Option<&Session>,
-    cancel: &Cancellation,
-) -> Result<[String; 2]> {
-    let read = |key| {
-        strings(
-            root,
-            remote,
-            &["config", "--default", "", "--get", key],
-            cancel,
-        )
-        .map(|v| v.trim_end().to_owned())
-    };
-    Ok([read("user.name")?, read("user.email")?])
-}
-
 pub fn metadata(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> Result<Metadata> {
     let status = strings(
         root,

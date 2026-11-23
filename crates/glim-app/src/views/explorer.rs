@@ -21,6 +21,7 @@ use moving::DraggedEntry;
 pub enum ExplorerEvent {
     SelectionChanged,
     OpenFile(PathBuf),
+    FileHistory(PathBuf),
     NewFile(PathBuf),
     NewFolder(PathBuf),
     RenameEntry(PathBuf),
@@ -96,6 +97,7 @@ enum FileMenuAction {
     Rename,
     Play(bool),
     Open,
+    FileHistory,
     Reveal,
     CopyRelative,
     CopyAbsolute,
@@ -107,6 +109,7 @@ enum FileMenuAction {
 /// Only expanded directories are loaded, and only visible rows are rendered.
 pub struct Explorer {
     remote: Option<glim_services::remote::Session>,
+    git_repositories: Vec<PathBuf>,
     roots: Vec<PathBuf>,
     root_ids: Vec<u64>,
     next_root_id: u64,
@@ -155,6 +158,7 @@ impl Explorer {
     pub fn new(root: PathBuf, entries: Vec<DirectoryEntry>, cx: &mut Context<Self>) -> Self {
         let mut view = Self {
             remote: None,
+            git_repositories: Vec::new(),
             roots: vec![root.clone()],
             root_ids: vec![0],
             next_root_id: 1,
@@ -188,6 +192,10 @@ impl Explorer {
         view.rebuild();
         view
     }
+    pub fn set_git_repositories(&mut self, roots: Vec<PathBuf>) {
+        self.git_repositories = roots;
+    }
+
     pub fn set_remote(&mut self, remote: Option<glim_services::remote::Session>) {
         self.remote = remote;
     }
@@ -1496,6 +1504,14 @@ impl Explorer {
         } else if !is_dir && glim_services::preview::supports(&path) {
             items.extend([(Some("Open Preview / Play"), Some(Open)), (None, None)]);
         }
+        if !is_dir
+            && self
+                .git_repositories
+                .iter()
+                .any(|root| path.starts_with(root))
+        {
+            items.extend([(Some("File history"), Some(FileHistory)), (None, None)]);
+        }
         items.extend([
             (Some("Reveal in Finder"), Some(Reveal)),
             (None, None),
@@ -1552,6 +1568,7 @@ impl Explorer {
                         Play(true) => "play_folder_shuffle",
                         Play(false) => "play_folder",
                         Open => "open",
+                        FileHistory => "file_history",
                         Reveal => "reveal_in_finder",
                         CopyRelative => "copy_relative_path",
                         CopyAbsolute => "copy_absolute_path",
@@ -1583,6 +1600,7 @@ impl Explorer {
                         Rename => cx.emit(ExplorerEvent::RenameEntry(path.clone())),
                         Play(shuffle) => cx.emit(ExplorerEvent::PlayFolder(path.clone(), shuffle)),
                         Open => cx.emit(ExplorerEvent::OpenFile(path.clone())),
+                        FileHistory => cx.emit(ExplorerEvent::FileHistory(path.clone())),
                         Reveal => cx.reveal_path(&path),
                         CopyRelative => {
                             let relative = path.strip_prefix(&root).unwrap_or(&path);

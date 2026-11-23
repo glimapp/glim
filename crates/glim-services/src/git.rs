@@ -1,9 +1,7 @@
-//! Git queries and serialized mutations. Call only on background workers.
-mod operations;
+//! Git reading and explicit remote refresh. Call on background workers.
 mod query;
 use crate::{locale::tr, remote::Session, work::Cancellation};
 use anyhow::{Context, Result, ensure};
-pub use operations::*;
 pub use query::*;
 use std::{
     ffi::OsString,
@@ -82,17 +80,8 @@ fn command(root: &Path, remote: Option<&Session>, args: &[OsString]) -> Result<C
 }
 
 fn run(
-    command: Command,
-    different: bool,
-    cancel: &Cancellation,
-) -> Result<tempfile::NamedTempFile> {
-    run_input(command, different, None, cancel)
-}
-
-fn run_input(
     mut command: Command,
     different: bool,
-    input: Option<&tempfile::NamedTempFile>,
     cancel: &Cancellation,
 ) -> Result<tempfile::NamedTempFile> {
     ensure_enabled()?;
@@ -100,10 +89,7 @@ fn run_input(
     let output = tempfile::NamedTempFile::new()?;
     let errors = tempfile::NamedTempFile::new()?;
     command
-        .stdin(match input {
-            Some(input) => Stdio::from(input.reopen()?),
-            None => Stdio::null(),
-        })
+        .stdin(Stdio::null())
         .stdout(output.reopen()?)
         .stderr(errors.reopen()?);
     let status = crate::work::run(&mut command, cancel).context(tr("Cannot run Git"))?;
@@ -147,22 +133,7 @@ pub fn fetch_remote_updates(
     root: &Path,
     remote: Option<&Session>,
     cancel: &Cancellation,
-) -> Result<bool> {
-    use sha2::{Digest, Sha256};
-    let snapshot = || -> Result<_> {
-        let args = [
-            "for-each-ref",
-            "--format=%(refname) %(objectname)",
-            "refs/remotes",
-            "refs/tags",
-        ]
-        .map(OsString::from);
-        let output = run(command(root, remote, &args)?, false, cancel)?;
-        let mut hash = Sha256::new();
-        cancel.copy(output.reopen()?, &mut hash)?;
-        Ok(hash.finalize())
-    };
-    let before = snapshot()?;
+) -> Result<()> {
     let args = [
         "-c",
         "credential.interactive=false",
@@ -174,7 +145,7 @@ pub fn fetch_remote_updates(
     ]
     .map(OsString::from);
     run(command(root, remote, &args)?, false, cancel)?;
-    Ok(snapshot()? != before)
+    Ok(())
 }
 
 pub fn changes(root: &Path, remote: Option<&Session>, cancel: &Cancellation) -> Result<Repository> {

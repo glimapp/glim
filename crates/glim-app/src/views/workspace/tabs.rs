@@ -197,6 +197,7 @@ enum TabMenuAction {
     Trash(std::path::PathBuf),
     Detach(super::header::Target),
     CopyPath(std::path::PathBuf),
+    FileHistory(std::path::PathBuf),
     Reveal(std::path::PathBuf),
 }
 
@@ -543,6 +544,17 @@ impl Workspace {
                     actions.push(Some(TabMenuAction::CopyPath(relative)));
                 }
             }
+            if reader.document.draft_directory.is_none()
+                && self
+                    .git_repositories
+                    .iter()
+                    .any(|root| reader.document.path.starts_with(root))
+            {
+                items.push((Some(glim_services::locale::tr("File history")), true));
+                actions.push(Some(TabMenuAction::FileHistory(
+                    reader.document.path.clone(),
+                )));
+            }
             items.push((None, true));
             actions.push(None);
         }
@@ -594,6 +606,7 @@ impl Workspace {
                             ClipboardItem::new_string(path.to_string_lossy().into_owned()),
                         ),
                         TabMenuAction::Reveal(path) => cx.reveal_path(&path),
+                        TabMenuAction::FileHistory(path) => view.open_git_file_history(&path, cx),
                         TabMenuAction::Close(targets) => view.close_tabs(targets, window, cx),
                         TabMenuAction::Trash(path) => view.confirm_trash(path, window, cx),
                     }

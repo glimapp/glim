@@ -198,8 +198,6 @@ impl Workspace {
     }
 
     pub(crate) fn resume_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.changes
-            .update(cx, |git, cx| git.resume_worktree_list(cx));
         self.sidebar_window_width = 0.;
         self.explorer_container_width = 0.;
         if self.roots.is_empty()
