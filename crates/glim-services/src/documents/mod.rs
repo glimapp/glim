@@ -93,7 +93,9 @@ pub fn read_session_tab(
 ) -> anyhow::Result<Content> {
     cancel.check()?;
     match tab {
-        glim_core::session::SessionTab::File { path, .. } => read_content_cancellable(path, cancel),
+        glim_core::session::SessionTab::File { path, .. } => {
+            read_content_with_phase(path, cancel, "restore")
+        }
         glim_core::session::SessionTab::Playlist { path, shuffle } => {
             Ok(Content::Native(path.clone(), true, *shuffle))
         }
@@ -107,7 +109,15 @@ pub fn read_content_cancellable(
     path: &std::path::Path,
     cancel: &crate::work::Cancellation,
 ) -> anyhow::Result<Content> {
-    let _scope = crate::diagnostics::FileScope::enter(path, "read");
+    read_content_with_phase(path, cancel, "read")
+}
+
+fn read_content_with_phase(
+    path: &std::path::Path,
+    cancel: &crate::work::Cancellation,
+    phase: &'static str,
+) -> anyhow::Result<Content> {
+    let _scope = crate::diagnostics::FileScope::enter(path, phase);
     log::info!("read begin file={}", path.display());
     let started = std::time::Instant::now();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

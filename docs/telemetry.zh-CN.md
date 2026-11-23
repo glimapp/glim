@@ -75,7 +75,7 @@ python3 scripts/telemetry-format-report.py events.json --output formats.csv
 
 不上传文档内容、文件名、完整路径、搜索词、数据库/表/列名、URL、原始日志/错误/panic 文本。错误仅含分类、应用源码文件名/行号、组件/阶段、固定指纹、系统错误码和最多三条应用/GPUI panic 符号。最近操作上下文只有事件名；完整诊断保留本地。强制退出或崩溃可能来不及发送。
 
-失败率以操作结果为准。同一次故障可能同时触发 `operation_failed` 和 `error_logged`，不能把诊断事件相加当失败次数。同指纹错误一分钟内去重，后续刷新或正常退出以 `error_repeated.occurrences` 聚合；有限指纹表淘汰可能丢失重复细节。`telemetry_health.errors_suppressed` 是压缩信息，不能再与 occurrence 相加。
+失败率以操作结果为准。同一次故障可能同时触发 `operation_failed` 和 `error_logged`，不能把诊断事件相加当失败次数。文档读取错误使用固定阶段 `restore`（恢复会话）、`refresh`（后台刷新）或 `read`（其他读取）；历史报告三者均为 `read`。同指纹错误一分钟内去重，后续刷新或正常退出以 `error_repeated.occurrences` 聚合；有限指纹表淘汰可能丢失重复细节。`telemetry_health.errors_suppressed` 是压缩信息，不能再与 occurrence 相加。
 
 类型化的阅读取消记录 `result=cancelled`，不发送 `operation_failed`，统计失败次数时排除取消。SQLite 打开失败附带格式、固定的 snapshot/recovery/schema 阶段、文件系统／快照／SQLite 错误分类，以及可用的 SQLite 数字扩展错误码；数据库名称、结构及错误原文保留本地。
 
