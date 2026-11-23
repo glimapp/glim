@@ -1,137 +1,128 @@
 use super::*;
+use crate::views::settings_controls::{field_choice, field_dropdown};
 use gpui_kit::assets::IconName;
-use gpui_kit::component::{
-    WindowExt,
-    menu::{DropdownMenu, PopupMenuItem},
-};
+use gpui_kit::component::WindowExt;
 
-pub(super) fn icon_action(button: Button, icon: IconName, label: &'static str) -> Button {
+pub(super) fn navigation_button(
+    id: impl Into<ElementId>,
+    icon: IconName,
+    label: &str,
+    hint: &str,
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .small()
+        .h(px(46.))
+        .px(px(3.))
+        .tooltip(tr(hint))
+        .accessibility_label(tr(hint))
+        .child(
+            v_flex()
+                .items_center()
+                .gap(px(3.))
+                .child(gpui_kit::component::Icon::new(icon).size(px(14.)))
+                .child(div().text_xs().child(tr(label))),
+        )
+}
+pub(super) fn icon_action(
+    button: Button,
+    icon: impl Into<gpui_kit::component::Icon>,
+    label: &str,
+) -> Button {
     let label = tr(label);
     button
-        .small()
         .ghost()
-        .icon(icon)
+        .small()
+        .icon(icon.into())
         .tooltip(label.clone())
         .accessibility_label(label)
 }
 
 impl Changes {
-    pub(super) fn active_change_count(&self) -> usize {
-        self.rows.len()
+    pub(super) fn branch_label(
+        &self,
+        branch: &str,
+        ahead: usize,
+        behind: usize,
+    ) -> impl IntoElement {
+        h_flex()
+            .min_w_0()
+            .gap_1()
+            .px_2()
+            .h(px(24.))
+            .child(
+                gpui_kit::component::Icon::new(IconName::GitBranch)
+                    .size(px(14.))
+                    .flex_shrink_0(),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_xs()
+                    .child(branch.to_owned()),
+            )
+            .when(ahead > 0 || behind > 0, |row| {
+                row.child(div().text_xs().child(format!("↑{ahead} ↓{behind}")))
+            })
     }
 
-    pub(super) fn repository_header(&self, cx: &Context<Self>) -> impl IntoElement {
-        let root = self.active_root.clone();
-        let repository = self
-            .repositories
-            .iter()
-            .find(|repo| Some(&repo.root) == root.as_ref());
-        let branch = repository
-            .map(|repo| repo.metadata.branch.as_str())
-            .filter(|branch| !branch.is_empty());
-        let name = root.as_ref().map(|root| {
-            root.file_name()
-                .unwrap_or(root.as_os_str())
-                .to_string_lossy()
-                .into_owned()
+    pub(super) fn fetch_button(&self, id: &'static str, cx: &Context<Self>) -> Button {
+        icon_action(Button::new(id), IconName::Download, "Fetch")
+            .disabled(self.active_root.is_none() || self.fetch_task.is_some())
+            .loading(self.fetch_task.is_some())
+            .on_click(cx.listener(|view, _, _, cx| view.fetch(cx)))
+    }
+
+    pub(super) fn compare_button(&self, id: &'static str, cx: &Context<Self>) -> Button {
+        icon_action(
+            Button::new(id),
+            IconName::GitCompareArrows,
+            "Compare revisions",
+        )
+        .disabled(self.active_root.is_none())
+        .on_click(cx.listener(|view, _, window, cx| view.compare_dialog(window, cx)))
+    }
+
+    pub(super) fn feedback_key(
+        &self,
+        source: ElementId,
+    ) -> Option<(PathBuf, Option<String>, ElementId)> {
+        Some((
+            self.active_root.clone()?,
+            self.remote.as_ref().map(|s| s.connection.id.clone()),
+            source,
+        ))
+    }
+    pub(super) fn feedback_button(&self, source: ElementId, button: Button) -> Button {
+        if self.manual_refresh.as_ref() == Some(&source) && self.loading {
+            return button.loading(true);
+        }
+        match self
+            .feedback_key(source)
+            .and_then(|key| self.feedback.get(&key))
+        {
+            Some(None) => button.loading(true),
+            Some(Some(_)) => button.icon(IconName::Check),
+            None => button,
+        }
+    }
+    pub(super) fn show_completed(
+        &mut self,
+        key: (PathBuf, Option<String>, ElementId),
+        cx: &mut Context<Self>,
+    ) {
+        let finished = key.clone();
+        let timer = cx.spawn(async move |view, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1200))
+                .await;
+            let _ = view.update(cx, |view, cx| {
+                view.feedback.remove(&finished);
+                cx.notify();
+            });
         });
-        let label = match (name, branch) {
-            (Some(name), Some("(detached)")) => format!("{name} · {}", tr("Detached HEAD")),
-            (Some(name), Some(branch)) => format!("{name} · {branch}"),
-            (Some(name), None) => name,
-            _ => tr("No Git repository"),
-        };
-        let roots = self.roots.clone();
-        let catalog = self.catalog.clone();
-        let owner = cx.entity();
-        h_flex()
-            .w_full()
-            .min_w_0()
-            .px_2()
-            .gap_1()
-            .child(
-                Button::new("git-repository-picker")
-                    .small()
-                    .ghost()
-                    .flex_1()
-                    .min_w_0()
-                    .justify_start()
-                    .accessibility_label(label.clone())
-                    .child(div().min_w_0().truncate().child(label))
-                    .disabled(root.is_none())
-                    .dropdown_menu(move |mut menu, _, _| {
-                        for path in &roots {
-                            let path = path.clone();
-                            let owner = owner.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(path.display().to_string())
-                                    .checked(root.as_ref() == Some(&path))
-                                    .on_click(move |_, _, cx| {
-                                        owner.update(cx, |view, cx| {
-                                            view.activate_root(path.clone(), cx)
-                                        })
-                                    }),
-                            );
-                        }
-                        for tree in &catalog.worktrees {
-                            if tree.prunable || roots.contains(&tree.path) {
-                                continue;
-                            }
-                            let path = tree.path.clone();
-                            let owner = owner.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(if tree.branch.is_empty() {
-                                    path.display().to_string()
-                                } else {
-                                    format!("{} · {}", tree.branch, path.display())
-                                })
-                                .checked(root.as_ref() == Some(&path))
-                                .on_click(move |_, _, cx| {
-                                    owner
-                                        .update(cx, |view, cx| view.activate_root(path.clone(), cx))
-                                }),
-                            );
-                        }
-                        if let Some(path) = &root {
-                            let open_path = path.clone();
-                            let copy_path = path.display().to_string();
-                            let owner = owner.clone();
-                            menu = menu
-                                .separator()
-                                .item(PopupMenuItem::new(tr("Open worktree")).on_click(
-                                    move |_, _, cx| {
-                                        owner.update(cx, |_, cx| {
-                                            cx.emit(OpenWorktree(open_path.clone()))
-                                        });
-                                    },
-                                ))
-                                .item(PopupMenuItem::new(tr("Copy Absolute Path")).on_click(
-                                    move |_, _, cx| {
-                                        cx.write_to_clipboard(ClipboardItem::new_string(
-                                            copy_path.clone(),
-                                        ));
-                                    },
-                                ));
-                        }
-                        menu.scrollable(true).max_h(px(320.))
-                    }),
-            )
-            .child(
-                icon_action(Button::new("git-refresh"), IconName::RefreshCw, "Refresh")
-                    .disabled(self.loading || self.active_root.is_none())
-                    .on_click(cx.listener(|view, _, _, cx| view.refresh(cx))),
-            )
-            .child(
-                icon_action(
-                    Button::new("git-fetch"),
-                    IconName::Download,
-                    "Fetch updates from all remotes",
-                )
-                .disabled(
-                    self.loading || self.fetch_task.is_some() || self.catalog.remotes.is_empty(),
-                )
-                .on_click(cx.listener(|view, _, _, cx| view.fetch(cx))),
-            )
+        self.feedback.insert(key, Some(timer));
     }
 
     fn fetch(&mut self, cx: &mut Context<Self>) {
@@ -141,7 +132,7 @@ impl Changes {
         if self.fetch_task.is_some() {
             return;
         }
-        self.fetch_error = None;
+        self.operation_error = None;
         let remote = self.remote.clone();
         let connection = remote.as_ref().map(|session| session.connection.id.clone());
         let query_root = root.clone();
@@ -158,7 +149,7 @@ impl Changes {
                 {
                     match result {
                         Ok(_) => view.refresh(cx),
-                        Err(error) => view.fetch_error = Some(format!("{error:#}").into()),
+                        Err(error) => view.operation_error = Some(format!("{error:#}").into()),
                     }
                 }
                 cx.notify();
@@ -167,102 +158,212 @@ impl Changes {
         cx.notify();
     }
 
-    pub(super) fn revision_menu(&self, cx: &Context<Self>) -> impl IntoElement {
-        let catalog = self.catalog.clone();
-        let owner = cx.entity();
-        let root = self.active_root.clone();
-        Button::new("git-compare")
-            .small()
-            .ghost()
-            .label(tr("Compare revisions"))
-            .disabled(root.is_none() || self.loading)
-            .dropdown_menu(move |mut menu, _, _| {
-                let comparison_owner = owner.clone();
-                let comparison_root = root.clone();
-                menu = menu.item(PopupMenuItem::new(tr("Choose two revisions…")).on_click(
-                    move |_, window, cx| {
-                        comparison_owner.update(cx, |view, cx| {
-                            if view.active_root == comparison_root {
-                                view.compare_dialog(window, cx);
-                            }
-                        });
-                    },
-                ));
-                if !catalog.references.is_empty() {
-                    menu = menu.separator();
-                }
-                for reference in &catalog.references {
-                    let label = if reference.tag.is_some() {
-                        reference.name.clone()
-                    } else {
-                        format!("HEAD → {}", reference.name)
-                    };
-                    let comparison = Comparison::for_reference(reference);
-                    let owner = owner.clone();
-                    let root = root.clone();
-                    menu = menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                        owner.update(cx, |view, cx| {
-                            if view.active_root == root {
-                                view.open_comparison(comparison.clone(), cx);
-                            }
-                        });
-                    }));
-                }
-                if !catalog.stashes.is_empty() {
-                    menu = menu.separator();
-                    for stash in &catalog.stashes {
-                        let id = stash.id.clone();
-                        let owner = owner.clone();
-                        let root = root.clone();
-                        menu = menu.item(
-                            PopupMenuItem::new(format!("{} · {}", stash.name, stash.subject))
-                                .on_click(move |_, _, cx| {
-                                    owner.update(cx, |view, cx| {
-                                        if view.active_root == root {
-                                            view.open_comparison(Comparison::Stash(id.clone()), cx);
-                                        }
-                                    })
-                                }),
-                        );
-                    }
-                }
-                menu.scrollable(true).max_h(px(320.))
-            })
+    pub(super) fn error_dialog(
+        &self,
+        error: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.open_dialog(cx, move |dialog, _, _| {
+            let error = error.clone();
+            let copied = error.clone();
+            dialog
+                .title(tr("Git operation failed"))
+                .width(px(640.))
+                .child(
+                    div()
+                        .id("git-operation-details")
+                        .max_h(px(360.))
+                        .overflow_y_scroll()
+                        .text_sm()
+                        .child(error),
+                )
+                .child(
+                    Button::new("git-copy-error")
+                        .small()
+                        .label(tr("Copy error details"))
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(copied.to_string()))
+                        }),
+                )
+        });
     }
+
+    pub(super) fn preferences(cx: &App) -> glim_services::preferences::GitPreferences {
+        cx.try_global::<crate::app::GitSettings>()
+            .map(|settings| settings.preferences)
+            .unwrap_or_default()
+    }
+
+    pub(super) fn settings_view(&self, cx: &Context<Self>) -> AnyElement {
+        use gpui_kit::component::switch::Switch;
+        let label = tr("Enable worktrees");
+        v_flex()
+            .id("git-settings-panel")
+            .min_h_0()
+            .p_2()
+            .gap_2()
+            .overflow_y_scroll()
+            .child(
+                h_flex()
+                    .w_full()
+                    .min_h(px(30.))
+                    .gap_2()
+                    .child(div().flex_1().text_sm().child(label.clone()))
+                    .child(
+                        Switch::new("git-worktrees")
+                            .small()
+                            .checked(Self::preferences(cx).worktrees)
+                            .accessibility_label(label)
+                            .on_click(cx.listener(|view, enabled, _, cx| {
+                                view.save_preferences(
+                                    glim_services::preferences::GitPreferences {
+                                        worktrees: *enabled,
+                                    },
+                                    cx,
+                                );
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn save_preferences(
+        &self,
+        preferences: glim_services::preferences::GitPreferences,
+        cx: &mut Context<Self>,
+    ) {
+        let settings = cx.default_global::<crate::app::GitSettings>();
+        settings.preferences = preferences;
+        let previous = settings.save.take();
+        let owner = cx.entity().downgrade();
+        let task = cx.spawn(async move |_, cx| {
+            if let Some(previous) = previous {
+                previous.await;
+            }
+            if let Err(error) = cx
+                .background_executor()
+                .spawn(async move { glim_services::preferences::save_git_preferences(preferences) })
+                .await
+            {
+                let _ = owner.update(cx, |view, cx| {
+                    view.operation_error = Some(error.to_string().into());
+                    cx.notify();
+                });
+            }
+        });
+        cx.global_mut::<crate::app::GitSettings>().save = Some(task);
+    }
+
     fn compare_dialog(&self, window: &mut Window, cx: &mut Context<Self>) {
         let root = self.active_root.clone();
         let owner = cx.entity().downgrade();
-        let base = cx.new(|cx| {
-            let mut input = InputState::new(window, cx);
-            let initial = self.catalog.default_branch.as_deref().unwrap_or("HEAD");
-            input.set_value(initial, window, cx);
-            input
+        let initial = self.catalog.default_branch.as_deref().unwrap_or("HEAD");
+        let fields = ["Base revision", "Target revision"].map(|label| {
+            let input = cx.new(|cx| {
+                let mut state = InputState::new(window, cx);
+                state.set_value(initial, window, cx);
+                state
+            });
+            (label, input)
         });
-        let target = cx.new(|cx| {
-            let mut input = InputState::new(window, cx);
-            input.set_value("HEAD", window, cx);
-            input
-        });
+        let revisions = Arc::new(
+            std::iter::once(("HEAD".into(), "HEAD".into()))
+                .chain(
+                    self.catalog
+                        .references
+                        .iter()
+                        .map(|reference| (reference.name.clone(), reference.full.clone())),
+                )
+                .chain(self.commits.iter().map(|commit| {
+                    (
+                        format!(
+                            "{}  {}",
+                            &commit.id[..8.min(commit.id.len())],
+                            commit.subject
+                        ),
+                        commit.id.clone(),
+                    )
+                }))
+                .collect::<Vec<_>>(),
+        );
         window.open_dialog(cx, move |dialog, window, cx| {
             let owner = owner.clone();
             let root = root.clone();
-            let base_input = base.clone();
-            let target_input = target.clone();
-            dialog
-                .title(tr("Compare revisions"))
-                .width(px(380.))
-                .child(
+            let fields = fields.clone();
+            let title = tr("Compare revisions");
+            let mut dialog = dialog.title(title.clone()).width(px(480.));
+            for (index, (label, input)) in fields.iter().enumerate() {
+                let current = input.read(cx).value().to_string();
+                let display = revisions
+                    .iter()
+                    .find(|(_, value)| value == &current)
+                    .map_or_else(|| current.clone(), |(name, _)| name.clone());
+                let revisions = revisions.clone();
+                let input = input.clone();
+                dialog = dialog.child(
                     v_flex()
+                        .gap_1()
+                        .child(div().text_sm().child(tr(label)))
+                        .child(field_dropdown(
+                            Button::new(("revision-picker", index))
+                                .w_full()
+                                .justify_start()
+                                .accessibility_label(format!("{} · {display}", tr(label)))
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .min_w_0()
+                                        .gap_2()
+                                        .child(div().min_w_0().flex_1().truncate().child(display))
+                                        .child(
+                                            gpui_kit::component::Icon::new(IconName::ChevronDown)
+                                                .size(px(14.)),
+                                        ),
+                                ),
+                            window,
+                            cx,
+                            move |mut menu| {
+                                for (name, value) in revisions.iter() {
+                                    let selected = value == &current;
+                                    let value = value.clone();
+                                    let input = input.clone();
+                                    menu = menu.item(
+                                        field_choice(name.clone()).checked(selected).on_click(
+                                            move |_, window, cx| {
+                                                input.update(cx, |input, cx| {
+                                                    input.set_value(value.clone(), window, cx)
+                                                });
+                                                window.refresh();
+                                            },
+                                        ),
+                                    );
+                                }
+                                menu.scrollable(true).max_h(px(320.))
+                            },
+                        )),
+                );
+            }
+            dialog
+                .footer(
+                    h_flex()
+                        .justify_end()
                         .gap_2()
-                        .child(div().text_sm().child(tr("Base revision")))
                         .child(
-                            crate::views::form_input(&base, window, cx)
-                                .aria_label(tr("Base revision")),
+                            Button::new("git-form-cancel")
+                                .label(tr("Cancel"))
+                                .on_click(|_, window, cx| window.close_dialog(cx)),
                         )
-                        .child(div().text_sm().child(tr("Target revision")))
                         .child(
-                            crate::views::form_input(&target, window, cx)
-                                .aria_label(tr("Target revision")),
+                            crate::views::primary_button("git-form-submit", &title, false, cx)
+                                .on_click(|_, window, cx| {
+                                    window.dispatch_action(
+                                        Box::new(gpui_kit::component::dialog::Confirm {
+                                            secondary: false,
+                                        }),
+                                        cx,
+                                    )
+                                }),
                         ),
                 )
                 .button_props(
@@ -271,11 +372,8 @@ impl Changes {
                         .cancel_text(tr("Cancel")),
                 )
                 .on_ok(move |_, _, cx| {
-                    let left = base_input.read(cx).value().trim().to_owned();
-                    let right = target_input.read(cx).value().trim().to_owned();
-                    if left.is_empty() || right.is_empty() {
-                        return false;
-                    }
+                    let left = fields[0].1.read(cx).value().trim().to_owned();
+                    let right = fields[1].1.read(cx).value().trim().to_owned();
                     let _ = owner.update(cx, |view, cx| {
                         if view.active_root == root {
                             view.open_comparison(Comparison::Between(left, right), cx);
@@ -284,52 +382,5 @@ impl Changes {
                     true
                 })
         });
-    }
-
-    pub(super) fn diff_options(&self, parsed: bool, cx: &Context<Self>) -> impl IntoElement {
-        let owner = cx.entity();
-        let diff = self.diff.clone();
-        let wrap = self.soft_wrap;
-        icon_action(Button::new("git-diff-options"), IconName::Ellipsis, "More").dropdown_menu(
-            move |mut menu, _, _| {
-                let refresh = owner.clone();
-                menu = menu.item(PopupMenuItem::new(tr("Refresh")).on_click(move |_, _, cx| {
-                    refresh.update(cx, |view, cx| view.refresh(cx));
-                }));
-                let toggle_wrap = owner.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(tr("Wrap"))
-                        .checked(wrap)
-                        .disabled(!parsed)
-                        .on_click(move |_, _, cx| {
-                            toggle_wrap.update(cx, |view, cx| {
-                                view.soft_wrap = !view.soft_wrap;
-                                cx.notify();
-                            });
-                        }),
-                );
-                for (label, collapsed) in [("Collapse all", true), ("Expand all", false)] {
-                    let diff = diff.clone();
-                    menu = menu.item(PopupMenuItem::new(tr(label)).disabled(!parsed).on_click(
-                        move |_, _, cx| {
-                            diff.update(cx, |state, cx| {
-                                let paths: Vec<_> = state
-                                    .files()
-                                    .iter()
-                                    .filter(|file| {
-                                        state.is_file_collapsed(file.path()) != collapsed
-                                    })
-                                    .map(|file| file.path().clone())
-                                    .collect();
-                                for path in paths {
-                                    state.set_file_collapsed(&path, collapsed, cx);
-                                }
-                            });
-                        },
-                    ));
-                }
-                menu
-            },
-        )
     }
 }

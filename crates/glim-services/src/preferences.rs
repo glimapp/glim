@@ -155,6 +155,27 @@ fn get(key: &str) -> Result<Option<String>> {
 fn set(key: &str, value: &str) -> Result<()> {
     set_setting(&storage::open()?, key, value)
 }
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct GitPreferences {
+    pub worktrees: bool,
+}
+impl Default for GitPreferences {
+    fn default() -> Self {
+        Self { worktrees: true }
+    }
+}
+pub fn git_preferences() -> GitPreferences {
+    get("git-preferences")
+        .ok()
+        .flatten()
+        .and_then(|value| serde_json::from_str(&value).ok())
+        .unwrap_or_default()
+}
+pub fn save_git_preferences(value: GitPreferences) -> Result<()> {
+    set("git-preferences", &serde_json::to_string(&value)?)
+}
+
 pub fn word_wrap() -> bool {
     get("word-wrap")
         .ok()

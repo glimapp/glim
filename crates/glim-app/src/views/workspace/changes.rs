@@ -21,6 +21,8 @@ use gpui_kit::{
 };
 use std::{path::PathBuf, sync::Arc};
 
+type NavigationRow = (PathBuf, Option<Change>);
+
 pub(super) struct OpenFile(pub PathBuf);
 impl EventEmitter<OpenFile> for Changes {}
 pub(super) struct OpenWorktree(pub PathBuf);
@@ -70,9 +72,12 @@ pub(crate) struct Changes {
     pub(super) tabs: Vec<DiffTab>,
     release_titles: std::collections::HashMap<PathBuf, std::collections::HashMap<String, String>>,
     section: Section,
+    settings_open: bool,
+    monitoring: bool,
     available: bool,
     active_root: Option<PathBuf>,
     catalog: Arc<Catalog>,
+    expanded_worktrees: std::collections::HashSet<PathBuf>,
     commits: Arc<Vec<Commit>>,
     history_limit: usize,
     history_search: String,
@@ -83,17 +88,29 @@ pub(crate) struct Changes {
     search: Entity<InputState>,
     comparison: Option<(PathBuf, Comparison)>,
     selected_commit: Option<Commit>,
+    collapsed_refs: [bool; 3],
+    reference_groups: [Vec<usize>; 2],
+    reference_list: ListState,
+    visible_group_sizes: [usize; 3],
+    selected_reference: Option<usize>,
+    selected_remote: Option<String>,
+    selected_stash: Option<usize>,
     displayed_patch: Option<(DiffTab, [u8; 32])>,
+    catalog_ready: bool,
     browsing: bool,
     browse_generation: u64,
     browse_task: Option<Task<()>>,
     browse_cancel: Option<CancelOnDrop>,
+    feedback: std::collections::HashMap<(PathBuf, Option<String>, ElementId), Option<Task<()>>>,
+    manual_refresh: Option<ElementId>,
+    operation_error: Option<SharedString>,
+    fetch_task: Option<Task<()>>,
     browser_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
     roots: Vec<PathBuf>,
     remote: Option<glim_services::remote::Session>,
     repositories: Vec<Repository>,
-    rows: Arc<Vec<Vec<Change>>>,
+    rows: Arc<Vec<NavigationRow>>,
     scroll: UniformListScrollHandle,
     errors: Vec<SharedString>,
     loading: bool,
@@ -105,8 +122,6 @@ pub(crate) struct Changes {
     patch_error: Option<SharedString>,
     soft_wrap: bool,
     generation: u64,
-    fetch_task: Option<Task<()>>,
-    fetch_error: Option<SharedString>,
     status_task: Option<Task<()>>,
     status_cancel: Option<CancelOnDrop>,
     patch_task: Option<Task<()>>,
@@ -114,7 +129,16 @@ pub(crate) struct Changes {
 }
 
 impl Changes {
+    pub(super) fn resume_worktree_list(&mut self, cx: &mut Context<Self>) {
+        if self.monitoring && self.section == Section::Worktrees {
+            self.browse(cx);
+        }
+    }
+
     pub(super) fn cancel(&mut self, cx: &mut Context<Self>) {
+        self.manual_refresh = None;
+        self.settings_open = false;
+        self.monitoring = false;
         self.generation += 1;
         self.browse_generation += 1;
         self.browse_cancel = None;
@@ -134,7 +158,9 @@ impl Changes {
         self.tabs.clear();
         self.release_titles.clear();
         self.repositories.clear();
+        self.catalog_ready = false;
         self.catalog = Arc::default();
+        self.reference_groups = Default::default();
         self.commits = Arc::default();
         self.rows = Arc::default();
         self.selection = None;
@@ -157,14 +183,25 @@ impl Changes {
         let search =
             cx.new(|cx| InputState::new(window, cx).placeholder(tr("Search commit messages")));
         let diff = cx.new(|cx| DiffState::new([], cx));
-        let subscriptions = vec![cx.observe(&diff, |_, _, cx| cx.notify())];
+        let subscriptions = vec![
+            cx.observe_global::<crate::app::GitSettings>(|view, cx| {
+                if view.section == Section::Worktrees && !Self::preferences(cx).worktrees {
+                    view.switch_section(Section::Changes, cx);
+                }
+                cx.notify();
+            }),
+            cx.observe(&diff, |_, _, cx| cx.notify()),
+        ];
         Self {
             tabs: Vec::new(),
             release_titles: Default::default(),
             section: Section::Changes,
+            settings_open: false,
+            monitoring: false,
             available: true,
             active_root: None,
             catalog: Arc::default(),
+            expanded_worktrees: Default::default(),
             commits: Arc::default(),
             history_limit: git::HISTORY_PAGE,
             history_search: String::new(),
@@ -175,11 +212,23 @@ impl Changes {
             search,
             comparison: None,
             selected_commit: None,
+            collapsed_refs: [false; 3],
+            reference_groups: Default::default(),
+            reference_list: ListState::new(3, ListAlignment::Top, px(100.)),
+            visible_group_sizes: [0; 3],
+            selected_reference: None,
+            selected_remote: None,
+            selected_stash: None,
             displayed_patch: None,
+            catalog_ready: false,
             browsing: false,
             browse_generation: 0,
             browse_task: None,
             browse_cancel: None,
+            feedback: Default::default(),
+            manual_refresh: None,
+            operation_error: None,
+            fetch_task: None,
             browser_error: None,
             _subscriptions: subscriptions,
             roots: Vec::new(),
@@ -197,8 +246,6 @@ impl Changes {
             patch_error: None,
             soft_wrap: true,
             generation: 0,
-            fetch_task: None,
-            fetch_error: None,
             status_task: None,
             status_cancel: None,
             patch_task: None,
@@ -216,6 +263,7 @@ impl Changes {
             self.disable(cx);
             return;
         }
+        self.monitoring = !roots.is_empty();
         self.available = true;
         self.status_cancel = None;
         self.status_task = None;
@@ -228,15 +276,22 @@ impl Changes {
             || self.remote.as_ref().map(|r| &r.connection.id)
                 != remote.as_ref().map(|r| &r.connection.id)
         {
+            self.manual_refresh = None;
             self.errors.clear();
             self.tabs.clear();
             self.release_titles.clear();
+            self.expanded_worktrees.clear();
             self.selection = None;
             self.active_root = None;
             self.comparison = None;
+            self.catalog_ready = false;
             self.catalog = Arc::default();
+            self.reference_groups = Default::default();
             self.commits = Arc::default();
             self.selected_commit = None;
+            self.selected_reference = None;
+            self.selected_remote = None;
+            self.selected_stash = None;
             self.reset_history();
             self.history_path = None;
             self.cancel_browse();
@@ -249,31 +304,17 @@ impl Changes {
         self.loading = true;
         let (cancel, guard) = Cancellation::task();
         self.status_cancel = Some(guard);
-        if self.active_root.is_none() {
-            self.active_root = roots.first().cloned();
-        }
-        let active_root = self.active_root.clone();
-        let same_repository = self
-            .repositories
-            .iter()
-            .any(|repository| Some(&repository.root) == active_root.as_ref());
-        if !same_repository {
-            self.rows = Arc::default();
-            self.repositories.clear();
-            self.errors.clear();
-        }
         let work = cx.background_executor().spawn(async move {
-            let repository = active_root.as_ref().map(|root| {
-                git::changes(root, remote.as_ref(), &cancel)
-                    .map_err(|error| format!("{}: {error:#}", root.display()))
-            });
-            let catalog = active_root
-                .as_ref()
-                .map(|root| git::catalog(root, remote.as_ref(), &cancel));
-            (repository, catalog)
+            roots
+                .into_iter()
+                .map(|root| {
+                    git::changes(&root, remote.as_ref(), &cancel)
+                        .map_err(|error| format!("{}: {error:#}", root.display()))
+                })
+                .collect::<Vec<_>>()
         });
         self.status_task = Some(cx.spawn(async move |view, cx| {
-            let (repository, catalog) = work.await;
+            let results = work.await;
             let _ = view.update(cx, |view, cx| {
                 if view.generation != generation {
                     return;
@@ -281,26 +322,41 @@ impl Changes {
                 view.loading = false;
                 view.errors.clear();
                 view.repositories.clear();
-                match repository {
-                    Some(Ok(repository)) => view.repositories.push(repository),
-                    Some(Err(error)) => view.errors.push(error.into()),
-                    None => {}
-                }
-                match catalog {
-                    Some(Ok(catalog)) => view.catalog = Arc::new(catalog),
-                    Some(Err(error)) => {
-                        view.catalog = Arc::default();
-                        view.errors.push(format!("{error:#}").into());
+                for result in results {
+                    match result {
+                        Ok(repository) => view.repositories.push(repository),
+                        Err(error) => view.errors.push(error.into()),
                     }
-                    None => view.catalog = Arc::default(),
                 }
-                let mut rows = std::collections::BTreeMap::<PathBuf, Vec<Change>>::new();
-                for change in view.repositories.iter().flat_map(|repo| &repo.changes) {
-                    rows.entry(change.path.clone())
-                        .or_default()
-                        .push(change.clone());
+                if let Some(source) = view.manual_refresh.take()
+                    && view.errors.is_empty()
+                    && let Some(key) = view.feedback_key(source)
+                {
+                    view.show_completed(key, cx);
                 }
-                view.rows = Arc::new(rows.into_values().collect());
+                let mut rows = Vec::new();
+                for repository in &view.repositories {
+                    if view.repositories.len() > 1 {
+                        rows.push((repository.root.clone(), None));
+                    }
+                    for area in [Area::Staged, Area::Working, Area::Untracked] {
+                        rows.extend(
+                            repository
+                                .changes
+                                .iter()
+                                .filter(|change| change.area == area)
+                                .map(|change| (repository.root.clone(), Some(change.clone()))),
+                        );
+                    }
+                }
+                view.rows = Arc::new(rows);
+                if view
+                    .active_root
+                    .as_ref()
+                    .is_none_or(|root| !view.roots.contains(root))
+                {
+                    view.active_root = view.roots.first().cloned();
+                }
                 let selection =
                     view.selection
                         .as_ref()
@@ -321,18 +377,22 @@ impl Changes {
                                         .map(|change| (repo.root.clone(), change.clone()))
                                 })
                         });
-                if let Some((root, comparison)) = view.comparison.clone() {
-                    view.load_patch(root, None, Some(comparison), cx);
-                } else if let Some((root, change)) =
-                    selection.filter(|_| view.section == Section::Changes)
-                {
+                if view.section != Section::Changes {
+                    view.browse(cx);
+                    if let Some((root, comparison)) = view.comparison.clone() {
+                        view.load_patch(root, None, Some(comparison), cx);
+                    } else if view.section == Section::Worktrees
+                        && let Some((root, change)) = view.selection.clone()
+                    {
+                        view.load_patch(root, Some(change), None, cx);
+                    }
+                } else if let Some((root, Comparison::AllChanges)) = view.comparison.clone() {
+                    view.load_patch(root, None, Some(Comparison::AllChanges), cx);
+                } else if let Some((root, change)) = selection {
                     view.select(root, change, cx);
                 } else {
                     view.selection = None;
                     view.clear_patch(cx);
-                }
-                if view.section == Section::History {
-                    view.browse(cx);
                 }
                 cx.notify();
             });
@@ -355,7 +415,7 @@ impl Changes {
             .or_else(|| {
                 self.selection
                     .clone()
-                    .filter(|_| self.section == Section::Changes)
+                    .filter(|_| matches!(self.section, Section::Changes | Section::Worktrees))
                     .map(|(root, change)| DiffTab::File(root, change))
             })
     }
@@ -367,28 +427,26 @@ impl Changes {
 
     pub(super) fn activate_tab(&mut self, index: usize, cx: &mut Context<Self>) {
         match self.tabs.get(index).cloned() {
-            Some(DiffTab::File(root, change)) => {
-                self.section = Section::Changes;
-                let moved = self.active_root.as_ref() != Some(&root);
-                self.select(root, change, cx);
-                if moved {
-                    self.refresh(cx);
+            Some(DiffTab::File(root, change))
+                if self.section == Section::Worktrees || !self.roots.contains(&root) =>
+            {
+                let enter = self.section != Section::Worktrees;
+                self.section = Section::Worktrees;
+                self.expanded_worktrees.insert(root.clone());
+                if enter {
+                    self.browse(cx);
                 }
+                self.preview_worktree_file(root, change, cx);
             }
+            Some(DiffTab::File(root, change)) => self.select(root, change, cx),
             Some(DiffTab::Comparison(root, query)) => {
                 self.cancel_browse();
+                self.active_root = Some(root);
                 self.section = match &query {
                     Comparison::AllChanges => Section::Changes,
+                    Comparison::Stash(_) => Section::Stashes,
+                    Comparison::Between(_, _) | Comparison::ReleaseTag(_) => Section::Branches,
                     _ => Section::History,
-                };
-                let moved = self.active_root.as_ref() != Some(&root);
-                self.active_root = Some(root);
-                self.selection = None;
-                self.history_path = match &query {
-                    Comparison::FileHistory(_, path) | Comparison::Blame(path) => {
-                        Some(path.clone())
-                    }
-                    _ => None,
                 };
                 self.selected_commit = match &query {
                     Comparison::Commit(id)
@@ -398,12 +456,11 @@ impl Changes {
                     }
                     _ => None,
                 };
+                self.selected_reference = None;
+                self.selected_remote = None;
+                self.selected_stash = None;
+                self.selection = None;
                 self.show_comparison(query, cx);
-                if moved {
-                    self.refresh(cx);
-                } else if self.section == Section::History {
-                    self.browse(cx);
-                }
             }
             None => return,
         }
@@ -450,6 +507,12 @@ impl Changes {
             }
         }
         cx.notify();
+    }
+
+    fn preview_worktree_file(&mut self, root: PathBuf, change: Change, cx: &mut Context<Self>) {
+        self.comparison = None;
+        self.selection = Some((root.clone(), change.clone()));
+        self.load_patch(root, Some(change), None, cx);
     }
 
     fn select(&mut self, root: PathBuf, change: Change, cx: &mut Context<Self>) {
@@ -621,6 +684,11 @@ impl Changes {
         cx.notify();
     }
 
+    fn refresh_from(&mut self, source: &'static str, cx: &mut Context<Self>) {
+        self.manual_refresh = Some(source.into());
+        self.refresh(cx);
+    }
+
     fn refresh(&mut self, cx: &mut Context<Self>) {
         self.load(self.roots.clone(), self.remote.clone(), cx);
     }
@@ -634,22 +702,30 @@ impl Changes {
     }
 
     fn navigation(&self, cx: &Context<Self>) -> AnyElement {
-        use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
-        let Some(root) = self.active_root.clone() else {
-            return message(tr("No Git repository"), cx);
-        };
-        let rows = self.rows.clone();
+        let view = self;
+        let rows = view.rows.clone();
+        let scroll = view.scroll.clone();
         let owner = cx.entity();
-        let count = rows.len();
         v_flex()
             .flex_1()
             .min_h_0()
             .w_full()
-            .children(self.errors.iter().enumerate().map(|(index, error)| {
+            .when(view.loading && view.repositories.is_empty(), |v| {
+                v.child(
+                    div()
+                        .px_3()
+                        .py_2()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(tr("Loading changes…")),
+                )
+            })
+            .children(view.errors.iter().enumerate().map(|(index, error)| {
                 let error = error.clone();
                 Button::new(("git-status-error", index))
                     .ghost()
                     .small()
+                    .w_full()
                     .label(tr("Git query failed"))
                     .tooltip(error.clone())
                     .accessibility_label(tr("Copy error details"))
@@ -657,65 +733,95 @@ impl Changes {
                         cx.write_to_clipboard(ClipboardItem::new_string(error.to_string()))
                     })
             }))
-            .when(count == 0 && self.errors.is_empty(), |panel| {
-                panel.child(
-                    div()
-                        .px_3()
-                        .py_2()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(tr(if self.loading {
-                            "Loading changes…"
-                        } else {
-                            "No changes"
-                        })),
-                )
-            })
+            .when(
+                (!view.loading || !view.repositories.is_empty())
+                    && view.repositories.iter().all(|r| r.changes.is_empty())
+                    && view.errors.is_empty(),
+                |v| {
+                    v.child(
+                        div()
+                            .px_3()
+                            .py_2()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(tr(if view.repositories.is_empty() {
+                                "No Git repository"
+                            } else {
+                                "No changes"
+                            })),
+                    )
+                },
+            )
             .child(
-                uniform_list("git-changes-list", count, move |range, _, cx| {
+                uniform_list("git-changes-list", rows.len(), move |range, _, cx| {
                     let view = owner.read(cx);
                     range
                         .map(|index| {
-                            let changes = &rows[index];
-                            let change = &changes[0];
-                            let path = change.path.clone();
-                            let selected =
-                                view.selection
-                                    .as_ref()
-                                    .is_some_and(|(active_root, selected)| {
-                                        active_root == &root && selected.path == path
-                                    });
-                            let status = if change.status == 'U' {
-                                tr("Conflicts")
-                            } else if changes.len() > 1 {
-                                format!(
-                                    "{} / {}",
-                                    tr(Self::area(change.area)),
-                                    tr(Self::area(changes[1].area))
-                                )
-                            } else {
-                                format!("{} · {}", change.status, tr(Self::area(change.area)))
-                            };
-                            let display_path = path.to_string_lossy().into_owned();
-                            let description = format!("{display_path} · {status}");
-                            let click_owner = owner.clone();
-                            let click_root = root.clone();
-                            let click_change = change.clone();
-                            let menu_owner = owner.clone();
-                            let menu_root = root.clone();
-                            let menu_changes = changes.clone();
-                            div()
-                                .id(("git-change-context", index))
-                                .child(
-                                    Button::new(("git-change", index))
+                            let (root, change) = &rows[index];
+                            match change {
+                                None => Button::new(("git-repository", index))
+                                    .ghost()
+                                    .w_full()
+                                    .justify_start()
+                                    .selected(view.active_root.as_ref() == Some(root))
+                                    .on_click({
+                                        let root = root.clone();
+                                        let owner = owner.clone();
+                                        move |_, _, cx| {
+                                            owner.update(cx, |view, cx| {
+                                                view.activate_root(root.clone(), cx);
+                                                cx.emit(ShowDiff);
+                                            });
+                                        }
+                                    })
+                                    .h(px(32.))
+                                    .px_3()
+                                    .flex()
+                                    .items_center()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(
+                                        root.file_name()
+                                            .unwrap_or(root.as_os_str())
+                                            .to_string_lossy()
+                                            .into_owned(),
+                                    )
+                                    .into_any_element(),
+                                Some(change) => {
+                                    let selected = view.selection.as_ref().is_some_and(
+                                        |(selected_root, selected)| {
+                                            selected_root == root && selected == change
+                                        },
+                                    );
+                                    let (root, change) = (root.clone(), change.clone());
+                                    let click_owner = owner.clone();
+                                    let target_root = Some(root.clone());
+                                    let menu_owner = owner.clone();
+                                    let actions = [(
+                                        gpui_kit::assets::IconName::FileClock,
+                                        tr("File history"),
+                                        browser::RowAction::FileHistory(change.path.clone()),
+                                        change.area == Area::Untracked,
+                                    )];
+                                    let row = Button::new(("git-change", index))
                                         .ghost()
                                         .w_full()
                                         .h(px(32.))
                                         .px_3()
+                                        .rounded(px(4.))
                                         .justify_start()
                                         .selected(selected)
-                                        .tooltip(description.clone())
-                                        .accessibility_label(description)
+                                        .tooltip(format!(
+                                            "{} · {}",
+                                            tr(Self::area(change.area)),
+                                            root.join(&change.path).display()
+                                        ))
+                                        .accessibility_label(format!(
+                                            "{} {} {}",
+                                            change.status,
+                                            change.path.display(),
+                                            tr(Self::area(change.area))
+                                        ))
                                         .child(
                                             h_flex()
                                                 .w_full()
@@ -723,84 +829,74 @@ impl Changes {
                                                 .gap_2()
                                                 .child(
                                                     div()
+                                                        .w(px(14.))
+                                                        .flex_shrink_0()
+                                                        .text_color(if change.status == 'D' {
+                                                            cx.theme().danger
+                                                        } else {
+                                                            cx.theme().foreground
+                                                        })
+                                                        .child(change.status.to_string()),
+                                                )
+                                                .child(
+                                                    div()
                                                         .flex_1()
                                                         .min_w_0()
                                                         .truncate()
                                                         .text_xs()
-                                                        .child(display_path),
+                                                        .child(
+                                                            change
+                                                                .path
+                                                                .to_string_lossy()
+                                                                .into_owned(),
+                                                        ),
                                                 )
                                                 .child(
                                                     div()
                                                         .flex_shrink_0()
                                                         .text_xs()
                                                         .text_color(cx.theme().muted_foreground)
-                                                        .child(status),
+                                                        .child(tr(Self::area(change.area))),
                                                 ),
                                         )
                                         .on_click(move |_, _, cx| {
                                             click_owner.update(cx, |view, cx| {
-                                                view.select(
-                                                    click_root.clone(),
-                                                    click_change.clone(),
-                                                    cx,
-                                                );
                                                 cx.emit(ShowDiff);
+                                                view.select(root.clone(), change.clone(), cx)
                                             })
-                                        }),
-                                )
-                                .context_menu(move |mut menu, _, _| {
-                                    if menu_changes.len() > 1 {
-                                        for change in &menu_changes {
-                                            let change = change.clone();
-                                            let owner = menu_owner.clone();
-                                            let root = menu_root.clone();
-                                            menu = menu.item(
-                                                PopupMenuItem::new(tr(Self::area(change.area)))
-                                                    .on_click(move |_, _, cx| {
-                                                        owner.update(cx, |view, cx| {
-                                                            view.select(
-                                                                root.clone(),
-                                                                change.clone(),
-                                                                cx,
-                                                            );
-                                                            cx.emit(ShowDiff);
-                                                        })
-                                                    }),
-                                            );
-                                        }
-                                        menu = menu.separator();
-                                    }
-                                    if menu_changes[0].area != Area::Untracked {
-                                        let owner = menu_owner.clone();
-                                        let root = menu_root.clone();
-                                        let path = path.clone();
-                                        menu = menu.item(
-                                            PopupMenuItem::new(tr("File history")).on_click(
-                                                move |_, _, cx| {
-                                                    owner.update(cx, |view, cx| {
-                                                        view.open_file_history(
-                                                            root.clone(),
-                                                            path.clone(),
-                                                            cx,
-                                                        )
-                                                    });
-                                                },
-                                            ),
-                                        );
-                                    }
-                                    menu
-                                })
-                                .into_any_element()
+                                        });
+                                    use gpui_kit::component::menu::ContextMenuExt;
+                                    div()
+                                        .id(("git-change-context", index))
+                                        .child(row)
+                                        .context_menu(move |menu, _, cx| {
+                                            menu_owner.update(cx, |view, cx| {
+                                                if let Some(root) = &target_root {
+                                                    view.activate_root(root.clone(), cx);
+                                                }
+                                                view.row_menu(
+                                                    menu,
+                                                    &actions,
+                                                    &target_root,
+                                                    &menu_owner,
+                                                )
+                                            })
+                                        })
+                                        .into_any_element()
+                                }
+                            }
                         })
-                        .collect::<Vec<_>>()
+                        .collect()
                 })
+                .track_scroll(&scroll)
                 .flex_1()
-                .min_h_0()
-                .track_scroll(&self.scroll),
+                .min_h_0(),
             )
             .into_any_element()
     }
+}
 
+impl Changes {
     pub(super) fn diff_view(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let mode = self.diff.read(cx).mode();
         let ready = self.patch_error.is_none() && !self.diff.read(cx).files().is_empty();
@@ -855,6 +951,55 @@ impl Changes {
                     })),
             )
             .child(
+                Button::new("diff-wrap")
+                    .ghost()
+                    .small()
+                    .icon(gpui_kit::assets::IconName::CornerDownLeft)
+                    .tooltip(tr("Wrap"))
+                    .accessibility_label(tr("Wrap"))
+                    .selected(self.soft_wrap)
+                    .disabled(!ready)
+                    .on_click(cx.listener(|view, _, _, cx| {
+                        view.soft_wrap = !view.soft_wrap;
+                        cx.notify();
+                    })),
+            )
+            .children(
+                [
+                    (
+                        "diff-collapse-all",
+                        gpui_kit::assets::IconName::FoldVertical,
+                        "Collapse all",
+                        true,
+                    ),
+                    (
+                        "diff-expand-all",
+                        gpui_kit::assets::IconName::UnfoldVertical,
+                        "Expand all",
+                        false,
+                    ),
+                ]
+                .map(|(id, icon, label, collapsed)| {
+                    controls::icon_action(Button::new(id), icon, label)
+                        .disabled(!ready)
+                        .on_click(cx.listener(move |view, _, _, cx| {
+                            view.diff.update(cx, |state, cx| {
+                                let paths: Vec<_> = state
+                                    .files()
+                                    .iter()
+                                    .filter(|file| {
+                                        state.is_file_collapsed(file.path()) != collapsed
+                                    })
+                                    .map(|file| file.path().clone())
+                                    .collect();
+                                for path in paths {
+                                    state.set_file_collapsed(&path, collapsed, cx);
+                                }
+                            })
+                        }))
+                }),
+            )
+            .child(
                 Button::new("diff-previous")
                     .ghost()
                     .small()
@@ -878,7 +1023,19 @@ impl Changes {
                         view.diff.update(cx, |state, cx| state.next_change(cx))
                     })),
             )
-            .child(self.diff_options(ready, cx));
+            .child(
+                self.feedback_button(
+                    "diff-refresh".into(),
+                    Button::new("diff-refresh")
+                        .ghost()
+                        .small()
+                        .icon(gpui_kit::assets::IconName::RefreshCw)
+                        .tooltip(tr("Refresh"))
+                        .accessibility_label(tr("Refresh")),
+                )
+                .disabled(self.loading)
+                .on_click(cx.listener(|view, _, _, cx| view.refresh_from("diff-refresh", cx))),
+            );
         let show_toolbar = self.selection.is_some() || self.comparison.is_some();
         let content = if self.displayed_patch.is_none()
             && (self.patch_loading || (self.loading && self.repositories.is_empty()))
@@ -973,10 +1130,8 @@ impl Changes {
                 .soft_wrap(self.soft_wrap)
                 .size_full()
                 .into_any_element()
-        } else if show_toolbar {
+        } else if self.selection.is_some() {
             message(tr("No textual changes"), cx)
-        } else if self.section == Section::History && !self.commits.is_empty() {
-            message(tr("Select a commit"), cx)
         } else {
             div().into_any_element()
         };
@@ -984,16 +1139,7 @@ impl Changes {
             .relative()
             .size_full()
             .min_h_0()
-            .when_some(self.selected_commit.as_ref().filter(|commit| {
-                matches!(self.comparison.as_ref(), Some((_, Comparison::Commit(id) | Comparison::FileHistory(id, _))) if id == &commit.id)
-            }), |view, commit| {
-                let metadata = format!("{} · {} · {}", commit.author, commit.date, &commit.id[..commit.id.len().min(12)]);
-                view.child(v_flex().w_full().min_w_0().flex_shrink_0().px_4().py_2().gap_1()
-                    .child(div().truncate().text_sm().font_weight(FontWeight::MEDIUM)
-                        .child(commit.subject.clone()))
-                    .child(div().truncate().text_xs().text_color(cx.theme().muted_foreground).child(metadata)))
-            })
-            .child(div().flex_1().min_h_0().child(content))
+            .child(content)
             .when(show_toolbar, |view| {
                 view.child(crate::views::reader::controls::capsule(
                     toolbar.into_any_element(),
@@ -1111,15 +1257,18 @@ mod tests {
         click(cx, "file-panel-changes".into());
         cx.update(|cx| {
             let changes = workspace.read(cx).changes.read(cx);
-            let schedule = changes
+            let areas: Vec<_> = changes
                 .rows
                 .iter()
-                .find(|row| row[0].path.ends_with("schedule.md"))
-                .unwrap();
-            assert_eq!(schedule.len(), 2);
-            assert_eq!(schedule[0].area, Area::Staged);
-            assert_eq!(schedule[1].area, Area::Working);
-            assert_eq!(changes.rows.len(), 2);
+                .filter_map(|(_, change)| {
+                    change
+                        .as_ref()
+                        .filter(|change| change.path.ends_with("schedule.md"))
+                        .map(|change| change.area)
+                })
+                .collect();
+            assert_eq!(areas, [Area::Staged, Area::Working]);
+            assert_eq!(changes.rows.len(), 3);
         });
         click(cx, "all-changes-diff".into());
         assert!(cx.update(|cx| {
@@ -1136,7 +1285,7 @@ mod tests {
             });
         });
         cx.run_until_parked();
-        click(cx, ("git-commit-row", 0usize).into());
+        click(cx, ("git-browser-row", 0usize).into());
         assert!(cx.update(|cx| {
             let changes = workspace.read(cx).changes.read(cx);
             matches!(changes.current_tab(), Some(DiffTab::Comparison(_, Comparison::FileHistory(_, path))) if path.ends_with("schedule.md"))

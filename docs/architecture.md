@@ -210,7 +210,7 @@ The search button retains its magnifying-glass outline and shows a rotating sect
 
 The `git` Cargo feature enables repository discovery and Git reading for local and SSH workspaces. `GLIM_ENABLE_GIT=0` disables both. The executable reports the build capability through `--build-info`.
 
-`workspace/changes` exposes Changes and History. Changes groups entries by path and opens the staged and unstaged views separately. The repository picker includes linked worktrees and can open them as ordinary workspaces. History queries commits in cancellable pages, optionally scoped to one file. It exposes comparison of references, version tags, and explicit revision ranges. Git tabs reuse the workspace tab bar.
+`workspace/changes` exposes Changes, History, Branches & Tags, Worktrees, and Stashes. Changes lists staged and unstaged entries separately. Worktrees can be opened as ordinary workspaces. History queries commits in cancellable pages, optionally scoped to one file. It exposes comparison of references, version tags, and explicit revision ranges. Git tabs reuse the workspace tab bar.
 
 `services/git` runs Git in background jobs, retaining literal paths and resolving revision inputs to commit IDs. Explicit Fetch updates remote references and tags while leaving the working tree and index alone. SSH uses noninteractive Git and quotes each shell argument. A shared GPUI Kit `DiffState` renders patches with unified or split layout, highlighting, context expansion, and copy. Temporary-file output and text or hex paging preserve access to large patches, non-UTF-8 patches and details. Conflict views expose repository state and read-only source.
 

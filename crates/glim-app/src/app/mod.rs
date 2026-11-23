@@ -169,6 +169,11 @@ pub(crate) fn remove_recent_workspace(id: String, cx: &mut App) {
 }
 
 #[derive(Default)]
+pub(crate) struct GitSettings {
+    pub preferences: glim_services::preferences::GitPreferences,
+    pub save: Option<Task<()>>,
+}
+impl Global for GitSettings {}
 
 pub(crate) struct AppearancePreference(pub glim_services::preferences::Appearance);
 impl Global for AppearancePreference {}
@@ -397,6 +402,7 @@ pub fn run() -> Result<()> {
     let html_preview = glim_services::preferences::preview_mode("html");
     let markdown_preview = glim_services::preferences::preview_mode("markdown");
     let csv_preview = glim_services::preferences::preview_mode("csv");
+    let git_preferences = glim_services::preferences::git_preferences();
     let telemetry_consent = glim_services::preferences::telemetry_consent();
     let application = gpui_kit::application().with_assets(assets::Assets);
     let image_client = image_http::ImageHttpClient::new(application.background_executor());
@@ -435,6 +441,10 @@ pub fn run() -> Result<()> {
         telemetry::initialize(telemetry_consent, cx);
         cx.set_quit_mode(QuitMode::Explicit);
         gpui_kit::component::set_locale(glim_services::locale::code());
+        cx.set_global(GitSettings {
+            preferences: git_preferences,
+            save: None,
+        });
         cx.set_global(LanguageSaveTask::default());
         cx.set_global(LanguagePreference(language));
         cx.set_global(AppearancePreference(appearance));

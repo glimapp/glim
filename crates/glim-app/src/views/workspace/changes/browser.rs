@@ -6,57 +6,92 @@ use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 pub(super) enum Section {
     Changes,
     History,
+    Branches,
+    Stashes,
+    Worktrees,
+}
+impl Section {
+    pub(super) const PRIMARY: [Self; 4] = [
+        Self::Changes,
+        Self::History,
+        Self::Branches,
+        Self::Worktrees,
+    ];
+    pub(super) fn parent(self) -> Self {
+        match self {
+            Self::Stashes => Self::Changes,
+            other => other,
+        }
+    }
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Changes => "Changes",
+            Self::History => "History",
+            Self::Branches => "Branches & tags",
+            Self::Stashes => "Stashes",
+            Self::Worktrees => "Worktrees",
+        }
+    }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EntryKind {
+    Commit,
+    Reference,
+    Remote,
+    Stash,
+    Worktree,
+}
+
+#[derive(Clone)]
+pub(super) enum RowAction {
+    OpenWorktree(PathBuf),
+    Compare(Comparison),
+    FileHistory(PathBuf),
+    Copy(String),
+}
 impl Changes {
-    pub(super) fn cancel_browse(&mut self) {
-        self.browse_generation += 1;
-        self.browse_cancel = None;
-        self.browse_task = None;
-        self.browsing = false;
-    }
-
-    pub(super) fn activate_root(&mut self, root: PathBuf, cx: &mut Context<Self>) {
-        if self.active_root.as_ref() == Some(&root) {
-            return;
+    pub(super) fn row_menu(
+        &self,
+        mut menu: gpui_kit::component::menu::PopupMenu,
+        actions: &[(IconName, String, RowAction, bool)],
+        root: &Option<PathBuf>,
+        owner: &Entity<Self>,
+    ) -> gpui_kit::component::menu::PopupMenu {
+        for (icon, label, action, disabled) in actions {
+            let owner = owner.clone();
+            let root = root.clone();
+            let action = action.clone();
+            menu = menu.item(
+                PopupMenuItem::new(label.clone())
+                    .icon(icon.clone())
+                    .disabled(*disabled)
+                    .on_click(move |_, _, cx| {
+                        owner.update(cx, |view, cx| {
+                            if view.active_root != root {
+                                return;
+                            }
+                            match &action {
+                                RowAction::FileHistory(path) => {
+                                    if let Some(root) = &root {
+                                        view.open_file_history(root.clone(), path.clone(), cx);
+                                    }
+                                }
+                                RowAction::OpenWorktree(path) => {
+                                    cx.emit(OpenWorktree(path.clone()))
+                                }
+                                RowAction::Copy(value) => {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(value.clone()))
+                                }
+                                RowAction::Compare(comparison) => {
+                                    view.open_comparison(comparison.clone(), cx)
+                                }
+                            }
+                        })
+                    }),
+            );
         }
-        self.reset_selection(cx);
-        self.active_root = Some(root);
-        self.history_path = None;
-        self.load(self.roots.clone(), self.remote.clone(), cx);
-    }
-
-    fn reset_selection(&mut self, cx: &mut Context<Self>) {
-        self.cancel_browse();
-        self.patch_cancel = None;
-        self.patch_task = None;
-        self.patch_loading = false;
-        self.selection = None;
-        self.comparison = None;
-        self.selected_commit = None;
-        self.commits = Arc::default();
-        self.reset_history();
-        self.clear_patch(cx);
-    }
-
-    pub(super) fn switch_section(&mut self, section: Section, cx: &mut Context<Self>) {
-        if self.section == section {
-            return;
-        }
-        self.reset_selection(cx);
-        self.history_path = None;
-        self.section = section;
-        if section == Section::History {
-            self.browse(cx);
-        } else if let Some(repository) = self
-            .repositories
-            .iter()
-            .find(|repo| Some(&repo.root) == self.active_root.as_ref())
-            && let Some(change) = repository.changes.first().cloned()
-        {
-            self.select(repository.root.clone(), change, cx);
-        }
-        cx.notify();
+        menu
     }
 
     pub(in crate::views::workspace) fn open_file_history(
@@ -65,17 +100,137 @@ impl Changes {
         path: PathBuf,
         cx: &mut Context<Self>,
     ) {
-        self.reset_selection(cx);
+        self.activate_root(root, cx);
+        self.cancel_browse();
+        self.clear_comparison(cx);
         self.section = Section::History;
-        let needs_status = self.active_root.as_ref() != Some(&root) || self.loading;
-        self.active_root = Some(root);
         self.history_path = Some(path);
-        if needs_status {
-            self.refresh(cx);
+        self.selected_commit = None;
+        self.reset_history();
+        self.browse(cx);
+        cx.emit(ShowDiff);
+    }
+    pub(super) fn subsection_button(
+        &self,
+        section: Section,
+        icon: IconName,
+        cx: &mut Context<Self>,
+    ) -> Button {
+        super::controls::icon_action(
+            Button::new(("git-subsection", section as usize)),
+            icon,
+            section.label(),
+        )
+        .selected(self.section == section)
+        .on_click(cx.listener(move |view, _, _, cx| {
+            let next = if view.section == section {
+                section.parent()
+            } else {
+                section
+            };
+            view.switch_section(next, cx);
+            cx.emit(ShowDiff);
+        }))
+    }
+
+    fn clear_comparison(&mut self, cx: &mut Context<Self>) {
+        self.comparison = None;
+        self.patch_cancel = None;
+        self.patch_task = None;
+        self.patch_loading = false;
+        self.clear_patch(cx);
+    }
+
+    pub(super) fn cancel_browse(&mut self) {
+        self.browse_generation += 1;
+        self.browse_cancel = None;
+        self.browse_task = None;
+        self.browsing = false;
+    }
+    pub(super) fn activate_root(&mut self, root: PathBuf, cx: &mut Context<Self>) {
+        if self.active_root.as_ref() == Some(&root) {
+            return;
+        }
+        self.cancel_browse();
+        self.patch_cancel = None;
+        self.patch_task = None;
+        self.patch_loading = false;
+        self.selection = None;
+        self.catalog_ready = false;
+        self.catalog = Arc::default();
+        self.reference_groups = Default::default();
+        self.commits = Arc::default();
+        self.active_root = Some(root.clone());
+        self.comparison = None;
+        self.selected_commit = None;
+        self.selected_reference = None;
+        self.selected_remote = None;
+        self.selected_stash = None;
+        self.reset_history();
+        self.history_path = None;
+        self.clear_patch(cx);
+        if self.section == Section::Changes {
+            let change = self
+                .repositories
+                .iter()
+                .find(|repo| repo.root == root)
+                .and_then(|repo| repo.changes.first().cloned());
+            self.selection = None;
+            if let Some(change) = change {
+                self.select(root, change, cx);
+            }
         } else {
             self.browse(cx);
         }
-        cx.emit(ShowDiff);
+        cx.notify();
+    }
+
+    pub(super) fn switch_section(&mut self, section: Section, cx: &mut Context<Self>) {
+        if self.section == section {
+            return;
+        }
+        self.cancel_browse();
+        if section == Section::Worktrees || self.section == Section::Worktrees {
+            self.selection = None;
+        }
+        self.section = section;
+        self.catalog_ready = false;
+        if section == Section::History {
+            self.reset_history();
+            self.history_path = None;
+        }
+        self.comparison = None;
+        self.selected_commit = None;
+        self.selected_reference = None;
+        self.selected_remote = None;
+        self.selected_stash = None;
+        self.patch_cancel = None;
+        self.patch_task = None;
+        self.patch_loading = false;
+        self.clear_patch(cx);
+        if section == Section::Changes {
+            let selection = self
+                .selection
+                .clone()
+                .filter(|(root, _)| Some(root) == self.active_root.as_ref())
+                .or_else(|| {
+                    self.repositories
+                        .iter()
+                        .filter(|repo| Some(&repo.root) == self.active_root.as_ref())
+                        .find_map(|repo| {
+                            repo.changes
+                                .first()
+                                .map(|change| (repo.root.clone(), change.clone()))
+                        })
+                });
+            self.selection = None;
+            if let Some((root, change)) = selection {
+                self.select(root, change, cx);
+            }
+        } else {
+            self.browse(cx);
+        }
+        cx.notify();
     }
 
     pub(super) fn open_comparison(&mut self, comparison: Comparison, cx: &mut Context<Self>) {
@@ -87,9 +242,9 @@ impl Changes {
         let Some(root) = self.active_root.clone() else {
             return;
         };
-        self.selection = None;
         self.comparison = Some((root.clone(), comparison.clone()));
         self.load_patch(root, None, Some(comparison), cx);
+        cx.notify();
     }
 
     pub(super) fn reset_history(&mut self) {
@@ -161,48 +316,168 @@ impl Changes {
     }
 
     pub(super) fn browse(&mut self, cx: &mut Context<Self>) {
-        self.cancel_browse();
+        self.browse_cancel = None;
+        self.browse_task = None;
+        self.browse_generation += 1;
+        let generation = self.browse_generation;
         let Some(root) = self.active_root.clone() else {
             return;
         };
-        let generation = self.browse_generation;
         let remote = self.remote.clone();
+        let section = self.section;
         let limit = self.history_limit;
         let search = self.history_search.clone();
         let path = self.history_path.clone();
         self.browsing = true;
-        self.browser_error = None;
         let (cancel, guard) = Cancellation::task();
         self.browse_cancel = Some(guard);
-        let query = cx.background_executor().spawn(async move {
-            git::history(
-                &root,
-                remote.as_ref(),
-                0,
-                limit,
-                &search,
-                path.as_deref(),
-                &cancel,
-            )
+        let work = cx.background_executor().spawn(async move {
+            let mut catalog = git::catalog(&root, remote.as_ref(), &cancel)?;
+            if section == Section::Worktrees {
+                for tree in &mut catalog.worktrees {
+                    cancel.check()?;
+                    if tree.prunable {
+                        tree.status_error = Some(tr("Prunable"));
+                        continue;
+                    }
+                    match git::changed_files(&tree.path, remote.as_ref(), &cancel) {
+                        Ok(changes) => {
+                            tree.changed_paths = changes
+                                .iter()
+                                .map(|change| &change.path)
+                                .collect::<std::collections::HashSet<_>>()
+                                .len();
+                            tree.changes = changes;
+                        }
+                        Err(error) => tree.status_error = Some(format!("{error:#}")),
+                    }
+                }
+            }
+            let history = if section == Section::History {
+                Some(git::history(
+                    &root,
+                    remote.as_ref(),
+                    0,
+                    limit,
+                    &search,
+                    path.as_deref(),
+                    &cancel,
+                )?)
+            } else {
+                None
+            };
+            let revisions = if matches!(section, Section::Branches | Section::Worktrees)
+                && !catalog.references.is_empty()
+            {
+                Some(
+                    git::history(
+                        &root,
+                        remote.as_ref(),
+                        0,
+                        git::HISTORY_PAGE,
+                        "",
+                        None,
+                        &cancel,
+                    )?
+                    .commits,
+                )
+            } else {
+                None
+            };
+            Ok::<_, anyhow::Error>((catalog, history, revisions))
         });
         self.browse_task = Some(cx.spawn(async move |view, cx| {
-            let result = query.await;
+            let result = work.await;
             let _ = view.update(cx, |view, cx| {
-                if view.browse_generation != generation || view.section != Section::History {
+                if view.browse_generation != generation {
                     return;
                 }
                 view.browsing = false;
                 match result {
-                    Ok(history) => {
-                        view.history_more = history.more;
-                        view.commits = Arc::new(history.commits);
-                        if view.selected_commit.as_ref().is_some_and(|selected| {
-                            !view.commits.iter().any(|commit| commit.id == selected.id)
-                        }) {
-                            view.selected_commit = None;
+                    Ok((catalog, history, revisions)) => {
+                        view.catalog_ready = true;
+                        view.browser_error = None;
+                        if let Some(commits) = revisions {
+                            view.commits = Arc::new(commits);
+                        }
+                        let reference_key =
+                            view.selected_reference
+                                .and_then(|index| match view.section {
+                                    Section::Branches => {
+                                        view.catalog.references.get(index).map(|r| r.full.clone())
+                                    }
+                                    Section::Worktrees => view
+                                        .catalog
+                                        .worktrees
+                                        .get(index)
+                                        .map(|r| r.path.to_string_lossy().into_owned()),
+                                    _ => None,
+                                });
+                        let stash_key = view
+                            .selected_stash
+                            .and_then(|index| view.catalog.stashes.get(index))
+                            .map(|s| s.id.clone());
+                        view.reference_groups = Default::default();
+                        for (index, reference) in catalog.references.iter().enumerate() {
+                            view.reference_groups
+                                [usize::from(reference.full.starts_with("refs/tags/"))]
+                            .push(index);
+                        }
+                        view.selected_remote = view.selected_remote.take().filter(|name| {
+                            catalog.remotes.iter().any(|remote| &remote.name == name)
+                        });
+                        view.catalog = Arc::new(catalog);
+                        view.selected_reference =
+                            reference_key.as_ref().and_then(|key| match view.section {
+                                Section::Branches => {
+                                    view.catalog.references.iter().position(|r| &r.full == key)
+                                }
+                                Section::Worktrees => view
+                                    .catalog
+                                    .worktrees
+                                    .iter()
+                                    .position(|r| r.path.to_string_lossy().as_ref() == key),
+                                _ => None,
+                            });
+                        view.selected_stash = stash_key
+                            .as_ref()
+                            .and_then(|key| view.catalog.stashes.iter().position(|s| &s.id == key));
+                        if (reference_key.is_some()
+                            && view.selected_reference.is_none()
+                            && view.section == Section::Branches)
+                            || (stash_key.is_some()
+                                && view.selected_stash.is_none()
+                                && view.section == Section::Stashes)
+                        {
+                            view.clear_comparison(cx);
+                        }
+                        if let Some(history) = history {
+                            view.history_more = history.more;
+                            view.commits = Arc::new(history.commits);
+                            if view.commits.is_empty() {
+                                view.selected_commit = None;
+                                view.clear_comparison(cx);
+                            }
+                            if view.selected_commit.as_ref().is_none_or(|commit| {
+                                !view.commits.iter().any(|item| item.id == commit.id)
+                            }) {
+                                view.selected_commit = view.commits.first().cloned();
+                                if let Some(commit) = view.selected_commit.clone() {
+                                    view.show_comparison(
+                                        match view.history_path.clone() {
+                                            Some(path) => Comparison::FileHistory(commit.id, path),
+                                            None => Comparison::Commit(commit.id),
+                                        },
+                                        cx,
+                                    );
+                                }
+                            }
                         }
                     }
-                    Err(error) => view.browser_error = Some(format!("{error:#}").into()),
+                    Err(error) => {
+                        view.browser_error =
+                            Some(format!("{}\n{error:#}", tr("Git query failed")).into());
+                    }
                 }
                 cx.notify();
             });
@@ -210,77 +485,524 @@ impl Changes {
         cx.notify();
     }
 
-    fn select_history_commit(&mut self, commit: Commit, cx: &mut Context<Self>) {
-        let comparison = match &self.history_path {
-            Some(path) => Comparison::FileHistory(commit.id.clone(), path.clone()),
-            None => Comparison::Commit(commit.id.clone()),
+    pub(super) fn browser_view(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let controls = match self.section {
+            Section::History => h_flex()
+                .gap_1()
+                .flex_wrap()
+                .child(
+                    super::controls::icon_action(
+                        Button::new("git-history-all"),
+                        gpui_kit::assets::IconName::Files,
+                        "All files",
+                    )
+                    .selected(self.history_path.is_none())
+                    .on_click(cx.listener(|view, _, _, cx| {
+                        view.history_path = None;
+                        view.reset_history();
+                        view.selected_commit = None;
+                        view.browse(cx);
+                    })),
+                )
+                .child(self.compare_button("git-compare", cx))
+                .child(
+                    super::controls::icon_action(
+                        Button::new("git-history-search"),
+                        gpui_kit::assets::IconName::Search,
+                        "Search",
+                    )
+                    .selected(self.search_open)
+                    .on_click(cx.listener(|view, _, _, cx| {
+                        view.search_open = !view.search_open;
+                        cx.notify();
+                    })),
+                )
+                .into_any_element(),
+            Section::Branches => h_flex()
+                .gap_1()
+                .flex_wrap()
+                .child(self.compare_button("git-compare-refs", cx))
+                .child(self.fetch_button("git-fetch-all", cx))
+                .into_any_element(),
+            Section::Stashes => h_flex()
+                .gap_1()
+                .child(self.subsection_button(Section::Stashes, IconName::Archive, cx))
+                .into_any_element(),
+            Section::Worktrees => div().into_any_element(),
+            Section::Changes => div().into_any_element(),
         };
-        self.selected_commit = Some(commit);
-        self.open_comparison(comparison, cx);
-    }
-
-    pub(super) fn history_view(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let toolbar = h_flex().gap_1().child(self.revision_menu(cx)).child(
-            super::controls::icon_action(
-                Button::new("git-history-search"),
-                IconName::Search,
-                "Search",
-            )
-            .selected(self.search_open)
-            .on_click(cx.listener(|view, _, _, cx| {
-                view.search_open = !view.search_open;
-                cx.notify();
-            })),
-        );
-        let mut panel = v_flex()
+        let mut visible_refs = [
+            self.reference_groups[0].len(),
+            self.reference_groups[1].len(),
+            self.catalog.remotes.len(),
+        ];
+        for (count, collapsed) in visible_refs.iter_mut().zip(self.collapsed_refs) {
+            if collapsed {
+                *count = 0;
+            }
+        }
+        let mut ends = Vec::new();
+        if self.section == Section::Worktrees {
+            let mut end = 0;
+            for tree in &self.catalog.worktrees {
+                end += 1;
+                if self.expanded_worktrees.contains(&tree.path) {
+                    end += tree.changes.len();
+                }
+                ends.push(end);
+            }
+        }
+        let count = match self.section {
+            Section::History => self.commits.len(),
+            Section::Branches => visible_refs.len() + visible_refs.iter().sum::<usize>(),
+            Section::Stashes => self.catalog.stashes.len(),
+            Section::Worktrees => ends.last().copied().unwrap_or(0),
+            Section::Changes => 0,
+        };
+        let owner = cx.entity();
+        let section = self.section;
+        let render_row = move |index: usize, owner: &Entity<Self>, cx: &App| {
+            let view = owner.read(cx);
+            let (kind, index) = match section {
+                Section::History => (EntryKind::Commit, index),
+                Section::Stashes => (EntryKind::Stash, index),
+                Section::Worktrees => {
+                    let tree_index = ends.partition_point(|&end| end <= index);
+                    let offset = index - tree_index.checked_sub(1).map_or(0, |prev| ends[prev]);
+                    if offset > 0 {
+                        let tree = &view.catalog.worktrees[tree_index];
+                        let change = tree.changes[offset - 1].clone();
+                        let root = tree.path.clone();
+                        let owner = owner.clone();
+                        let selected = view
+                            .selection
+                            .as_ref()
+                            .is_some_and(|(r, c)| r == &root && c == &change);
+                        let path = change.path.to_string_lossy().into_owned();
+                        let detail = format!(
+                            "{} · {}",
+                            root.join(&change.path).display(),
+                            tr(Self::area(change.area))
+                        );
+                        return Button::new(("git-worktree-file", index))
+                            .ghost()
+                            .w_full()
+                            .h(px(52.))
+                            .pl_4()
+                            .justify_start()
+                            .selected(selected)
+                            .accessibility_label(detail.clone())
+                            .tooltip(detail)
+                            .child(
+                                v_flex()
+                                    .min_w_0()
+                                    .child(div().truncate().child(path))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(format!(
+                                                "{} · {}",
+                                                change.status,
+                                                tr(Self::area(change.area))
+                                            )),
+                                    ),
+                            )
+                            .on_click(move |_, _, cx| {
+                                owner.update(cx, |view, cx| {
+                                    view.preview_worktree_file(root.clone(), change.clone(), cx);
+                                    cx.emit(ShowDiff);
+                                })
+                            })
+                            .into_any_element();
+                    }
+                    (EntryKind::Worktree, tree_index)
+                }
+                Section::Changes => unreachable!(),
+                Section::Branches => {
+                    let mut group = 0;
+                    let mut offset = index;
+                    while offset > visible_refs[group] {
+                        offset -= visible_refs[group] + 1;
+                        group += 1;
+                    }
+                    if offset == 0 {
+                        let owner = owner.clone();
+                        let (icon, label) = [
+                            (IconName::GitBranch, "Git branches"),
+                            (IconName::Tag, "Git tags"),
+                            (IconName::Server, "Remotes"),
+                        ][group];
+                        let arrow = if view.collapsed_refs[group] {
+                            IconName::ChevronRight
+                        } else {
+                            IconName::ChevronDown
+                        };
+                        return Button::new(("git-reference-group", group))
+                            .ghost()
+                            .small()
+                            .w_full()
+                            .h(px(30.))
+                            .px(px(5.))
+                            .tooltip(tr(label))
+                            .accessibility_label(tr(label))
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .justify_start()
+                                    .gap_1()
+                                    .child(gpui_kit::component::Icon::new(icon).size(px(14.)))
+                                    .child(tr(label))
+                                    .child(gpui_kit::component::Icon::new(arrow).size(px(12.))),
+                            )
+                            .on_click(move |_, _, cx| {
+                                owner.update(cx, |view, cx| {
+                                    view.collapsed_refs[group] = !view.collapsed_refs[group];
+                                    cx.notify();
+                                })
+                            })
+                            .into_any_element();
+                    }
+                    if group == 2 {
+                        (EntryKind::Remote, offset - 1)
+                    } else {
+                        (
+                            EntryKind::Reference,
+                            view.reference_groups[group][offset - 1],
+                        )
+                    }
+                }
+            };
+            let tag = (kind == EntryKind::Reference)
+                .then(|| view.catalog.references[index].tag.as_deref())
+                .flatten();
+            let (title, subtitle, selected) = match kind {
+                EntryKind::Commit => {
+                    let commit = &view.commits[index];
+                    (
+                        commit.subject.clone(),
+                        format!(
+                            "{} · {}",
+                            &commit.id[..8.min(commit.id.len())],
+                            commit.date.get(5..16).unwrap_or(&commit.date)
+                        ),
+                        view.selected_commit
+                            .as_ref()
+                            .is_some_and(|c| c.id == commit.id),
+                    )
+                }
+                EntryKind::Reference => {
+                    let reference = &view.catalog.references[index];
+                    (
+                        format!(
+                            "{}{}",
+                            if reference.current { "● " } else { "" },
+                            reference.name
+                        ),
+                        if let Some(tag) = tag {
+                            tag.date.get(5..16).unwrap_or(&tag.date).to_owned()
+                        } else {
+                            format!(
+                                "{} · {} {}",
+                                tr(if reference.full.starts_with("refs/remotes/") {
+                                    "Remote branch"
+                                } else {
+                                    "Local branch"
+                                }),
+                                reference.upstream,
+                                reference.tracking
+                            )
+                        },
+                        view.selected_remote.is_none() && view.selected_reference == Some(index),
+                    )
+                }
+                EntryKind::Remote => {
+                    let remote = &view.catalog.remotes[index];
+                    (
+                        remote.name.clone(),
+                        remote.url.clone(),
+                        view.selected_remote.as_ref() == Some(&remote.name),
+                    )
+                }
+                EntryKind::Stash => {
+                    let stash = &view.catalog.stashes[index];
+                    (
+                        stash.subject.clone(),
+                        format!("{} · {}", stash.name, stash.id),
+                        view.selected_stash == Some(index),
+                    )
+                }
+                EntryKind::Worktree => {
+                    let tree = &view.catalog.worktrees[index];
+                    (
+                        if tree.branch.is_empty() {
+                            format!(
+                                "{} {}",
+                                tr("Detached HEAD"),
+                                &tree.head[..8.min(tree.head.len())]
+                            )
+                        } else {
+                            tree.branch.clone()
+                        },
+                        tree.path.display().to_string(),
+                        view.expanded_worktrees.contains(&tree.path),
+                    )
+                }
+            };
+            let owner = owner.clone();
+            let menu_owner = owner.clone();
+            let author = if kind == EntryKind::Commit {
+                Some(view.commits[index].author.as_str())
+            } else {
+                tag.map(|tag| tag.author.as_str())
+            };
+            let count = (kind == EntryKind::Worktree).then(|| {
+                let tree = &view.catalog.worktrees[index];
+                if tree.status_error.is_some() {
+                    tr("Status unavailable")
+                } else if !view.catalog_ready {
+                    "…".to_owned()
+                } else {
+                    tree.changed_paths.to_string()
+                }
+            });
+            let description = if let Some(tag) = tag {
+                [title.as_str(), &tag.subject, &tag.author, &tag.date]
+                    .into_iter()
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            } else if kind == EntryKind::Commit {
+                let commit = &view.commits[index];
+                format!(
+                    "{}\n{} · {}\n{}",
+                    commit.message.trim_end(),
+                    commit.author,
+                    commit.id,
+                    commit.date
+                )
+            } else {
+                format!("{title}\n{subtitle}")
+            };
+            let description = if kind == EntryKind::Worktree {
+                let tree = &view.catalog.worktrees[index];
+                let details = [
+                    tree.locked.then(|| tr("Locked")),
+                    tree.prunable.then(|| tr("Prunable")),
+                    tree.status_error.clone(),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+                std::iter::once(description)
+                    .chain(count.clone())
+                    .chain(details)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            } else {
+                description
+            };
+            let row_id = if kind == EntryKind::Remote {
+                "git-remote-row"
+            } else {
+                "git-browser-row"
+            };
+            let row = Button::new((row_id, index))
+                .ghost()
+                .w_full()
+                .h(if kind == EntryKind::Reference && tag.is_none() {
+                    px(30.)
+                } else {
+                    px(52.)
+                })
+                .justify_start()
+                .selected(selected)
+                .when(kind == EntryKind::Worktree, |row| {
+                    row.icon(if selected {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                })
+                .accessibility_label(description.clone())
+                .tooltip(description)
+                .child(
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .gap_1()
+                        .child(
+                            h_flex()
+                                .min_w_0()
+                                .gap_1()
+                                .child(div().truncate().text_sm().child(
+                                    if let Some(tag) = tag.filter(|t| !t.subject.is_empty()) {
+                                        format!("{title}  {}", tag.subject)
+                                    } else {
+                                        title
+                                    },
+                                ))
+                                .when_some(count, |line, count| {
+                                    line.child(
+                                        div()
+                                            .flex_shrink_0()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(count),
+                                    )
+                                }),
+                        )
+                        .when_some(author, |row, author| {
+                            row.child(
+                                h_flex()
+                                    .w_full()
+                                    .min_w_0()
+                                    .gap_1()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(div().min_w_0().truncate().child(author.to_owned()))
+                                    .when(!subtitle.is_empty(), |line| {
+                                        line.child(div().flex_shrink_0().child(
+                                            if author.is_empty() {
+                                                subtitle.clone()
+                                            } else {
+                                                format!("· {subtitle}")
+                                            },
+                                        ))
+                                    }),
+                            )
+                        })
+                        .when(
+                            !matches!(kind, EntryKind::Reference | EntryKind::Commit),
+                            |row| {
+                                row.child(
+                                    div()
+                                        .truncate()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(subtitle),
+                                )
+                            },
+                        ),
+                )
+                .on_click(move |event, _, cx| {
+                    owner.update(cx, |view, cx| {
+                        match kind {
+                            EntryKind::Commit => {
+                                let commit = view.commits[index].clone();
+                                view.selected_commit = Some(commit.clone());
+                                view.open_comparison(
+                                    match view.history_path.clone() {
+                                        Some(path) => Comparison::FileHistory(commit.id, path),
+                                        None => Comparison::Commit(commit.id),
+                                    },
+                                    cx,
+                                );
+                            }
+                            EntryKind::Reference => {
+                                view.selected_remote = None;
+                                view.selected_reference = Some(index);
+                                let reference = view.catalog.references[index].clone();
+                                view.open_comparison(Comparison::for_reference(&reference), cx);
+                            }
+                            EntryKind::Stash => {
+                                view.selected_stash = Some(index);
+                                let stash = view.catalog.stashes[index].clone();
+                                view.open_comparison(Comparison::Stash(stash.id), cx);
+                            }
+                            EntryKind::Remote => {
+                                view.selected_remote =
+                                    Some(view.catalog.remotes[index].name.clone());
+                            }
+                            EntryKind::Worktree => {
+                                let path = view.catalog.worktrees[index].path.clone();
+                                if event.click_count() == 2 {
+                                    if !view.catalog.worktrees[index].prunable {
+                                        cx.emit(OpenWorktree(path));
+                                    }
+                                } else if !view.expanded_worktrees.remove(&path) {
+                                    view.expanded_worktrees.insert(path);
+                                }
+                            }
+                        }
+                        cx.notify();
+                    })
+                });
+            let root = view.active_root.clone();
+            let actions = view.item_actions(kind, index);
+            div()
+                .id((
+                    if kind == EntryKind::Remote {
+                        "git-remote-context"
+                    } else {
+                        "git-context-row"
+                    },
+                    index,
+                ))
+                .child(row)
+                .context_menu(move |menu, _, cx| {
+                    menu_owner
+                        .read(cx)
+                        .row_menu(menu, &actions, &root, &menu_owner)
+                })
+                .into_any_element()
+        };
+        let rows = if section == Section::Branches {
+            // Group headers and branch names are compact. Tag and remote details
+            // need taller rows, so measure visible items individually.
+            let mut start = 1;
+            for (previous, &visible) in self.visible_group_sizes.iter_mut().zip(&visible_refs) {
+                if *previous != visible {
+                    let common = (*previous).min(visible);
+                    self.reference_list
+                        .splice(start + common..start + *previous, visible - common);
+                    *previous = visible;
+                }
+                start += visible + 1;
+            }
+            list(self.reference_list.clone(), move |index, _, cx| {
+                render_row(index, &owner, cx)
+            })
             .w_full()
             .flex_1()
             .min_h_0()
+            .into_any_element()
+        } else {
+            uniform_list("git-browser-list", count, move |range, _, cx| {
+                if section == Section::History && range.end >= count {
+                    let view = owner.read(cx);
+                    if view.history_more && !view.browsing && view.browser_error.is_none() {
+                        let generation = view.browse_generation;
+                        let owner = owner.clone();
+                        cx.defer(move |cx| {
+                            owner.update(cx, |view, cx| view.append_history(generation, cx))
+                        });
+                    }
+                }
+                range.map(|index| render_row(index, &owner, cx)).collect()
+            })
+            .when(section == Section::History, |list| {
+                list.track_scroll(&self.history_scroll)
+            })
+            .w_full()
+            .flex_1()
+            .min_h_0()
+            .into_any_element()
+        };
+        let mut panel = v_flex()
+            .w_full()
+            .min_h_0()
             .gap_1()
             .p_2()
-            .child(toolbar);
-        if let Some(path) = &self.history_path {
+            .child(h_flex().child(controls));
+        if self.section == Section::History && self.search_open {
             panel = panel.child(
                 h_flex()
-                    .min_w_0()
-                    .gap_1()
-                    .child(
-                        div()
-                            .min_w_0()
-                            .flex_1()
-                            .truncate()
-                            .text_xs()
-                            .child(path.to_string_lossy().into_owned()),
-                    )
-                    .child(
-                        super::controls::icon_action(
-                            Button::new("git-history-clear-file"),
-                            IconName::X,
-                            "All files",
-                        )
-                        .on_click(cx.listener(|view, _, _, cx| {
-                            view.history_path = None;
-                            view.reset_selection(cx);
-                            view.browse(cx);
-                        })),
-                    )
-                    .child({
-                        let path = path.clone();
-                        super::controls::icon_action(
-                            Button::new("git-history-blame"),
-                            IconName::List,
-                            "Blame",
-                        )
-                        .on_click(cx.listener(move |view, _, _, cx| {
-                            view.open_comparison(Comparison::Blame(path.clone()), cx);
-                        }))
-                    }),
-            );
-        }
-        if self.search_open {
-            panel = panel.child(
-                h_flex()
-                    .gap_1()
+                    .gap_2()
                     .child(
                         div().flex_1().min_w_0().child(
                             crate::views::form_input(&self.search, window, cx)
@@ -290,156 +1012,122 @@ impl Changes {
                     .child(
                         super::controls::icon_action(
                             Button::new("git-search-run"),
-                            IconName::Search,
+                            gpui_kit::assets::IconName::Search,
                             "Search",
                         )
+                        .disabled(self.browsing)
                         .on_click(cx.listener(|view, _, _, cx| {
                             view.history_search = view.search.read(cx).value().to_string();
-                            view.reset_selection(cx);
+                            view.reset_history();
+                            view.selected_commit = None;
                             view.browse(cx);
                         })),
                     )
                     .child(
                         super::controls::icon_action(
                             Button::new("git-search-clear"),
-                            IconName::X,
+                            gpui_kit::assets::IconName::X,
                             "Clear",
                         )
                         .on_click(cx.listener(|view, _, window, cx| {
                             view.search
                                 .update(cx, |input, cx| input.set_value("", window, cx));
-                            view.history_search.clear();
                             view.search_open = false;
-                            view.reset_selection(cx);
+                            view.history_search.clear();
+                            view.reset_history();
+                            view.selected_commit = None;
                             view.browse(cx);
                         })),
                     ),
             );
         }
-        if let Some(error) = &self.browser_error {
-            let error = error.clone();
-            panel = panel.child(
-                super::controls::icon_action(
-                    Button::new("git-history-error"),
-                    IconName::Copy,
-                    "Copy error details",
-                )
-                .label(tr("Git query failed"))
-                .tooltip(error.clone())
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(error.to_string()))
-                }),
-            );
-        }
-        let owner = cx.entity();
-        let commits = self.commits.clone();
-        let count = commits.len();
-        if count == 0 {
-            return panel
-                .child(
+        if let Some(path) = &self.history_path {
+            if self.section == Section::History {
+                panel = panel.child(
                     div()
                         .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(tr(if self.browsing {
-                            "Loading…"
-                        } else {
-                            "No entries"
-                        })),
-                )
-                .into_any_element();
+                        .truncate()
+                        .child(path.to_string_lossy().into_owned()),
+                );
+            }
         }
-        let selected = self
-            .selected_commit
-            .as_ref()
-            .map(|commit| commit.id.clone());
-        panel
-            .child(
-                uniform_list("git-history-list", count, move |range, _, cx| {
-                    if range.end >= count {
-                        let view = owner.read(cx);
-                        let generation = view.browse_generation;
-                        if view.history_more && !view.browsing && view.browser_error.is_none() {
-                            let owner = owner.clone();
-                            cx.defer(move |cx| {
-                                owner.update(cx, |view, cx| view.append_history(generation, cx))
-                            });
-                        }
-                    }
-                    range
-                        .map(|index| {
-                            let commit = commits[index].clone();
-                            let id = commit.id.clone();
-                            let active = selected.as_ref() == Some(&id);
-                            let description = format!(
-                                "{} · {} · {}",
-                                commit.author,
-                                commit.date,
-                                &id[..id.len().min(12)]
-                            );
-                            let owner = owner.clone();
-                            let details_owner = owner.clone();
-                            div()
-                                .id(("git-history-menu", index))
-                                .child(
-                                    Button::new(("git-commit-row", index))
-                                        .ghost()
-                                        .w_full()
-                                        .h(px(44.))
-                                        .justify_start()
-                                        .selected(active)
-                                        .tooltip(commit.message.clone())
-                                        .child(
-                                            v_flex()
-                                                .min_w_0()
-                                                .items_start()
-                                                .child(
-                                                    div()
-                                                        .truncate()
-                                                        .text_sm()
-                                                        .child(commit.subject.clone()),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .truncate()
-                                                        .text_xs()
-                                                        .text_color(cx.theme().muted_foreground)
-                                                        .child(description),
-                                                ),
-                                        )
-                                        .on_click(move |_, _, cx| {
-                                            owner.update(cx, |view, cx| {
-                                                view.select_history_commit(commit.clone(), cx)
-                                            })
-                                        }),
-                                )
-                                .context_menu(move |menu, _, _| {
-                                    let copy_id = id.clone();
-                                    let details = Comparison::Details(id.clone());
-                                    let owner = details_owner.clone();
-                                    menu.item(PopupMenuItem::new(tr("Commit details")).on_click(
-                                        move |_, _, cx| {
-                                            owner.update(cx, |view, cx| {
-                                                view.open_comparison(details.clone(), cx);
-                                            })
-                                        },
-                                    ))
-                                    .item(
-                                        PopupMenuItem::new(tr("Copy commit ID")).on_click(
-                                            move |_, _, cx| {
-                                                cx.write_to_clipboard(ClipboardItem::new_string(
-                                                    copy_id.clone(),
-                                                ));
-                                            },
-                                        ),
-                                    )
-                                })
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .track_scroll(&self.history_scroll)
-                .flex_1()
-                .min_h_0(),
-            )
-            .into_any_element()
+        if count == 0 {
+            panel = panel.child(
+                div()
+                    .h(px(20.))
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(if self.browsing && !self.catalog_ready {
+                        tr("Loading…")
+                    } else if self.section == Section::Stashes {
+                        tr("No stashes")
+                    } else {
+                        tr("No entries")
+                    }),
+            );
+        }
+        panel = panel.flex_1().child(rows);
+        panel.into_any_element()
+    }
+
+    fn item_actions(
+        &self,
+        kind: EntryKind,
+        index: usize,
+    ) -> Vec<(IconName, String, RowAction, bool)> {
+        match kind {
+            EntryKind::Commit => {
+                let id = self.commits[index].id.clone();
+                let mut items = vec![
+                    (
+                        IconName::Copy,
+                        tr("Copy commit ID"),
+                        RowAction::Copy(id.clone()),
+                        false,
+                    ),
+                    (
+                        IconName::FileText,
+                        tr("Commit details"),
+                        RowAction::Compare(Comparison::Details(id)),
+                        false,
+                    ),
+                ];
+                if let Some(path) = &self.history_path {
+                    items.push((
+                        IconName::List,
+                        tr("Blame"),
+                        RowAction::Compare(Comparison::Blame(path.clone())),
+                        false,
+                    ));
+                }
+                items
+            }
+            EntryKind::Reference => {
+                let reference = &self.catalog.references[index];
+                self.catalog
+                    .worktrees
+                    .iter()
+                    .filter(|tree| reference.full.strip_prefix("refs/heads/") == Some(&tree.branch))
+                    .map(|tree| {
+                        (
+                            IconName::FolderOpen,
+                            tr("Open worktree"),
+                            RowAction::OpenWorktree(tree.path.clone()),
+                            tree.prunable,
+                        )
+                    })
+                    .collect()
+            }
+            EntryKind::Worktree => {
+                let tree = &self.catalog.worktrees[index];
+                vec![(
+                    IconName::FolderOpen,
+                    tr("Open worktree"),
+                    RowAction::OpenWorktree(tree.path.clone()),
+                    tree.prunable,
+                )]
+            }
+            EntryKind::Remote | EntryKind::Stash => Vec::new(),
+        }
     }
 }
