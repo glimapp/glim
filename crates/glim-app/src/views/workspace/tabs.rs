@@ -1,4 +1,6 @@
 use super::Workspace;
+use super::changes::DiffTab;
+use super::header::Target;
 use crate::views::reader::Reader;
 use gpui_kit::{
     component::{
@@ -68,8 +70,33 @@ pub(super) enum TabIdentity {
     Diff(super::changes::DiffTab, Option<String>),
 }
 
+#[derive(PartialEq, Eq)]
+enum TabTarget {
+    Document(Target),
+    Diff(DiffTab),
+}
+
+#[derive(Default)]
+pub(super) struct TabCloseTargets {
+    pub(super) documents: Vec<Target>,
+    diffs: Vec<DiffTab>,
+}
+
+impl TabCloseTargets {
+    pub(super) fn document(target: Target) -> Self {
+        Self {
+            documents: vec![target],
+            ..Self::default()
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.documents.is_empty() && self.diffs.is_empty()
+    }
+}
+
 enum TabMenuAction {
-    Close(Vec<super::header::Target>),
+    Close(TabCloseTargets),
     Trash(std::path::PathBuf),
     Detach(super::header::Target),
     CopyPath(std::path::PathBuf),
@@ -288,18 +315,18 @@ impl Workspace {
 
     fn close_tabs(
         &mut self,
-        targets: Vec<super::header::Target>,
+        targets: TabCloseTargets,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if targets.is_empty() {
             return;
         }
-        if self.is_saving()
-            || self
-                .tabs
-                .iter()
-                .any(|r| r.is_dirty() && targets.contains(&super::header::Target::from_reader(r)))
+        if !targets.documents.is_empty()
+            && (self.is_saving()
+                || self.tabs.iter().any(|reader| {
+                    reader.is_dirty() && targets.documents.contains(&Target::from_reader(reader))
+                }))
         {
             self.confirm_discard(
                 super::editing::DiscardAction::CloseTabs(targets),
@@ -312,20 +339,28 @@ impl Workspace {
     }
     pub(super) fn close_tabs_unchecked(
         &mut self,
-        targets: Vec<super::header::Target>,
+        targets: TabCloseTargets,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.is_saving() {
+        if !targets.documents.is_empty() && self.is_saving() {
             self.error =
                 Some("A file operation is in progress. Please retry after it finishes.".into());
             cx.notify();
             return;
         }
-        let active = self.active_reader().map(super::header::Target::from_reader);
+        if !targets.diffs.is_empty() {
+            self.changes
+                .update(cx, |git, cx| git.close_tabs(&targets.diffs, cx));
+            self.update_page_after_diff_close(cx);
+        }
+        if targets.documents.is_empty() {
+            return;
+        }
+        let active = self.active_reader().map(Target::from_reader);
         let previous = self.active.unwrap_or(0);
         self.tabs.retain(|r| {
-            let keep = !targets.contains(&super::header::Target::from_reader(r));
+            let keep = !targets.documents.contains(&Target::from_reader(r));
             if !keep {
                 glim_services::telemetry::file_event(
                     "tab_closed",
@@ -343,87 +378,102 @@ impl Workspace {
             .and_then(|target| {
                 self.tabs
                     .iter()
-                    .position(|r| super::header::Target::from_reader(r) == target)
+                    .position(|r| Target::from_reader(r) == target)
             })
             .or_else(|| (!self.tabs.is_empty()).then(|| previous.min(self.tabs.len() - 1)));
         self.observe_autosave(window, cx);
-        if let Some(index) = self.active {
-            self.activate_tab(index, window, cx);
-        } else {
-            window.set_window_title("Glim");
-            window.focus(&self.focus, cx);
+        if self.page == super::Page::Document {
+            let git = self.changes.read(cx);
+            let other_diff = (!git.tabs.is_empty()).then(|| git.active_tab().unwrap_or(0));
+            if let Some(index) = self.active {
+                self.activate_tab(index, window, cx);
+            } else if let Some(index) = other_diff.filter(|_| !self.loading) {
+                self.activate_diff_tab(index, cx);
+            } else {
+                window.set_window_title("Glim");
+                window.focus(&self.focus, cx);
+            }
         }
         self.remember_session(cx);
         cx.notify();
     }
-    fn show_tab_menu(
-        &mut self,
-        target: &super::header::Target,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(index) = self
+    fn show_tab_menu(&mut self, target: &TabTarget, window: &mut Window, cx: &mut Context<Self>) {
+        let tabs: Vec<_> = self
             .tabs
             .iter()
-            .position(|reader| super::header::Target::from_reader(reader) == *target)
-        else {
+            .map(|reader| TabTarget::Document(Target::from_reader(reader)))
+            .chain(
+                self.changes
+                    .read(cx)
+                    .tabs
+                    .iter()
+                    .cloned()
+                    .map(TabTarget::Diff),
+            )
+            .collect();
+        let Some(index) = tabs.iter().position(|tab| tab == target) else {
             return;
         };
         let mut items = Vec::new();
         let mut actions = Vec::new();
-        items.push((
-            Some(glim_services::locale::tr("Move Tab to New Window")),
-            !self.is_saving()
-                && !self.loading
-                && self.tabs[index].can_move_to_window(cx)
-                && self.confirm_task.is_none()
-                && !crate::app::updates::busy(cx),
-        ));
-        actions.push(Some(TabMenuAction::Detach(target.clone())));
-        if self.tabs[index].document.draft_directory.is_none() {
-            let path = self.tabs[index].document.path.clone();
-            if self.tabs[index].document.remote.is_none() {
-                items.push((Some(glim_services::locale::tr("Reveal in Finder")), true));
-                actions.push(Some(TabMenuAction::Reveal(path.clone())));
+        let document = self.tabs.get(index);
+        if let (TabTarget::Document(target), Some(reader)) = (target, document) {
+            items.push((
+                Some(glim_services::locale::tr("Move Tab to New Window")),
+                !self.is_saving()
+                    && !self.loading
+                    && reader.can_move_to_window(cx)
+                    && self.confirm_task.is_none()
+                    && !crate::app::updates::busy(cx),
+            ));
+            actions.push(Some(TabMenuAction::Detach(target.clone())));
+            if reader.document.draft_directory.is_none() {
+                let path = reader.document.path.clone();
+                if reader.document.remote.is_none() {
+                    items.push((Some(glim_services::locale::tr("Reveal in Finder")), true));
+                    actions.push(Some(TabMenuAction::Reveal(path.clone())));
+                }
+                items.push((Some(glim_services::locale::tr("Copy Absolute Path")), true));
+                let relative = self
+                    .roots
+                    .iter()
+                    .filter_map(|root| path.strip_prefix(root).ok())
+                    .min_by_key(|relative| relative.components().count())
+                    .map(ToOwned::to_owned);
+                actions.push(Some(TabMenuAction::CopyPath(path)));
+                if let Some(relative) = relative {
+                    items.push((Some(glim_services::locale::tr("Copy Relative Path")), true));
+                    actions.push(Some(TabMenuAction::CopyPath(relative)));
+                }
             }
-            items.push((Some(glim_services::locale::tr("Copy Absolute Path")), true));
-            let relative = self
-                .roots
-                .iter()
-                .filter_map(|root| path.strip_prefix(root).ok())
-                .min_by_key(|relative| relative.components().count())
-                .map(ToOwned::to_owned);
-            actions.push(Some(TabMenuAction::CopyPath(path)));
-            if let Some(relative) = relative {
-                items.push((Some(glim_services::locale::tr("Copy Relative Path")), true));
-                actions.push(Some(TabMenuAction::CopyPath(relative)));
-            }
+            items.push((None, true));
+            actions.push(None);
         }
-        items.push((None, true));
-        actions.push(None);
-        for (label, mode) in [
-            ("Close", 0),
-            ("Close Tabs to the Right", 1),
-            ("Close Other Tabs", 2),
-            ("Close All Tabs", 3),
-        ] {
-            let targets: Vec<_> = self
-                .tabs
+        let close_commands: [(&str, fn(usize, usize) -> bool); 4] = [
+            ("Close", |tab, clicked| tab == clicked),
+            ("Close Tabs to the Right", |tab, clicked| tab > clicked),
+            ("Close Other Tabs", |tab, clicked| tab != clicked),
+            ("Close All Tabs", |_, _| true),
+        ];
+        for (label, includes_tab) in close_commands {
+            let mut targets = TabCloseTargets::default();
+            for (_, tab) in tabs
                 .iter()
                 .enumerate()
-                .filter(|(i, _)| match mode {
-                    0 => *i == index,
-                    1 => *i > index,
-                    2 => *i != index,
-                    _ => true,
-                })
-                .map(|(_, reader)| super::header::Target::from_reader(reader))
-                .collect();
+                .filter(|(i, _)| includes_tab(*i, index))
+            {
+                match tab {
+                    TabTarget::Document(target) => targets.documents.push(target.clone()),
+                    TabTarget::Diff(target) => targets.diffs.push(target.clone()),
+                }
+            }
             items.push((Some(glim_services::locale::tr(label)), !targets.is_empty()));
             actions.push(Some(TabMenuAction::Close(targets)));
         }
-        let reader = &self.tabs[index];
-        if reader.document.draft_directory.is_none() && reader.document.remote.is_none() {
+        if let Some(reader) = document
+            && reader.document.draft_directory.is_none()
+            && reader.document.remote.is_none()
+        {
             items.push((None, true));
             actions.push(None);
             items.push((Some(glim_services::locale::tr("Move to Trash…")), true));
@@ -436,6 +486,7 @@ impl Workspace {
         self.context_menu_task = Some(cx.spawn_in(window, async move |view, cx| {
             let selected = menu.choose(cx).await;
             let _ = view.update_in(cx, |view, window, cx| {
+                view.context_menu_task = None;
                 if let Some(action) = selected
                     .and_then(|index| actions.get_mut(index))
                     .and_then(Option::take)
@@ -452,6 +503,21 @@ impl Workspace {
                 }
             });
         }));
+    }
+
+    fn on_tab_mouse_down(
+        &mut self,
+        target: &TabTarget,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.button == MouseButton::Right {
+            window.prevent_default();
+            cx.stop_propagation();
+            self.path_hint.hide();
+            self.show_tab_menu(target, window, cx);
+        }
     }
 
     pub(super) fn close_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -574,7 +640,15 @@ impl Workspace {
         }
     }
     pub(super) fn close_diff_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.changes.update(cx, |git, cx| git.close_tab(index, cx));
+        let Some(tab) = self.changes.read(cx).tabs.get(index).cloned() else {
+            return;
+        };
+        self.changes
+            .update(cx, |git, cx| git.close_tabs(&[tab], cx));
+        self.update_page_after_diff_close(cx);
+    }
+
+    fn update_page_after_diff_close(&mut self, cx: &mut Context<Self>) {
         if self.changes.read(cx).tabs.is_empty() && self.page == super::Page::Changes {
             self.page = super::Page::Document;
         }
@@ -640,6 +714,7 @@ impl Workspace {
                 let workspace_id = cx.entity_id();
                 let drop_color = cx.theme().secondary;
 
+                let menu_target = TabTarget::Document(target);
                 h_flex()
                     .id(("document-tab", index))
                     .role(Role::Tab)
@@ -785,13 +860,11 @@ impl Workspace {
                                 view.close_tab(index, window, cx);
                             })),
                     )
-                    .on_mouse_down(
-                        MouseButton::Right,
-                        cx.listener(move |view, _, window, cx| {
-                            cx.stop_propagation();
-                            view.show_tab_menu(&target, window, cx);
-                        }),
-                    )
+                    .capture_any_mouse_down(cx.listener(
+                        move |view, event: &MouseDownEvent, window, cx| {
+                            view.on_tab_mouse_down(&menu_target, event, window, cx);
+                        },
+                    ))
             })
             .collect::<Vec<_>>();
         let pending_tab = self.pending_open_tab(cx);
@@ -811,7 +884,9 @@ impl Workspace {
                         _ => tab.description(),
                     };
                     let active = self.page == super::Page::Changes && selected == Some(index);
+                    let target = TabTarget::Diff(tab.clone());
                     h_flex()
+                        .id(("diff-tab-row", index))
                         .h(px(TAB_HEIGHT))
                         .gap_1()
                         .px_1()
@@ -836,6 +911,11 @@ impl Workspace {
                                     view.activate_diff_tab(index, cx)
                                 })),
                         )
+                        .capture_any_mouse_down(cx.listener(
+                            move |view, event: &MouseDownEvent, window, cx| {
+                                view.on_tab_mouse_down(&target, event, window, cx);
+                            },
+                        ))
                         .child(
                             Button::new(("close-diff-tab", index))
                                 .ghost()

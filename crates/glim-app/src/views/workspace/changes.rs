@@ -517,17 +517,27 @@ impl Changes {
         self.release_titles.get(root)?.get(tag)
     }
 
-    pub(super) fn close_tab(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index >= self.tabs.len() {
-            return;
-        }
-        let active = self.active_tab() == Some(index);
-        if let DiffTab::Comparison(root, Comparison::ReleaseTag(tag)) = self.tabs.remove(index)
-            && let Some(titles) = self.release_titles.get_mut(&root)
-        {
-            titles.remove(&tag);
-        }
-        if active {
+    pub(super) fn close_tabs(&mut self, targets: &[DiffTab], cx: &mut Context<Self>) {
+        let active = self.active_tab();
+        let mut active_closed = false;
+        let mut previous_tabs_kept = 0;
+        let mut index = 0;
+        self.tabs.retain(|tab| {
+            let keep = !targets.contains(tab);
+            if keep {
+                previous_tabs_kept += usize::from(active.is_some_and(|active| index < active));
+            } else {
+                active_closed |= active == Some(index);
+                if let DiffTab::Comparison(root, Comparison::ReleaseTag(tag)) = tab
+                    && let Some(titles) = self.release_titles.get_mut(root)
+                {
+                    titles.remove(tag);
+                }
+            }
+            index += 1;
+            keep
+        });
+        if active_closed {
             if self.tabs.is_empty() {
                 self.patch_cancel = None;
                 self.patch_task = None;
@@ -536,7 +546,7 @@ impl Changes {
                 self.comparison = None;
                 self.clear_patch(cx);
             } else {
-                self.activate_tab(index.min(self.tabs.len() - 1), cx);
+                self.activate_tab(previous_tabs_kept.min(self.tabs.len() - 1), cx);
             }
         }
         cx.notify();

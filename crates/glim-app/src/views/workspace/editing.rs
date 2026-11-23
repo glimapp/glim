@@ -5,7 +5,7 @@ use gpui_kit::*;
 
 pub(super) enum DiscardAction {
     CloseTab(usize),
-    CloseTabs(Vec<super::header::Target>),
+    CloseTabs(super::tabs::TabCloseTargets),
     CloseWindow,
     CloseWorkspace,
     Folder(FolderSnapshot),
@@ -522,7 +522,7 @@ impl Workspace {
                                 ..
                             }) = &mut view.close_request
                             {
-                                for target in targets {
+                                for target in &mut targets.documents {
                                     if *target == old {
                                         *target = new.clone();
                                     }
@@ -671,7 +671,7 @@ impl Workspace {
                                 ..
                             }) = &mut view.close_request
                             {
-                                for target in targets {
+                                for target in &mut targets.documents {
                                     if *target == old {
                                         *target = new.clone();
                                     }
@@ -748,7 +748,9 @@ impl Workspace {
                 let Some(reader) = self.tabs.get(index) else {
                     return;
                 };
-                DiscardAction::CloseTabs(vec![super::header::Target::from_reader(reader)])
+                DiscardAction::CloseTabs(super::tabs::TabCloseTargets::document(
+                    super::header::Target::from_reader(reader),
+                ))
             }
             other => other,
         };
@@ -770,9 +772,9 @@ impl Workspace {
             let editor = reader.editor()?;
             let id = editor.entity_id();
             let selected = match &request.action {
-                DiscardAction::CloseTabs(targets) => {
-                    targets.contains(&super::header::Target::from_reader(reader))
-                }
+                DiscardAction::CloseTabs(targets) => targets
+                    .documents
+                    .contains(&super::header::Target::from_reader(reader)),
                 _ => true,
             };
             (selected && reader.is_dirty() && !request.discarded.contains(&id))
