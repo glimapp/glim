@@ -1,4 +1,4 @@
-use super::{Content, read_content_cancellable};
+use super::{Content, read_content_with_phase};
 use crate::{paged::PageRefresh, sqlite, work::Cancellation};
 use anyhow::Result;
 use std::{path::PathBuf, time::SystemTime};
@@ -62,7 +62,7 @@ impl RefreshRequest {
                 path
             }
         };
-        read_content_cancellable(&path, cancel).map(Some)
+        read_content_with_phase(&path, cancel, "refresh").map(Some)
     }
 }
 
