@@ -4,15 +4,112 @@ use super::header::Target;
 use crate::views::reader::Reader;
 use gpui_kit::{
     component::{
-        ActiveTheme, Sizable,
+        ActiveTheme, Icon, Sizable,
         button::{Button, ButtonVariants},
         h_flex,
     },
     prelude::FluentBuilder,
     *,
 };
+use std::{cell::Cell, rc::Rc};
 
 const TAB_HEIGHT: f32 = 30.;
+
+fn tab_frame(
+    id: (&'static str, usize),
+    label: &str,
+    description: &str,
+    active: bool,
+    bounds: Rc<Cell<Bounds<Pixels>>>,
+    cx: &App,
+) -> Stateful<Div> {
+    let accent = crate::views::accent(cx);
+    let background = cx.theme().background;
+    h_flex()
+        .id(id)
+        .role(Role::Tab)
+        .aria_label(label.to_owned())
+        .aria_description(description.to_owned())
+        .aria_selected(active)
+        .tab_index(0)
+        .focus_visible(move |style| style.border_color(accent))
+        .relative()
+        .child(
+            canvas(move |area, _, _| bounds.set(area), |_, _, _, _| {})
+                .absolute()
+                .inset_0(),
+        )
+        .h(px(TAB_HEIGHT))
+        .border_1()
+        .border_color(if active {
+            accent.opacity(0.4)
+        } else {
+            gpui_kit::transparent_black()
+        })
+        .font_weight(if active {
+            FontWeight::MEDIUM
+        } else {
+            FontWeight::NORMAL
+        })
+        .flex_shrink_0()
+        .gap_1()
+        .pl(px(7.))
+        .pr(px(3.))
+        .rounded(px(7.))
+        .bg(if active {
+            background.blend(accent.opacity(0.09))
+        } else {
+            background
+        })
+        .cursor_pointer()
+}
+
+fn tab_label(
+    id: (&'static str, usize),
+    label: String,
+    description: String,
+    icon: impl IntoElement,
+    bounds: Rc<Cell<Bounds<Pixels>>>,
+    cx: &Context<Workspace>,
+) -> Stateful<Div> {
+    let title = label.clone();
+    h_flex()
+        .id(id)
+        .h_full()
+        .gap(px(5.))
+        .on_hover(cx.listener(move |view, hovered: &bool, window, _| {
+            if *hovered {
+                view.path_hint
+                    .show(&title, &description, false, bounds.get(), window);
+            } else {
+                view.path_hint.hide_for(&description, bounds.get());
+            }
+        }))
+        .child(icon)
+        .child(div().max_w(px(210.)).truncate().text_xs().child(label))
+}
+
+fn tab_close_button(id: (&'static str, usize), label: &str, dirty: bool, cx: &App) -> Button {
+    let title = glim_services::locale::tr(if dirty {
+        "Unsaved changes · Close"
+    } else {
+        "Close"
+    });
+    Button::new(id)
+        .ghost()
+        .xsmall()
+        .w(px(22.))
+        .h(px(22.))
+        .when(dirty, |button| {
+            button.child(div().size(px(9.)).rounded_full().bg(cx.theme().blue))
+        })
+        .when(!dirty, |button| {
+            button.icon(Icon::new(gpui_kit::assets::IconName::X).size(px(12.)))
+        })
+        .text_color(cx.theme().muted_foreground)
+        .tooltip(title.clone())
+        .accessibility_label(format!("{title} {label}"))
+}
 
 #[derive(Clone)]
 struct DraggedTab {
@@ -699,9 +796,7 @@ impl Workspace {
                 } else {
                     reader.document.path.display().to_string()
                 };
-                let hint_title = label.clone();
-                let hint_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::default()));
-                let painted_hint_bounds = hint_bounds.clone();
+                let hint_bounds = Rc::new(Cell::new(Bounds::default()));
                 let drop_bounds = hint_bounds.clone();
                 let drop_target = target.clone();
                 let dragged = DraggedTab {
@@ -715,14 +810,15 @@ impl Workspace {
                 let drop_color = cx.theme().secondary;
 
                 let menu_target = TabTarget::Document(target);
-                h_flex()
-                    .id(("document-tab", index))
-                    .role(Role::Tab)
-                    .aria_label(label.clone())
-                    .aria_description(hint_path.clone())
-                    .aria_selected(active)
-                    .tab_index(0)
-                    .focus_visible(|style| style.border_color(crate::views::accent(cx)))
+                let frame = tab_frame(
+                    ("document-tab", index),
+                    &label,
+                    &hint_path,
+                    active,
+                    hint_bounds.clone(),
+                    cx,
+                );
+                frame
                     .on_key_down(cx.listener(move |view, event: &KeyDownEvent, window, cx| {
                         if matches!(event.keystroke.key.as_str(), "enter" | "space") {
                             view.activate_tab(index, window, cx);
@@ -730,42 +826,6 @@ impl Workspace {
                             cx.stop_propagation();
                         }
                     }))
-                    .relative()
-                    .child(
-                        canvas(
-                            move |bounds, _, _| {
-                                painted_hint_bounds.set(bounds);
-                            },
-                            |_, _, _, _| {},
-                        )
-                        .absolute()
-                        .inset_0(),
-                    )
-                    .h(px(TAB_HEIGHT))
-                    .border_1()
-                    .border_color(if active {
-                        crate::views::accent(cx).opacity(0.4)
-                    } else {
-                        gpui_kit::transparent_black()
-                    })
-                    .font_weight(if active {
-                        FontWeight::MEDIUM
-                    } else {
-                        FontWeight::NORMAL
-                    })
-                    .flex_shrink_0()
-                    .gap_1()
-                    .pl(px(7.))
-                    .pr(px(3.))
-                    .rounded(px(7.))
-                    .bg(if active {
-                        cx.theme()
-                            .background
-                            .blend(crate::views::accent(cx).opacity(0.09))
-                    } else {
-                        cx.theme().background
-                    })
-                    .cursor_pointer()
                     .on_drag(dragged, |drag, _, _, cx| {
                         cx.stop_propagation();
                         cx.new(|_| drag.clone())
@@ -792,27 +852,11 @@ impl Workspace {
                         view.tabs[index].activate(cx);
                     }))
                     .child(
-                        h_flex()
-                            .id(("document-tab-label", index))
-                            .when(reader.document.trashed, |label| {
-                                label.text_color(cx.theme().muted_foreground)
-                            })
-                            .h_full()
-                            .gap(px(5.))
-                            .on_hover(cx.listener(move |view, hovered: &bool, window, _| {
-                                if *hovered {
-                                    view.path_hint.show(
-                                        &hint_title,
-                                        &hint_path,
-                                        false,
-                                        hint_bounds.get(),
-                                        window,
-                                    );
-                                } else {
-                                    view.path_hint.hide_for(&hint_path, hint_bounds.get());
-                                }
-                            }))
-                            .child(if self.pending_open_path() == Some(&reader.document.path) {
+                        tab_label(
+                            ("document-tab-label", index),
+                            label,
+                            hint_path,
+                            if self.pending_open_path() == Some(&reader.document.path) {
                                 crate::views::loading_icon(
                                     ("file-loading", index),
                                     px(16.),
@@ -822,43 +866,27 @@ impl Workspace {
                             } else {
                                 crate::views::file_icons::file_icon(&reader.document.path, cx)
                                     .into_any_element()
-                            })
-                            .child(div().max_w(px(210.)).truncate().text_xs().child(label)),
+                            },
+                            hint_bounds,
+                            cx,
+                        )
+                        .when(reader.document.trashed, |label| {
+                            label.text_color(cx.theme().muted_foreground)
+                        }),
                     )
                     .child(
-                        Button::new(("close-tab", index))
-                            .ghost()
-                            .xsmall()
-                            .w(px(22.))
-                            .h(px(22.))
-                            .when(reader.is_dirty(), |button| {
-                                button.child(div().size(px(9.)).rounded_full().bg(cx.theme().blue))
-                            })
-                            .when(!reader.is_dirty(), |button| {
-                                button.icon(
-                                    gpui_kit::component::Icon::new(gpui_kit::assets::IconName::X)
-                                        .size(px(12.)),
-                                )
-                            })
-                            .text_color(cx.theme().muted_foreground)
-                            .tooltip(glim_services::locale::tr(if reader.is_dirty() {
-                                "Unsaved changes · Close"
-                            } else {
-                                "Close"
-                            }))
-                            .accessibility_label(format!(
-                                "{} {}",
-                                glim_services::locale::tr(if reader.is_dirty() {
-                                    "Unsaved changes · Close"
-                                } else {
-                                    "Close"
-                                }),
-                                reader.title
-                            ))
-                            .on_click(cx.listener(move |view, _, window, cx| {
+                        tab_close_button(
+                            ("close-tab", index),
+                            &reader.title,
+                            reader.is_dirty(),
+                            cx,
+                        )
+                        .on_click(cx.listener(
+                            move |view, _, window, cx| {
                                 cx.stop_propagation();
                                 view.close_tab(index, window, cx);
-                            })),
+                            },
+                        )),
                     )
                     .capture_any_mouse_down(cx.listener(
                         move |view, event: &MouseDownEvent, window, cx| {
@@ -870,69 +898,60 @@ impl Workspace {
         let pending_tab = self.pending_open_tab(cx);
         let git = self.changes.read(cx);
         let selected = git.active_tab();
-        let diff_tabs =
-            git.tabs
-                .iter()
-                .enumerate()
-                .map(|(index, tab)| {
-                    let range = git.release_title(tab);
-                    let label = range.cloned().unwrap_or_else(|| tab.label());
-                    let description = match (range, tab) {
-                        (Some(range), super::changes::DiffTab::Comparison(root, _)) => {
-                            format!("{} · {range}", root.display())
-                        }
-                        _ => tab.description(),
-                    };
-                    let active = self.page == super::Page::Changes && selected == Some(index);
-                    let target = TabTarget::Diff(tab.clone());
-                    h_flex()
-                        .id(("diff-tab-row", index))
-                        .h(px(TAB_HEIGHT))
-                        .gap_1()
-                        .px_1()
-                        .flex_shrink_0()
-                        .rounded_md()
-                        .when(active, |row| row.bg(cx.theme().secondary))
-                        .child(
-                            Button::new(("diff-tab", index))
-                                .ghost()
-                                .small()
-                                .icon(gpui_kit::assets::IconName::FileDiff)
-                                .tooltip(description)
-                                .accessibility_label(label.clone())
-                                .child(
-                                    div()
-                                        .max_w(px(210.))
-                                        .truncate()
-                                        .text_xs()
-                                        .child(label.clone()),
-                                )
-                                .on_click(cx.listener(move |view, _, _, cx| {
-                                    view.activate_diff_tab(index, cx)
-                                })),
-                        )
-                        .capture_any_mouse_down(cx.listener(
-                            move |view, event: &MouseDownEvent, window, cx| {
-                                view.on_tab_mouse_down(&target, event, window, cx);
-                            },
-                        ))
-                        .child(
-                            Button::new(("close-diff-tab", index))
-                                .ghost()
-                                .xsmall()
-                                .icon(gpui_kit::assets::IconName::X)
-                                .tooltip(glim_services::locale::tr("Close"))
-                                .accessibility_label(format!(
-                                    "{} {}",
-                                    glim_services::locale::tr("Close"),
-                                    label
-                                ))
-                                .on_click(cx.listener(move |view, _, _, cx| {
-                                    view.close_diff_tab(index, cx)
-                                })),
-                        )
-                })
-                .collect::<Vec<_>>();
+        let diff_tabs = git
+            .tabs
+            .iter()
+            .enumerate()
+            .map(|(index, tab)| {
+                let range = git.release_title(tab);
+                let label = range.cloned().unwrap_or_else(|| tab.label());
+                let description = match (range, tab) {
+                    (Some(range), super::changes::DiffTab::Comparison(root, _)) => {
+                        format!("{} · {range}", root.display())
+                    }
+                    _ => tab.description(),
+                };
+                let active = self.page == super::Page::Changes && selected == Some(index);
+                let target = TabTarget::Diff(tab.clone());
+                let hint_bounds = Rc::new(Cell::new(Bounds::default()));
+                let close = tab_close_button(("close-diff-tab", index), &label, false, cx)
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        cx.stop_propagation();
+                        view.close_diff_tab(index, cx);
+                    }));
+                tab_frame(
+                    ("diff-tab-row", index),
+                    &label,
+                    &description,
+                    active,
+                    hint_bounds.clone(),
+                    cx,
+                )
+                .on_key_down(cx.listener(move |view, event: &KeyDownEvent, _, cx| {
+                    if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                        view.activate_diff_tab(index, cx);
+                        cx.stop_propagation();
+                    }
+                }))
+                .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| {
+                    view.activate_diff_tab(index, cx);
+                }))
+                .child(tab_label(
+                    ("diff-tab-label", index),
+                    label,
+                    description,
+                    Icon::new(gpui_kit::assets::IconName::FileDiff).size(px(16.)),
+                    hint_bounds,
+                    cx,
+                ))
+                .child(close)
+                .capture_any_mouse_down(cx.listener(
+                    move |view, event: &MouseDownEvent, window, cx| {
+                        view.on_tab_mouse_down(&target, event, window, cx);
+                    },
+                ))
+            })
+            .collect::<Vec<_>>();
         let first_document = usize::from(pending_tab.is_some());
         let target = match self.page {
             super::Page::Document if pending_tab.is_some() => self
