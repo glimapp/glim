@@ -1,6 +1,6 @@
 # Security policy
 
-For local records, document network access and optional statistics, see [Privacy](docs/privacy.md). Use this page to report a vulnerability or check distribution trust.
+For local records, document network access, usage statistics and error diagnostics, see [Privacy](docs/privacy.md). Use this page to report a vulnerability or check distribution trust.
 
 ## Supported versions
 
@@ -20,7 +20,7 @@ Download binaries from [GitHub Releases](https://github.com/glimapp/glim/release
 
 ## 中文说明
 
-文件处理、本地记录、文档联网和使用统计见[隐私说明](docs/privacy.zh-CN.md)。本页用于安全漏洞报告和发行包信任说明。
+本地记录、文档联网、使用统计和错误诊断见[隐私与联网说明](docs/privacy.zh-CN.md)。本页用于安全漏洞报告和发行包信任说明。
 
 安全修复面向最新发行版本，旧版没有单独维护分支。请先升级，再确认问题是否仍然存在。
 

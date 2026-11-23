@@ -90,6 +90,6 @@ Untitled notes use local recovery checkpoints. Changes not yet checkpointed can 
 
 ## Settings and help
 
-Settings includes appearance, language, default file associations, update checks, shortcuts and usage-statistics controls. Making Glim the default for a file type can cause Finder to open those files in Glim.
+Settings includes appearance, language, default file associations, Finder integration, SSH connections, update checks and keyboard shortcuts. Making Glim the default for a file type can cause Finder to open those files in Glim.
 
 See [privacy](privacy.md) for network and local-storage behavior. For opening, preview or saving problems, check [common questions](faq.md), then [report an issue](https://github.com/glimapp/glim/issues/new?template=bug_report.yml) with your version, Mac type, steps and a sanitized sample. Logs may contain local paths; review them before sharing.

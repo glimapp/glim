@@ -48,9 +48,9 @@ It keeps the archive and writes to a separate new directory without overwriting 
 
 Supported readers use paging, streaming or on-demand decoding. Complex content may fall back to source or byte pages; some indexes take time to prepare. Opening a file does not mean all content has been loaded into memory or laid out at once.
 
-## Are files uploaded? Can I avoid network access?
+## Are files uploaded? What uses the network?
 
-Local viewing does not require uploading files. HTML can execute scripts and use the network; Markdown can load remote images. Updates, enabled usage statistics and independently enabled error diagnostics also use the network. Turning off statistics, diagnostics and updates does not block a document's own network content. See [privacy and network access](privacy.md).
+Local viewing does not require uploading files. HTML previews can run scripts and load network resources. Markdown can load remote images. Glim also uses the network for updates, usage statistics and error diagnostics. See [privacy and network access](privacy.md).
 
 ## What if macOS blocks installation or a file won't open?
 

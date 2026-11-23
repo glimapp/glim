@@ -125,7 +125,6 @@
   "Error diagnostics only": "仅开启错误诊断",
   "Enable both": "两项都开启",
   "Not now": "暂不发送",
-  "Privacy details": "隐私说明",
   "Saving…": "正在保存…",
   "Could not save privacy settings. Your choices apply only until Glim quits.": "无法保存隐私设置。当前选择仅在本次运行生效。",
   "Help the developer find failures and fix crashes. Sends sanitized error types, application source locations and version information.": "帮助开发者定位故障、修复崩溃。发送脱敏后的错误分类、程序源码位置和版本信息。",

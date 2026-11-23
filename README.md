@@ -81,7 +81,7 @@ If a local database sits beside your report, open it in Glim. Choose a table, fi
 - Document, image, table, database and mind-map previews focus on viewing. Ordinary UTF-8 text supports basic editing, undo/redo, automatic saving and explicit saving.
 - Complex Office layouts can differ. Excel displays saved formula results without recalculation. Use the appropriate specialist application for precise layout or advanced editing.
 - GIS currently shows data and coordinates; 3D currently provides static projections. Each topic explains its specific coverage.
-- Files open locally. Markdown remote images, HTML scripts and network resources, updates and enabled usage statistics can use the network. See [privacy and network access](docs/privacy.md).
+- Files open locally. Markdown remote images, HTML network resources, updates, usage statistics and error diagnostics can use the network. See [privacy and network access](docs/privacy.md).
 - Apple Silicon and Intel Macs are supported. Installers are not yet notarized by Apple; first-launch instructions follow.
 
 ## Terminal and AI tools

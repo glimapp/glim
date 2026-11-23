@@ -231,20 +231,6 @@ impl Workspace {
                         .when(SHOW_TELEMETRY_CONTROLS, |view| {
                             view.child(telemetry_controls(cx))
                         })
-                        .child(
-                            h_flex().child(
-                                Button::new("settings-privacy")
-                                    .small()
-                                    .label(glim_services::locale::tr("Privacy details"))
-                                    .on_click(|_, _, cx| {
-                                        cx.open_url(if glim_services::locale::code() == "zh-CN" {
-                                "https://github.com/glimapp/glim/blob/main/docs/privacy.zh-CN.md"
-                            } else {
-                                "https://github.com/glimapp/glim/blob/main/docs/privacy.md"
-                            })
-                                    }),
-                            ),
-                        )
                         .child(heading("About").mt_3())
                         .child(about),
                 ),
