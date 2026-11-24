@@ -548,7 +548,8 @@ pub fn comparison_patch(
     let mut args: Vec<OsString> = match comparison {
         Comparison::Commit(id) | Comparison::FileHistory(id, _) => vec![
             "show".into(),
-            "--format=fuller".into(),
+            "--format=".into(),
+            "--patch".into(),
             "--first-parent".into(),
             revision(root, remote, id, cancel)?.into(),
         ],

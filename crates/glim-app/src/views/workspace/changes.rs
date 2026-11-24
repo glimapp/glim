@@ -1053,34 +1053,40 @@ impl Changes {
                 .size_full()
                 .min_h_0()
                 .p_4()
-                .when(show_toolbar, |view| view.pb(px(56.)))
+                .when(show_toolbar, |view| view.py(px(56.)))
+                .items_center()
+                .justify_center()
                 .gap_2()
                 .child(
                     div()
-                        .text_sm()
-                        .text_color(cx.theme().danger)
-                        .flex_1()
-                        .min_h_0()
                         .id("diff-error-details")
+                        .w_full()
+                        .max_w(px(520.))
+                        .min_h_0()
                         .overflow_y_scroll()
+                        .text_sm()
+                        .text_center()
+                        .whitespace_normal()
+                        .text_color(cx.theme().danger)
                         .child(error),
                 )
                 .child(
-                    Button::new("copy-diff-error")
-                        .ghost()
-                        .small()
-                        .label(tr("Copy error details"))
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                copied_error.to_string(),
-                            ))
-                        }),
-                )
-                .child(
-                    Button::new("retry-diff")
-                        .small()
-                        .label(tr("Retry"))
-                        .on_click(cx.listener(|view, _, _, cx| view.refresh(cx))),
+                    self.feedback_button(
+                        "copy-diff-error".into(),
+                        Button::new("copy-diff-error")
+                            .ghost()
+                            .small()
+                            .flex_shrink_0()
+                            .icon(gpui_kit::assets::IconName::Copy)
+                            .label(tr("Copy error details")),
+                    )
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(copied_error.to_string()));
+                        if let Some(key) = view.feedback_key("copy-diff-error".into()) {
+                            view.show_completed(key, cx);
+                            cx.notify();
+                        }
+                    })),
                 )
                 .into_any_element()
         } else if let Some(raw) = &self.raw {
@@ -1130,7 +1136,7 @@ impl Changes {
                 .soft_wrap(self.soft_wrap)
                 .size_full()
                 .into_any_element()
-        } else if self.selection.is_some() {
+        } else if show_toolbar {
             message(tr("No textual changes"), cx)
         } else {
             div().into_any_element()
