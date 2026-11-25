@@ -10,6 +10,24 @@ use gpui_kit::{
 use std::{cell::Cell, rc::Rc};
 
 pub(crate) const MINIMAP_WIDTH: f32 = 110.;
+const OVERVIEW_WIDTH: Pixels = px(96.);
+
+#[derive(Clone, Copy)]
+enum Drag {
+    Overview,
+    Rail { grab: Pixels },
+}
+
+fn rail_thumb(state: &EditorState, height: Pixels) -> (Pixels, Pixels) {
+    let maximum = state.max_vertical_scroll_offset();
+    let visible = state.input_bounds().size.height;
+    if maximum <= px(0.) {
+        return (px(0.), height);
+    }
+    let length = (height * (visible / (maximum + visible))).max(px(24.).min(height / 2.));
+    let progress = (-state.scroll_offset().y / maximum).clamp(0., 1.);
+    ((height - length) * progress, length)
+}
 
 /// A compact document overview with retained, incrementally updated row geometry.
 pub struct Minimap {
@@ -19,7 +37,7 @@ pub struct Minimap {
     preview_scroll: ScrollHandle,
     preview: bool,
     preview_list: Option<ListState>,
-    dragging: bool,
+    drag: Option<Drag>,
     bounds: Rc<Cell<Bounds<Pixels>>>,
     _subscription: Subscription,
 }
@@ -42,7 +60,7 @@ impl Minimap {
             preview_scroll,
             preview: false,
             preview_list: None,
-            dragging: false,
+            drag: None,
             bounds: Rc::new(Cell::new(Bounds::default())),
             _subscription: subscription,
         }
@@ -62,6 +80,7 @@ impl Minimap {
             return;
         }
         self.active = active;
+        self.drag = None;
         let text = self.source.read(cx).text().clone();
         if active {
             let _ = self.geometry.update(&text);
@@ -78,21 +97,38 @@ impl Minimap {
     pub fn set_preview(&mut self, preview: bool, cx: &mut Context<Self>) {
         if self.preview != preview {
             self.preview = preview;
+            self.drag = None;
             cx.notify();
         }
     }
 
-    fn seek(&self, position: Point<Pixels>, cx: &mut Context<Self>) {
+    fn begin_drag(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let bounds = self.bounds.get();
-        let total = self.geometry.len().max(1) as f32;
-        let rail = position.x >= bounds.origin.x + px(96.);
-        let height = if rail {
-            f32::from(bounds.size.height)
+        let drag = if position.x < bounds.origin.x + OVERVIEW_WIDTH {
+            Drag::Overview
+        } else if self.preview {
+            Drag::Rail { grab: px(0.) }
         } else {
-            f32::from(bounds.size.height).min(total * 2.)
-        }
-        .max(1.);
-        let fraction = (f32::from(position.y - bounds.origin.y) / height).clamp(0., 1.);
+            let (top, length) = rail_thumb(self.source.read(cx), bounds.size.height);
+            let grab = position.y - bounds.origin.y - top;
+            if (px(0.)..=length).contains(&grab) {
+                self.drag = Some(Drag::Rail { grab });
+                return;
+            }
+            Drag::Rail { grab: length / 2. }
+        };
+        self.drag = Some(drag);
+        self.seek(position.y, drag, cx);
+    }
+
+    fn seek(&self, y: Pixels, drag: Drag, cx: &mut Context<Self>) {
+        let bounds = self.bounds.get();
+        let y = y - bounds.origin.y;
+        let height = match drag {
+            Drag::Overview => bounds.size.height.min(px(self.geometry.len() as f32 * 2.)),
+            Drag::Rail { .. } => bounds.size.height,
+        };
+        let fraction = (y / height.max(px(1.))).clamp(0., 1.);
         if self.preview {
             let (max, visible) = if let Some(list) = &self.preview_list {
                 (
@@ -116,10 +152,22 @@ impl Minimap {
             cx.notify();
         } else {
             self.source.update(cx, |state, cx| {
-                let line_height = state.line_height().unwrap_or(px(20.));
-                let visible = state.visible_row_range().map_or(1, |r| r.len()) as f32;
-                let row = (fraction * total - visible / 2.).max(0.);
-                state.set_scroll_offset(point(state.scroll_offset().x, -line_height * row), cx);
+                let maximum = state.max_vertical_scroll_offset();
+                let offset = match drag {
+                    Drag::Overview => {
+                        let visible = state.input_bounds().size.height;
+                        ((maximum + visible) * fraction - visible / 2.).clamp(px(0.), maximum)
+                    }
+                    Drag::Rail { grab } => {
+                        let (_, length) = rail_thumb(state, height);
+                        let travel = height - length;
+                        if travel <= px(0.) {
+                            return;
+                        }
+                        maximum * ((y - grab) / travel).clamp(0., 1.)
+                    }
+                };
+                state.set_scroll_offset(point(state.scroll_offset().x, -offset), cx);
             });
         }
     }
@@ -134,11 +182,12 @@ impl Render for Minimap {
         let scroll = self.preview_scroll.clone();
         let preview_list = self.preview_list.clone();
         let preview = self.preview;
+        let minimap = cx.weak_entity();
         let foreground = cx.theme().muted_foreground.opacity(0.45);
         let viewport = cx.theme().primary.opacity(0.12);
         div()
             .id("minimap")
-            .w(px(110.))
+            .w(px(MINIMAP_WIDTH))
             .h_full()
             .cursor_pointer()
             .bg(cx.theme().background)
@@ -147,29 +196,35 @@ impl Render for Minimap {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|view, event: &MouseDownEvent, _, cx| {
-                    view.dragging = true;
-                    view.seek(event.position, cx);
+                    view.begin_drag(event.position, cx);
                 }),
             )
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|view, _, _, _| view.dragging = false),
+                cx.listener(|view, _, _, _| view.drag = None),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|view, _, _, _| view.dragging = false),
+                cx.listener(|view, _, _, _| view.drag = None),
             )
-            .on_mouse_move(cx.listener(|view, event: &MouseMoveEvent, _, cx| {
-                if view.dragging && event.pressed_button == Some(MouseButton::Left) {
-                    view.seek(event.position, cx);
-                }
-            }))
             .child(
                 canvas(
                     move |bounds, _, _| {
                         bounds_cell.set(bounds);
                     },
                     move |bounds, _, window, cx| {
+                        window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                            if phase == DispatchPhase::Capture
+                                && event.pressed_button == Some(MouseButton::Left)
+                            {
+                                let _ = minimap.update(cx, |view, cx| {
+                                    if let Some(drag) = view.drag {
+                                        view.seek(event.position.y, drag, cx);
+                                        cx.stop_propagation();
+                                    }
+                                });
+                            }
+                        });
                         let total = line_count.max(1) as f32;
                         let height = f32::from(bounds.size.height).min(total * 2.);
                         let step = (total / (height / 2.).max(1.)).ceil() as usize;
@@ -220,25 +275,22 @@ impl Render for Minimap {
                         window.paint_quad(fill(
                             Bounds::new(
                                 bounds.origin + point(px(0.), px(height * start.min(1.))),
-                                size(px(96.), px((height * length.min(1.)).max(3.))),
+                                size(OVERVIEW_WIDTH, px((height * length.min(1.)).max(3.))),
                             ),
                             viewport,
                         ));
-                        if !preview && length < 1. {
-                            let rail_height = f32::from(bounds.size.height);
-                            let thumb_height = (rail_height * length).max(24.).min(rail_height);
-                            let progress = (start / (1. - length)).clamp(0., 1.);
-                            window.paint_quad(fill(
-                                Bounds::new(
-                                    bounds.origin
-                                        + point(
-                                            px(99.),
-                                            px((rail_height - thumb_height) * progress),
-                                        ),
-                                    size(px(8.), px(thumb_height)),
-                                ),
-                                foreground,
-                            ));
+                        if !preview {
+                            let state = source.read(cx);
+                            let (top, length) = rail_thumb(state, bounds.size.height);
+                            if length < bounds.size.height {
+                                window.paint_quad(fill(
+                                    Bounds::new(
+                                        bounds.origin + point(OVERVIEW_WIDTH + px(3.), top),
+                                        size(px(8.), length),
+                                    ),
+                                    foreground,
+                                ));
+                            }
                         }
                     },
                 )

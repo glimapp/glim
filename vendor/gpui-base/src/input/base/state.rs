@@ -2610,13 +2610,10 @@ impl<M: InputModeKind> InputBaseState<M> {
         cx: &mut Context<Self>,
     ) {
         let mut offset = offset.unwrap_or(self.scroll_handle.offset());
-        let safe_y_range =
-            (-self.scroll_size.height + self.input_bounds.size.height).min(px(0.0))..px(0.);
-
         offset.y = if self.is_single_line() {
             px(0.)
         } else {
-            offset.y.clamp(safe_y_range.start, safe_y_range.end)
+            offset.y.clamp(-self.max_vertical_scroll_offset(), px(0.))
         };
         offset.x = clamp_horizontal_scroll_offset(
             offset.x,
@@ -3110,6 +3107,11 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// Current scroll offset of the editor viewport.
     pub fn scroll_offset(&self) -> gpui::Point<gpui::Pixels> {
         self.scroll_handle.offset()
+    }
+
+    /// Maximum vertical scroll distance in pixels from the last layout.
+    pub fn max_vertical_scroll_offset(&self) -> Pixels {
+        (self.scroll_size.height - self.input_bounds.size.height).max(px(0.))
     }
 
     /// Set scroll offset of the editor viewport.
