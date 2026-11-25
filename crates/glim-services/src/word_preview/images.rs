@@ -12,7 +12,10 @@ pub(super) fn prepare(
     {
         return Ok((path.to_owned(), Vec::new()));
     }
-    let mut archive = zip::ZipArchive::new(File::open(path)?)?;
+    let mut archive = zip::ZipArchive::new(crate::work::Reader {
+        inner: File::open(path)?,
+        cancel: cancel.clone(),
+    })?;
     let content = scans::xml(&mut archive, "word/document.xml", cancel)?;
     let document = roxmltree::Document::parse(&content)?;
     let relationships = scans::xml(&mut archive, "word/_rels/document.xml.rels", cancel)?;
@@ -93,20 +96,16 @@ pub(super) fn prepare(
     let mut output = zip::ZipWriter::new(File::create(&prepared)?);
     for index in 0..archive.len() {
         cancel.check()?;
-        let mut entry = archive.by_index(index)?;
-        let name = entry.name()?;
-        if name == "word/document.xml" {
+        let entry = archive.by_index_raw(index)?;
+        if entry.name()? == "word/document.xml" {
             output.start_file(
                 "word/document.xml",
                 zip::write::SimpleFileOptions::default()
-                    .compression_method(zip::CompressionMethod::Deflated),
+                    .compression_method(zip::CompressionMethod::Stored),
             )?;
-            output.write_all(patched.as_bytes())?;
+            cancel.copy(patched.as_bytes(), &mut output)?;
         } else {
-            let options =
-                zip::write::SimpleFileOptions::default().compression_method(entry.compression());
-            output.start_file(name, options)?;
-            cancel.copy(&mut entry, &mut output)?;
+            output.raw_copy_file(entry)?;
         }
     }
     output.finish()?;

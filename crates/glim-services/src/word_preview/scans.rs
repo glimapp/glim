@@ -1,9 +1,9 @@
 //! Image-only DOCX pages, in drawing order rather than ZIP member order.
 use super::*;
-use std::io::Read;
+use std::io::{Read, Seek};
 
 pub(super) fn xml(
-    archive: &mut zip::ZipArchive<File>,
+    archive: &mut zip::ZipArchive<impl Read + Seek>,
     name: &str,
     cancel: &Cancellation,
 ) -> Result<String> {
