@@ -153,24 +153,16 @@ impl Reader {
     }
     pub fn inherit_view(&mut self, old: &Self, cx: &mut App) {
         self.document.inherit_identity(&old.document);
-        if let Some(projection) = &old.projection {
-            self.set_preview(projection.visible(), cx);
-        }
-        if let Renderer::Paged {
-            html: Some((_, visible)),
-            ..
-        } = &old.renderer
-        {
-            self.set_preview(*visible, cx);
-        }
         match (&mut self.renderer, &old.renderer) {
             (Renderer::Source(s), Renderer::Source(o)) => s.inherit(o, cx),
             (Renderer::Markup(s), Renderer::Markup(o)) => {
                 s.source.inherit(&o.source, cx);
-                s.preview = o.preview;
                 s.inherit_preview_scroll(o, cx);
             }
             _ => {}
+        }
+        if old.can_preview() && self.can_preview() {
+            self.set_preview(old.mode() == ReaderMode::Preview, cx);
         }
     }
     pub fn can_word_wrap(&self) -> bool {

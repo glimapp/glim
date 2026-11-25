@@ -108,7 +108,9 @@ impl Reader {
     pub fn set_editing_locked(&mut self, locked: bool, cx: &mut App) {
         if let Some(edit) = &self.document.edit {
             edit.set_locked(
-                locked || (self.document.remote.is_some() && !self.is_full_text_editor()),
+                locked
+                    || (self.document.remote.is_none() && self.document.needs_relocation_reload)
+                    || (self.document.remote.is_some() && !self.is_full_text_editor()),
                 cx,
             );
         }

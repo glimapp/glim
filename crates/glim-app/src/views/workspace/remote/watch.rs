@@ -116,12 +116,16 @@ impl Workspace {
                             }
                             match result {
                                 Ok(Some(content)) => {
-                                    let on_failure = view.refresh_failure_handler(version, cx);
-                                    if view.tabs[index].refresh_in_place(&content, on_failure, cx) {
-                                        view.tabs[index].document.remote_version =
-                                            session.loaded_version(&path);
-                                        cx.notify();
-                                        return;
+                                    if !view.tabs[index].document.needs_relocation_reload {
+                                        let on_failure = view.refresh_failure_handler(version, cx);
+                                        if view.tabs[index]
+                                            .refresh_in_place(&content, on_failure, cx)
+                                        {
+                                            view.tabs[index].document.remote_version =
+                                                session.loaded_version(&path);
+                                            cx.notify();
+                                            return;
+                                        }
                                     }
                                     let mut reader = crate::views::reader::Reader::from_content(
                                         content, window, cx,
@@ -132,6 +136,7 @@ impl Workspace {
                                     if view.active != Some(index) {
                                         reader.deactivate(cx);
                                     }
+                                    view.tabs[index].deactivate(cx);
                                     view.tabs[index] = reader;
                                     view.observe_autosave(window, cx);
                                     cx.notify();

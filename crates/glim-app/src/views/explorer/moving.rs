@@ -186,7 +186,21 @@ impl Explorer {
         self.directory_update = None;
         self.media_tasks.clear();
         self.media_presence.clear();
-        self.directories.clear();
+        if source.parent() == destination.parent() {
+            self.directories = std::mem::take(&mut self.directories)
+                .into_iter()
+                .map(|(directory, mut entries)| {
+                    for entry in &mut entries {
+                        if entry.path.starts_with(source) {
+                            entry.path = relocate(&entry.path);
+                        }
+                    }
+                    (relocate(&directory), entries)
+                })
+                .collect();
+        } else {
+            self.directories.clear();
+        }
         for root in &mut self.roots {
             *root = relocate(root);
         }

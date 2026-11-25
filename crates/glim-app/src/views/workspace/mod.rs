@@ -159,6 +159,7 @@ pub struct Workspace {
     quit_approval: Option<u64>,
     quit_discards: Vec<EntityId>,
     context_menu_task: Option<Task<()>>,
+    tab_rename: Option<(u64, super::inline_rename::InlineRename)>,
 }
 
 impl Workspace {
@@ -407,6 +408,7 @@ impl Workspace {
             quit_approval: None,
             quit_discards: Vec::new(),
             context_menu_task: None,
+            tab_rename: None,
         };
         workspace
             .subscriptions

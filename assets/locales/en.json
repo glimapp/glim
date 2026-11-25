@@ -296,6 +296,7 @@
   "Redo (editor)": "Redo (editor)",
   "Find in file": "Find in file",
   "Select / expand / open in file tree": "Select, expand, collapse, or open items in the file tree",
+  "Rename selected item in file tree": "Rename selected item in the file tree",
   "Close native preview window": "Close preview window",
   "Open": "Open",
   "Play / Pause": "Play / Pause",

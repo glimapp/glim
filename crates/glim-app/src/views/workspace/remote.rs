@@ -860,6 +860,7 @@ impl Workspace {
                         view.observe_autosave(window, cx);
                         if !refresh
                             && view.is_visible_workspace(cx)
+                            && !view.explorer_has_focus(window, cx)
                             && let Some(reader) = view.active_reader()
                             && reader.mode() == glim_core::ReaderMode::Source
                         {
@@ -870,6 +871,7 @@ impl Workspace {
                             .iter()
                             .position(|existing| existing.document.path == reader.document.path)
                         {
+                            view.tabs[index].deactivate(cx);
                             view.tabs[index] = reader;
                             view.active = Some(index);
                         } else {

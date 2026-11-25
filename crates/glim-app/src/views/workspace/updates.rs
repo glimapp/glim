@@ -217,20 +217,26 @@ impl Workspace {
                             }
                         };
                         view.tabs[index].document.source_missing = false;
-                        let on_failure = view.refresh_failure_handler(version, cx);
-                        if view.tabs[index].refresh_in_place(&content, on_failure, cx) {
-                            return;
-                        }
-                        if content.matches_snapshot(&view.tabs[index].document.snapshot)
-                            && !view.tabs[index].is_unavailable()
-                        {
-                            return;
+                        if !view.tabs[index].document.needs_relocation_reload {
+                            let on_failure = view.refresh_failure_handler(version, cx);
+                            if view.tabs[index].refresh_in_place(&content, on_failure, cx) {
+                                return;
+                            }
+                            if content.matches_snapshot(&view.tabs[index].document.snapshot)
+                                && !view.tabs[index].is_unavailable()
+                            {
+                                return;
+                            }
                         }
                         let mut reader =
                             crate::views::reader::Reader::from_content(content, window, cx);
                         reader.inherit_view(&view.tabs[index], cx);
                         reader.set_word_wrap(view.word_wrap, window, cx);
                         reader.set_editing_locked(view.editing_locked, cx);
+                        view.tabs[index].deactivate(cx);
+                        if view.active == Some(index) && view.is_visible_workspace(cx) {
+                            reader.activate(cx);
+                        }
                         view.tabs[index] = reader;
                         view.observe_autosave(window, cx);
                         cx.notify();

@@ -30,7 +30,7 @@ impl FileAction {
         match self {
             Self::NewFile => "New File",
             Self::NewFolder => "New Folder…",
-            Self::Rename => "Rename…",
+            Self::Rename => unreachable!("rename uses the filename field"),
             Self::Move => "Move to Folder…",
         }
     }
@@ -44,6 +44,31 @@ impl Workspace {
         })
     }
 
+    pub(super) fn file_actions_available(&self, cx: &App) -> bool {
+        let is_remote = glim_services::remote::is_remote_id(&self.recent_id);
+        (!is_remote || (self.remote.is_some() && !self.remote_disconnected))
+            && !self.loading
+            && self.remote_restore.is_none()
+            && !self.picking
+            && self.confirm_task.is_none()
+            && !crate::app::updates::busy(cx)
+            && !crate::app::workspace_editors_locked(cx)
+    }
+
+    pub(super) fn rename_entry(
+        &mut self,
+        path: PathBuf,
+        destination: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.file_actions_available(cx) {
+            self.run_file_action(FileAction::Rename, path, destination, window, cx);
+        } else {
+            self.report_recovery_error(tr("Another file operation is in progress"), cx);
+        }
+    }
+
     pub(super) fn file_action_dialog(
         &mut self,
         action: FileAction,
@@ -51,25 +76,14 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let is_remote = glim_services::remote::is_remote_id(&self.recent_id);
-        if (is_remote && (self.remote.is_none() || self.remote_disconnected))
-            || self.loading
-            || self.remote_restore.is_some()
-            || self.picking
-            || self.confirm_task.is_some()
-            || crate::app::updates::busy(cx)
-            || crate::app::workspace_editors_locked(cx)
-        {
+        if !self.file_actions_available(cx) {
             return;
         }
+        let is_remote = glim_services::remote::is_remote_id(&self.recent_id);
         let input = cx.new(|cx| {
             let mut input = InputState::new(window, cx);
             let initial = match action {
-                FileAction::Rename => path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned(),
+                FileAction::Rename => unreachable!("rename uses the filename field"),
                 FileAction::Move => path
                     .parent()
                     .unwrap_or(Path::new("/"))
@@ -173,18 +187,10 @@ impl Workspace {
                                         window.refresh();
                                         return false;
                                     }
-                                    match action {
-                                        FileAction::Rename => {
-                                            path.parent().unwrap_or(Path::new("/")).join(value)
-                                        }
-                                        _ => path.join(value),
-                                    }
+                                    path.join(value)
                                 }
                             };
                             view.picking = false;
-                            if matches!(action, FileAction::Rename) && destination == path {
-                                return true;
-                            }
                             view.run_file_action(action, path.clone(), destination, window, cx);
                             true
                         })
@@ -459,14 +465,12 @@ impl Workspace {
                 self.did_trash(source, &retained, window, cx);
             } else if let Some(destination) = destination {
                 let relocate = |path: &PathBuf| {
-                    path.strip_prefix(source)
-                        .map(|suffix| destination.join(suffix))
-                        .unwrap_or_else(|_| path.clone())
+                    crate::app::file_move::relocated_path(path, source, destination)
                 };
                 for reader in &mut self.tabs {
                     if !reader.document.trashed && reader.document.path.starts_with(source) {
-                        reader.document.path = relocate(&reader.document.path);
-                        reader.document.remote_version = None;
+                        reader.document.relocate(relocate(&reader.document.path));
+                        reader.title = reader.document.path.display().to_string().into();
                     }
                 }
                 self.roots = self.roots.iter().map(relocate).collect();

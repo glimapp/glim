@@ -13,6 +13,7 @@ pub mod workspace;
 pub(crate) mod workspace_window;
 
 mod file_icons;
+mod inline_rename;
 pub(crate) mod integrations;
 mod settings_controls;
 

@@ -16,6 +16,7 @@ use gpui_kit::{
 };
 
 mod moving;
+use super::inline_rename::InlineRename;
 use moving::DraggedEntry;
 
 pub enum ExplorerEvent {
@@ -24,7 +25,7 @@ pub enum ExplorerEvent {
     FileHistory(PathBuf),
     NewFile(PathBuf),
     NewFolder(PathBuf),
-    RenameEntry(PathBuf),
+    RenameEntry(PathBuf, PathBuf),
     RemoveFolder(u64),
     TrashEntry(PathBuf),
     MoveEntry(PathBuf, PathBuf),
@@ -36,7 +37,15 @@ pub enum ExplorerEvent {
 
 gpui_kit::actions!(
     explorer,
-    [Up, Down, Expand, Collapse, OpenSelected, MoveSelected]
+    [
+        Up,
+        Down,
+        Expand,
+        Collapse,
+        OpenSelected,
+        MoveSelected,
+        RenameSelected
+    ]
 );
 
 const DIRECTORY_SCAN_CONCURRENCY: usize = 32;
@@ -137,6 +146,7 @@ pub struct Explorer {
     scroll: UniformListScrollHandle,
     show_all_ancestors: bool,
     context_menu_task: Option<Task<()>>,
+    rename: Option<(u64, bool, InlineRename)>,
     drag_hover: Option<(PathBuf, Task<()>)>,
     drag_scroll: Option<Task<()>>,
 }
@@ -150,7 +160,8 @@ impl Explorer {
             KeyBinding::new("down", Down, Some("Explorer")),
             KeyBinding::new("right", Expand, Some("Explorer")),
             KeyBinding::new("left", Collapse, Some("Explorer")),
-            KeyBinding::new("enter", OpenSelected, Some("Explorer")),
+            KeyBinding::new("secondary-down", OpenSelected, Some("Explorer")),
+            KeyBinding::new("enter", RenameSelected, Some("Explorer")),
             KeyBinding::new("secondary-shift-m", MoveSelected, Some("Explorer")),
         ]);
     }
@@ -186,6 +197,7 @@ impl Explorer {
             scroll: UniformListScrollHandle::new(),
             show_all_ancestors: false,
             context_menu_task: None,
+            rename: None,
             drag_hover: None,
             drag_scroll: None,
         };
@@ -194,6 +206,10 @@ impl Explorer {
     }
     pub fn set_git_repositories(&mut self, roots: Vec<PathBuf>) {
         self.git_repositories = roots;
+    }
+
+    pub(crate) fn has_focus(&self, window: &Window, cx: &App) -> bool {
+        self.focus.contains_focused(window, cx)
     }
 
     pub fn set_remote(&mut self, remote: Option<glim_services::remote::Session>) {
@@ -944,6 +960,58 @@ impl Explorer {
         }
     }
 
+    fn begin_rename(
+        &mut self,
+        path: PathBuf,
+        root_id: u64,
+        sticky: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if path.file_name().is_none() || crate::app::workspace_editors_locked(cx) {
+            return;
+        }
+        let Some(row) = self
+            .rows
+            .iter()
+            .find(|row| self.root_ids[row.root_index] == root_id && row.entry.path == path)
+        else {
+            return;
+        };
+        let is_directory = row.entry.is_dir;
+        self.path_hint.hide();
+        self.rename = None;
+        self.rename = Some((
+            root_id,
+            sticky,
+            InlineRename::new(path, is_directory, window, cx, Self::finish_rename),
+        ));
+        cx.notify();
+    }
+
+    fn finish_rename(&mut self, submit: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((_, _, rename)) = &self.rename else {
+            return;
+        };
+        if submit {
+            match rename.destination(cx) {
+                Ok(Some(destination)) => {
+                    cx.emit(ExplorerEvent::RenameEntry(rename.path.clone(), destination))
+                }
+                Ok(None) => {}
+                Err(message) => {
+                    cx.emit(ExplorerEvent::Error(message));
+                    return;
+                }
+            }
+        }
+        self.rename = None;
+        if submit {
+            window.focus(&self.focus, cx);
+        }
+        cx.notify();
+    }
+
     fn render_row(
         &self,
         index: usize,
@@ -970,11 +1038,14 @@ impl Explorer {
         let label_name = name.clone();
         let root_index = row.root_index;
         let root_id = self.root_ids[root_index];
+        let rename = self.rename.as_ref().and_then(|(id, pinned, rename)| {
+            (*id == root_id && *pinned == sticky && rename.path == row.entry.path).then_some(rename)
+        });
         let label_key = (root_index, row.entry.path.clone(), sticky);
         let label_view = cx.entity().downgrade();
         let hint_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::default()));
         let painted_hint_bounds = hint_bounds.clone();
-        let show_hint = self.clipped_labels.contains(&label_key);
+        let show_hint = rename.is_none() && self.clipped_labels.contains(&label_key);
         let tooltip_name = name.clone();
         let tooltip_path = row.entry.path.display().to_string();
         let row_path = row.entry.path.clone();
@@ -985,6 +1056,7 @@ impl Explorer {
         let hover_path = menu_path.clone();
 
         let menu_root = self.roots[root_index].clone();
+        let rename_path = row_path.clone();
         let drag = DraggedEntry {
             path: row.entry.path.clone(),
             is_dir: row.entry.is_dir,
@@ -1061,7 +1133,7 @@ impl Explorer {
             )
             .when(sticky, |row| row.occlude())
             .when(
-                row.depth > 0 && !crate::app::workspace_editors_locked(cx),
+                rename.is_none() && row.depth > 0 && !crate::app::workspace_editors_locked(cx),
                 |entry| {
                     entry.on_drag(drag, |drag, _, _, cx| {
                         cx.stop_propagation();
@@ -1138,7 +1210,37 @@ impl Explorer {
                 8. + depth as f32 * 14.
             }))
             .pr_2()
-            .child(
+            .when_some(rename, |entry, rename| entry.child(
+                gpui_kit::component::h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_2()
+                    .pl(px(10.))
+                    .pr(px(10.))
+                    .child(
+                        div().size(px(16.)).flex_shrink_0().child(if row.entry.is_dir {
+                            Icon::new(if expanded {
+                                gpui_kit::assets::IconName::ChevronDown
+                            } else {
+                                gpui_kit::assets::IconName::ChevronRight
+                            })
+                            .size(px(14.))
+                            .text_color(cx.theme().muted_foreground)
+                            .into_any_element()
+                        } else {
+                            super::file_icons::file_icon(&row.entry.path, cx).into_any_element()
+                        }),
+                    )
+                    .child(rename.field(px(row_height - 2.), cx).flex_1())
+                    .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
+                        if event.keystroke.key == "escape" {
+                            view.finish_rename(false, window, cx);
+                            window.focus(&view.focus, cx);
+                            cx.stop_propagation();
+                        }
+                    })),
+            ))
+            .when(rename.is_none(), |entry| entry.child(
                 Button::new(row.element_id(if sticky { "sticky-entry" } else { "entry" }))
                     .custom(
                         ButtonCustomVariant::new(cx)
@@ -1222,6 +1324,14 @@ impl Explorer {
                                         .min_w_0()
                                         .truncate()
                                         .child(name)
+                                        .when(!row.entry.is_dir, |label| {
+                                            label.on_click(cx.listener(move |view, event: &ClickEvent, window, cx| {
+                                                if event.click_count() == 2 && !crate::app::workspace_editors_locked(cx) {
+                                                    cx.stop_propagation();
+                                                    view.begin_rename(rename_path.clone(), root_id, sticky, window, cx);
+                                                }
+                                            }))
+                                        })
                                         .child(
                                             canvas(
                                                 move |bounds, window, cx| {
@@ -1277,7 +1387,7 @@ impl Explorer {
                             cx,
                         );
                     })),
-            )
+            ))
             .when(row.depth == 0 && self.remote.is_none(), |entry| {
                 entry.child(
                     gpui_kit::component::h_flex()
@@ -1329,20 +1439,22 @@ impl Explorer {
                         })),
                 )
             })
-            .on_mouse_down(
+            .when(rename.is_none(), |entry| entry.on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |view, _, window, cx| {
                     cx.stop_propagation();
                     view.show_file_menu(
                         menu_path.clone(),
                         menu_root.clone(),
+                        root_id,
                         menu_root_id,
                         menu_is_dir,
+                        sticky,
                         window,
                         cx,
                     );
                 }),
-            );
+            ));
 
         div()
             .w_full()
@@ -1481,8 +1593,10 @@ impl Explorer {
         &mut self,
         path: PathBuf,
         root: PathBuf,
+        tree_root_id: u64,
         root_id: Option<u64>,
         is_dir: bool,
+        sticky: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1556,7 +1670,7 @@ impl Explorer {
         };
         self.context_menu_task = Some(cx.spawn_in(window, async move |view, cx| {
             let selected = menu.choose(cx).await;
-            let _ = view.update_in(cx, |view, _, cx| {
+            let _ = view.update_in(cx, |view, window, cx| {
                 if let Some(action) = selected
                     .and_then(|index| items.get(index))
                     .and_then(|(_, action)| *action)
@@ -1597,7 +1711,7 @@ impl Explorer {
                     match action {
                         NewFile => cx.emit(ExplorerEvent::NewFile(path.clone())),
                         NewFolder => cx.emit(ExplorerEvent::NewFolder(path.clone())),
-                        Rename => cx.emit(ExplorerEvent::RenameEntry(path.clone())),
+                        Rename => view.begin_rename(path.clone(), tree_root_id, sticky, window, cx),
                         Play(shuffle) => cx.emit(ExplorerEvent::PlayFolder(path.clone(), shuffle)),
                         Open => cx.emit(ExplorerEvent::OpenFile(path.clone())),
                         FileHistory => cx.emit(ExplorerEvent::FileHistory(path.clone())),
@@ -1653,6 +1767,9 @@ impl Explorer {
             None => 0,
         };
         self.selected = Some(selected);
+        self.clicked_path = Some(self.rows[selected].entry.path.clone());
+        self.clicked_root = Some(self.rows[selected].root_index);
+        cx.emit(ExplorerEvent::SelectionChanged);
         self.scroll
             .scroll_to_item(selected, ScrollStrategy::Nearest);
         cx.notify();
@@ -1668,7 +1785,7 @@ impl Render for Explorer {
             .overflow_hidden()
             .size_full()
             .min_h_0()
-            .key_context("Explorer")
+            .when(self.rename.is_none(), |view| view.key_context("Explorer"))
             .track_focus(&self.focus)
             .on_drag_move(
                 cx.listener(|view, _: &DragMoveEvent<DraggedEntry>, window, cx| {
@@ -1680,6 +1797,17 @@ impl Render for Explorer {
             .on_action(cx.listener(|view, _: &OpenSelected, window, cx| {
                 if let Some(index) = view.selected {
                     view.activate(index, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|view, _: &RenameSelected, window, cx| {
+                if let Some(row) = view.selected.and_then(|index| view.rows.get(index)) {
+                    view.begin_rename(
+                        row.entry.path.clone(),
+                        view.root_ids[row.root_index],
+                        false,
+                        window,
+                        cx,
+                    );
                 }
             }))
             .on_action(cx.listener(|view, _: &MoveSelected, _, cx| {

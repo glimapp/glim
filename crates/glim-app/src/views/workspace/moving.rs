@@ -98,7 +98,8 @@ impl Workspace {
     pub(crate) fn replace_moved_tab(
         &mut self,
         old_path: &Path,
-        content: Content,
+        new_path: PathBuf,
+        content: anyhow::Result<Content>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -106,6 +107,20 @@ impl Workspace {
             reader.document.path == old_path && reader.document.restore_on_launch()
         }) else {
             return;
+        };
+        let content = match content {
+            Ok(content) => content,
+            Err(error) => {
+                let reader = &mut self.tabs[index];
+                reader.document.relocate(new_path);
+                reader.title = reader.document.path.display().to_string().into();
+                log::warn!(
+                    "Cannot reload moved file {}: {error:#}",
+                    reader.document.path.display()
+                );
+                cx.notify();
+                return;
+            }
         };
         let mut reader = super::Reader::from_restored_content(content, window, cx);
         reader.inherit_view(&self.tabs[index], cx);

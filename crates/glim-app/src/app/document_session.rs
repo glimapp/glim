@@ -18,6 +18,7 @@ pub(crate) struct DocumentSession {
     pub edit: Option<super::edit_session::EditSession>,
     pub snapshot: ContentSnapshot,
     pub source_missing: bool,
+    pub needs_relocation_reload: bool,
     pub trashed: bool,
     pub retained_file: Option<std::sync::Arc<glim_services::files::RetainedFile>>,
     pub draft_directory: Option<PathBuf>,
@@ -40,6 +41,7 @@ impl DocumentSession {
             edit: None,
             snapshot,
             source_missing: false,
+            needs_relocation_reload: false,
             trashed: false,
             retained_file: None,
             draft_directory: None,
@@ -56,6 +58,13 @@ impl DocumentSession {
     }
     pub fn version(&self) -> DocumentVersion {
         self.version
+    }
+    pub fn relocate(&mut self, path: PathBuf) {
+        self.path = path;
+        self.source_missing = false;
+        self.remote_version = None;
+        self.needs_relocation_reload = true;
+        self.version.revision += 1;
     }
     pub fn mark_saved(&mut self, snapshot: ContentSnapshot) {
         self.snapshot = snapshot;

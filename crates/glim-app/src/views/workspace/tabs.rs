@@ -193,6 +193,7 @@ impl TabCloseTargets {
 }
 
 enum TabMenuAction {
+    Rename(u64),
     Close(TabCloseTargets),
     Trash(std::path::PathBuf),
     Detach(super::header::Target),
@@ -202,6 +203,66 @@ enum TabMenuAction {
 }
 
 impl Workspace {
+    fn begin_tab_rename(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(reader) = self.tabs.iter().find(|reader| {
+            reader.document.id() == id
+                && reader.document.restore_on_launch()
+                && matches!(
+                    reader.session_tab(cx),
+                    glim_core::session::SessionTab::File { .. }
+                )
+        }) else {
+            return;
+        };
+        if !self.file_actions_available(cx) {
+            return;
+        }
+        let path = reader.document.path.clone();
+        self.path_hint.hide();
+        self.tab_rename = None;
+        self.tab_rename = Some((
+            id,
+            crate::views::inline_rename::InlineRename::new(
+                path,
+                false,
+                window,
+                cx,
+                Self::finish_tab_rename,
+            ),
+        ));
+        cx.notify();
+    }
+
+    fn finish_tab_rename(&mut self, submit: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((id, rename)) = &self.tab_rename else {
+            return;
+        };
+        let operation = if submit
+            && self.tabs.iter().any(|reader| {
+                reader.document.id() == *id && reader.document.owns_path(&rename.path)
+            }) {
+            match rename.destination(cx) {
+                Ok(destination) => {
+                    destination.map(|destination| (rename.path.clone(), destination))
+                }
+                Err(message) => {
+                    self.report_recovery_error(message, cx);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        self.tab_rename = None;
+        if submit {
+            window.focus(&self.focus, cx);
+        }
+        if let Some((source, destination)) = operation {
+            self.rename_entry(source, destination, window, cx);
+        }
+        cx.notify();
+    }
+
     fn detach_tab(
         &mut self,
         target: &super::header::Target,
@@ -398,11 +459,13 @@ impl Workspace {
                 self.start_pending_refresh(window, cx);
             }
             self.reveal_active_file(cx);
-            window.focus(&self.focus, cx);
-            if self.tabs[index].editor().is_some()
-                && self.tabs[index].mode() == glim_core::ReaderMode::Source
-            {
-                self.tabs[index].focus_source(window, cx);
+            if !self.explorer_has_focus(window, cx) {
+                window.focus(&self.focus, cx);
+                if self.tabs[index].editor().is_some()
+                    && self.tabs[index].mode() == glim_core::ReaderMode::Source
+                {
+                    self.tabs[index].focus_source(window, cx);
+                }
             }
             self.revealed_tab = None;
             window.set_window_title("Glim");
@@ -525,6 +588,18 @@ impl Workspace {
                     && !crate::app::updates::busy(cx),
             ));
             actions.push(Some(TabMenuAction::Detach(target.clone())));
+            if reader.document.restore_on_launch()
+                && matches!(
+                    reader.session_tab(cx),
+                    glim_core::session::SessionTab::File { .. }
+                )
+            {
+                items.push((
+                    Some(glim_services::locale::tr("Rename…")),
+                    self.file_actions_available(cx),
+                ));
+                actions.push(Some(TabMenuAction::Rename(reader.document.id())));
+            }
             if reader.document.draft_directory.is_none() {
                 let path = reader.document.path.clone();
                 if reader.document.remote.is_none() {
@@ -601,6 +676,7 @@ impl Workspace {
                     .and_then(Option::take)
                 {
                     match action {
+                        TabMenuAction::Rename(id) => view.begin_tab_rename(id, window, cx),
                         TabMenuAction::Detach(target) => view.detach_tab(&target, window, cx),
                         TabMenuAction::CopyPath(path) => cx.write_to_clipboard(
                             ClipboardItem::new_string(path.to_string_lossy().into_owned()),
@@ -777,6 +853,7 @@ impl Workspace {
             .enumerate()
             .map(|(index, reader)| {
                 let active = self.page == super::Page::Document && self.active == Some(index);
+                let id = reader.document.id();
                 let target = super::header::Target::from_reader(reader);
                 let label = if reader.document.draft_directory.is_some() {
                     reader.title.to_string()
@@ -831,9 +908,55 @@ impl Workspace {
                     hint_bounds.clone(),
                     cx,
                 );
+                let close =
+                    tab_close_button(("close-tab", index), &reader.title, reader.is_dirty(), cx)
+                        .on_click(cx.listener(move |view, _, window, cx| {
+                            cx.stop_propagation();
+                            view.finish_tab_rename(false, window, cx);
+                            view.close_tab(index, window, cx);
+                        }));
+                if let Some((_, rename)) = self.tab_rename.as_ref().filter(|(target, rename)| {
+                    *target == id && reader.document.owns_path(&rename.path)
+                }) {
+                    let text_style = window.text_style();
+                    let label_width = window
+                        .text_system()
+                        .layout_line(&label, px(12.), &[text_style.to_run(label.len())], None)
+                        .width;
+                    return frame
+                        .child(
+                            h_flex()
+                                .gap(px(5.))
+                                .child(crate::views::file_icons::file_icon(
+                                    &reader.document.path,
+                                    cx,
+                                ))
+                                .child(
+                                    rename
+                                        .field(px(24.), cx)
+                                        .w((label_width + px(6.)).clamp(px(76.), px(210.))),
+                                ),
+                        )
+                        .child(close)
+                        .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
+                            if event.keystroke.key == "escape" {
+                                view.finish_tab_rename(false, window, cx);
+                                window.focus(&view.focus, cx);
+                                cx.stop_propagation();
+                            }
+                        }));
+                }
+                let can_rename = reader.document.restore_on_launch()
+                    && matches!(
+                        reader.session_tab(cx),
+                        glim_core::session::SessionTab::File { .. }
+                    );
                 frame
                     .on_key_down(cx.listener(move |view, event: &KeyDownEvent, window, cx| {
-                        if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                        if can_rename && event.keystroke.key == "enter" {
+                            view.begin_tab_rename(id, window, cx);
+                            cx.stop_propagation();
+                        } else if matches!(event.keystroke.key.as_str(), "enter" | "space") {
                             view.activate_tab(index, window, cx);
                             view.tabs[index].activate(cx);
                             cx.stop_propagation();
@@ -883,24 +1006,21 @@ impl Workspace {
                             hint_bounds,
                             cx,
                         )
+                        .when(can_rename, |label| {
+                            label.on_click(cx.listener(
+                                move |view, event: &ClickEvent, window, cx| {
+                                    if event.click_count() == 2 && view.file_actions_available(cx) {
+                                        cx.stop_propagation();
+                                        view.begin_tab_rename(id, window, cx);
+                                    }
+                                },
+                            ))
+                        })
                         .when(reader.document.trashed, |label| {
                             label.text_color(cx.theme().muted_foreground)
                         }),
                     )
-                    .child(
-                        tab_close_button(
-                            ("close-tab", index),
-                            &reader.title,
-                            reader.is_dirty(),
-                            cx,
-                        )
-                        .on_click(cx.listener(
-                            move |view, _, window, cx| {
-                                cx.stop_propagation();
-                                view.close_tab(index, window, cx);
-                            },
-                        )),
-                    )
+                    .child(close)
                     .capture_any_mouse_down(cx.listener(
                         move |view, event: &MouseDownEvent, window, cx| {
                             view.on_tab_mouse_down(&menu_target, event, window, cx);

@@ -33,6 +33,9 @@ impl Reader {
             return None;
         }
         let path = self.document.path.clone();
+        if self.document.needs_relocation_reload {
+            return Some(RefreshRequest::Reload(path));
+        }
         if !force && self.document.source_missing {
             return Some(RefreshRequest::Missing(path));
         }

@@ -112,7 +112,7 @@ fn start_operation(
         if let Ok(destination) = &result {
             for (view, handle, tabs) in tabs {
                 for tab in tabs {
-                    let (old_path, content) = match tab {
+                    let (old_path, new_path, content) = match tab {
                         SessionTab::File { path, .. } => {
                             let new_path = relocated_path(&path, &source, destination);
                             let read_path = new_path.clone();
@@ -123,20 +123,21 @@ fn start_operation(
                                 Cancellation::default(),
                                 move |cancel| read_content_cancellable(&read_path, cancel),
                             )
-                            .await
-                            .unwrap_or_else(|error| {
-                                Content::Unavailable(new_path, (&error).into())
-                            });
-                            (path, content)
+                            .await;
+                            (path, new_path, content)
                         }
                         SessionTab::Playlist { path, shuffle } => {
                             let new_path = relocated_path(&path, &source, destination);
-                            (path, Content::Native(new_path, true, shuffle))
+                            (
+                                path,
+                                new_path.clone(),
+                                Ok(Content::Native(new_path, true, shuffle)),
+                            )
                         }
                     };
                     let _ = handle.update(cx, |_, window, cx| {
                         let _ = view.update(cx, |view, cx| {
-                            view.replace_moved_tab(&old_path, content, window, cx)
+                            view.replace_moved_tab(&old_path, new_path, content, window, cx)
                         });
                     });
                 }

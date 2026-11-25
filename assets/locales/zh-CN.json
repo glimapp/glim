@@ -296,6 +296,7 @@
   "Redo (editor)": "重做（编辑器）",
   "Find in file": "文件内查找",
   "Select / expand / open in file tree": "在文件树中选择、展开、收起或打开",
+  "Rename selected item in file tree": "重命名文件树中选中的项目",
   "Close native preview window": "关闭独立预览窗口",
   "Open": "打开",
   "Play / Pause": "播放 / 暂停",

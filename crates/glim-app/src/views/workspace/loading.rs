@@ -14,6 +14,12 @@ enum Opened {
     File(PathBuf, anyhow::Result<Box<Content>>),
 }
 impl Workspace {
+    pub(super) fn explorer_has_focus(&self, window: &Window, cx: &App) -> bool {
+        self.explorer
+            .as_ref()
+            .is_some_and(|explorer| explorer.read(cx).has_focus(window, cx))
+    }
+
     pub(super) fn pending_open_path(&self) -> Option<&PathBuf> {
         if self.loading {
             self.loading_path.as_ref()
@@ -384,12 +390,9 @@ impl Workspace {
                     ExplorerEvent::NewFolder(path) => {
                         view.choose_new_folder_in(path.clone(), window, cx);
                     }
-                    ExplorerEvent::RenameEntry(path) => view.file_action_dialog(
-                        super::file_actions::FileAction::Rename,
-                        path.clone(),
-                        window,
-                        cx,
-                    ),
+                    ExplorerEvent::RenameEntry(path, destination) => {
+                        view.rename_entry(path.clone(), destination.clone(), window, cx)
+                    }
                     ExplorerEvent::TrashEntry(path) => view.confirm_trash(path.clone(), window, cx),
                     ExplorerEvent::MoveEntry(source, directory) => {
                         if view.remote.is_some() {
