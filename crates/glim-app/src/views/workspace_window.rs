@@ -15,6 +15,7 @@ pub(crate) struct WorkspaceWindow {
     pub group: String,
     pub navigation_scroll: ScrollHandle,
     closing: bool,
+    closed: bool,
 }
 
 impl WorkspaceWindow {
@@ -23,6 +24,7 @@ impl WorkspaceWindow {
             slots: Vec::new(),
             active: 0,
             closing: false,
+            closed: false,
             navigation_scroll: ScrollHandle::new(),
             group: format!(
                 "window-{}-{:?}",
@@ -131,7 +133,7 @@ impl WorkspaceWindow {
     }
 
     pub(crate) fn remember_window(&self, cx: &mut App) {
-        if !cx.has_global::<crate::app::workspace_sessions::SavedWorkspaces>() {
+        if self.closed || !cx.has_global::<crate::app::workspace_sessions::SavedWorkspaces>() {
             return;
         }
         let sessions = self
@@ -298,7 +300,9 @@ impl WorkspaceWindow {
                     view.commit_quit(cx);
                 });
             }
-            self.remember_window(cx);
+            // Workspace session writes can defer a window checkpoint until after this close.
+            self.closed = true;
+            crate::app::workspace_sessions::forget_window(&self.group, cx);
             window.remove_window();
         }
     }

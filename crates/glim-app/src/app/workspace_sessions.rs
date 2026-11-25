@@ -67,6 +67,25 @@ pub(crate) fn remember_window(group: String, sessions: Vec<WorkspaceSession>, cx
         return;
     }
     saved.windows.insert(group, sessions);
+    write_windows(cx);
+}
+
+pub(crate) fn forget_window(group: &str, cx: &mut App) {
+    if !cx.has_global::<SavedWorkspaces>() {
+        return;
+    }
+    if cx
+        .global_mut::<SavedWorkspaces>()
+        .windows
+        .remove(group)
+        .is_some()
+    {
+        write_windows(cx);
+    }
+}
+
+fn write_windows(cx: &mut App) {
+    let saved = cx.global_mut::<SavedWorkspaces>();
     let windows = saved.windows.clone();
     let previous = saved.window_write.take();
     let task = cx.spawn(async move |cx| {
@@ -178,11 +197,74 @@ pub(super) fn checkpoint_windows(cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{SavedWorkspaces, restore_windows};
+    use super::{SavedWorkspaces, checkpoint_windows, restore_windows};
     use glim_core::session::WorkspaceSession;
     use glim_services::preferences::RecentWorkspace;
     use gpui_kit::TestAppContext;
     use std::collections::BTreeMap;
+
+    #[gpui_kit::test]
+    fn closed_window_stays_out_of_the_next_restore(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let (closed, handle) = cx.update(|cx| {
+            crate::app::remote::init(Default::default(), cx);
+            cx.set_global(super::super::OpenWorkspaces::default());
+            cx.set_global(super::super::RecentWorkspaces::default());
+            // Hold writes until the test drops the session state, keeping the user's database out
+            // of this fixture.
+            let window_write = cx.background_executor().spawn(std::future::pending::<()>());
+            cx.set_global(SavedWorkspaces {
+                sessions: BTreeMap::new(),
+                write: None,
+                windows: ["close", "keep"]
+                    .into_iter()
+                    .map(|group| {
+                        let session = WorkspaceSession {
+                            show_home: true,
+                            ..Default::default()
+                        };
+                        (group.into(), vec![session])
+                    })
+                    .collect(),
+                window_write: Some(window_write),
+                restoring: false,
+            });
+            assert!(restore_windows(cx));
+            super::super::OpenWorkspaces::windows(cx)
+                .into_iter()
+                .find_map(|(view, handle)| {
+                    let view = view.upgrade()?;
+                    let host = view.read(cx).workspace_window.as_ref()?.upgrade()?;
+                    (host.read(cx).group == "close").then_some((host, handle))
+                })
+                .unwrap()
+        });
+        cx.update(|cx| {
+            handle
+                .update(cx, |_, window, cx| {
+                    closed.update(cx, |host, cx| host.request_close(window, cx));
+                })
+                .unwrap();
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(cx.windows().len(), 1);
+            // A deferred workspace save can still reach a retained host just after it closes.
+            closed.update(cx, |host, cx| host.remember_window(cx));
+            checkpoint_windows(cx);
+            assert_eq!(
+                cx.global::<SavedWorkspaces>()
+                    .windows
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                ["keep"]
+            );
+            assert!(restore_windows(cx));
+            assert_eq!(cx.windows().len(), 1);
+            cx.remove_global::<SavedWorkspaces>();
+        });
+    }
 
     #[gpui_kit::test]
     fn startup_restores_selected_workspace_and_home_without_reordering_recents(
