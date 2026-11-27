@@ -719,10 +719,8 @@ mod tests {
         .unwrap();
         cx.run_until_parked();
         cx.update(|cx| {
-            cx.set_global(super::super::OpenWorkspaces(vec![(
-                view.downgrade(),
-                handle,
-            )]));
+            cx.set_global(super::super::OpenWorkspaces::default());
+            super::super::OpenWorkspaces::register(&view, handle, cx);
             cx.set_global(UpdateInstallLock(false));
             let state = cx.new(|_| UpdateState {
                 snapshot: UpdateSnapshot {

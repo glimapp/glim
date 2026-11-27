@@ -80,7 +80,7 @@ impl WorkspaceWindow {
         {
             self.reveal_navigation();
         }
-        crate::app::register_workspace(&view, window.window_handle(), cx);
+        crate::app::OpenWorkspaces::register(&view, window.window_handle(), cx);
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
             if crate::app::updates::intercept_last_window_close(cx) {

@@ -13,6 +13,7 @@ pub(crate) mod languages;
 pub(crate) mod markdown_export;
 pub(crate) mod media_prepare;
 mod menus;
+mod open_workspaces;
 pub(crate) mod reader_jobs;
 #[cfg(feature = "reader-measurements")]
 pub(crate) mod reader_measurement;
@@ -38,6 +39,8 @@ use actions::{
     PrintDocument, Quit, Refresh, SaveFile, SearchWorkspace, ToggleDarkMode, ToggleFileTree,
     TogglePreview, ToggleSidebar, ToggleWordWrap,
 };
+
+pub(crate) use open_workspaces::OpenWorkspaces;
 
 pub struct ReaderPreferences {
     pub word_wrap: bool,
@@ -231,7 +234,7 @@ pub(crate) fn set_appearance(appearance: glim_services::preferences::Appearance,
             .await;
         if let Err(error) = result {
             cx.update(|cx| {
-                if let Some((_, handle)) = cx.global::<OpenWorkspaces>().0.last().cloned() {
+                if let Some((_, handle)) = OpenWorkspaces::registered(cx).last().cloned() {
                     let _ = handle.update(cx, |_, window, cx| {
                         drop(window.prompt(
                             PromptLevel::Warning,
@@ -289,7 +292,7 @@ fn open_default_applications(cx: &mut App) {
         cx.update(|cx| {
             cx.global_mut::<DefaultApplicationsTask>().0 = None;
             if let Err(error) = result
-                && let Some((_, handle)) = cx.global::<OpenWorkspaces>().0.last().cloned()
+                && let Some((_, handle)) = OpenWorkspaces::registered(cx).last().cloned()
             {
                 let _ = handle.update(cx, |_, window, cx| {
                     drop(window.prompt(
@@ -310,17 +313,13 @@ fn show_settings(cx: &mut App) {
     if updates::busy(cx) {
         return;
     }
-    if !cx
-        .global::<OpenWorkspaces>()
-        .0
+    if !OpenWorkspaces::registered(cx)
         .iter()
         .any(|(view, _)| view.upgrade().is_some())
     {
         open_workspace(None, cx);
     }
-    let target = cx
-        .global::<OpenWorkspaces>()
-        .0
+    let target = OpenWorkspaces::registered(cx)
         .iter()
         .rev()
         .find(|(view, _)| {
@@ -616,9 +615,7 @@ fn run_workspace() -> Result<()> {
         ]);
         menus::update(cx);
         cx.on_window_closed(|cx, closed| {
-            cx.global_mut::<OpenWorkspaces>()
-                .0
-                .retain(|(_, handle)| handle.window_id() != closed);
+            OpenWorkspaces::forget_window(closed, cx);
             cx.refresh_windows();
         })
         .detach();
@@ -789,29 +786,6 @@ pub(crate) fn open_detached_window(
     Ok((host.read(cx).slots[0].view.clone(), handle))
 }
 
-pub(crate) fn register_workspace(view: &Entity<Workspace>, handle: AnyWindowHandle, cx: &mut App) {
-    let windows = &mut cx.global_mut::<OpenWorkspaces>().0;
-    windows.retain(|(view, _)| view.upgrade().is_some());
-    windows.push((view.downgrade(), handle));
-}
-
-#[derive(Default)]
-struct OpenWorkspaces(Vec<(WeakEntity<Workspace>, AnyWindowHandle)>);
-impl Global for OpenWorkspaces {}
-impl OpenWorkspaces {
-    fn windows(cx: &App) -> Vec<(WeakEntity<Workspace>, AnyWindowHandle)> {
-        let windows = cx.windows();
-        cx.try_global::<Self>()
-            .map(|v| {
-                v.0.iter()
-                    .filter(|(view, handle)| view.upgrade().is_some() && windows.contains(handle))
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-}
-
 pub(crate) fn open_document_paths(exclude: Option<EntityId>, cx: &App) -> Vec<std::path::PathBuf> {
     OpenWorkspaces::windows(cx)
         .into_iter()
@@ -822,7 +796,7 @@ pub(crate) fn open_document_paths(exclude: Option<EntityId>, cx: &App) -> Vec<st
 }
 
 pub(crate) fn any_other_saving(exclude: EntityId, cx: &App) -> bool {
-    cx.global::<OpenWorkspaces>().0.iter().any(|(v, _)| {
+    OpenWorkspaces::registered(cx).iter().any(|(v, _)| {
         v.upgrade()
             .is_some_and(|v| v.entity_id() != exclude && v.read(cx).is_saving())
     })
@@ -864,9 +838,7 @@ mod quit_tests {
                     |window, cx| cx.new(|cx| Workspace::new(None, window, cx)),
                 )
                 .unwrap();
-                cx.global_mut::<OpenWorkspaces>()
-                    .0
-                    .push((view.downgrade(), handle));
+                OpenWorkspaces::register(&view, handle, cx);
                 (handle, view)
             });
             cx.update_window(handle, |_, window, cx| {
@@ -977,12 +949,8 @@ pub(crate) fn lock_workspace_editors(
         !workspace_editors_locked(cx),
         glim_services::locale::tr("Another file operation is in progress")
     );
-    let windows = cx
-        .try_global::<OpenWorkspaces>()
-        .map(|w| w.0.clone())
-        .unwrap_or_default();
-    let others = windows
-        .into_iter()
+    let others = OpenWorkspaces::registered(cx)
+        .iter()
         .filter_map(|(v, _)| v.upgrade())
         .filter(|v| v.entity_id() != exclude)
         .collect::<Vec<_>>();
@@ -1093,7 +1061,7 @@ pub(crate) fn change_language(language: &'static str, cx: &mut App) {
     glim_services::locale::set(language);
     gpui_kit::component::set_locale(glim_services::locale::code());
     menus::update(cx);
-    for (view, handle) in cx.global::<OpenWorkspaces>().0.clone() {
+    for (view, handle) in OpenWorkspaces::registered(cx).to_vec() {
         if let Some(view) = view.upgrade() {
             let _ = handle.update(cx, |_, window, cx| {
                 view.update(cx, |view, cx| view.refresh_language(window, cx))
