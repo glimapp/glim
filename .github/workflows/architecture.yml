@@ -1,0 +1,17 @@
+name: Architecture contracts
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  architecture:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check architecture and locale contracts
+        run: |
+          python3 scripts/check-architecture.py
+          python3 scripts/check-locales.py

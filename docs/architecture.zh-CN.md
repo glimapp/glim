@@ -20,6 +20,8 @@
 
 ### 模块与依赖方向
 
+子系统所有权、架构决策和治理进度见[架构治理](architecture-governance.zh-CN.md)。
+
 ```text
 crates/
   glim-core/src/       文档、会话与更新数据；无 I/O 和 GPUI

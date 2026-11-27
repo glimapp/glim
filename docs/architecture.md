@@ -14,6 +14,8 @@ Read module boundaries first, then workspaces and editing, file loading and read
 
 ### Modules and dependency direction
 
+See [architecture governance](architecture-governance.zh-CN.md) for the subsystem ownership map, architecture decisions and current task pool.
+
 ```text
 crates/
   glim-core/src/       document, session and update values; no I/O or GPUI

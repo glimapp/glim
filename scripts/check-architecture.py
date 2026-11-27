@@ -39,7 +39,7 @@ for identifier in identifiers:
         errors.append(f'invalid built-in reader ID: {identifier}')
 
 # Paths may be emitted for playlist actions, but prepared-format dispatch belongs to reader construction.
-for path in (ROOT / 'crates/glim-app/src/views/workspace').glob('*.rs'):
+for path in sorted((ROOT / 'crates/glim-app/src/views/workspace').rglob('*.rs')):
     source = path.read_text()
     if re.search(r'(?:Ok\(Content::\w+\([^\n]*\)\)|Content::\w+\([^\n]*\))\s*=>', source):
         errors.append(f'{path.relative_to(ROOT)}: move prepared-format dispatch to reader/construction')
