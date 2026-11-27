@@ -671,7 +671,7 @@ pub(crate) fn start_application(path: Option<PathBuf>, urls: Vec<String>, cx: &m
                 cx.global_mut::<super::workspace_sessions::SavedWorkspaces>()
                     .restoring = false;
                 if !urls.is_empty() {
-                    super::open_system_files(urls, cx);
+                    super::file_open::open_system_files(urls, cx);
                 } else if let Some(path) = path {
                     super::open_workspace(Some(path), cx);
                 } else if !restored && !restored_windows && cx.windows().is_empty() {

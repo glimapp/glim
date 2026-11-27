@@ -6,7 +6,7 @@ pub(crate) mod diagram_engine;
 pub(crate) mod document_session;
 pub(crate) mod edit_session;
 pub(crate) mod file_move;
-mod file_open;
+pub(crate) mod file_open;
 pub(crate) mod finder_integration;
 mod image_http;
 pub(crate) mod languages;
@@ -435,7 +435,7 @@ fn run_workspace() -> Result<()> {
             app.clone()
                 .foreground_executor()
                 .spawn(async move {
-                    app.update(|cx| open_system_files(urls, cx));
+                    app.update(|cx| file_open::open_system_files(urls, cx));
                 })
                 .detach();
         } else {
@@ -627,84 +627,6 @@ fn run_workspace() -> Result<()> {
         updates::start_application(path.map(Into::into), requested, cx);
     });
     Ok(())
-}
-
-pub(crate) fn reveal_existing_file(
-    path: &std::path::Path,
-    exclude: Option<EntityId>,
-    cx: &mut App,
-) -> bool {
-    reveal_existing_file_at(path, exclude, None, cx)
-}
-
-pub(crate) fn reveal_existing_file_at(
-    path: &std::path::Path,
-    exclude: Option<EntityId>,
-    offset: Option<u64>,
-    cx: &mut App,
-) -> bool {
-    let windows = OpenWorkspaces::windows(cx);
-    windows
-        .into_iter()
-        .filter(|(view, _)| Some(view.entity_id()) != exclude)
-        .any(|(view, handle)| {
-            handle
-                .update(cx, |_, window, cx| {
-                    view.update(cx, |v, cx| {
-                        let found = v.reveal_file_path(path, window, cx);
-                        if found && let Some(offset) = offset {
-                            v.reveal_content_at(path, offset, window, cx);
-                        }
-                        found
-                    })
-                    .unwrap_or(false)
-                })
-                .unwrap_or(false)
-        })
-}
-
-fn open_system_files(urls: Vec<String>, cx: &mut App) {
-    updates::interrupt_for_files(cx);
-    for value in urls {
-        if let Ok(url) = url::Url::parse(&value)
-            && remote_open::receive(&url, cx)
-        {
-            continue;
-        }
-        if let Ok(url) = url::Url::parse(&value)
-            && finder_integration::receive(&url, cx)
-        {
-            continue;
-        }
-        if let Ok(url) = url::Url::parse(&value)
-            && url.scheme() == "file"
-            && let Ok(path) = url.to_file_path()
-        {
-            if file_open::open_in_workspace(&path, cx) {
-                continue;
-            }
-            if reveal_existing_file(&path, None, cx) {
-                continue;
-            }
-            let windows = OpenWorkspaces::windows(cx);
-            let reused = windows.iter().rev().any(|(view, handle)| {
-                handle
-                    .update(cx, |_, window, cx| {
-                        view.update(cx, |v, cx| {
-                            v.is_visible_workspace(cx)
-                                && v.open_system_file(path.clone(), window, cx)
-                        })
-                        .unwrap_or(false)
-                    })
-                    .unwrap_or(false)
-            });
-            if reused {
-                cx.activate(true);
-            } else {
-                open_workspace(Some(path), cx);
-            }
-        }
-    }
 }
 
 fn open_finder_workspace(

@@ -1,9 +1,9 @@
-//! Route external local files to a workspace that contains them.
+//! Route external open requests and reuse existing document tabs.
 use super::OpenWorkspaces;
 use gpui_kit::*;
 use std::path::Path;
 
-pub(super) fn open_in_workspace(path: &Path, cx: &mut App) -> bool {
+fn open_in_workspace(path: &Path, cx: &mut App) -> bool {
     let workspaces = OpenWorkspaces::windows(cx);
     let local = |view: &WeakEntity<super::Workspace>| {
         let view = view.upgrade()?;
@@ -39,7 +39,7 @@ pub(super) fn open_in_workspace(path: &Path, cx: &mut App) -> bool {
         && source != destination
     {
         if destination.read(cx).update_activity(cx).loading {
-            return super::reveal_existing_file(path, None, cx);
+            return reveal_existing_file(path, None, None, cx);
         }
         // A busy reader stays in its original workspace until it can move safely.
         // Reuse it there instead of creating a second editor for the same file.
@@ -50,7 +50,7 @@ pub(super) fn open_in_workspace(path: &Path, cx: &mut App) -> bool {
             .ok()
             .flatten();
         if moved.is_none() {
-            return super::reveal_existing_file(path, None, cx);
+            return reveal_existing_file(path, None, None, cx);
         }
     }
     // Both entities and their windows remain alive during this synchronous handoff.
@@ -68,6 +68,69 @@ pub(super) fn open_in_workspace(path: &Path, cx: &mut App) -> bool {
         .expect("Existing external-file destination window");
     cx.activate(true);
     true
+}
+
+pub(crate) fn reveal_existing_file(
+    path: &Path,
+    exclude: Option<EntityId>,
+    offset: Option<u64>,
+    cx: &mut App,
+) -> bool {
+    let windows = OpenWorkspaces::windows(cx);
+    windows
+        .into_iter()
+        .filter(|(view, _)| Some(view.entity_id()) != exclude)
+        .any(|(view, handle)| {
+            handle
+                .update(cx, |_, window, cx| {
+                    view.update(cx, |v, cx| {
+                        let found = v.reveal_file_path(path, window, cx);
+                        if found && let Some(offset) = offset {
+                            v.reveal_content_at(path, offset, window, cx);
+                        }
+                        found
+                    })
+                    .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        })
+}
+
+pub(super) fn open_system_files(urls: Vec<String>, cx: &mut App) {
+    super::updates::interrupt_for_files(cx);
+    for value in urls {
+        let Ok(url) = url::Url::parse(&value) else {
+            continue;
+        };
+        if super::remote_open::receive(&url, cx) || super::finder_integration::receive(&url, cx) {
+            continue;
+        }
+        if url.scheme() != "file" {
+            continue;
+        }
+        let Ok(path) = url.to_file_path() else {
+            continue;
+        };
+        if open_in_workspace(&path, cx) || reveal_existing_file(&path, None, None, cx) {
+            continue;
+        }
+        let windows = OpenWorkspaces::windows(cx);
+        let reused = windows.iter().rev().any(|(view, handle)| {
+            handle
+                .update(cx, |_, window, cx| {
+                    view.update(cx, |v, cx| {
+                        v.is_visible_workspace(cx) && v.open_system_file(path.clone(), window, cx)
+                    })
+                    .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        });
+        if reused {
+            cx.activate(true);
+        } else {
+            super::open_workspace(Some(path), cx);
+        }
+    }
 }
 
 #[cfg(test)]

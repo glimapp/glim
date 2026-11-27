@@ -264,7 +264,7 @@ impl Workspace {
             .pending_search_location
             .as_ref()
             .map(|(_, offset)| *offset);
-        if crate::app::reveal_existing_file_at(&path, Some(cx.entity_id()), offset, cx) {
+        if crate::app::file_open::reveal_existing_file(&path, Some(cx.entity_id()), offset, cx) {
             self.pending_search_location = None;
             return;
         }
