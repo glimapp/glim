@@ -111,10 +111,7 @@ impl Projection {
         match &self.view {
             View::OpenApi(view) => view.update(cx, |view, cx| view.load(text, cx)),
             View::Table { view, format } => view.update(cx, |table, cx| match text {
-                Some(text) => match format.geo_name() {
-                    Some(name) => table.load_geo(text, name, cx),
-                    None => table.load(text, format.delimiter(), cx),
-                },
+                Some(text) => table.load(text, *format, cx),
                 None => table.reload(cx),
             }),
             View::Json(view) => {

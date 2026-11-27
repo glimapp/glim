@@ -3,7 +3,7 @@ mod view;
 use self::view::{TableRequest, TableView};
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_core::resources::TextSnapshot;
-use glim_services::limits as reader_limits;
+use glim_services::{documents::presentation::TableFormat, limits as reader_limits};
 use gpui_kit::*;
 use std::{path::PathBuf, sync::Arc};
 
@@ -11,14 +11,11 @@ use std::{path::PathBuf, sync::Arc};
 enum Source {
     Text(Arc<TextSnapshot>),
     File(PathBuf),
-    GeoText(Arc<TextSnapshot>),
-    GeoFile(PathBuf),
 }
 pub(super) struct CsvTable {
     suspended: bool,
     source: Option<Source>,
-    delimiter: u8,
-    format: &'static str,
+    format: TableFormat,
     row_start: usize,
     column_start: usize,
     previous: Vec<usize>,
@@ -40,8 +37,7 @@ impl CsvTable {
         Self {
             suspended: false,
             source: None,
-            delimiter: b',',
-            format: "CSV",
+            format: TableFormat::Csv,
             row_start: 0,
             column_start: 0,
             previous: Vec::new(),
@@ -50,53 +46,25 @@ impl CsvTable {
             _subscription: subscription,
         }
     }
-    pub fn from_file(
-        path: PathBuf,
-        format: glim_services::documents::presentation::TableFormat,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn from_file(path: PathBuf, format: TableFormat, cx: &mut Context<Self>) -> Self {
         let mut table = Self::new(cx);
-        table.delimiter = format.delimiter();
-        if let Some(name) = format.geo_name() {
-            table.format = name;
-            table.source = Some(Source::GeoFile(path));
-        } else {
-            table.source = Some(Source::File(path));
-            table.format = if table.delimiter == b'\t' {
-                "TSV"
-            } else {
-                "CSV"
-            };
-        }
+        table.format = format;
+        table.source = Some(Source::File(path));
         table
     }
     pub fn input_snapshot(&self) -> Option<&Arc<TextSnapshot>> {
         match &self.source {
-            Some(Source::Text(text) | Source::GeoText(text)) => Some(text),
+            Some(Source::Text(text)) => Some(text),
             _ => None,
         }
     }
-    pub fn load(&mut self, text: Arc<TextSnapshot>, delimiter: u8, cx: &mut Context<Self>) {
-        if matches!(&self.source, Some(Source::Text(old)) if old == &text) {
+    pub fn load(&mut self, text: Arc<TextSnapshot>, format: TableFormat, cx: &mut Context<Self>) {
+        if self.format == format && matches!(&self.source, Some(Source::Text(old)) if old == &text)
+        {
             self.resume(cx);
             return;
         }
         self.source = Some(Source::Text(text));
-        self.delimiter = delimiter;
-        self.format = if delimiter == b'\t' { "TSV" } else { "CSV" };
-        self.reload(cx);
-    }
-    pub fn load_geo(
-        &mut self,
-        text: Arc<TextSnapshot>,
-        format: &'static str,
-        cx: &mut Context<Self>,
-    ) {
-        if matches!(&self.source, Some(Source::GeoText(old)) if old == &text) {
-            self.resume(cx);
-            return;
-        }
-        self.source = Some(Source::GeoText(text));
         self.format = format;
         self.reload(cx);
     }
@@ -171,10 +139,9 @@ impl CsvTable {
                 (
                     "format",
                     glim_services::telemetry::text(match self.format {
-                        "CSV" => "csv",
-                        "TSV" => "tsv",
-                        "GeoJSON" => "geojson",
-                        _ => "table",
+                        TableFormat::Csv => "csv",
+                        TableFormat::Tsv => "tsv",
+                        TableFormat::Gpx | TableFormat::Kml => "table",
                     }),
                 ),
             ],
@@ -185,14 +152,14 @@ impl CsvTable {
         self.task = None;
         self.view.update(cx, |view, cx| {
             view.begin(
-                self.format,
+                self.format.name(),
                 self.row_start,
                 self.column_start,
                 !self.previous.is_empty(),
             );
             cx.notify();
         });
-        let (delimiter, row, column) = (self.delimiter, self.row_start, self.column_start);
+        let (delimiter, row, column) = (self.format.delimiter(), self.row_start, self.column_start);
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let telemetry_started = std::time::Instant::now();
         let work = reader_jobs::run(
@@ -200,21 +167,21 @@ impl CsvTable {
             JobClass::Projection,
             Priority::Interactive,
             cancel,
-            move |cancel| match source {
-                Source::GeoText(text) => {
+            move |cancel| match (source, delimiter) {
+                (Source::Text(text), None) => {
                     glim_services::geo::read_page(text.as_str().as_bytes(), row, cancel)
                 }
-                Source::GeoFile(path) => {
+                (Source::File(path), None) => {
                     glim_services::geo::read_page(std::fs::File::open(path)?, row, cancel)
                 }
-                Source::Text(text) => glim_services::csv::read_page(
+                (Source::Text(text), Some(delimiter)) => glim_services::csv::read_page(
                     text.as_str().as_bytes(),
                     delimiter,
                     row,
                     column,
                     cancel,
                 ),
-                Source::File(path) => glim_services::csv::read_page(
+                (Source::File(path), Some(delimiter)) => glim_services::csv::read_page(
                     std::fs::File::open(path)?,
                     delimiter,
                     row,
@@ -232,9 +199,10 @@ impl CsvTable {
                 view.view.update(cx, |table, cx| {
                     match result {
                         Ok(page) => table.publish(page),
-                        Err(error) => {
-                            table.fail(format!("Cannot show {} table: {error:#}", view.format))
-                        }
+                        Err(error) => table.fail(format!(
+                            "Cannot show {} table: {error:#}",
+                            view.format.name()
+                        )),
                     }
                     cx.notify();
                 });
@@ -252,7 +220,7 @@ impl Render for CsvTable {
 
 #[cfg(test)]
 mod tests {
-    use super::{CsvTable, TextSnapshot};
+    use super::{CsvTable, TableFormat, TextSnapshot};
     use glim_core::resources::ResourcePool;
     use gpui_kit::{AppContext, TestAppContext};
     use std::sync::Arc;
@@ -269,8 +237,8 @@ mod tests {
         let table = cx.update(|cx| cx.new(CsvTable::new));
         cx.update(|cx| {
             table.update(cx, |table, cx| {
-                table.load(first, b',', cx);
-                table.load(current, b',', cx);
+                table.load(first, TableFormat::Csv, cx);
+                table.load(current, TableFormat::Csv, cx);
                 table.suspend(cx);
                 table.suspend(cx);
                 table.resume(cx);

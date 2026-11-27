@@ -75,11 +75,10 @@ pub fn run() -> Result<()> {
         }
         (Some("rows"), [input, offsets @ ..]) if offsets.len() <= 2 => {
             let path = Path::new(input);
-            let delimiter = match path.extension().and_then(|v| v.to_str()) {
-                Some(ext) if ext.eq_ignore_ascii_case("csv") => b',',
-                Some(ext) if ext.eq_ignore_ascii_case("tsv") => b'\t',
-                _ => bail!("Expected a .csv or .tsv file"),
-            };
+            use glim_services::documents::presentation::TableFormat;
+            let delimiter = TableFormat::for_path(path)
+                .and_then(TableFormat::delimiter)
+                .context("Expected a .csv or .tsv file")?;
             let offset = |i: usize| -> Result<usize> {
                 match offsets.get(i) {
                     Some(value) => Ok(value
