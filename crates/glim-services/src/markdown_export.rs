@@ -84,7 +84,7 @@ pub fn export_html(
     cancel: &Cancellation,
 ) -> Result<(PathBuf, usize)> {
     cancel.check()?;
-    let directory = crate::preferences::directory()?.join("MarkdownPreviews");
+    let directory = crate::storage::directory()?.join("MarkdownPreviews");
     fs::create_dir_all(&directory)?;
     let scratch = tempfile::tempdir()?;
     let mut output = tempfile::Builder::new()

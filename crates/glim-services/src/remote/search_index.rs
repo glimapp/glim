@@ -252,7 +252,7 @@ fn scope(connection: &Connection, roots: &[PathBuf]) -> String {
     format!("{:x}", hash.finalize())
 }
 fn index_path(connection: &Connection, roots: &[PathBuf]) -> Result<PathBuf> {
-    Ok(crate::preferences::directory()?
+    Ok(crate::storage::directory()?
         .join("RemoteSearch/v1")
         .join(format!("{}.sqlite3", scope(connection, roots))))
 }

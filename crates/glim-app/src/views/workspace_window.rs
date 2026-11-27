@@ -1,6 +1,6 @@
 use super::workspace::Workspace;
+use glim_core::RecentWorkspace;
 use glim_core::session::WorkspaceSession;
-use glim_services::preferences::RecentWorkspace;
 use gpui_kit::*;
 
 pub(crate) struct WorkspaceSlot {

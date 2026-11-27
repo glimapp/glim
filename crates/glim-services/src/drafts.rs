@@ -107,7 +107,7 @@ impl Worker {
         result
     }
     fn run_inner(&self) -> Result<()> {
-        let root = crate::preferences::directory()?;
+        let root = crate::storage::directory()?;
         self.run_at(&root)
     }
     fn run_at(&self, root: &Path) -> Result<()> {

@@ -10,8 +10,15 @@ pub(crate) mod cache;
 mod migration;
 pub(crate) mod sessions;
 
+pub(crate) fn directory() -> Result<PathBuf> {
+    Ok(
+        PathBuf::from(std::env::var_os("HOME").context("Home directory is unavailable")?)
+            .join("Library/Application Support/Glim"),
+    )
+}
+
 pub fn initialize() -> Result<()> {
-    let directory = crate::preferences::directory()?;
+    let directory = directory()?;
     let mut connection = open_at(&directory)?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     migration::import_residual_preferences(&tx, &directory)?;
@@ -29,7 +36,7 @@ pub fn initialize() -> Result<()> {
     Ok(())
 }
 pub(crate) fn open() -> Result<Connection> {
-    open_at(&crate::preferences::directory()?)
+    open_at(&directory()?)
 }
 pub(crate) fn open_at(directory: &Path) -> Result<Connection> {
     std::fs::create_dir_all(directory)?;

@@ -10,7 +10,7 @@ pub(crate) struct CacheStore {
 
 impl CacheStore {
     pub(crate) fn open() -> Result<Self> {
-        Self::open_at(&crate::preferences::directory()?)
+        Self::open_at(&crate::storage::directory()?)
     }
 
     pub(crate) fn open_at(directory: &Path) -> Result<Self> {

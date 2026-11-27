@@ -1,5 +1,5 @@
 use super::{Page, Workspace};
-use glim_services::preferences::RecentWorkspace;
+use glim_core::RecentWorkspace;
 use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Icon, Sizable,

@@ -8,11 +8,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub fn state_directory() -> Result<PathBuf> {
-    let base = PathBuf::from(std::env::var_os("HOME").context("Home directory is unavailable")?)
-        .join("Library/Application Support");
-    Ok(base.join("Glim"))
-}
 fn digest(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hash = Sha256::new();
@@ -40,7 +35,7 @@ fn run(command: &mut std::process::Command) -> Result<()> {
 /// Preserve the signed complete bundle, never user documents or preferences.
 /// Returns an immutable, verified archive; installation remains Sparkle's job.
 pub fn prepare_backup(bundle: &Path) -> Result<PathBuf> {
-    prepare_backup_at(bundle, &state_directory()?.join("UpdateBackups"))
+    prepare_backup_at(bundle, &crate::storage::directory()?.join("UpdateBackups"))
 }
 
 fn prepare_backup_at(bundle: &Path, backups: &Path) -> Result<PathBuf> {

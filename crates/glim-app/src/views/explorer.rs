@@ -32,7 +32,7 @@ pub enum ExplorerEvent {
     ChooseMoveEntry(PathBuf),
     PlayFolder(PathBuf, bool),
     Error(String),
-    ExpansionChanged(Vec<PathBuf>, glim_services::preferences::ExplorerExpansion),
+    ExpansionChanged(Vec<PathBuf>, glim_core::ExplorerExpansion),
 }
 
 gpui_kit::actions!(
@@ -293,7 +293,7 @@ impl Explorer {
         cx.notify();
     }
 
-    pub fn expansion_state(&self) -> (Vec<PathBuf>, glim_services::preferences::ExplorerExpansion) {
+    pub fn expansion_state(&self) -> (Vec<PathBuf>, glim_core::ExplorerExpansion) {
         let expanded = self
             .roots
             .iter()
@@ -314,7 +314,7 @@ impl Explorer {
 
     pub fn restore_expanded(
         &mut self,
-        paths: glim_services::preferences::ExplorerExpansion,
+        paths: glim_core::ExplorerExpansion,
         cx: &mut Context<Self>,
     ) {
         self.expansion_tasks.clear();

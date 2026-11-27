@@ -525,7 +525,7 @@ fn configure_inner(target: &Target, install: bool, preferences: bool) -> Result<
         },
         "Integration update validation failed"
     );
-    let directory = crate::preferences::directory()?.join("Integrations");
+    let directory = crate::storage::directory()?.join("Integrations");
     fs::create_dir_all(&directory)?;
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
     if let Some(original) = &current {

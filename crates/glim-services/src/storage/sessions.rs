@@ -1,6 +1,41 @@
 use super::*;
-use glim_core::session::{SessionTab, WorkspaceSession};
+use glim_core::{
+    RecentWorkspace,
+    session::{SessionTab, WorkspaceSession},
+};
 use std::collections::BTreeMap;
+
+pub(crate) fn recent_at(db: &Connection) -> Result<Vec<RecentWorkspace>> {
+    let values = db
+        .prepare("SELECT id,name FROM recent_workspaces ORDER BY position")?
+        .query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    values
+        .into_iter()
+        .map(|(id, name)| {
+            Ok(RecentWorkspace {
+                folders: paths(db, "recent", &id)?,
+                id,
+                name,
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn save_recent_at(db: &Connection, recent: &[RecentWorkspace]) -> Result<()> {
+    db.execute("DELETE FROM recent_workspaces", [])?;
+    db.execute("DELETE FROM paths WHERE scope='recent'", [])?;
+    for (position, entry) in recent.iter().enumerate() {
+        db.execute(
+            "INSERT INTO recent_workspaces VALUES(?1,?2,?3)",
+            rusqlite::params![entry.id, entry.name, position as i64],
+        )?;
+        save_paths(db, "recent", &entry.id, &entry.folders)?;
+    }
+    Ok(())
+}
 
 pub(crate) fn save(
     db: &Connection,

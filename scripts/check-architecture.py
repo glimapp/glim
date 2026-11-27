@@ -32,6 +32,16 @@ for name, package in packages.items():
         if name in ('glim-core', 'glim-services') and (target.startswith('gpui') or target in ('wry', 'tao')):
             errors.append(f'{name}: UI dependency {target} belongs in glim-app')
 
+# Persistence owns serialization and paths. Application preferences consume storage.
+service_root = ROOT / 'crates/glim-services/src'
+storage_paths = [service_root / 'storage.rs', *sorted((service_root / 'storage').rglob('*.rs'))]
+for path in storage_paths:
+    source = path.read_text()
+    if (re.search(r'\bcrate\s*::\s*preferences\b', source)
+            or re.search(r'\bcrate\s*::\s*\{\s*preferences\b', source)
+            or re.search(r'\bcrate\s*::\s*\{[^{}]*,\s*preferences\b', source)):
+        errors.append(f'{path.relative_to(ROOT)}: storage must not import application preferences')
+
 registry = (ROOT / 'crates/glim-services/src/documents/registry.rs').read_text()
 identifiers = re.findall(r'\bid:\s*"([^"]+)"', registry)
 if not identifiers or len(set(identifiers)) != len(identifiers):

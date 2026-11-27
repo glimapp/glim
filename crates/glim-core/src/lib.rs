@@ -15,4 +15,4 @@ pub mod update;
 mod workspace;
 
 pub use document::{ContentSnapshot, Document, DocumentKind, ReaderMode, language_for_path};
-pub use workspace::DirectoryEntry;
+pub use workspace::{DirectoryEntry, ExplorerExpansion, RecentWorkspace};

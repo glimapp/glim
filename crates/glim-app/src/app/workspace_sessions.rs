@@ -1,5 +1,5 @@
+use glim_core::RecentWorkspace;
 use glim_core::session::WorkspaceSession;
-use glim_services::preferences::RecentWorkspace;
 use gpui_kit::*;
 use std::collections::BTreeMap;
 
@@ -198,8 +198,8 @@ pub(super) fn checkpoint_windows(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::{SavedWorkspaces, checkpoint_windows, restore_windows};
+    use glim_core::RecentWorkspace;
     use glim_core::session::WorkspaceSession;
-    use glim_services::preferences::RecentWorkspace;
     use gpui_kit::TestAppContext;
     use std::collections::BTreeMap;
 

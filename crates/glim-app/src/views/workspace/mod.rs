@@ -194,10 +194,7 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(crate) fn matches_recent_workspace(
-        &self,
-        workspace: &glim_services::preferences::RecentWorkspace,
-    ) -> bool {
+    pub(crate) fn matches_recent_workspace(&self, workspace: &glim_core::RecentWorkspace) -> bool {
         self.recent_id == workspace.id
             || (!glim_services::remote::is_remote_id(&workspace.id)
                 && !glim_services::remote::is_remote_id(&self.recent_id)

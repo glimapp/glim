@@ -1,14 +1,9 @@
 //! Application preferences and workspace state backed by the shared SQLite store.
 use crate::storage::{self, set_setting, setting};
-use anyhow::{Context, Result};
+use anyhow::Result;
+use glim_core::{ExplorerExpansion, RecentWorkspace};
 use std::{collections::BTreeMap, path::PathBuf};
 
-pub(crate) fn directory() -> Result<PathBuf> {
-    Ok(
-        PathBuf::from(std::env::var_os("HOME").context("Home directory is unavailable")?)
-            .join("Library/Application Support/Glim"),
-    )
-}
 pub fn workspace_folders() -> Result<Vec<PathBuf>> {
     storage::paths(&storage::open()?, "workspace", "")
 }
@@ -19,7 +14,6 @@ pub fn save_workspace_folders(folders: &[PathBuf]) -> Result<()> {
     tx.commit()?;
     Ok(())
 }
-pub type ExplorerExpansion = BTreeMap<PathBuf, Vec<PathBuf>>;
 pub fn explorer_expansion(roots: &[PathBuf]) -> Result<ExplorerExpansion> {
     let db = storage::open()?;
     roots
@@ -48,73 +42,17 @@ pub fn save_explorer_expansion(roots: &[PathBuf], expanded: &ExplorerExpansion) 
     tx.commit()?;
     Ok(())
 }
-/// A workspace's ordered folder roots, including repeated paths.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct RecentWorkspace {
-    pub id: String,
-    pub folders: Vec<PathBuf>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-}
-
-impl RecentWorkspace {
-    pub fn title(&self) -> String {
-        self.name.clone().unwrap_or_else(|| {
-            self.folders
-                .iter()
-                .map(|path| {
-                    path.file_name()
-                        .unwrap_or(path.as_os_str())
-                        .to_string_lossy()
-                        .into_owned()
-                })
-                .collect::<Vec<_>>()
-                .join(" · ")
-        })
-    }
-}
-
-pub(crate) fn recent_at(db: &rusqlite::Connection) -> Result<Vec<RecentWorkspace>> {
-    let values = db
-        .prepare("SELECT id,name FROM recent_workspaces ORDER BY position")?
-        .query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    values
-        .into_iter()
-        .map(|(id, name)| {
-            Ok(RecentWorkspace {
-                folders: storage::paths(db, "recent", &id)?,
-                id,
-                name,
-            })
-        })
-        .collect()
-}
 pub fn recent_workspaces() -> Result<Vec<RecentWorkspace>> {
     let mut db = storage::open()?;
     let tx = db.transaction()?;
-    let recent = recent_at(&tx)?;
+    let recent = storage::sessions::recent_at(&tx)?;
     tx.commit()?;
     Ok(recent)
-}
-pub(crate) fn save_recent_at(db: &rusqlite::Connection, recent: &[RecentWorkspace]) -> Result<()> {
-    db.execute("DELETE FROM recent_workspaces", [])?;
-    db.execute("DELETE FROM paths WHERE scope='recent'", [])?;
-    for (position, entry) in recent.iter().enumerate() {
-        db.execute(
-            "INSERT INTO recent_workspaces VALUES(?1,?2,?3)",
-            rusqlite::params![entry.id, entry.name, position as i64],
-        )?;
-        storage::save_paths(db, "recent", &entry.id, &entry.folders)?;
-    }
-    Ok(())
 }
 pub fn remember_recent_workspace(mut workspace: RecentWorkspace) -> Result<Vec<RecentWorkspace>> {
     let mut db = storage::open()?;
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let mut recent = recent_at(&tx)?;
+    let mut recent = storage::sessions::recent_at(&tx)?;
     if workspace.name.is_none() {
         workspace.name = recent
             .iter()
@@ -136,16 +74,16 @@ pub fn remember_recent_workspace(mut workspace: RecentWorkspace) -> Result<Vec<R
     if !workspace.folders.is_empty() {
         recent.insert(0, workspace);
     }
-    save_recent_at(&tx, &recent)?;
+    storage::sessions::save_recent_at(&tx, &recent)?;
     tx.commit()?;
     Ok(recent)
 }
 pub fn remove_recent_workspace(id: &str) -> Result<Vec<RecentWorkspace>> {
     let mut db = storage::open()?;
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let mut recent = recent_at(&tx)?;
+    let mut recent = storage::sessions::recent_at(&tx)?;
     recent.retain(|e| e.id != id);
-    save_recent_at(&tx, &recent)?;
+    storage::sessions::save_recent_at(&tx, &recent)?;
     tx.commit()?;
     Ok(recent)
 }

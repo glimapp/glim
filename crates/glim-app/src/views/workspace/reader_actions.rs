@@ -463,7 +463,7 @@ impl super::Workspace {
                 view.picking = false;
                 match result {
                     Ok(path) => view.open_recent_here(
-                        glim_services::preferences::RecentWorkspace {
+                        glim_core::RecentWorkspace {
                             id: format!(
                                 "extracted-{}",
                                 std::time::SystemTime::now()

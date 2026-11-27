@@ -1,8 +1,7 @@
 //! Serialized external SSH handoffs into the existing workspace lifecycle.
 use super::remote::{Connections, persist};
-use glim_services::{
-    integrations::codex::RemoteOpen, preferences::RecentWorkspace, remote::RemoteWorkspace,
-};
+use glim_core::RecentWorkspace;
+use glim_services::{integrations::codex::RemoteOpen, remote::RemoteWorkspace};
 use gpui_kit::*;
 
 #[derive(Default)]

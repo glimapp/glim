@@ -66,7 +66,7 @@ impl Global for ExplorerSaveTask {}
 
 pub(crate) fn remember_explorer(
     roots: Vec<std::path::PathBuf>,
-    expanded: glim_services::preferences::ExplorerExpansion,
+    expanded: glim_core::ExplorerExpansion,
     cx: &mut App,
 ) {
     if !cx.has_global::<ExplorerSaveTask>() {
@@ -91,7 +91,7 @@ pub(crate) fn remember_explorer(
 }
 
 #[derive(Default)]
-pub(crate) struct RecentWorkspaces(pub Vec<glim_services::preferences::RecentWorkspace>);
+pub(crate) struct RecentWorkspaces(pub Vec<glim_core::RecentWorkspace>);
 impl Global for RecentWorkspaces {}
 
 fn load_recent_workspaces(cx: &mut App) {
@@ -111,10 +111,7 @@ fn load_recent_workspaces(cx: &mut App) {
     cx.global_mut::<WorkspaceSaveTask>().0 = Some(task);
 }
 
-pub(crate) fn remember_named_workspace(
-    workspace: glim_services::preferences::RecentWorkspace,
-    cx: &mut App,
-) {
+pub(crate) fn remember_named_workspace(workspace: glim_core::RecentWorkspace, cx: &mut App) {
     let previous = cx.global_mut::<WorkspaceSaveTask>().0.take();
     let task = cx.spawn(async move |cx| {
         if let Some(previous) = previous {
@@ -188,10 +185,7 @@ pub(crate) fn sync_system_appearance(window: &mut Window, cx: &mut App) {
     }
 }
 
-pub(crate) fn open_recent_workspace(
-    workspace: glim_services::preferences::RecentWorkspace,
-    cx: &mut App,
-) {
+pub(crate) fn open_recent_workspace(workspace: glim_core::RecentWorkspace, cx: &mut App) {
     if updates::busy(cx) {
         return;
     }
@@ -715,7 +709,7 @@ fn open_system_files(urls: Vec<String>, cx: &mut App) {
 
 fn open_finder_workspace(
     path: std::path::PathBuf,
-    recent: Option<glim_services::preferences::RecentWorkspace>,
+    recent: Option<glim_core::RecentWorkspace>,
     cx: &mut App,
 ) {
     updates::interrupt_for_files(cx);

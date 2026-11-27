@@ -1,6 +1,5 @@
 use super::*;
-use crate::preferences::{ExplorerExpansion, RecentWorkspace};
-use glim_core::session::WorkspaceSession;
+use glim_core::{ExplorerExpansion, RecentWorkspace, session::WorkspaceSession};
 use std::collections::BTreeMap;
 
 fn source(db: &Connection, directory: &Path, name: &str) -> Result<Option<Vec<u8>>> {
@@ -89,7 +88,7 @@ pub(super) fn import(db: &Connection, directory: &Path) -> Result<()> {
                 }]
             }
         });
-    crate::preferences::save_recent_at(db, &recent)?;
+    sessions::save_recent_at(db, &recent)?;
     let expanded: ExplorerExpansion = json(db, directory, "explorer.json")?.unwrap_or_default();
     for (root, paths) in expanded {
         save_paths(db, "explorer", path_text(&root)?, &paths)?;
