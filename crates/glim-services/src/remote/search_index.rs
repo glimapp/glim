@@ -327,22 +327,11 @@ fn scan_shell(
 ) -> Result<()> {
     for root in roots {
         cancel.check()?;
-        let mut script = b"printf 'GLIM_SEARCH_V1\\000'; find '".to_vec();
-        for byte in root.as_os_str().as_bytes() {
-            if *byte == b'\'' {
-                script.extend_from_slice(b"'\"'\"'");
-            } else {
-                script.push(*byte);
-            }
-        }
-        script.extend_from_slice(b"' -name .git -prune -o \\( -type f -o \\( -type l -exec test ! -d {} \\; \\) \\) -print0");
-        let mut command = connection.ssh_command()?;
-        command
-            .args(["-o", "BatchMode=yes"])
-            .arg(&connection.host)
-            .arg(OsString::from_vec(script))
-            .stdin(Stdio::null())
-            .stderr(Stdio::null());
+        let mut script = b"printf 'GLIM_SEARCH_V1\\000'; find ".to_vec();
+        super::quote_shell_word(root.as_os_str().as_bytes(), &mut script);
+        script.extend_from_slice(b" -name .git -prune -o \\( -type f -o \\( -type l -exec test ! -d {} \\; \\) \\) -print0");
+        let mut command = connection.batch_shell_command(script)?;
+        command.stdin(Stdio::null()).stderr(Stdio::null());
         let mut child = command
             .spawn()
             .context("Cannot start remote filename scan")?;

@@ -1,5 +1,5 @@
 //! SFTP v3 over the system OpenSSH client.
-use super::Connection;
+use super::{Authentication, Connection};
 use crate::{limits, work::Cancellation};
 use anyhow::{Context, Result, bail, ensure};
 use glim_core::DirectoryEntry;
@@ -72,24 +72,21 @@ impl Drop for Watch {
 }
 impl Sftp {
     pub fn connect(connection: &Connection, cancel: &Cancellation) -> Result<Self> {
-        Self::connect_mode(connection, cancel, false)
+        Self::connect_mode(connection, cancel, Authentication::Interactive)
     }
     pub(super) fn connect_background(
         connection: &Connection,
         cancel: &Cancellation,
     ) -> Result<Self> {
-        Self::connect_mode(connection, cancel, true)
+        Self::connect_mode(connection, cancel, Authentication::Batch)
     }
     fn connect_mode(
         connection: &Connection,
         cancel: &Cancellation,
-        background: bool,
+        authentication: Authentication,
     ) -> Result<Self> {
         cancel.check()?;
-        let mut command = connection.ssh_command()?;
-        if background {
-            command.args(["-o", "BatchMode=yes"]);
-        }
+        let mut command = connection.ssh_command(authentication)?;
         command.arg("-s").arg(&connection.host).arg("sftp");
         let mut child = command
             .spawn()

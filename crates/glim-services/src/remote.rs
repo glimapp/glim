@@ -12,12 +12,21 @@ use glim_core::DirectoryEntry;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
+    ffi::OsString,
+    os::unix::ffi::OsStringExt,
     path::{Component, Path, PathBuf},
+    process::Command,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
 };
+
+#[derive(Clone, Copy)]
+enum Authentication {
+    Interactive,
+    Batch,
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Connection {
@@ -31,11 +40,8 @@ pub struct Connection {
     pub last_directory: Option<PathBuf>,
 }
 impl Connection {
-    fn ssh_command(&self) -> Result<std::process::Command> {
-        use std::{
-            os::unix::process::CommandExt,
-            process::{Command, Stdio},
-        };
+    fn ssh_command(&self, authentication: Authentication) -> Result<Command> {
+        use std::{os::unix::process::CommandExt, process::Stdio};
         let mut command = Command::new("/usr/bin/ssh");
         command
             .args([
@@ -74,7 +80,15 @@ impl Connection {
                 .arg(identity)
                 .args(["-o", "IdentitiesOnly=yes"]);
         }
+        if matches!(authentication, Authentication::Batch) {
+            command.args(["-o", "BatchMode=yes"]);
+        }
         command.process_group(0);
+        Ok(command)
+    }
+    fn batch_shell_command(&self, script: Vec<u8>) -> Result<Command> {
+        let mut command = self.ssh_command(Authentication::Batch)?;
+        command.arg(&self.host).arg(OsString::from_vec(script));
         Ok(command)
     }
     pub fn label(&self) -> String {
@@ -406,5 +420,53 @@ impl Session {
             }
             _ => {}
         }
+    }
+}
+
+fn quote_shell_word(value: &[u8], output: &mut Vec<u8>) {
+    output.push(b'\'');
+    for &byte in value {
+        if byte == b'\'' {
+            output.extend_from_slice(b"'\"'\"'");
+        } else {
+            output.push(byte);
+        }
+    }
+    output.push(b'\'');
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    #[test]
+    fn shell_commands_share_batch_authentication_and_preserve_argument_bytes() -> Result<()> {
+        let connection = Connection {
+            host: "remote.example".into(),
+            user: "reader".into(),
+            port: Some(2222),
+            identity: Some("/keys/id".into()),
+            ..Connection::default()
+        };
+        let mut script = b"literal ".to_vec();
+        quote_shell_word(b"file' \xff", &mut script);
+        assert_eq!(script, b"literal 'file'\"'\"' \xff'");
+
+        let prompted = connection.ssh_command(Authentication::Interactive)?;
+        let batch = connection.batch_shell_command(script.clone())?;
+        let expected: Vec<_> = prompted
+            .get_args()
+            .chain(["-o", "BatchMode=yes", "remote.example"].map(OsStr::new))
+            .chain([OsStr::from_bytes(&script)])
+            .collect();
+        assert_eq!(batch.get_args().collect::<Vec<_>>(), expected);
+        assert!(
+            !prompted
+                .get_args()
+                .any(|argument| argument == "BatchMode=yes")
+        );
+        Ok(())
     }
 }

@@ -82,18 +82,6 @@ impl Session {
     }
 }
 
-fn quote(value: &[u8], output: &mut Vec<u8>) {
-    output.push(b'\'');
-    for &byte in value {
-        if byte == b'\'' {
-            output.extend_from_slice(b"'\"'\"'");
-        } else {
-            output.push(byte);
-        }
-    }
-    output.push(b'\'');
-}
-
 fn shell_search(
     session: &Session,
     roots: &[PathBuf],
@@ -108,21 +96,18 @@ fn shell_search(
             .as_bytes(),
     );
     script.extend_from_slice(b" --max-columns-preview -e ");
-    quote(query.as_bytes(), &mut script);
+    super::quote_shell_word(query.as_bytes(), &mut script);
     script.extend_from_slice(b" --");
     for root in roots {
         ensure!(root.is_absolute(), "Invalid remote content search root");
         script.push(b' ');
-        quote(root.as_os_str().as_bytes(), &mut script);
+        super::quote_shell_word(root.as_os_str().as_bytes(), &mut script);
     }
     if roots.is_empty() {
         return Ok(Some(Page::default()));
     }
-    let mut command = session.connection.ssh_command()?;
+    let mut command = session.connection.batch_shell_command(script)?;
     let mut child = command
-        .args(["-o", "BatchMode=yes"])
-        .arg(&session.connection.host)
-        .arg(OsString::from_vec(script))
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
