@@ -34,7 +34,7 @@ pub mod resources;
 pub mod safetensors;
 pub mod spreadsheet;
 pub mod sqlite;
-pub mod storage;
+mod storage;
 pub mod streamed;
 mod svg_preview;
 pub mod telemetry;
@@ -57,3 +57,12 @@ pub mod openapi;
 pub mod opml;
 
 pub mod plist;
+
+/// Open application state and import any legacy cache before workspace startup.
+pub fn initialize() -> anyhow::Result<()> {
+    storage::initialize()?;
+    if let Err(error) = markdown_preview::migrate_legacy_cache() {
+        log::warn!("Cannot migrate legacy diagram cache; source files preserved: {error:#}");
+    }
+    Ok(())
+}

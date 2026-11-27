@@ -17,7 +17,7 @@ pub(crate) fn directory() -> Result<PathBuf> {
     )
 }
 
-pub fn initialize() -> Result<()> {
+pub(crate) fn initialize() -> Result<()> {
     let directory = directory()?;
     let mut connection = open_at(&directory)?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -29,9 +29,6 @@ pub fn initialize() -> Result<()> {
     for name in ["Books", "Drafts"] {
         // Only remove empty retired containers; live sessions and unknown files survive.
         let _ = std::fs::remove_dir(directory.join(name));
-    }
-    if let Err(error) = crate::markdown_preview::migrate_legacy_cache() {
-        log::warn!("Cannot migrate legacy diagram cache; source files preserved: {error:#}");
     }
     Ok(())
 }

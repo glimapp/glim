@@ -401,7 +401,7 @@ fn run_workspace() -> Result<()> {
         return Ok(());
     }
 
-    glim_services::storage::initialize()?;
+    glim_services::initialize()?;
     let language = glim_services::preferences::language().unwrap_or_else(|| "system".into());
     glim_services::locale::set(&language);
     let remote_catalog = glim_services::remote::load_catalog().unwrap_or_else(|error| {

@@ -32,15 +32,17 @@ for name, package in packages.items():
         if name in ('glim-core', 'glim-services') and (target.startswith('gpui') or target in ('wry', 'tao')):
             errors.append(f'{name}: UI dependency {target} belongs in glim-app')
 
-# Persistence owns serialization and paths. Application preferences consume storage.
+# Persistence owns serialization and paths; feature services consume storage.
 service_root = ROOT / 'crates/glim-services/src'
 storage_paths = [service_root / 'storage.rs', *sorted((service_root / 'storage').rglob('*.rs'))]
+module_root = r'\b(?:crate|super(?:\s*::\s*super)*)\s*::\s*'
+storage_feature_import = re.compile(
+    module_root + r'(?:\{(?:[^{}]*,)?\s*)?(?:preferences|markdown_preview)\b'
+    + '|' + module_root + r'books\s*::\s*(?:\{(?:[^{}]*,)?\s*)?preferences\b'
+)
 for path in storage_paths:
-    source = path.read_text()
-    if (re.search(r'\bcrate\s*::\s*preferences\b', source)
-            or re.search(r'\bcrate\s*::\s*\{\s*preferences\b', source)
-            or re.search(r'\bcrate\s*::\s*\{[^{}]*,\s*preferences\b', source)):
-        errors.append(f'{path.relative_to(ROOT)}: storage must not import application preferences')
+    if storage_feature_import.search(path.read_text()):
+        errors.append(f'{path.relative_to(ROOT)}: storage must not import feature services that use it')
 
 registry = (ROOT / 'crates/glim-services/src/documents/registry.rs').read_text()
 identifiers = re.findall(r'\bid:\s*"([^"]+)"', registry)
