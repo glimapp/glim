@@ -119,25 +119,14 @@ impl PagedReader {
             return;
         }
         self.suspended = false;
-        let source = self.page.source.clone();
-        let start = self.page.start;
-        let expanded = self.expanded;
-        let stamp = (self.page.total, self.page.modified, self.page.identity);
+        let read = self.page.continuation(self.page.start, self.expanded);
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let work = reader_jobs::run(
             cx.background_executor().clone(),
             JobClass::Projection,
             Priority::Interactive,
             cancel,
-            move |cancel| {
-                let page = source.read_cancellable(start, expanded, cancel)?;
-                anyhow::ensure!(
-                    page.source.is_generated()
-                        || (page.total, page.modified, page.identity) == stamp,
-                    "File changed on disk. Reopen or refresh before paging."
-                );
-                Ok(page)
-            },
+            move |cancel| read.read(cancel),
         );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
@@ -172,13 +161,7 @@ impl PagedReader {
 
     pub fn refresh_request(&self) -> Option<glim_services::paged::PageRefresh> {
         self.source_editor.as_ref()?;
-        Some(glim_services::paged::PageRefresh {
-            source: self.page.source.clone(),
-            start: self.page.start,
-            total: self.page.total,
-            modified: self.page.modified,
-            identity: self.page.identity,
-        })
+        Some(self.page.refresh_request())
     }
     pub fn request_save_before_preview(&mut self, cx: &mut Context<Self>) {
         self.error = Some(glim_services::locale::tr(
@@ -189,15 +172,7 @@ impl PagedReader {
     pub fn save_request(&mut self) -> Option<glim_services::paged::PageEdit> {
         self.source_editor.as_ref()?;
         self.saving.set(true);
-        Some(glim_services::paged::PageEdit {
-            path: self.page.path.clone(),
-            start: self.page.start,
-            end: self.page.end,
-            total: self.page.total,
-            modified: self.page.modified,
-            identity: self.page.identity,
-            expected: self.page.text.clone(),
-        })
+        Some(self.page.edit_request())
     }
     pub fn saved(
         &mut self,
@@ -210,12 +185,7 @@ impl PagedReader {
         if let Some(editor) = &mut self.source_editor {
             editor.mark_saved(text.clone(), cx);
         }
-        self.page.memory = None;
-        self.page.text = text;
-        self.page.end = saved.end;
-        self.page.total = saved.total;
-        self.page.modified = saved.modified;
-        self.page.identity = saved.identity;
+        self.page.apply_saved(text, saved);
         self.account();
         cx.notify();
     }
@@ -325,8 +295,7 @@ impl PagedReader {
             cx.notify();
             return;
         }
-        let source = self.page.source.clone();
-        let stamp = (self.page.total, self.page.modified, self.page.identity);
+        let read = self.page.continuation(start, all);
         self.revision += 1;
         let telemetry_started = std::time::Instant::now();
         let (cancel, guard) = glim_services::work::Cancellation::task();
@@ -337,15 +306,7 @@ impl PagedReader {
                 JobClass::Projection,
                 Priority::Interactive,
                 cancel,
-                move |cancel| {
-                    let page = source.read_cancellable(start, all, cancel)?;
-                    anyhow::ensure!(
-                        page.source.is_generated()
-                            || (page.total, page.modified, page.identity) == stamp,
-                        "File changed on disk. Reopen or refresh before paging."
-                    );
-                    Ok::<_, anyhow::Error>(page)
-                },
+                move |cancel| read.read(cancel),
             )
             .await;
             glim_services::telemetry::result("paged_load", None, telemetry_started, &result);

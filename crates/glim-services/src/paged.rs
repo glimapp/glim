@@ -407,7 +407,68 @@ fn page_rows(text: &str) -> Vec<std::ops::Range<usize>> {
 
 impl TextPage {
     pub fn fingerprint(&self) -> String {
-        format!("paged:{}:{:?}", self.total, self.modified)
+        page_fingerprint(self.total, self.modified)
+    }
+
+    pub fn continuation(&self, start: u64, expanded: bool) -> PageContinuation {
+        PageContinuation {
+            source: self.source.clone(),
+            stamp: (self.total, self.modified, self.identity),
+            start,
+            expanded,
+        }
+    }
+
+    pub fn refresh_request(&self) -> PageRefresh {
+        PageRefresh {
+            source: self.source.clone(),
+            start: self.start,
+            total: self.total,
+            modified: self.modified,
+            identity: self.identity,
+        }
+    }
+
+    pub fn edit_request(&self) -> PageEdit {
+        PageEdit {
+            path: self.path.clone(),
+            start: self.start,
+            end: self.end,
+            total: self.total,
+            modified: self.modified,
+            identity: self.identity,
+            expected: self.text.clone(),
+        }
+    }
+
+    pub fn apply_saved(&mut self, text: String, saved: PageSaved) {
+        self.memory = None;
+        self.text = text;
+        self.end = saved.end;
+        self.total = saved.total;
+        self.modified = saved.modified;
+        self.identity = saved.identity;
+    }
+}
+
+/// Reload another window of the same file version without retaining the previous window.
+pub struct PageContinuation {
+    source: PageSource,
+    stamp: (u64, Option<SystemTime>, (u64, u64)),
+    start: u64,
+    expanded: bool,
+}
+
+impl PageContinuation {
+    pub fn read(self, cancel: &crate::work::Cancellation) -> Result<TextPage> {
+        let page = self
+            .source
+            .read_cancellable(self.start, self.expanded, cancel)?;
+        ensure!(
+            page.source.is_generated() || (page.total, page.modified, page.identity) == self.stamp,
+            "File changed on disk. Reopen or refresh before paging."
+        );
+        Ok(page)
     }
 }
 
@@ -517,6 +578,16 @@ pub struct PageSaved {
     pub modified: Option<SystemTime>,
     pub identity: (u64, u64),
 }
+impl PageSaved {
+    pub fn fingerprint(&self) -> String {
+        page_fingerprint(self.total, self.modified)
+    }
+}
+
+fn page_fingerprint(total: u64, modified: Option<SystemTime>) -> String {
+    format!("paged:{total}:{modified:?}")
+}
+
 /// Replace one edited range through a same-directory temporary file. The rest
 /// of the document is copied in fixed buffers; no whole-document allocation.
 pub fn save_page(page: &PageEdit, text: &str) -> Result<PageSaved> {

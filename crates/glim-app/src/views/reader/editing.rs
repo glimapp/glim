@@ -155,10 +155,7 @@ impl Reader {
     ) {
         if let Renderer::Paged { view, .. } = &self.renderer {
             self.document
-                .mark_saved(ContentSnapshot::Fingerprint(format!(
-                    "paged:{}:{:?}",
-                    saved.total, saved.modified
-                )));
+                .mark_saved(ContentSnapshot::Fingerprint(saved.fingerprint()));
             view.update(cx, |page, cx| page.saved(text, saved, cx));
             if let Renderer::Paged {
                 html: Some((browser, _)),

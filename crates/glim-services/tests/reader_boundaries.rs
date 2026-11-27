@@ -306,6 +306,36 @@ fn a_large_tensor_record_exposes_the_full_header_without_weight_reads() -> Resul
 }
 
 #[test]
+fn paging_continuation_requires_the_original_file_identity() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let path = root.path().join("page.txt");
+    fs::write(&path, "one\ntwo\n")?;
+    let page = paged::read_page(&path, 0, false)?;
+    let cancel = Cancellation::default();
+    let next = page.continuation(4, false).read(&cancel)?;
+    assert_eq!(next.text, "two\n");
+
+    let replacement = root.path().join("replacement.txt");
+    fs::write(&replacement, "one\nnew\n")?;
+    File::open(&replacement)?
+        .set_times(fs::FileTimes::new().set_modified(fs::metadata(&path)?.modified()?))?;
+    let old_metadata = fs::metadata(&path)?;
+    let new_metadata = fs::metadata(&replacement)?;
+    assert_eq!(old_metadata.len(), new_metadata.len());
+    assert_eq!(old_metadata.modified()?, new_metadata.modified()?);
+    fs::rename(replacement, &path)?;
+    let Err(error) = page.continuation(4, false).read(&cancel) else {
+        panic!("paging after file replacement must be rejected");
+    };
+    assert_eq!(
+        error.to_string(),
+        "File changed on disk. Reopen or refresh before paging."
+    );
+    assert!(page.refresh_request().read(&cancel)?.is_some());
+    Ok(())
+}
+
+#[test]
 fn editable_pages_save_atomically_and_cancel_without_mutating_the_file() -> Result<()> {
     let root = tempfile::tempdir()?;
     let path = root.path().join("large.txt");
@@ -315,29 +345,22 @@ fn editable_pages_save_atomically_and_cancel_without_mutating_the_file() -> Resu
         file.write_all(&block)?;
     }
     drop(file);
-    let page = paged::read_page(&path, limits::TEXT_PAGE_BYTES, false)?;
+    let mut page = paged::read_page(&path, limits::TEXT_PAGE_BYTES, false)?;
     assert!(page.total > 32 * 1024 * 1024);
     assert!(page.source.is_editable());
+    let previous_total = page.total;
     let changed = page.text.replacen("entry", "changed", 1);
-    let edit = paged::PageEdit {
-        path: path.clone(),
-        start: page.start,
-        end: page.end,
-        total: page.total,
-        modified: page.modified,
-        identity: page.identity,
-        expected: page.text.clone(),
-    };
+    let edit = page.edit_request();
     let saved = paged::save_page(&edit, &changed)?;
-    assert_eq!(saved.total, page.total + 2);
-    let refresh = paged::PageRefresh {
-        source: page.source.clone(),
-        start: page.start,
-        total: saved.total,
-        modified: saved.modified,
-        identity: saved.identity,
-    };
-    assert!(refresh.read(&Cancellation::default())?.is_none());
+    let fingerprint = saved.fingerprint();
+    page.apply_saved(changed.clone(), saved);
+    assert_eq!(page.total, previous_total + 2);
+    assert_eq!(page.fingerprint(), fingerprint);
+    assert!(
+        page.refresh_request()
+            .read(&Cancellation::default())?
+            .is_none()
+    );
     assert!(paged::save_page(&edit, &changed).is_err());
     let current = paged::read_page(&path, 0, false)?;
     let edit = paged::PageEdit {
@@ -352,7 +375,7 @@ fn editable_pages_save_atomically_and_cancel_without_mutating_the_file() -> Resu
     let (cancel, guard) = Cancellation::task();
     drop(guard);
     assert!(paged::save_page_cancellable(&edit, "must not be written", &cancel).is_err());
-    assert_eq!(fs::metadata(&path)?.len(), saved.total);
+    assert_eq!(fs::metadata(&path)?.len(), page.total);
     let mut file = File::open(&path)?;
     file.seek(SeekFrom::Start(page.start))?;
     let mut sample = [0; 32];
