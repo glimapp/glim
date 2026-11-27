@@ -80,6 +80,10 @@ struct EmbeddedPreviewTests {
         precondition(reader.pdfView.document === replaced)
     }
     static func main() throws {
+        if CommandLine.arguments.contains("--request-contract-only") {
+            try requestContract()
+            return
+        }
         if CommandLine.arguments.contains("--quicklook-lifecycle-only") { try quickLookLifecycle(); return }
         if CommandLine.arguments.contains("--pdf-controls-only") { readerPDFControls(); try sameNamePDFReplacement(); return }
         try readerActionState()
