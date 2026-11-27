@@ -39,10 +39,7 @@ impl JsonTree {
         self.loaded_text.as_ref()
     }
     pub fn load(&mut self, text: Arc<TextSnapshot>, cx: &mut Context<Self>) {
-        let same = self
-            .loaded_text
-            .as_ref()
-            .is_some_and(|old| Arc::ptr_eq(old, &text) || old.as_str() == text.as_str());
+        let same = self.loaded_text.as_ref().is_some_and(|old| old == &text);
         if same && !self.suspended {
             return;
         }

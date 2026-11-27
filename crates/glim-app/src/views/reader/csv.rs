@@ -77,8 +77,7 @@ impl CsvTable {
         }
     }
     pub fn load(&mut self, text: Arc<TextSnapshot>, delimiter: u8, cx: &mut Context<Self>) {
-        if matches!(&self.source, Some(Source::Text(old)) if Arc::ptr_eq(old, &text) || old.as_str() == text.as_str())
-        {
+        if matches!(&self.source, Some(Source::Text(old)) if old == &text) {
             self.resume(cx);
             return;
         }
@@ -93,8 +92,7 @@ impl CsvTable {
         format: &'static str,
         cx: &mut Context<Self>,
     ) {
-        if matches!(&self.source, Some(Source::GeoText(old)) if Arc::ptr_eq(old, &text) || old.as_str() == text.as_str())
-        {
+        if matches!(&self.source, Some(Source::GeoText(old)) if old == &text) {
             self.resume(cx);
             return;
         }

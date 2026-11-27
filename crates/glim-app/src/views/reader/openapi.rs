@@ -29,7 +29,7 @@ impl OpenApiReader {
     }
     pub fn load(&mut self, text: Option<Arc<TextSnapshot>>, cx: &mut Context<Self>) {
         let same = match (&self.text, &text) {
-            (Some(old), Some(new)) => Arc::ptr_eq(old, new) || old.as_str() == new.as_str(),
+            (Some(old), Some(new)) => old == new,
             _ => false,
         };
         self.text = text;

@@ -5,6 +5,15 @@ pub struct TextSnapshot {
     text: String,
     _memory: WorkingReservation,
 }
+// The reservation remains owned by its snapshot and does not identify the text.
+impl PartialEq for TextSnapshot {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text
+    }
+}
+
+impl Eq for TextSnapshot {}
+
 impl TextSnapshot {
     pub fn from_chunks<'a>(
         chunks: impl Iterator<Item = &'a str> + Clone,
@@ -43,6 +52,21 @@ impl TextSnapshot {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn snapshot_equality_compares_text_across_distinct_reservations() {
+        let pool = ResourcePool::with_budgets(0, 64);
+        let snapshot = |chunks: [&str; 2]| {
+            Arc::new(TextSnapshot::from_chunks(chunks.into_iter(), &pool).unwrap())
+        };
+        let first = snapshot(["a", "中文"]);
+        let same = snapshot(["a中", "文"]);
+        let changed = snapshot(["a中", "字"]);
+
+        assert!(!Arc::ptr_eq(&first, &same));
+        assert!(first == same);
+        assert!(first != changed);
+    }
 
     #[test]
     fn input_admission_and_worker_lifetime_cover_the_same_allocation() {
