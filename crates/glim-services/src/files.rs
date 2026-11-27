@@ -286,7 +286,6 @@ impl RetainedFile {
         page: Option<(&crate::paged::PageEdit, &str)>,
         cancel: &crate::work::Cancellation,
     ) -> Result<std::path::PathBuf> {
-        use std::{io::SeekFrom, os::unix::fs::MetadataExt};
         let mut source = self
             .0
             .lock()
@@ -295,40 +294,17 @@ impl RetainedFile {
         publish_document(destination, cancel, |output| {
             if let Some((page, text)) = page {
                 ensure!(!text.contains('\0'), "Text contains a null byte");
-                ensure!(
-                    before.len() == page.total
-                        && before.modified().ok() == page.modified
-                        && (before.dev(), before.ino()) == page.identity,
-                    "File changed; your edits are still open."
-                );
-                ensure!(
-                    page.start <= page.end
-                        && page.end <= page.total
-                        && page.end - page.start == page.expected.len() as u64,
-                    "Invalid page snapshot"
-                );
-                source.seek(SeekFrom::Start(page.start))?;
-                let mut buffer = vec![0; reader_limits::IO_BUFFER_BYTES];
-                for expected in page
-                    .expected
-                    .as_bytes()
-                    .chunks(reader_limits::IO_BUFFER_BYTES)
-                {
-                    cancel.check()?;
-                    source.read_exact(&mut buffer[..expected.len()])?;
-                    ensure!(
-                        &buffer[..expected.len()] == expected,
-                        "File changed; your edits are still open."
-                    );
-                }
-                source.rewind()?;
-                cancel.copy((&mut *source).take(page.start), &mut *output)?;
-                cancel.copy(std::io::Cursor::new(text.as_bytes()), &mut *output)?;
-                source.seek(SeekFrom::Start(page.end))?;
+                page.verify_source(
+                    &mut source,
+                    &before,
+                    "File changed; your edits are still open.",
+                    cancel,
+                )?
+                .write_replacement(text, output, cancel)?;
             } else {
                 source.rewind()?;
+                cancel.copy(&mut *source, output)?;
             }
-            cancel.copy(&mut *source, output)?;
             let after = source.metadata()?;
             ensure!(
                 after.len() == before.len() && after.modified().ok() == before.modified().ok(),

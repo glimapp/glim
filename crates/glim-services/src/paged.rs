@@ -450,6 +450,67 @@ pub struct PageEdit {
     pub identity: (u64, u64),
     pub expected: String,
 }
+impl PageEdit {
+    pub(crate) fn verify_source<'a>(
+        &self,
+        source: &'a mut File,
+        metadata: &std::fs::Metadata,
+        changed: &str,
+        cancel: &crate::work::Cancellation,
+    ) -> Result<VerifiedPageSource<'a>> {
+        ensure!(
+            metadata.len() == self.total
+                && metadata.modified().ok() == self.modified
+                && (metadata.dev(), metadata.ino()) == self.identity,
+            "{changed}"
+        );
+        ensure!(
+            self.start <= self.end
+                && self.end <= self.total
+                && self.end - self.start == self.expected.len() as u64,
+            "Invalid page snapshot"
+        );
+        source.seek(SeekFrom::Start(self.start))?;
+        let mut buffer = vec![0; reader_limits::IO_BUFFER_BYTES];
+        for expected in self
+            .expected
+            .as_bytes()
+            .chunks(reader_limits::IO_BUFFER_BYTES)
+        {
+            cancel.check()?;
+            source.read_exact(&mut buffer[..expected.len()])?;
+            ensure!(&buffer[..expected.len()] == expected, "{changed}");
+        }
+        Ok(VerifiedPageSource {
+            source,
+            start: self.start,
+            end: self.end,
+        })
+    }
+}
+
+/// A source whose file stamp and replaced bytes matched the edit.
+pub(crate) struct VerifiedPageSource<'a> {
+    source: &'a mut File,
+    start: u64,
+    end: u64,
+}
+impl VerifiedPageSource<'_> {
+    pub(crate) fn write_replacement(
+        self,
+        text: &str,
+        output: &mut File,
+        cancel: &crate::work::Cancellation,
+    ) -> Result<()> {
+        self.source.rewind()?;
+        cancel.copy((&mut *self.source).take(self.start), &mut *output)?;
+        cancel.copy(text.as_bytes(), &mut *output)?;
+        self.source.seek(SeekFrom::Start(self.end))?;
+        cancel.copy(self.source, output)?;
+        Ok(())
+    }
+}
+
 pub struct PageSaved {
     pub end: u64,
     pub total: u64,
@@ -479,39 +540,15 @@ pub fn save_page_cancellable(
         before.is_file() && !before.permissions().readonly(),
         "File is read-only"
     );
-    ensure!(
-        before.len() == page.total
-            && before.modified().ok() == page.modified
-            && (before.dev(), before.ino()) == page.identity,
-        "File changed on disk. Save canceled; your edits are still open."
-    );
-    ensure!(
-        page.end >= page.start
-            && page.end <= page.total
-            && page.end - page.start == page.expected.len() as u64,
-        "Invalid page snapshot"
-    );
-    source.seek(SeekFrom::Start(page.start))?;
-    let mut buffer = vec![0; reader_limits::IO_BUFFER_BYTES];
-    for expected in page
-        .expected
-        .as_bytes()
-        .chunks(reader_limits::IO_BUFFER_BYTES)
-    {
-        cancel.check()?;
-        source.read_exact(&mut buffer[..expected.len()])?;
-        ensure!(
-            &buffer[..expected.len()] == expected,
-            "File changed on disk. Save canceled; your edits are still open."
-        );
-    }
+    let verified = page.verify_source(
+        &mut source,
+        &before,
+        "File changed on disk. Save canceled; your edits are still open.",
+        cancel,
+    )?;
     let mut output =
         tempfile::NamedTempFile::new_in(target.parent().context("File has no parent folder")?)?;
-    source.seek(SeekFrom::Start(0))?;
-    cancel.copy((&mut source).take(page.start), output.as_file_mut())?;
-    cancel.copy(std::io::Cursor::new(text.as_bytes()), output.as_file_mut())?;
-    source.seek(SeekFrom::Start(page.end))?;
-    cancel.copy(&mut source, output.as_file_mut())?;
+    verified.write_replacement(text, output.as_file_mut(), cancel)?;
     let after = std::fs::metadata(&target)?;
     ensure!(
         after.len() == before.len()
