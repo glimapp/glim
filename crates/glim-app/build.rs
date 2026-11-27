@@ -101,25 +101,9 @@ fn embed_build_identity() {
 }
 
 fn build_native_preview() {
-    for source in [
-        "Preview.swift",
-        "FormatCatalog.swift",
-        "PreviewRequest.swift",
-        "ImagePreview.swift",
-        "ReaderResources.swift",
-        "ImageTextExtraction.swift",
-        "PreviewCopy.swift",
-        "FloatingReaderToolbar.swift",
-        "ReaderActions.swift",
-        "ReaderFind.swift",
-        "HTMLPreview.swift",
-        "MarkdownExport.swift",
-        "OpenAPIResources.swift",
-        "WorkbookPreview.swift",
-        "WordPreview.swift",
-        "EmbeddedPreview.swift",
-        "FinderIntegration.swift",
-    ] {
+    let sources = include_str!("../../native/preview-sources.txt");
+    println!("cargo:rerun-if-changed=../../native/preview-sources.txt");
+    for source in sources.lines() {
         println!("cargo:rerun-if-changed=../../native/{source}");
     }
     let arch = match env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
@@ -162,24 +146,12 @@ fn build_native_preview() {
             "GlimNativePreview",
             "-target",
             &format!("{arch}-apple-macos11.0"),
-            "../../native/Preview.swift",
-            "../../native/FormatCatalog.swift",
-            "../../native/PreviewRequest.swift",
-            "../../native/ImagePreview.swift",
-            "../../native/ReaderResources.swift",
-            "../../native/ImageTextExtraction.swift",
-            "../../native/PreviewCopy.swift",
-            "../../native/FloatingReaderToolbar.swift",
-            "../../native/ReaderActions.swift",
-            "../../native/ReaderFind.swift",
-            "../../native/HTMLPreview.swift",
-            "../../native/MarkdownExport.swift",
-            "../../native/OpenAPIResources.swift",
-            "../../native/WorkbookPreview.swift",
-            "../../native/WordPreview.swift",
-            "../../native/EmbeddedPreview.swift",
-            "../../native/FinderIntegration.swift",
         ])
+        .args(
+            sources
+                .lines()
+                .map(|file| PathBuf::from("../../native").join(file)),
+        )
         .arg(output.join("ReaderLimits.swift"))
         .arg(output.join("ReaderActionPresets.swift"))
         .arg(output.join("OpenAPIAssets.swift"))

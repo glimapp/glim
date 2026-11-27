@@ -311,7 +311,7 @@ Mermaid、Graphviz、PlantUML、flowchart.js、WaveDrom 和 MathJax 及许可证
 
 ### 内嵌 macOS 预览
 
-`native/Preview.swift` 和 `EmbeddedPreview.swift` 将 PDFKit、AVKit、Quick Look、CoreText、工作表视图内嵌到标签，不启动独立预览应用或 Dock 图标。app build.rs 编译 Swift 静态库。`reader/native_bridge` 是限定主线程的窄 unsafe FFI 边界，将 NSView 挂到 GPUI AppKit 窗口；原生预览、右键菜单与更新桥接是 app 的限定 unsafe 例外，其余 app deny unsafe，core/services forbid unsafe。
+`native/Preview.swift` 和 `EmbeddedPreview.swift` 将 PDFKit、AVKit、Quick Look、CoreText、工作表视图内嵌到标签，不启动独立预览应用或 Dock 图标。应用构建和原生预览测试统一从 [native/preview-sources.txt](../native/preview-sources.txt) 读取生产 Swift 源文件。`reader/native_bridge` 是限定主线程的窄 unsafe FFI 边界，将 NSView 挂到 GPUI AppKit 窗口；原生预览、右键菜单与更新桥接是 app 的限定 unsafe 例外，其余 app deny unsafe，core/services forbid unsafe。
 
 `ReaderHistoryNavigation` 将可见原生宿主中的鼠标前进／后退键和离散 swipe 事件转交 GPUI 现有的工作区导航历史处理；位图或 SVG 视口没有横向溢出时，触摸板滚动也复用同一套手势识别，横向溢出时保留图片平移。原生纵向滚动保持原样，监听器随宿主的窗口挂载和可见状态启停。
 

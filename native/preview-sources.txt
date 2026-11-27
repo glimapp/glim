@@ -1,0 +1,17 @@
+Preview.swift
+FormatCatalog.swift
+PreviewRequest.swift
+ImagePreview.swift
+ReaderResources.swift
+ImageTextExtraction.swift
+PreviewCopy.swift
+FloatingReaderToolbar.swift
+ReaderActions.swift
+ReaderFind.swift
+HTMLPreview.swift
+MarkdownExport.swift
+OpenAPIResources.swift
+WorkbookPreview.swift
+WordPreview.swift
+EmbeddedPreview.swift
+FinderIntegration.swift
