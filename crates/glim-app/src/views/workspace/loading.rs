@@ -170,8 +170,9 @@ impl Workspace {
             return;
         };
         let (cancel, cancel_on_drop) = glim_services::work::Cancellation::task();
-        let work = reader_jobs::run(
+        let work = reader_jobs::run_with_scheduler(
             cx.background_executor().clone(),
+            reader_jobs::document_scheduler(cx),
             JobClass::Document,
             Priority::Interactive,
             cancel,
@@ -274,8 +275,9 @@ impl Workspace {
         self.loading_path = Some(path.clone());
         self.error = None;
         let (cancel, cancel_on_drop) = glim_services::work::Cancellation::task();
-        let read = reader_jobs::run(
+        let read = reader_jobs::run_with_scheduler(
             cx.background_executor().clone(),
+            reader_jobs::document_scheduler(cx),
             JobClass::Document,
             Priority::Interactive,
             cancel,

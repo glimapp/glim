@@ -4,6 +4,27 @@ use glim_services::work::{Cancellation, scheduler::Scheduler};
 use gpui_kit::BackgroundExecutor;
 use std::sync::Arc;
 
+/// Document loading shares the production admission domain. An independent GPUI
+/// test executor can supply its own domain so it does not wait on another fixture.
+pub(crate) fn document_scheduler(_app: &gpui_kit::App) -> Arc<Scheduler> {
+    #[cfg(test)]
+    if let Some(scheduler) = _app.try_global::<TestDocumentScheduler>() {
+        return scheduler.0.clone();
+    }
+    Scheduler::global().clone()
+}
+
+#[cfg(test)]
+struct TestDocumentScheduler(Arc<Scheduler>);
+
+#[cfg(test)]
+impl gpui_kit::Global for TestDocumentScheduler {}
+
+#[cfg(test)]
+pub(crate) fn isolate_document_scheduler(app: &mut gpui_kit::App) {
+    app.set_global(TestDocumentScheduler(Scheduler::from_policy()));
+}
+
 pub(crate) async fn run<T: Send + 'static>(
     executor: BackgroundExecutor,
     class: JobClass,

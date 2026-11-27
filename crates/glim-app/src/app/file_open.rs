@@ -148,6 +148,7 @@ mod tests {
             gpui_kit::init(cx);
             crate::app::remote::init(Default::default(), cx);
             cx.set_global(OpenWorkspaces::default());
+            crate::app::reader_jobs::isolate_document_scheduler(cx);
             gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
                 let host = cx.new(WorkspaceWindow::new);
                 host.update(cx, |host, cx| {
