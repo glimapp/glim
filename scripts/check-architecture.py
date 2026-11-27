@@ -7,7 +7,9 @@ import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parent.parent
-subprocess.run([os.environ.get('PYTHON', 'python3'), str(ROOT / 'scripts/generate-format-catalog.py'), '--check'], check=True)
+python = os.environ.get('PYTHON', 'python3')
+for generator in ('generate-format-catalog.py', 'generate-reader-limits.py'):
+    subprocess.run([python, str(ROOT / 'scripts' / generator), '--check'], check=True)
 metadata = json.loads(subprocess.check_output(
     [os.environ.get('CARGO', 'cargo'), 'metadata', '--no-deps', '--locked', '--format-version', '1'],
     cwd=ROOT, text=True))

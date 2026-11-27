@@ -15,10 +15,14 @@ def unique(pairs):
         result[key] = value
     return result
 
-def generate(output):
+def load_policy():
     policy = json.loads((ROOT / 'assets/reader-limits.json').read_text(), object_pairs_hook=unique)
     if policy['schema_version'] != 1:
         raise ValueError('Unsupported reader policy schema')
+    return policy
+
+def generate(output):
+    policy = load_policy()
     values, rust, swift = {}, [], ['enum ReaderLimits {']
     types = {'usize': 2**63-1, 'u64': 2**64-1, 'u32': 2**32-1, 'i32': 2**31-1}
     for group, fields in policy['limits'].items():
@@ -55,8 +59,9 @@ def generate(output):
         if not target.exists() or target.read_text() != text:
             target.write_text(text)
 
-def document():
-    policy = json.loads((ROOT / 'assets/reader-limits.json').read_text(), object_pairs_hook=unique)
+def document(*, check=False):
+    policy = load_policy()
+    stale = []
     effects = {'reject': '拒绝该操作或视图', 'truncate': '截取显示', 'fallback': '降级处理', 'budget': '处理／内存预算', 'timeout': '超时', 'page': '分页，可继续访问', 'unlimited': '无应用层总量门槛'}
     for chinese in (False, True):
         title = '# 阅读器边界统一管理' if chinese else '# Shared reader policy'
@@ -86,16 +91,31 @@ def document():
                 lines.append(f"| `{group}.{name}` | {display} | {entry['unit']} | {effect} | {behavior.replace('|', '&#124;')} |")
             lines.append('')
         name = 'reader-limits.zh-CN.md' if chinese else 'reader-limits.md'
-        (ROOT / 'docs' / name).write_text('\n'.join(lines))
+        target = ROOT / 'docs' / name
+        text = '\n'.join(lines)
+        if check:
+            if not target.is_file() or target.read_text() != text:
+                stale.append(f'docs/{name}')
+        else:
+            target.write_text(text)
+    if stale:
+        raise SystemExit(
+            'Reader policy inventory is out of date: ' + ', '.join(stale)
+            + '. Run python3 scripts/generate-reader-limits.py --docs.'
+        )
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out-dir', type=Path)
-    parser.add_argument('--docs', action='store_true')
+    docs_mode = parser.add_mutually_exclusive_group()
+    docs_mode.add_argument('--docs', action='store_true', help='regenerate both policy inventories')
+    docs_mode.add_argument('--check', action='store_true', help='check both policy inventories without writing')
     args = parser.parse_args()
-    if args.out_dir is None and not args.docs:
-        parser.error('Provide --out-dir or --docs')
+    if args.out_dir is None and not (args.docs or args.check):
+        parser.error('Provide --out-dir, --docs, or --check')
+    if args.check and args.out_dir is not None:
+        parser.error("--check cannot be combined with --out-dir")
     if args.out_dir is not None:
         generate(args.out_dir)
-    if args.docs:
-        document()
+    if args.docs or args.check:
+        document(check=args.check)
