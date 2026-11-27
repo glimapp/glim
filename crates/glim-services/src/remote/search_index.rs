@@ -1,7 +1,11 @@
 mod incremental;
 
 use super::{Connection, Session};
-use crate::{limits, work::Cancellation, workspace::SearchPage};
+use crate::{
+    limits,
+    work::Cancellation,
+    workspace::{SearchPage, search_roots},
+};
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection as Database, OpenFlags, OptionalExtension};
 use sha2::{Digest, Sha256};
@@ -146,7 +150,7 @@ impl Session {
         progress: &SearchIndexProgress,
     ) -> Result<SearchIndexUpdate> {
         cancel.check()?;
-        let roots = normalized_roots(roots);
+        let roots = search_roots(roots);
         ensure!(
             roots.iter().all(|p| valid_path(p)),
             "Invalid remote search root"
@@ -223,20 +227,6 @@ impl Session {
     }
 }
 
-fn normalized_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
-    let mut roots = roots.to_vec();
-    roots.sort();
-    roots.dedup();
-    roots
-        .iter()
-        .filter(|path| {
-            !roots
-                .iter()
-                .any(|other| other != *path && path.starts_with(other))
-        })
-        .cloned()
-        .collect()
-}
 fn scope(connection: &Connection, roots: &[PathBuf]) -> String {
     let mut hash = Sha256::new();
     for part in [
@@ -254,7 +244,7 @@ fn scope(connection: &Connection, roots: &[PathBuf]) -> String {
         hash.update((part.len() as u64).to_le_bytes());
         hash.update(part);
     }
-    for root in normalized_roots(roots) {
+    for root in search_roots(roots) {
         let bytes = root.as_os_str().as_bytes();
         hash.update((bytes.len() as u64).to_le_bytes());
         hash.update(bytes);
@@ -491,4 +481,33 @@ fn terminate(child: &mut Child) {
         .stderr(Stdio::null())
         .status();
     let _ = child.kill();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_index_scope_preserves_existing_cache_keys() {
+        let connection = Connection {
+            id: "connection-1".into(),
+            host: "mac.example".into(),
+            user: "user".into(),
+            port: Some(2222),
+            identity: Some("/keys/id".into()),
+            ..Connection::default()
+        };
+        let roots = [
+            "/workspace".into(),
+            "/work/docs".into(),
+            "/work".into(),
+            "/work".into(),
+        ];
+
+        // The existing key also keeps /workspace, which is not a child of /work.
+        assert_eq!(
+            scope(&connection, &roots),
+            "8b70420f759384612a6fc22ce00203e1d5193e357f5b2897ebaebfa06e3bbcd8"
+        );
+    }
 }

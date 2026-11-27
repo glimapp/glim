@@ -1,4 +1,4 @@
-use crate::{limits, work::Cancellation};
+use crate::{limits, work::Cancellation, workspace::search_roots};
 use anyhow::Result;
 use std::{
     collections::VecDeque,
@@ -90,7 +90,7 @@ pub fn search(
     if query.trim().is_empty() {
         return Ok(output.finish());
     }
-    let roots = normalized_roots(roots);
+    let roots = search_roots(roots);
     let mut buffer = vec![0; limits::WORKSPACE_CONTENT_BUFFER_BYTES];
     for root in roots {
         for entry in ignore::WalkBuilder::new(root)
@@ -139,21 +139,6 @@ pub fn search(
         }
     }
     Ok(output.finish())
-}
-
-pub(crate) fn normalized_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
-    let mut roots = roots.to_vec();
-    roots.sort();
-    roots.dedup();
-    roots
-        .iter()
-        .filter(|path| {
-            !roots
-                .iter()
-                .any(|other| other != *path && path.starts_with(other))
-        })
-        .cloned()
-        .collect()
 }
 
 // KMP keeps matching across read boundaries without buffering an entire line.

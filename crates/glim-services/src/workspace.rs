@@ -117,6 +117,23 @@ pub struct SearchPage {
     pub paths: Vec<PathBuf>,
     pub more: bool,
 }
+/// Order search roots and omit duplicates and paths already covered by a parent.
+/// Use path components only, so local and remote callers share the same scope.
+pub(crate) fn search_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut roots = roots.to_vec();
+    roots.sort();
+    roots.dedup();
+    roots
+        .iter()
+        .filter(|path| {
+            !roots
+                .iter()
+                .any(|other| other != *path && path.starts_with(other))
+        })
+        .cloned()
+        .collect()
+}
+
 pub fn search_files(root: &Path, query: &str) -> Vec<PathBuf> {
     search_page(
         &[root.to_path_buf()],
@@ -138,20 +155,10 @@ pub fn search_page(
     if query.is_empty() {
         return Ok(SearchPage { paths, more: false });
     }
-    let mut roots = roots.to_vec();
-    roots.sort();
-    roots.dedup();
-    let roots: Vec<_> = roots
-        .iter()
-        .filter(|root| {
-            !roots
-                .iter()
-                .any(|other| other != *root && root.starts_with(other))
-        })
-        .collect();
+    let roots = search_roots(roots);
     let mut skipped = 0;
     for root in roots {
-        for entry in WalkBuilder::new(root)
+        for entry in WalkBuilder::new(&root)
             .standard_filters(false)
             .follow_links(false)
             .filter_entry(|entry| entry.file_name() != ".git")
@@ -167,7 +174,7 @@ pub fn search_page(
             }
             let path = entry.into_path();
             if !path
-                .strip_prefix(root)
+                .strip_prefix(&root)
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .to_lowercase()

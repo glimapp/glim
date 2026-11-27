@@ -3,6 +3,7 @@ use crate::{
     content_search::{self, Collector, Match, Page, Scanner},
     limits,
     work::Cancellation,
+    workspace::search_roots,
 };
 use anyhow::{Context, Result, ensure};
 use std::{
@@ -25,7 +26,7 @@ impl Session {
         if query.is_empty() {
             return Ok(Page::default());
         }
-        let roots = content_search::normalized_roots(roots);
+        let roots = search_roots(roots);
         if let Some(page) = shell_search(self, &roots, query, offset, cancel)? {
             return Ok(page);
         }
