@@ -13,6 +13,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub const RENDER_ARGUMENT: &str = "--render-markdown";
+
 /// Accept blank lines between explicit, matching pipe-table rows in preview only.
 /// AST block ranges keep code, HTML, math and frontmatter examples untouched.
 pub fn normalize_tables(text: &str) -> std::borrow::Cow<'_, str> {
@@ -547,7 +549,7 @@ pub(crate) fn render_svg_batch(
     std::fs::write(&input, serde_json::to_vec(&request)?)?;
     let mut command = Command::new(renderer_executable()?);
     command
-        .arg("--render-markdown")
+        .arg(RENDER_ARGUMENT)
         .arg(&input)
         .arg(&output)
         .stdin(Stdio::null())

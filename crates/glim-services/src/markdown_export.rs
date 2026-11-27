@@ -17,6 +17,8 @@ use std::{
 };
 use url::Url;
 
+pub const PRINT_ARGUMENT: &str = "--print-markdown-pdf";
+
 #[path = "markdown_export_html.rs"]
 mod raw_html;
 
@@ -41,7 +43,7 @@ pub fn export_pdf(
     )?;
     let mut command = Command::new(diagrams::renderer_executable()?);
     command
-        .arg("--print-markdown-pdf")
+        .arg(PRINT_ARGUMENT)
         .arg(&html_path)
         .arg(&pdf_path)
         .stdin(Stdio::null())

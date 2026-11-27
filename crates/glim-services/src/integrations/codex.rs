@@ -4,6 +4,8 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{io::Read, path::PathBuf, process::Command};
 
+pub const OPEN_ARGUMENT: &str = "--open-from-codex";
+
 // Bound handoff metadata independently of document size.
 const REQUEST_BYTES: u64 = 64 * 1024;
 

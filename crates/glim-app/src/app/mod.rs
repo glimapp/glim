@@ -361,7 +361,32 @@ pub fn print_build_info() {
     );
 }
 
-pub fn run() -> Result<()> {
+pub(crate) fn run() -> Result<()> {
+    use glim_services::{
+        integrations::{codex, mcp},
+        markdown_export as export, markdown_preview,
+    };
+
+    let argument = std::env::args_os().nth(1);
+    match argument.as_deref().and_then(std::ffi::OsStr::to_str) {
+        Some("--cli") => cli::run(),
+        Some(codex::OPEN_ARGUMENT) => codex::run(),
+        Some(mcp::SERVER_ARGUMENT) => mcp::run(),
+        Some("--build-info") => {
+            print_build_info();
+            Ok(())
+        }
+        #[cfg(feature = "reader-measurements")]
+        Some("--measure-source-reader") => reader_measurement::run(),
+        Some(markdown_preview::RENDER_ARGUMENT) => diagram_engine::run(),
+        Some(export::PRINT_ARGUMENT) => markdown_export::run_print_subprocess(),
+        Some("--prepare-matroska") => media_prepare::run(),
+        Some("--prepare-spreadsheet-page") => spreadsheet_prepare::run(),
+        _ => run_workspace(),
+    }
+}
+
+fn run_workspace() -> Result<()> {
     if std::env::var_os("GLIM_SSH_ASKPASS").is_some() {
         return remote::askpass();
     }

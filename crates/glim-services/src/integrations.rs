@@ -117,16 +117,16 @@ fn entry(kind: Kind) -> Result<Value> {
                 STANDARD.encode(include_bytes!("../../../assets/branding/glim-integration.png"))
             ),
             "command":app.join("Contents/MacOS/glim"),
-            "args":["--open-from-codex"],
+            "args":[codex::OPEN_ARGUMENT],
             "input":"json_stdin",
             "supports_ssh":true
         })
     } else if kind == Kind::OpenCode {
-        json!({"type":"local", "command":[app.join("Contents/MacOS/glim"), "--mcp"], "enabled":true})
+        json!({"type":"local", "command":[app.join("Contents/MacOS/glim"), mcp::SERVER_ARGUMENT], "enabled":true})
     } else if kind == Kind::Copilot {
-        json!({"type":"stdio", "command":app.join("Contents/MacOS/glim"), "args":["--mcp"], "tools":["*"]})
+        json!({"type":"stdio", "command":app.join("Contents/MacOS/glim"), "args":[mcp::SERVER_ARGUMENT], "tools":["*"]})
     } else {
-        json!({"type":"stdio", "command":app.join("Contents/MacOS/glim"), "args":["--mcp"]})
+        json!({"type":"stdio", "command":app.join("Contents/MacOS/glim"), "args":[mcp::SERVER_ARGUMENT]})
     })
 }
 

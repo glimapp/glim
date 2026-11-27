@@ -7,6 +7,8 @@ use std::{
     process::{Command, Stdio},
 };
 
+pub const SERVER_ARGUMENT: &str = "--mcp";
+
 // Bound protocol message memory, independently of the size of a file being opened.
 const MESSAGE_BYTES: u64 = 64 * 1024;
 
