@@ -131,9 +131,12 @@ pub(super) fn import(db: &Connection, directory: &Path) -> Result<()> {
                 continue;
             }
             let relative = format!("Books/{id}.json");
-            let state: crate::books::preferences::ReadingState =
+            let state: glim_core::books::ReadingState =
                 json(db, directory, &relative)?.context("Missing book state")?;
-            crate::books::preferences::validate(&state)?;
+            ensure!(
+                state.is_valid(),
+                "Reading preferences are outside supported limits"
+            );
             set_record(
                 db,
                 "book",

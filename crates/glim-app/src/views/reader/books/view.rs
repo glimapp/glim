@@ -422,10 +422,10 @@ impl Render for BookView {
                 Button::new("book-font-smaller")
                     .small()
                     .label("A−")
-                    .disabled(font <= 14.)
+                    .disabled(font <= ReadingState::MIN_FONT_SIZE)
                     .on_click(cx.listener(|v, _, _, cx| {
                         (v.host.action)("ebook", "font_smaller", &[]);
-                        v.state.font_size = (v.state.font_size - 2.).max(14.);
+                        v.state.decrease_font_size();
                         v.save(cx);
                         cx.notify();
                     })),
@@ -436,10 +436,10 @@ impl Render for BookView {
                 Button::new("book-font-larger")
                     .small()
                     .label("A+")
-                    .disabled(font >= 32.)
+                    .disabled(font >= ReadingState::MAX_FONT_SIZE)
                     .on_click(cx.listener(|v, _, _, cx| {
                         (v.host.action)("ebook", "font_larger", &[]);
-                        v.state.font_size = (v.state.font_size + 2.).min(32.);
+                        v.state.increase_font_size();
                         v.save(cx);
                         cx.notify();
                     })),
@@ -467,13 +467,7 @@ impl Render for BookView {
                     .label(format!("{} {:.1}", tr("Spacing"), self.state.line_height))
                     .on_click(cx.listener(|v, _, _, cx| {
                         (v.host.action)("ebook", "line_spacing", &[]);
-                        v.state.line_height = if v.state.line_height < 1.6 {
-                            1.7
-                        } else if v.state.line_height < 1.9 {
-                            2.0
-                        } else {
-                            1.5
-                        };
+                        v.state.cycle_line_height();
                         v.save(cx);
                         cx.notify();
                     })),
@@ -485,13 +479,7 @@ impl Render for BookView {
                     .label(tr("Page width"))
                     .on_click(cx.listener(|v, _, _, cx| {
                         (v.host.action)("ebook", "page_width", &[]);
-                        v.state.page_width = if v.state.page_width < 650. {
-                            720.
-                        } else if v.state.page_width < 800. {
-                            880.
-                        } else {
-                            560.
-                        };
+                        v.state.cycle_page_width();
                         v.save(cx);
                         cx.notify();
                     })),

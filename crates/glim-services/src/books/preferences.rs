@@ -1,6 +1,6 @@
 use anyhow::{Result, ensure};
 
-pub use glim_core::books::{Bookmark, ReadingState};
+use glim_core::books::ReadingState;
 
 fn validate_identity(fingerprint: &str) -> Result<()> {
     let id = fingerprint.strip_prefix("ebook:").unwrap_or_default();
@@ -19,36 +19,28 @@ fn read_from(db: &rusqlite::Connection, fingerprint: &str) -> Result<ReadingStat
         .map(|v| serde_json::from_str::<ReadingState>(&v))
         .transpose()?
         .unwrap_or_default();
-    validate(&state)?;
-    Ok(state)
-}
-pub(crate) fn validate(state: &ReadingState) -> Result<()> {
     ensure!(
-        state.fraction.is_finite()
-            && (0. ..=1.).contains(&state.fraction)
-            && (14. ..=32.).contains(&state.font_size)
-            && (1.3..=2.2).contains(&state.line_height)
-            && (480. ..=1000.).contains(&state.page_width)
-            && state
-                .bookmarks
-                .iter()
-                .all(|b| b.fraction.is_finite() && (0. ..=1.).contains(&b.fraction)),
+        state.is_valid(),
         "Reading preferences are outside supported limits"
     );
-    Ok(())
+    Ok(state)
 }
 pub fn save(fingerprint: &str, state: &ReadingState) -> Result<()> {
     validate_identity(fingerprint)?;
     save_to(&crate::storage::open()?, fingerprint, state)
 }
 fn save_to(db: &rusqlite::Connection, fingerprint: &str, state: &ReadingState) -> Result<()> {
-    validate(state)?;
+    ensure!(
+        state.is_valid(),
+        "Reading preferences are outside supported limits"
+    );
     crate::storage::set_record(db, "book", fingerprint, &serde_json::to_string(state)?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glim_core::books::Bookmark;
     #[test]
     fn reading_position_typography_and_bookmarks_roundtrip_without_touching_book_files() {
         let dir = tempfile::tempdir().unwrap();
