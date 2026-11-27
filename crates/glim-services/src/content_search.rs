@@ -1,4 +1,8 @@
-use crate::{limits, work::Cancellation, workspace::search_roots};
+use crate::{
+    limits,
+    work::Cancellation,
+    workspace::{search_roots, workspace_walk},
+};
 use anyhow::Result;
 use std::{
     collections::VecDeque,
@@ -93,10 +97,7 @@ pub fn search(
     let roots = search_roots(roots);
     let mut buffer = vec![0; limits::WORKSPACE_CONTENT_BUFFER_BYTES];
     for root in roots {
-        for entry in ignore::WalkBuilder::new(root)
-            .standard_filters(false)
-            .follow_links(false)
-            .filter_entry(|entry| entry.file_name() != ".git")
+        for entry in workspace_walk(&root)
             .sort_by_file_name(|a, b| a.cmp(b))
             .build()
         {

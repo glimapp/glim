@@ -79,13 +79,7 @@ pub fn list_directory_cancellable(
         return Err(std::io::Error::from(std::io::ErrorKind::NotADirectory).into());
     }
     let mut entries = Vec::new();
-    for entry in WalkBuilder::new(path)
-        .max_depth(Some(1))
-        .standard_filters(false)
-        .follow_links(false)
-        .filter_entry(|entry| entry.file_name() != ".git")
-        .build()
-    {
+    for entry in workspace_walk(path).max_depth(Some(1)).build() {
         cancel.check()?;
         let entry = entry.with_context(|| format!("Cannot read {}", path.display()))?;
         if entry.depth() == 0 {
@@ -111,6 +105,15 @@ pub fn list_directory_cancellable(
             .then_with(|| a.path.file_name().cmp(&b.path.file_name()))
     });
     Ok(entries)
+}
+
+/// Keep workspace visibility consistent across directory browsing and searches.
+pub(crate) fn workspace_walk(path: &Path) -> WalkBuilder {
+    let mut walk = WalkBuilder::new(path);
+    walk.standard_filters(false)
+        .follow_links(false)
+        .filter_entry(|entry| entry.file_name() != ".git");
+    walk
 }
 
 pub struct SearchPage {
@@ -158,10 +161,7 @@ pub fn search_page(
     let roots = search_roots(roots);
     let mut skipped = 0;
     for root in roots {
-        for entry in WalkBuilder::new(&root)
-            .standard_filters(false)
-            .follow_links(false)
-            .filter_entry(|entry| entry.file_name() != ".git")
+        for entry in workspace_walk(&root)
             .sort_by_file_name(|a, b| a.cmp(b))
             .build()
         {
@@ -261,6 +261,52 @@ mod tests {
             .collect();
         assert_eq!(names, ["src", ".gitignore", "ignored", "main.rs"]);
         assert!(entries[0].is_dir);
+        Ok(())
+    }
+
+    #[test]
+    fn workspace_browsing_and_search_share_visibility_rules() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        let root = workspace.path();
+        fs::create_dir(root.join(".git"))?;
+        fs::create_dir_all(root.join("nested/.git"))?;
+        fs::write(root.join(".gitignore"), "needle-ignored.txt\n")?;
+        fs::write(root.join(".needle-hidden.txt"), "needle\n")?;
+        fs::write(root.join("needle-ignored.txt"), "needle\n")?;
+        fs::write(root.join("nested/.git/needle-internal.txt"), "needle\n")?;
+        fs::write(root.join("nested/needle-visible.txt"), "needle\n")?;
+        fs::write(outside.path().join("needle-outside.txt"), "needle\n")?;
+        std::os::unix::fs::symlink(outside.path(), root.join("linked"))?;
+
+        let entries = list_directory(root)?;
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.path == root.join("linked") && entry.is_dir)
+        );
+        let expected = [
+            root.join(".needle-hidden.txt"),
+            root.join("needle-ignored.txt"),
+            root.join("nested/needle-visible.txt"),
+        ];
+        assert_eq!(search_files(root, "needle"), expected);
+        let page = crate::content_search::search(
+            &[root.to_path_buf()],
+            "needle",
+            0,
+            &crate::work::Cancellation::default(),
+        )?;
+        let paths: Vec<_> = page.matches.into_iter().map(|hit| hit.path).collect();
+        assert_eq!(
+            paths,
+            [
+                root.join(".gitignore"),
+                expected[0].clone(),
+                expected[1].clone(),
+                expected[2].clone()
+            ]
+        );
         Ok(())
     }
 
