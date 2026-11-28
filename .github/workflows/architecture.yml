@@ -19,3 +19,5 @@ jobs:
         run: |
           cargo test --locked -p glim-services --lib preview::request::tests::rust_encoding_matches_the_swift_contract_fixtures -- --exact
           scripts/test-native-preview.sh --request-contract-only
+      - name: Verify Markdown preview and export semantics
+        run: cargo test --locked -p glim-services --lib markdown_export::tests

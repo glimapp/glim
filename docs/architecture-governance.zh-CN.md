@@ -38,7 +38,7 @@ flowchart LR
 | --- | --- | --- |
 | Rust、GPUI Kit、Tree-sitter | 窗口、文本编辑、语法查询、纯模型与后台服务 | [Cargo 工作区](../Cargo.toml)固定依赖和本地补丁。升级 GPUI 前核对编辑器、Markdown 任务回写及原生窗口回调实际调用的补丁接口 |
 | Swift、AppKit 与 macOS 框架 | PDFKit 阅读、AVKit 音视频、WebKit 网页及打印、Quick Look 原生版式、FinderSync 文件入口 | [原生预览清单](../native/preview-sources.txt)覆盖内嵌库生产源。FinderSync 扩展使用[独立构建脚本](../scripts/bundle-finder.py)。[预览请求](../native/PreviewRequest.swift)验证带类型的载荷 |
-| Markdown AST、TextView、HTML 导出 | 原文范围与图表资源提取使用 `markdown`，查看器用 GPUI TextView 渲染，独立导出使用 `pulldown-cmark` | [预览准备](../crates/glim-services/src/markdown_preview.rs)、[排版](../vendor/gpui-base/src/text/format/markdown.rs)、[导出](../crates/glim-services/src/markdown_export.rs)各有调用方。合并前对照表格、数学、链接、任务标记和源码范围 |
+| Markdown AST、TextView、HTML 导出 | 原文范围与图表资源提取使用 `markdown`，查看器用 GPUI TextView 渲染，独立导出使用 `pulldown-cmark` | [预览准备](../crates/glim-services/src/markdown_preview.rs)拥有空行表格修复、图表识别及公式类型。[排版](../vendor/gpui-base/src/text/format/markdown.rs)处理源码范围和任务回写，[导出](../crates/glim-services/src/markdown_export.rs)逐事件生成 HTML 并独立处理链接和资源 |
 | quick-xml 与 roxmltree | 前者流式处理可分页或超大的 XML 投影，后者用于已读取的电子书目录及 draw.io 结构 | [流式地理数据](../crates/glim-services/src/geo.rs)、[书籍](../crates/glim-services/src/books/mod.rs)、[draw.io](../crates/glim-services/src/drawio.rs)。调整解析器需证明峰值内存及错误恢复 |
 | SQLite | 应用状态库、可重建缓存、远端路径索引、用户数据库只读浏览 | 状态库保护恢复与偏好，缓存允许回收，用户数据库依赖私有快照。参见[状态库](../crates/glim-services/src/storage.rs)、[缓存存储](../crates/glim-services/src/storage/cache.rs)和[数据库浏览](../crates/glim-services/src/sqlite/browser.rs) |
 | OpenSSH、SFTP、Git | OpenSSH 负责认证、主机信任和配置。SFTP 提供传输及目录操作，Git 命令负责仓库协议 | [连接构造](../crates/glim-services/src/remote.rs)区分交互与批处理，[SFTP](../crates/glim-services/src/remote/sftp.rs)拥有协议、取消及子进程 |
@@ -52,6 +52,7 @@ flowchart LR
 - **多种写回协议保留各自契约。** 普通文件依赖已保存文本，分页保存依赖文件身份及原区间，SSH 写回依赖远端基线与 SFTP 原子重命名。治理收敛到共同语义时，仍须保留各自的冲突处理与恢复路径。
 - **先执行已有边界检查。** 在 main 推送与 PR 上执行仓库已有的架构和本地化检查，复用同一命令，并保留为实际装配过程设置的功能验证。
 - **原生预览请求保留两端的类型检查。** Rust 构造并编码，Swift 解码并拒绝非法输入。两端以同一个 [协议样例](../native/tests/fixtures/preview-requests.json) 为兼容基线。
+- **Markdown 共用图表语义，保留两条解析链。** 预览依赖 AST 源码位置，导出依赖 HTML 事件及资源处理。图表别名、公式类型和独立的 `\[ … \]` 段落由服务统一识别。两条链对 `$$` 块的边缘换行有不同的解析结果，契约测试保留各自产出的公式原文。
 
 ## 进度与优化任务池
 
@@ -81,7 +82,8 @@ flowchart LR
 | 已迁移 | 启动、更新和窗口实体直接修改会话全局状态，两个写入队列重复编排 | 会话模块封装恢复、快照读取和待写任务，两个存储域各自维持原有顺序 |
 | 已迁移 | 本地恢复目录与最近列表原先分开读写 | 保存和恢复各使用一致的 SQLite 快照。远端仅更新最近列表，任一写入失败会回滚 |
 | 已迁移 | 阅读模式使用字符串分派，默认值和持久化键分散在界面与服务 | 阅读模式类型统一选择持久化键、默认值和运行期状态，旧偏好及格式映射保持兼容 |
-| 待验证 | Markdown 查看和导出在不同渲染链维护语义 | 建立同一组文档样例，比较渲染、导出与源码位置，再判断哪些规则可以共享 |
+| 已迁移 | Markdown 查看和导出各自识别公式段落，AST 消费者重复配置解析选项 | 共用公式规则及 AST 选项。CI 用同一份源文验证表格、公式、图表、普通代码和前言的处理 |
+| 待测量 | Markdown 预览与导出解析链仍有不同的链接、任务和源码位置契约 | 对照两个入口的契约，再判断可共享的规则及解析成本 |
 | 待验证 | 原生、分页及媒体阅读器仍持有服务和展示的混合职责 | 沿阅读器契约逐个验证加载、隐藏、刷新和跨窗口转移，再提取真实独立的数据准备 |
 | 待测量 | 缓存及解析器共享资源预算仍有框架内存盲区 | 先测量各阶段峰值及真实缓存收益，再治理可控工作缓冲 |
 | 待确认 | 大文本跨页编辑与写回解耦 | 明确草稿生命周期、磁盘峰值、外部冲突与崩溃恢复，再决定是否改变现有分页保存行为 |

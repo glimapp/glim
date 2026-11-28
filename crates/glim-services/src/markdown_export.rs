@@ -228,30 +228,16 @@ fn document_events(markdown: &str) -> impl Iterator<Item = DocumentEvent<'_>> {
             return Some(DocumentEvent::Markdown(Event::Html(raw.into()), source));
         }
         let diagram = match &event {
-            Event::InlineMath(value) => Some(Diagram {
-                kind: "inline-math".into(),
-                source: value.to_string(),
-            }),
-            Event::DisplayMath(value) => Some(Diagram {
-                kind: "math".into(),
-                source: value.to_string(),
-            }),
+            Event::InlineMath(value) => Some(Diagram::inline_math(value.as_ref())),
+            Event::DisplayMath(value) => Some(Diagram::display_math(value.as_ref())),
             Event::Start(Tag::Paragraph) => {
-                let math = source
-                    .trim()
-                    .strip_prefix("\\[")
-                    .and_then(|s| s.strip_suffix("\\]"))
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty() && !s.contains("\\[") && !s.contains("\\]"));
-                if math.is_some() {
+                let diagram = Diagram::display_math_paragraph(source);
+                if diagram.is_some() {
                     parser
                         .by_ref()
                         .find(|(event, _)| *event == Event::End(TagEnd::Paragraph));
                 }
-                math.map(|value| Diagram {
-                    kind: "math".into(),
-                    source: value.into(),
-                })
+                diagram
             }
             Event::Start(Tag::CodeBlock(kind)) => {
                 let language = match kind {
@@ -535,6 +521,73 @@ fn escaped(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_and_export_markdown_diagram_contract() -> Result<()> {
+        let source = r#"---
+title: '$ignored$'
+---
+
+| Name | Value |
+
+| :--- | ---: |
+
+| Inline | $a+b$ |
+
+$$
+c = d
+$$
+
+\[ e = f \]
+
+\[ \]
+
+\[ outer \[ inner \] \]
+
+```mmd display
+flowchart LR
+  A --> B
+```
+
+```rust
+let dollars = "$ignored$";
+```
+"#;
+        let source = diagrams::normalize_tables(source);
+        assert!(source.contains("| Name | Value |\n| :--- | ---: |\n| Inline | $a+b$ |"));
+        let mut expected = [
+            ("inline-math", "a+b"),
+            ("math", "c = d"),
+            ("math", "e = f"),
+            ("mermaid", "flowchart LR\n  A --> B"),
+        ]
+        .map(|(kind, source)| Diagram {
+            kind: kind.into(),
+            source: source.into(),
+        });
+        assert_eq!(diagrams::collect(&source)?, expected);
+
+        let mut exported = Vec::new();
+        let mut has_table = false;
+        let mut code = String::new();
+        let mut in_code = false;
+        for event in document_events(&source) {
+            match event {
+                DocumentEvent::Diagram(diagram) => exported.push(diagram),
+                DocumentEvent::Markdown(Event::Start(Tag::Table(_)), _) => has_table = true,
+                DocumentEvent::Markdown(Event::Start(Tag::CodeBlock(_)), _) => in_code = true,
+                DocumentEvent::Markdown(Event::Text(text), _) if in_code => code.push_str(&text),
+                DocumentEvent::Markdown(Event::End(TagEnd::CodeBlock), _) => in_code = false,
+                _ => {}
+            }
+        }
+        // The export parser retains the line breaks at the display fence.
+        expected[1].source = "\nc = d\n".into();
+        assert_eq!(exported, expected);
+        assert!(has_table);
+        assert_eq!(code, "let dollars = \"$ignored$\";\n");
+        Ok(())
+    }
 
     #[test]
     fn readme_html_preserves_structure_and_assets() -> Result<()> {

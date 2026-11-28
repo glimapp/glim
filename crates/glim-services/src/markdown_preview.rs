@@ -46,11 +46,7 @@ pub fn normalize_tables_with_mapping(
     if !candidate {
         return (Cow::Borrowed(text), Vec::new());
     }
-    let mut options = ParseOptions::gfm();
-    options.constructs.math_flow = true;
-    options.constructs.math_text = true;
-    options.constructs.frontmatter = true;
-    let Ok(Node::Root(root)) = markdown::to_mdast(text, &options) else {
+    let Ok(Node::Root(root)) = markdown::to_mdast(text, &parse_options()) else {
         return (Cow::Borrowed(text), Vec::new());
     };
     let mut blocks = root
@@ -173,6 +169,36 @@ pub struct Diagram {
     pub source: String,
 }
 
+impl Diagram {
+    pub(crate) fn inline_math(source: impl Into<String>) -> Self {
+        Self {
+            kind: "inline-math".into(),
+            source: source.into(),
+        }
+    }
+
+    pub(crate) fn display_math(source: impl Into<String>) -> Self {
+        Self {
+            kind: "math".into(),
+            source: source.into(),
+        }
+    }
+
+    /// GFM reads these LaTeX delimiters as escaped punctuation. Check the
+    /// complete paragraph source before treating it as a display formula.
+    pub(crate) fn display_math_paragraph(source: &str) -> Option<Self> {
+        let body = source
+            .trim()
+            .strip_prefix("\\[")?
+            .strip_suffix("\\]")?
+            .trim();
+        if body.is_empty() || body.contains("\\[") || body.contains("\\]") {
+            return None;
+        }
+        Some(Self::display_math(body))
+    }
+}
+
 pub fn fenced(kind: &str, source: &str) -> Option<Diagram> {
     let mut language = kind
         .split_whitespace()
@@ -262,21 +288,6 @@ pub fn fenced(kind: &str, source: &str) -> Option<Diagram> {
     })
 }
 
-pub fn from_node(node: &Node) -> Option<Diagram> {
-    match node {
-        Node::Code(code) => fenced(code.lang.as_deref().unwrap_or_default(), &code.value),
-        Node::Math(math) => Some(Diagram {
-            kind: "math".into(),
-            source: math.value.clone(),
-        }),
-        Node::InlineMath(math) => Some(Diagram {
-            kind: "inline-math".into(),
-            source: math.value.clone(),
-        }),
-        _ => None,
-    }
-}
-
 #[derive(Clone)]
 pub struct DiagramImage {
     pub png: Vec<u8>,
@@ -322,29 +333,28 @@ fn remember_image(diagram: &Diagram, edge: u32, image: &DiagramImage) {
         .remember(diagram, edge, image);
 }
 
-/// Common LaTeX display delimiters are escaped punctuation to the GFM parser.
-/// Recognize them using the original paragraph source, preserving source offsets.
 pub fn from_node_with_source(node: &Node, source: Option<&str>) -> Option<Diagram> {
-    if matches!(node, Node::Paragraph(_))
-        && let Some(source) = source
-        && let Some(body) = source.trim().strip_prefix("\\[")
-        && let Some(body) = body.strip_suffix("\\]")
-        && !body.trim().is_empty()
-        && !body.contains("\\[")
-        && !body.contains("\\]")
-    {
-        return Some(Diagram {
-            kind: "math".into(),
-            source: body.trim().into(),
-        });
+    match node {
+        Node::Code(code) => fenced(code.lang.as_deref().unwrap_or_default(), &code.value),
+        Node::Math(math) => Some(Diagram::display_math(math.value.as_str())),
+        Node::InlineMath(math) => Some(Diagram::inline_math(math.value.as_str())),
+        Node::Paragraph(_) => Diagram::display_math_paragraph(source?),
+        _ => None,
     }
-    from_node(node)
 }
 pub type RenderedDiagrams = HashMap<Diagram, std::result::Result<DiagramImage, String>>;
 
 pub(crate) struct DiagramSvg {
     pub(crate) svg: String,
     pub(crate) baseline: Option<f64>,
+}
+
+fn parse_options() -> ParseOptions {
+    let mut options = ParseOptions::gfm();
+    options.constructs.math_flow = true;
+    options.constructs.math_text = true;
+    options.constructs.frontmatter = true;
+    options
 }
 
 /// Deduplicate repeated blocks and keep source ranges entirely in TextView.
@@ -360,11 +370,7 @@ pub fn collect(text: &str) -> Result<Vec<Diagram>> {
     {
         return Ok(Vec::new());
     }
-    let mut options = ParseOptions::gfm();
-    options.constructs.math_flow = true;
-    options.constructs.math_text = true;
-    options.constructs.frontmatter = true;
-    let root = markdown::to_mdast(text, &options).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let root = markdown::to_mdast(text, &parse_options()).map_err(|e| anyhow::anyhow!("{e}"))?;
     let mut pending = vec![&root];
     let mut seen = HashSet::new();
     let mut diagrams = Vec::new();
