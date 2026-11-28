@@ -1,5 +1,5 @@
 //! Remote thumbnails survive reader disposal and application restarts in SQLite.
-use crate::{limits, storage::cache::CacheStore};
+use crate::{limits, media::RasterFrame, storage::cache::CacheStore, work::Cancellation};
 use sha2::{Digest, Sha256};
 
 fn key(url: &str) -> [u8; 32] {
@@ -10,13 +10,18 @@ fn key(url: &str) -> [u8; 32] {
     hash.finalize().into()
 }
 
-pub(super) fn load(url: &str) -> Option<Vec<u8>> {
+pub(super) fn load_frame(url: &str, cancel: &Cancellation) -> Option<anyhow::Result<RasterFrame>> {
     let maximum = u64::from(limits::INLINE_IMAGE_PREVIEW_EDGE).pow(2) * 4
         + limits::INLINE_IMAGE_OUTPUT_OVERHEAD_BYTES;
-    match CacheStore::open()
-        .and_then(|cache| cache.load("remote-image", &key(url), usize::try_from(maximum)?))
-    {
-        Ok(png) => png,
+    match CacheStore::open().and_then(|cache| {
+        cache.load(
+            "remote-image",
+            &key(url),
+            usize::try_from(maximum)?,
+            |png| crate::media::decode_png(png, cancel),
+        )
+    }) {
+        Ok(frame) => frame,
         Err(error) => {
             log::warn!("Remote image cache read skipped: {error:#}");
             None

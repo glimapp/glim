@@ -1,6 +1,6 @@
 //! Durable derived results, separated from user state to isolate cache writes.
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use std::{os::unix::fs::OpenOptionsExt, path::Path};
 
@@ -57,19 +57,32 @@ impl CacheStore {
         Ok(Self { db })
     }
 
-    pub(crate) fn load(&self, kind: &str, key: &[u8], maximum: usize) -> Result<Option<Vec<u8>>> {
-        let entry = self
-            .db
-            .query_row(
-                "SELECT payload,checksum FROM cache_entries
+    /// The consumer reads a verified payload while the SQLite row is alive.
+    /// Keep this work bounded and synchronous because it holds a WAL read snapshot.
+    pub(crate) fn load<T>(
+        &self,
+        kind: &str,
+        key: &[u8],
+        maximum: usize,
+        consume: impl FnOnce(&[u8]) -> T,
+    ) -> Result<Option<T>> {
+        let mut statement = self.db.prepare(
+            "SELECT payload,checksum FROM cache_entries
              WHERE kind=?1 AND key=?2 AND length(payload)<=?3 AND length(checksum)=32",
-                (kind, key, i64::try_from(maximum)?),
-                |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?)),
-            )
-            .optional()?;
-        Ok(entry.and_then(|(payload, checksum)| {
-            (Sha256::digest(&payload).as_slice() == checksum).then_some(payload)
-        }))
+        )?;
+        let mut rows = statement.query((kind, key, i64::try_from(maximum)?))?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        let payload = row
+            .get_ref(0)?
+            .as_blob()
+            .context("Invalid cache payload column")?;
+        let checksum = row
+            .get_ref(1)?
+            .as_blob()
+            .context("Invalid cache checksum column")?;
+        Ok((Sha256::digest(payload).as_slice() == checksum).then(|| consume(payload)))
     }
 
     pub(crate) fn remember(&self, kind: &str, key: &[u8], payload: &[u8]) -> Result<()> {
@@ -97,26 +110,26 @@ mod tests {
         drop(cache);
         let cache = CacheStore::open_at(directory.path())?;
         assert_eq!(
-            cache.load("image", b"a", 5)?.as_deref(),
+            cache.load("image", b"a", 5, <[u8]>::to_vec)?.as_deref(),
             Some(&b"first"[..])
         );
         assert_eq!(
-            cache.load("image", b"b", 6)?.as_deref(),
+            cache.load("image", b"b", 6, <[u8]>::to_vec)?.as_deref(),
             Some(&b"second"[..])
         );
         assert_eq!(
-            cache.load("diagram", b"a", 5)?.as_deref(),
+            cache.load("diagram", b"a", 5, <[u8]>::to_vec)?.as_deref(),
             Some(&b"third"[..])
         );
-        assert!(cache.load("image", b"a", 4)?.is_none());
+        assert!(cache.load("image", b"a", 4, |_| unreachable!())?.is_none());
         cache.db.execute(
             "UPDATE cache_entries SET payload=x'00' WHERE kind='image' AND key=x'61'",
             [],
         )?;
-        assert!(cache.load("image", b"a", 5)?.is_none());
+        assert!(cache.load("image", b"a", 5, |_| unreachable!())?.is_none());
         cache.remember("image", b"a", b"fixed")?;
         assert_eq!(
-            cache.load("image", b"a", 5)?.as_deref(),
+            cache.load("image", b"a", 5, <[u8]>::to_vec)?.as_deref(),
             Some(&b"fixed"[..])
         );
         Ok(())

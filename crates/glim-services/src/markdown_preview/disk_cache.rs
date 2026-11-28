@@ -143,16 +143,20 @@ impl DiskCache {
     ) -> io::Result<Option<DiagramImage>> {
         check_cancelled(cancelled)?;
         let key = self.key(diagram, edge);
-        let bytes = self
+        let image = self
             .database
             .load(
                 "diagram",
                 &key,
                 HEADER_BYTES + limits::DIAGRAM_AGGREGATE_ENCODED_BYTES,
+                |bytes| {
+                    check_cancelled(cancelled)?;
+                    Ok(decode(bytes, &key, edge))
+                },
             )
             .map_err(io::Error::other)?;
         check_cancelled(cancelled)?;
-        Ok(bytes.and_then(|bytes| decode(&bytes, &key, edge)))
+        image.transpose().map(Option::flatten)
     }
 
     fn remember(
@@ -237,9 +241,9 @@ fn migrate_directory(directory: &Path, database: &CacheStore) -> io::Result<()> 
             .remember("diagram", &key, &bytes)
             .map_err(io::Error::other)?;
         let stored = database
-            .load("diagram", &key, maximum)
+            .load("diagram", &key, maximum, |stored| stored == bytes)
             .map_err(io::Error::other)?;
-        if stored.as_deref() != Some(bytes.as_slice()) {
+        if stored != Some(true) {
             return Err(io::Error::other(
                 "Diagram cache migration verification failed",
             ));

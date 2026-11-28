@@ -243,8 +243,8 @@ pub fn fetch_inline_image_cancellable(
 ) -> Result<crate::media::RasterFrame> {
     cancel.check()?;
     let key = download_url(url)?.to_string();
-    if let Some(png) = preview_cache::load(&key) {
-        return crate::media::decode_png(&png, cancel);
+    if let Some(frame) = preview_cache::load_frame(&key, cancel) {
+        return frame;
     }
     let file = fetch_image_file(url, cancel)?;
     let png = crate::inline_images::png_from_file_cancellable(file.path(), cancel)?;
