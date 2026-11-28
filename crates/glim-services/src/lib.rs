@@ -14,6 +14,7 @@ mod fragmented_mp4;
 pub mod geo;
 pub mod git;
 pub mod graph;
+mod html;
 pub mod inline_images;
 pub mod integrations;
 pub mod json;

@@ -1,4 +1,5 @@
 //! Renders Markdown and its assets for PDF printing and standalone HTML.
+use crate::html::escaped;
 use crate::{
     inline_images, limits, markdown_preview as diagrams, markup_images,
     work::{self, Cancellation},
@@ -409,7 +410,8 @@ impl Assets<'_> {
                     .and_then(|value| value.as_ref().err())
                     .map(String::as_str)
                     .unwrap_or_default();
-                let label = escaped(&crate::locale::tr("Cannot display diagram"));
+                let label = crate::locale::tr("Cannot display diagram");
+                let label = escaped(&label);
                 if inline {
                     format!(
                         "<code title=\"{label}\">{}</code>",
@@ -502,20 +504,6 @@ fn diagram_key(diagram: &Diagram) -> [u8; 32] {
     key.update([0]);
     key.update(diagram.source.as_bytes());
     key.finalize().into()
-}
-
-fn escaped(value: &str) -> String {
-    let mut output = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '&' => output.push_str("&amp;"),
-            '<' => output.push_str("&lt;"),
-            '>' => output.push_str("&gt;"),
-            '"' => output.push_str("&quot;"),
-            _ => output.push(ch),
-        }
-    }
-    output
 }
 
 #[cfg(test)]

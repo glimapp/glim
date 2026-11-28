@@ -1,5 +1,6 @@
 //! Preserve reading markup, without copying active elements or attributes.
-use super::{Assets, escaped, link_target};
+use super::{Assets, link_target};
+use crate::html::escaped;
 use html5ever::tokenizer::{
     BufferQueue, Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, states::RawKind,
 };
@@ -53,7 +54,7 @@ impl TokenSink for Html<'_, '_> {
                 self.tag(tag);
             }
             Token::CharacterTokens(text) if !self.skipping_raw_text => {
-                self.output.push_str(&escaped(&text));
+                let _ = write!(self.output, "{}", escaped(&text));
             }
             _ => {}
         }

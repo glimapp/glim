@@ -1,5 +1,5 @@
 //! Offline ebook structure and chapter resources. All reads/decoding run in the background.
-use crate::{limits as reader_limits, resources::WorkingReservation};
+use crate::{html::escaped, limits as reader_limits, resources::WorkingReservation};
 pub mod preferences;
 
 use anyhow::{Context, Result, ensure};
@@ -8,6 +8,7 @@ use roxmltree::{Document, Node};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
+    fmt::Write as _,
     io::{Cursor, Read},
     ops::{Deref, Range},
     path::{Path, PathBuf},
@@ -725,20 +726,13 @@ fn fictionbook(path: &Path, body: &str) -> Result<Book> {
     }
     Ok(book)
 }
-fn escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
 fn serialize_fb2(node: Node<'_, '_>, out: &mut String, depth: usize) -> Result<()> {
     reader_limits::preview_budget(
         depth <= reader_limits::BOOK_FB2_DEPTH,
         "FB2 nesting exceeds reading limit",
     )?;
     if node.is_text() {
-        out.push_str(&escape(node.text().unwrap_or_default()));
+        write!(out, "{}", escaped(node.text().unwrap_or_default()))?;
         return Ok(());
     }
     if !node.is_element() {
@@ -758,24 +752,25 @@ fn serialize_fb2(node: Node<'_, '_>, out: &mut String, depth: usize) -> Result<(
         "empty-line" => "br",
         _ => "div",
     };
-    out.push_str(&format!("<{tag}"));
+    write!(out, "<{tag}")?;
     if let Some(id) = node.attribute("id") {
-        out.push_str(&format!(" id=\"{}\"", escape(id)));
+        write!(out, " id=\"{}\"", escaped(id))?;
     }
     if matches!(tag, "img" | "a")
         && let Some(href) = attribute(node, "href")
     {
-        out.push_str(&format!(
+        write!(
+            out,
             " {}=\"{}\"",
             if tag == "img" { "src" } else { "href" },
-            escape(href)
-        ));
+            escaped(href)
+        )?;
     }
     out.push('>');
     for child in node.children() {
         serialize_fb2(child, out, depth + 1)?;
     }
-    out.push_str(&format!("</{tag}>"));
+    write!(out, "</{tag}>")?;
     reader_limits::preview_budget(
         out.len() as u64 <= CHAPTER_LIMIT,
         "FB2 chapter exceeds reading limit",
@@ -893,9 +888,7 @@ fn sanitize(node: Node<'_, '_>, output: &mut ChapterContent, depth: usize) -> Re
         "Chapter rendering exceeds reading limit",
     )?;
     if node.is_text() {
-        output
-            .html
-            .push_str(&escape(node.text().unwrap_or_default()));
+        write!(output.html, "{}", escaped(node.text().unwrap_or_default()))?;
         return Ok(());
     }
     if !node.is_element() {
@@ -959,11 +952,11 @@ fn sanitize(node: Node<'_, '_>, output: &mut ChapterContent, depth: usize) -> Re
         "div"
     };
     let start = output.html.len();
-    output.html.push_str(&format!("<{tag}"));
+    write!(output.html, "<{tag}")?;
     if tag == "a"
         && let Some(href) = attribute(node, "href")
     {
-        output.html.push_str(&format!(" href=\"{}\"", escape(href)));
+        write!(output.html, " href=\"{}\"", escaped(href))?;
     }
     if tag == "img"
         && let Some(src) = attribute(node, "src").or_else(|| attribute(node, "href"))
@@ -973,16 +966,16 @@ fn sanitize(node: Node<'_, '_>, output: &mut ChapterContent, depth: usize) -> Re
             "Chapter image working budget exceeded",
         )?;
         output.images.insert(src.into(), Vec::new());
-        output.html.push_str(&format!(" src=\"{}\"", escape(src)));
+        write!(output.html, " src=\"{}\"", escaped(src))?;
         if let Some(alt) = node.attribute("alt") {
-            output.html.push_str(&format!(" alt=\"{}\"", escape(alt)));
+            write!(output.html, " alt=\"{}\"", escaped(alt))?;
         }
     }
     output.html.push('>');
     for child in node.children() {
         sanitize(child, output, depth + 1)?;
     }
-    output.html.push_str(&format!("</{tag}>"));
+    write!(output.html, "</{tag}>")?;
     if let Some(id) = node.attribute("id") {
         output.anchors.insert(id.into(), start..output.html.len());
     }
@@ -1303,7 +1296,7 @@ mod tests {
             r#"<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>"#;
         let opf = r#"<package xmlns:dc="urn:dc"><metadata><dc:title>Reader Test</dc:title><dc:creator>Author</dc:creator></metadata><manifest><item id="one" href="Text/one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="Text/two.xhtml" media-type="application/xhtml+xml"/><item id="nav" href="toc.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="cover" href="Images/pixel.png" media-type="image/png" properties="cover-image"/></manifest><spine><itemref idref="two"/><itemref idref="one"/></spine></package>"#;
         let nav = r#"<html xmlns:epub="urn:epub"><body><nav epub:type="toc"><ol><li><a href="Text/two.xhtml#start">First chapter</a><ol><li><a href="Text/one.xhtml">Second chapter</a></li></ol></li></ol></nav></body></html>"#;
-        let body = r#"<!DOCTYPE html><html><head><script>bad()</script></head><body><h1 id="start">First&nbsp;chapter</h1><p>Reading text.</p><img src="../Images/pixel.png"/><img src="https://example.com/tracker.png"/><script>bad()</script><iframe src="file:///private/data"/><a href="one.xhtml">Continue</a></body></html>"#;
+        let body = r#"<!DOCTYPE html><html><head><script>bad()</script></head><body><h1 id="start">First&nbsp;chapter</h1><p>Reading text.</p><img src="../Images/pixel.png"/><img src="https://example.com/tracker.png"/><script>bad()</script><iframe src="file:///private/data"/><a href="one.xhtml?x=&quot;&amp;y=&lt;">Continue &lt; &gt; &quot; &amp; 中文</a></body></html>"#;
         zip(
             &path,
             vec![
@@ -1330,6 +1323,9 @@ mod tests {
         assert!(!content.html.contains("bad()") && !content.html.contains("iframe"));
         assert!(!content.images["../Images/pixel.png"].is_empty());
         assert!(content.images["https://example.com/tracker.png"].is_empty());
+        assert!(content.html.contains(
+            r#"<a href="one.xhtml?x=&quot;&amp;y=&lt;">Continue &lt; &gt; &quot; &amp; 中文</a>"#
+        ));
         assert!(content.anchors.contains_key("start"));
         assert_eq!(before, std::fs::read(path).unwrap());
     }
