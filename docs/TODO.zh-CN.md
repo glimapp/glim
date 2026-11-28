@@ -24,7 +24,7 @@
 - [ ] **M1：剩余阅读器边界。** 媒体、压缩包、分页、源码／排版与原生适配仍直接使用服务载荷、应用状态或调度入口；其中部分仍在一个模块内组合展示与准备。按实际耦合逐个分离，保留适配器承担后台任务，向展示注入必要的数据和宿主操作，不机械地增加接口或 crate。
   - 完成条件：相应展示不承担文件 I/O、持久化或后台任务编排；能用代表性准备数据及注入宿主独立构造，架构检查覆盖新增边界。
   - 入口：[媒体](../crates/glim-app/src/views/reader/media.rs)、[压缩包](../crates/glim-app/src/views/reader/archive.rs)、[分页](../crates/glim-app/src/views/reader/paged.rs)、[源码](../crates/glim-app/src/views/reader/source.rs)、[排版](../crates/glim-app/src/views/reader/markup.rs)、[原生](../crates/glim-app/src/views/reader/native.rs)。
-- [ ] **M2：跨阅读器生命周期契约。** 表格已有交接／隐藏恢复测试；SQLite 已覆盖取消、筛选排序、隐藏刷新、过期结果及重试；书籍已覆盖偏好恢复中断、选区、章节替换、待写排空、关闭后写完和窗口重绑。架构 CI 覆盖标签草稿交接、媒体预览切页与隐藏、分页 HTML 编辑保护、分页取消恢复。其余阅读器及物理窗口交互仍缺代表性覆盖。
+- [ ] **M2：跨阅读器生命周期契约。** 表格已有交接／隐藏恢复测试；SQLite 已覆盖取消、筛选排序、隐藏刷新、过期结果及重试；书籍已覆盖偏好恢复中断、选区、章节替换、待写排空、关闭后写完和窗口重绑。架构 CI 运行上述表格、SQLite 和书籍契约，并覆盖标签草稿交接、媒体预览切页与隐藏、分页 HTML 编辑保护、分页取消恢复。其余阅读器及物理窗口交互仍缺代表性覆盖。
   - 完成条件：覆盖激活／隐藏、刷新、取消、失败重试、关闭及跨窗口移动；保留编辑会话、撤销、未保存内容和必要导航状态，过期结果不覆盖新版本。区分自动契约测试与物理输入验收。
   - 入口：[生命周期接口](../crates/glim-app/src/views/reader/contract.rs)、[表格测试](../crates/glim-app/src/views/reader/csv/view.rs)、[SQLite 测试](../crates/glim-app/src/views/reader/sqlite.rs)、[书籍测试](../crates/glim-app/src/views/reader/books.rs)。
 
