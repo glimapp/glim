@@ -253,28 +253,10 @@ pub fn parse_format_cancellable(
 /// Whitespace-only formatting preserves key order, duplicate keys and numeric literals.
 pub fn format_document(text: &str) -> anyhow::Result<String> {
     let _: serde::de::IgnoredAny = serde_json::from_str(text)?;
-    let mut compact = Vec::with_capacity(text.len());
-    let (mut quoted, mut escaped) = (false, false);
-    for ch in text.chars() {
-        if quoted {
-            compact.push(ch);
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                quoted = false;
-            }
-        } else if ch == '"' {
-            quoted = true;
-            compact.push(ch);
-        } else if !ch.is_ascii_whitespace() {
-            compact.push(ch);
-        }
-    }
     let mut output = String::with_capacity(text.len());
     let (mut depth, mut quoted, mut escaped) = (0_usize, false, false);
-    for (index, ch) in compact.iter().copied().enumerate() {
+    let mut previous = ' ';
+    for ch in text.chars() {
         if quoted {
             output.push(ch);
             if escaped {
@@ -286,34 +268,33 @@ pub fn format_document(text: &str) -> anyhow::Result<String> {
             }
             continue;
         }
-        match ch {
-            '"' => {
-                quoted = true;
-                output.push(ch);
-            }
-            '{' | '[' => {
-                output.push(ch);
-                depth += 1;
-                if !matches!(compact.get(index + 1), Some('}' | ']')) {
-                    output.push('\n');
-                    output.push_str(&"  ".repeat(depth));
-                }
-            }
-            '}' | ']' => {
-                depth = depth.saturating_sub(1);
-                if index > 0 && !matches!(compact[index - 1], '{' | '[') {
-                    output.push('\n');
-                    output.push_str(&"  ".repeat(depth));
-                }
-                output.push(ch);
-            }
-            ',' => {
-                output.push_str(",\n");
-                output.push_str(&"  ".repeat(depth));
-            }
-            ':' => output.push_str(": "),
-            _ => output.push(ch),
+        if ch.is_ascii_whitespace() {
+            continue;
         }
+
+        let closes_container = matches!(ch, '}' | ']');
+        if closes_container {
+            depth -= 1;
+        }
+        let needs_newline = match (previous, ch) {
+            ('{' | '[', '}' | ']') => false, // Empty container.
+            ('{' | '[' | ',', _) | (_, '}' | ']') => true,
+            _ => false,
+        };
+        if needs_newline {
+            output.push('\n');
+            output.extend(std::iter::repeat_n(' ', depth * 2));
+        }
+        match ch {
+            '"' => quoted = true,
+            '{' | '[' => depth += 1,
+            _ => {}
+        }
+        output.push(ch);
+        if ch == ':' {
+            output.push(' ');
+        }
+        previous = ch;
     }
     output.push('\n');
     Ok(output)

@@ -58,11 +58,23 @@ fn sqlite_pages_wal_rows_and_columns_beyond_old_caps_without_source_writes() -> 
 
 #[test]
 fn formatting_preserves_duplicate_keys_and_numeric_spelling() -> Result<()> {
-    let input = r#"{"x":1e+02,"x":-0.00,"text":" a \" b ","empty":[]}"#;
+    let input = r#" { "x":1e+02,"x":-0.00,"text":" 中文 \" \\ [ ],: ", "empty": [  ], "nested": [ {  }, [ true , null ] ] } "#;
+    let expected = r#"{
+  "x": 1e+02,
+  "x": -0.00,
+  "text": " 中文 \" \\ [ ],: ",
+  "empty": [],
+  "nested": [
+    {},
+    [
+      true,
+      null
+    ]
+  ]
+}
+"#;
     let formatted = json::format_document(input)?;
-    assert!(formatted.contains("1e+02"));
-    assert!(formatted.contains("-0.00"));
-    assert_eq!(formatted.matches("\"x\":").count(), 2);
+    assert_eq!(formatted, expected);
     assert_eq!(json::format_document(&formatted)?, formatted);
     assert!(json::format_document("{invalid}").is_err());
     Ok(())

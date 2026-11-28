@@ -31,6 +31,8 @@ jobs:
           cargo test --locked -p glim-services --lib markdown_preview::disk_cache::tests
           cargo test --locked -p glim-services --lib resources::tests
           cargo test --locked -p glim-services --lib media::raster::tests
+      - name: Verify JSON formatting preserves source tokens
+        run: cargo test --locked -p glim-services --test reader_session_regressions formatting_preserves_duplicate_keys_and_numeric_spelling -- --exact
       - name: Verify UTF-8 reading across input buffers
         run: cargo test --locked -p glim-services --lib files::tests::full_text_read_preserves_a_utf8_character_across_input_buffers -- --exact
   reader-lifecycle:
