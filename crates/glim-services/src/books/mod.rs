@@ -137,20 +137,37 @@ fn decode(bytes: &[u8]) -> Result<String> {
         );
         text.replace_range(start..end, "");
     }
-    for (name, value) in [
-        ("nbsp", 160),
-        ("mdash", 8212),
-        ("ndash", 8211),
-        ("ldquo", 8220),
-        ("rdquo", 8221),
-        ("lsquo", 8216),
-        ("rsquo", 8217),
-        ("hellip", 8230),
-        ("copy", 169),
-    ] {
-        text = text.replace(&format!("&{name};"), &format!("&#{value};"));
+    let entities = [
+        ("&nbsp;", "&#160;"),
+        ("&mdash;", "&#8212;"),
+        ("&ndash;", "&#8211;"),
+        ("&ldquo;", "&#8220;"),
+        ("&rdquo;", "&#8221;"),
+        ("&lsquo;", "&#8216;"),
+        ("&rsquo;", "&#8217;"),
+        ("&hellip;", "&#8230;"),
+        ("&copy;", "&#169;"),
+    ];
+    let mut normalized = None;
+    let mut copied = 0;
+    for (start, _) in text.match_indices('&') {
+        let Some((entity, replacement)) = entities
+            .iter()
+            .find(|(entity, _)| text[start..].starts_with(entity))
+        else {
+            continue;
+        };
+        let output = normalized.get_or_insert_with(|| String::with_capacity(text.len()));
+        output.push_str(&text[copied..start]);
+        output.push_str(replacement);
+        copied = start + entity.len();
     }
-    Ok(text)
+    if let Some(mut output) = normalized {
+        output.push_str(&text[copied..]);
+        Ok(output)
+    } else {
+        Ok(text)
+    }
 }
 struct AdmittedXml<'a> {
     document: Document<'a>,
@@ -1306,6 +1323,22 @@ mod tests {
         );
         assert!(chapter(&book, 0).unwrap().comic.is_some());
     }
+    #[test]
+    fn book_xml_normalizes_only_supported_named_entities() {
+        let source = "<!DOCTYPE book><book a='&nbsp;'>中文&mdash;&ndash;&ldquo;&rdquo;&lsquo;&rsquo;&hellip;&copy;&amp;nbsp;&#160;</book>";
+        let normalized = "<book a='&#160;'>中文&#8212;&#8211;&#8220;&#8221;&#8216;&#8217;&#8230;&#169;&amp;nbsp;&#160;</book>";
+        assert_eq!(decode(source.as_bytes()).unwrap(), normalized);
+        let mut utf16 = vec![0xff, 0xfe];
+        utf16.extend(source.encode_utf16().flat_map(u16::to_le_bytes));
+        assert_eq!(decode(&utf16).unwrap(), normalized);
+        assert_eq!(
+            decode(b"<book>&unknown;&NBSP;</book>").unwrap(),
+            "<book>&unknown;&NBSP;</book>"
+        );
+        assert_eq!(decode(b"<book>&amp;</book>").unwrap(), "<book>&amp;</book>");
+        assert!(decode(b"<!DOCTYPE book").is_err());
+    }
+
     #[test]
     fn resource_paths_stay_inside_the_book_and_xml_entities_are_rejected() {
         assert_eq!(
