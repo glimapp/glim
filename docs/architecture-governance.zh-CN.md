@@ -32,12 +32,25 @@ flowchart LR
 | 错误、重试与可观测性 | [文档读取](../crates/glim-services/src/documents/mod.rs)分类文件失败，[诊断](../crates/glim-services/src/diagnostics.rs)拥有日志及文件故障状态，[遥测](../crates/glim-services/src/telemetry.rs)拥有事件和发送队列 | 应用把错误映射为本地化反馈。远端连接和后台索引分别保留退避策略。原生失败经桥接返回 |
 | 构建、更新与验证 | [Cargo 工作区](../Cargo.toml)、[构建脚本](../crates/glim-app/build.rs)和[构建流程](../scripts/bundle-macos.sh)定义本机产物，[原生 Sparkle 桥接](../native/Updater.swift)与[更新服务](../crates/glim-services/src/updates.rs)拥有更新和恢复入口 | [发布工作流](../.github/workflows/ci.yml)处理两种 macOS 架构和打包。[架构检查](../scripts/check-architecture.py)、阅读器契约测试和原生夹具防守各自边界 |
 
+## 技术方案与保留边界
+
+| 技术 | 使用位置 | 依赖与变更证据 |
+| --- | --- | --- |
+| Rust、GPUI Kit、Tree-sitter | 窗口、文本编辑、语法查询、纯模型与后台服务 | [Cargo 工作区](../Cargo.toml)固定依赖和本地补丁。升级 GPUI 前核对编辑器、Markdown 任务回写及原生窗口回调实际调用的补丁接口 |
+| Swift、AppKit 与 macOS 框架 | PDFKit 阅读、AVKit 音视频、WebKit 网页及打印、Quick Look 原生版式、FinderSync 文件入口 | [原生预览清单](../native/preview-sources.txt)覆盖内嵌库生产源。FinderSync 扩展使用[独立构建脚本](../scripts/bundle-finder.py)。[预览请求](../native/PreviewRequest.swift)验证带类型的载荷 |
+| Markdown AST、TextView、HTML 导出 | 原文范围与图表资源提取使用 `markdown`，查看器用 GPUI TextView 渲染，独立导出使用 `pulldown-cmark` | [预览准备](../crates/glim-services/src/markdown_preview.rs)、[排版](../vendor/gpui-base/src/text/format/markdown.rs)、[导出](../crates/glim-services/src/markdown_export.rs)各有调用方。合并前对照表格、数学、链接、任务标记和源码范围 |
+| quick-xml 与 roxmltree | 前者流式处理可分页或超大的 XML 投影，后者用于已读取的电子书目录及 draw.io 结构 | [流式地理数据](../crates/glim-services/src/geo.rs)、[书籍](../crates/glim-services/src/books/mod.rs)、[draw.io](../crates/glim-services/src/drawio.rs)。调整解析器需证明峰值内存及错误恢复 |
+| SQLite | 应用状态库、可重建缓存、远端路径索引、用户数据库只读浏览 | 状态库保护恢复与偏好，缓存允许回收，用户数据库依赖私有快照。参见[状态库](../crates/glim-services/src/storage.rs)、[缓存存储](../crates/glim-services/src/storage/cache.rs)和[数据库浏览](../crates/glim-services/src/sqlite/browser.rs) |
+| OpenSSH、SFTP、Git | OpenSSH 负责认证、主机信任和配置。SFTP 提供传输及目录操作，Git 命令负责仓库协议 | [连接构造](../crates/glim-services/src/remote.rs)区分交互与批处理，[SFTP](../crates/glim-services/src/remote/sftp.rs)拥有协议、取消及子进程 |
+| JSON、JSONC、TOML | 版本化桥接、SQLite 记录和外部应用配置 | [集成编辑器](../crates/glim-services/src/integrations.rs)必须保留未知字段和可保留的注释，协议和持久化数据由各自类型验证 |
+| 离线图表、日志与遥测 | 内嵌图表资源通过 WebKit 辅助进程运行。日志保存在本地，遥测通过队列使用 Aptabase | [图表资源](../assets/markdown/README.md)、[本地日志](../crates/glim-services/src/diagnostics.rs)和[遥测政策](telemetry.zh-CN.md)各自声明输入与输出 |
+| 原生 Cargo、Swift、Python 与 Sparkle | Rust 工作区及生成脚本编译，Swift 提供静态库，签名与 Sparkle 由 macOS 打包流程处理 | [构建与发布](releasing.zh-CN.md)及[更新实现](auto-update-design.zh-CN.md)约束版本映射、签名和双架构产物 |
+
 ## 架构决策
 
 - **搜索根目录属于工作区服务。** 本地文件名、内容搜索及 SSH 对应入口均按路径组件排序、去重和移除被父目录覆盖的子根。路径归一不需要接触磁盘或远端。缓存键的旧字节契约由固定摘要的测试覆盖。
 - **多种写回协议保留各自契约。** 普通文件依赖已保存文本，分页保存依赖文件身份及原区间，SSH 写回依赖远端基线与 SFTP 原子重命名。治理收敛到共同语义时，仍须保留各自的冲突处理与恢复路径。
 - **先执行已有边界检查。** 在 main 推送与 PR 上执行仓库已有的架构和本地化检查，复用同一命令，并保留为实际装配过程设置的功能验证。
-
 - **原生预览请求保留两端的类型检查。** Rust 构造并编码，Swift 解码并拒绝非法输入。两端以同一个 [协议样例](../native/tests/fixtures/preview-requests.json) 为兼容基线。
 
 ## 进度与优化任务池
@@ -65,6 +78,9 @@ flowchart LR
 | 已迁移 | 外部打开 GPUI 测试在多个模拟执行器间争用同一个文档任务调度器 | 每个测试应用使用独立调度器，生产路径保持进程级任务配额 |
 | 已迁移 | 排队打开与直接打开维护同一套文件和文稿包识别逻辑 | 两条本地打开路径共用后台准备，保留各自的任务顺序和结果发布 |
 | 已迁移 | 通用偏好模块维护遥测同意的专用兼容规则 | 遥测同意类型拥有读取和写入，两套存储键保留原有向后兼容和失败行为 |
+| 待验证 | Markdown 查看和导出在不同渲染链维护语义 | 建立同一组文档样例，比较渲染、导出与源码位置，再判断哪些规则可以共享 |
+| 待验证 | 原生、分页及媒体阅读器仍持有服务和展示的混合职责 | 沿阅读器契约逐个验证加载、隐藏、刷新和跨窗口转移，再提取真实独立的数据准备 |
+| 待测量 | 缓存及解析器共享资源预算仍有框架内存盲区 | 先测量各阶段峰值及真实缓存收益，再治理可控工作缓冲 |
 | 待确认 | 大文本跨页编辑与写回解耦 | 明确草稿生命周期、磁盘峰值、外部冲突与崩溃恢复，再决定是否改变现有分页保存行为 |
 
 按 [工程待办](TODO.zh-CN.md) 跟踪剩余阅读器模块、资源准入和实机验收。在共享配置发生变更时，优先由其既有生成器和对应契约验证所有消费方。
