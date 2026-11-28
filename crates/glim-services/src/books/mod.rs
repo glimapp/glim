@@ -6,6 +6,7 @@ use anyhow::{Context, Result, ensure};
 use roxmltree::{Document, Node};
 use sha2::{Digest, Sha256};
 use std::{
+    borrow::Cow,
     collections::HashMap,
     io::{Cursor, Read},
     ops::Range,
@@ -333,7 +334,9 @@ fn read_structured(path: &Path, cancel: &crate::work::Cancellation) -> Result<Bo
         } else {
             bounded(std::fs::File::open(path)?, TEXT_LIMIT, cancel)?
         };
-        fictionbook(path, &decode(&bytes)?)?
+        let body = decode(&bytes)?;
+        drop(bytes);
+        fictionbook(path, &body)?
     };
     book.fingerprint = fingerprint;
     if book.title.is_empty() {
@@ -395,6 +398,8 @@ fn epub(path: &Path, cancel: &crate::work::Cancellation) -> Result<Book> {
         .find_map(|n| n.attribute("full-path"))
         .context("EPUB has no package document")?;
     let root = resolve("", root).context("EPUB package path is outside the archive")?;
+    drop(document);
+    drop(container);
     let opf = decode(&entry(&mut package, &root, CHAPTER_LIMIT, cancel)?)?;
     let document = xml(&opf)?;
     let mut book = empty(path, Format::Epub)?;
@@ -449,6 +454,9 @@ fn epub(path: &Path, cancel: &crate::work::Cancellation) -> Result<Book> {
             html: None,
         });
     }
+    drop(items);
+    drop(document);
+    drop(opf);
     if let Some(nav) = nav {
         let html = decode(&entry(&mut package, &nav, CHAPTER_LIMIT, cancel)?)?;
         let doc = xml(&html)?;
@@ -774,15 +782,14 @@ fn chapter_structured(
             page: None,
         });
     }
-    let raw = if let Some(html) = &chapter.html {
-        html.clone()
-    } else {
-        decode(&entry(
+    let raw = match &chapter.html {
+        Some(html) => Cow::Borrowed(html.as_str()),
+        None => Cow::Owned(decode(&entry(
             &mut archive(&book.path)?,
             &chapter.href,
             CHAPTER_LIMIT,
             cancel,
-        )?)?
+        )?)?),
     };
     let doc = xml(&raw)?;
     let body = named(doc.root(), "body")
@@ -796,6 +803,8 @@ fn chapter_structured(
         page: None,
     };
     sanitize(body, &mut output, 0)?;
+    drop(doc);
+    drop(raw);
     let refs = output.images.keys().cloned().collect::<Vec<_>>();
     let mut decoded_total = 0;
     let mut preview_total = 0;
