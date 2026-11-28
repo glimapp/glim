@@ -32,7 +32,8 @@ jobs:
           cargo test --locked -p glim-services --lib resources::tests
           cargo test --locked -p glim-services --lib media::raster::tests
       - name: Verify structured graph parsing and projection contracts
-        run: cargo test --locked -p glim-services --lib graph::
+        run: |
+          cargo test --locked -p glim-services --lib graph::
       - name: Verify private draft recovery across worker restarts
         run: cargo test --locked -p glim-services --lib drafts::tests
       - name: Verify ebook preparation contracts
