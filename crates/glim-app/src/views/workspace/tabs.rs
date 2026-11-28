@@ -263,17 +263,20 @@ impl Workspace {
         cx.notify();
     }
 
+    fn can_transfer_tabs(&self, cx: &App) -> bool {
+        !self.is_saving()
+            && !self.loading
+            && self.confirm_task.is_none()
+            && !crate::app::updates::busy(cx)
+    }
+
     fn detach_tab(
         &mut self,
         target: &super::header::Target,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.is_saving()
-            || self.loading
-            || self.confirm_task.is_some()
-            || crate::app::updates::busy(cx)
-        {
+        if !self.can_transfer_tabs(cx) {
             self.error =
                 Some("A file operation is in progress. Please retry after it finishes.".into());
             cx.notify();
@@ -316,12 +319,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Reader> {
-        if self.is_saving()
-            || self.loading
-            || self.incoming_file_task.is_some()
-            || self.confirm_task.is_some()
-            || crate::app::updates::busy(cx)
-        {
+        if self.incoming_file_task.is_some() || !self.can_transfer_tabs(cx) {
             return None;
         }
         let index = self
@@ -581,11 +579,7 @@ impl Workspace {
         if let (TabTarget::Document(target), Some(reader)) = (target, document) {
             items.push((
                 Some(glim_services::locale::tr("Move Tab to New Window")),
-                !self.is_saving()
-                    && !self.loading
-                    && reader.can_move_to_window(cx)
-                    && self.confirm_task.is_none()
-                    && !crate::app::updates::busy(cx),
+                self.can_transfer_tabs(cx) && reader.can_move_to_window(cx),
             ));
             actions.push(Some(TabMenuAction::Detach(target.clone())));
             if reader.document.restore_on_launch()
