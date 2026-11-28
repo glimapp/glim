@@ -23,7 +23,7 @@ jobs:
         run: cargo test --locked -p glim-services --lib markdown_export::tests
       - name: Verify archive and image refresh contracts
         run: |
-          cargo test --locked -p glim-core --lib archive::tests::directory_listing_preserves_sizes_visibility_and_order -- --exact
+          cargo test --locked -p glim-core --lib archive::tests
           cargo test --locked -p glim-services --lib documents::refresh::tests
       - name: Verify cache compatibility and reader memory ownership
         run: |
@@ -61,6 +61,7 @@ jobs:
           }
           run_contracts views::workspace::tabs::tests
           run_contracts views::reader::media::tests
+          run_contracts views::reader::archive::tests
           run_contracts views::reader::csv::view::tests
           run_contracts views::reader::sqlite::tests
           run_contracts views::reader::books::tests

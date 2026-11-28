@@ -48,12 +48,18 @@ impl Archive {
 
     /// List immediate children of an archive path prefix, including sizes of
     /// directory descendants. The root is empty; other prefixes end in `/`.
-    pub fn directory_entries(&self, prefix: &str) -> Vec<DirectoryEntry> {
+    pub fn directory_entries<E>(
+        &self,
+        prefix: &str,
+        mut checkpoint: impl FnMut() -> Result<(), E>,
+    ) -> Result<Vec<DirectoryEntry>, E> {
+        checkpoint()?;
         let start = self
             .entries
             .partition_point(|entry| entry.name.as_str() < prefix);
         let mut children = HashMap::new();
         for entry in &self.entries[start..] {
+            checkpoint()?;
             let Some(tail) = entry.name.strip_prefix(prefix) else {
                 break;
             };
@@ -66,22 +72,48 @@ impl Archive {
             let row = children.entry(name).or_insert((directory, 0u64));
             row.1 = row.1.saturating_add(entry.size);
         }
-        let mut rows = children
-            .into_iter()
-            .map(|(name, (directory, bytes))| DirectoryEntry {
+        let mut rows = Vec::with_capacity(children.len());
+        for (name, (directory, bytes)) in children {
+            checkpoint()?;
+            rows.push(DirectoryEntry {
                 name: name.to_owned(),
                 directory,
                 bytes,
-            })
-            .collect::<Vec<_>>();
+            });
+        }
         rows.sort_unstable_by(|a, b| b.bytes.cmp(&a.bytes).then(a.name.cmp(&b.name)));
-        rows
+        checkpoint()?;
+        Ok(rows)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn directory_queries_stop_without_publishing_partial_rows() {
+        let entries = ["first/a", "first/b"]
+            .into_iter()
+            .map(|name| Entry {
+                name: name.into(),
+                size: 1,
+                directory: false,
+            })
+            .collect();
+        let archive = Archive::new(Path::new("test.zip"), "ZIP".into(), entries);
+        let mut checks = 0;
+        let result = archive.directory_entries("first/", || {
+            checks += 1;
+            if checks == 3 {
+                Err("cancelled")
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(result, Err("cancelled"));
+        assert_eq!(checks, 3);
+    }
 
     #[test]
     fn directory_listing_preserves_sizes_visibility_and_order() {
@@ -110,7 +142,8 @@ mod tests {
         assert_eq!(archive.total_bytes(), 977);
         let rows = |prefix| {
             archive
-                .directory_entries(prefix)
+                .directory_entries(prefix, || Ok::<_, std::convert::Infallible>(()))
+                .unwrap()
                 .into_iter()
                 .map(|row| (row.name, row.directory, row.bytes))
                 .collect::<Vec<_>>()

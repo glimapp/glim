@@ -1,356 +1,90 @@
-use glim_core::archive::{Archive, DirectoryEntry};
-use gpui_kit::prelude::FluentBuilder;
-use gpui_kit::{
-    component::{
-        ActiveTheme, Disableable, Icon, Sizable,
-        button::{Button, ButtonVariants},
-        h_flex, v_flex,
-    },
-    *,
+//! Archive directory requests and background task ownership.
+mod view;
+
+use crate::app::reader_jobs::{self, JobClass, Priority};
+use glim_core::archive::Archive;
+use glim_services::{
+    locale::tr,
+    work::{CancelOnDrop, Cancellation},
 };
+use gpui_kit::*;
+use std::sync::Arc;
+use view::{ArchiveView, Navigate};
 
 pub(super) struct ArchiveReader {
-    archive: Archive,
-    translate: fn(&str) -> String,
-    prefix: String,
-    rows: Vec<DirectoryEntry>,
-    scroll: UniformListScrollHandle,
-    focus: FocusHandle,
-    selected: Option<usize>,
-    pub(super) extract: Option<(String, super::ArchiveAction)>,
+    archive: Arc<Archive>,
+    view: Entity<ArchiveView>,
+    active: bool,
+    pending: Option<String>,
+    task: Option<(CancelOnDrop, Task<()>)>,
+    _subscription: Subscription,
 }
+
 impl ArchiveReader {
-    pub fn new(archive: Archive, translate: fn(&str) -> String, cx: &mut Context<Self>) -> Self {
-        let rows = archive.directory_entries("");
+    pub fn new(archive: Archive, cx: &mut Context<Self>) -> Self {
+        let archive = Arc::new(archive);
+        let view = cx.new(|cx| ArchiveView::new(archive.clone(), tr, cx));
+        let subscription = cx.subscribe(&view, |reader, _, Navigate(prefix), cx| {
+            reader.navigate(prefix.clone(), cx);
+        });
         Self {
-            focus: cx.focus_handle(),
-            selected: None,
-            extract: None,
             archive,
-            translate,
-            prefix: String::new(),
-            rows,
-            scroll: UniformListScrollHandle::new(),
+            view,
+            active: false,
+            pending: Some(String::new()),
+            task: None,
+            _subscription: subscription,
         }
     }
-}
-fn bytes(n: u64) -> String {
-    if n >= 1_048_576 {
-        format!("{:.1} MB", n as f64 / 1_048_576.)
-    } else if n >= 1024 {
-        format!("{:.1} KB", n as f64 / 1024.)
-    } else {
-        format!("{n} B")
+
+    fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        self.active = active;
+        if active {
+            self.load(cx);
+        } else {
+            self.task = None;
+        }
     }
-}
-impl ArchiveReader {
+
     fn navigate(&mut self, prefix: String, cx: &mut Context<Self>) {
-        self.prefix = prefix;
-        self.selected = None;
-        self.rows = self.archive.directory_entries(&self.prefix);
-        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
-        cx.notify();
+        self.pending = Some(prefix);
+        self.task = None;
+        self.load(cx);
     }
-    fn up(&mut self, cx: &mut Context<Self>) {
-        let trimmed = self.prefix.trim_end_matches('/');
-        let prefix = trimmed
-            .rsplit_once('/')
-            .map_or(String::new(), |(p, _)| format!("{p}/"));
-        self.navigate(prefix, cx);
-    }
-}
-impl Focusable for ArchiveReader {
-    fn focus_handle(&self, _: &App) -> FocusHandle {
-        self.focus.clone()
-    }
-}
-impl Render for ArchiveReader {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        use gpui_kit::assets::IconName;
-        let tr = self.translate;
-        let title = self
-            .archive
-            .path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        let mut crumbs = h_flex()
-            .flex_1()
-            .min_w_0()
-            .overflow_hidden()
-            .items_center()
-            .gap_1()
-            .child(
-                Button::new("archive-root")
-                    .ghost()
-                    .small()
-                    .label(tr("Archive contents"))
-                    .on_click(cx.listener(|v, _, _, cx| v.navigate(String::new(), cx))),
-            );
-        let mut prefix = String::new();
-        for (i, name) in self
-            .prefix
-            .trim_end_matches('/')
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .enumerate()
-        {
-            prefix.push_str(name);
-            prefix.push('/');
-            let path = prefix.clone();
-            crumbs = crumbs
-                .child(
-                    Icon::new(IconName::ChevronRight)
-                        .size(px(12.))
-                        .text_color(cx.theme().muted_foreground),
-                )
-                .child(
-                    Button::new(("archive-crumb", i))
-                        .ghost()
-                        .small()
-                        .label(name.to_owned())
-                        .on_click(cx.listener(move |v, _, _, cx| v.navigate(path.clone(), cx))),
-                );
+
+    fn load(&mut self, cx: &mut Context<Self>) {
+        if !self.active || self.task.is_some() {
+            return;
         }
-        v_flex()
-            .id("archive-browser")
-            .track_focus(&self.focus)
-            .size_full()
-            .min_w_0()
-            .min_h_0()
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
-            .on_key_down(cx.listener(|v, event: &KeyDownEvent, _, cx| {
-                match event.keystroke.key.as_str() {
-                    "up" | "down" if !v.rows.is_empty() => {
-                        let index = if event.keystroke.key == "down" {
-                            v.selected.map_or(0, |i| (i + 1).min(v.rows.len() - 1))
-                        } else {
-                            v.selected.unwrap_or(0).saturating_sub(1)
-                        };
-                        v.selected = Some(index);
-                        v.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
-                        cx.notify();
-                    }
-                    "enter" | "right" => {
-                        if let Some(row) = v.selected.and_then(|i| v.rows.get(i))
-                            && row.directory
-                        {
-                            v.navigate(format!("{}{}/", v.prefix, row.name), cx);
-                        }
-                    }
-                    "backspace" | "left" if !v.prefix.is_empty() => v.up(cx),
-                    _ => return,
-                }
-                cx.stop_propagation();
-            }))
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_3()
-                    .px_4()
-                    .py_3()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        div()
-                            .size(px(36.))
-                            .flex_shrink_0()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(8.))
-                            .bg(cx.theme().muted)
-                            .child(crate::views::file_icons::file_icon(&self.archive.path, cx)),
-                    )
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .truncate()
-                                    .child(title),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!(
-                                        "{} · {} {} · {}",
-                                        self.archive.format,
-                                        self.archive.entries().len(),
-                                        tr("Archive entries"),
-                                        bytes(self.archive.total_bytes())
-                                    )),
-                            ),
-                    )
-                    .when_some(self.extract.clone(), |el, (label, action)| {
-                        el.child(
-                            Button::new("archive-extract-primary")
-                                .primary()
-                                .small()
-                                .label(label)
-                                .on_click(move |_, window, cx| action(window, cx)),
-                        )
-                    }),
-            )
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .px_3()
-                    .py_2()
-                    .gap_2()
-                    .child(
-                        Button::new("archive-up")
-                            .ghost()
-                            .small()
-                            .icon(IconName::ArrowUp)
-                            .tooltip(tr("Up one folder"))
-                            .accessibility_label(tr("Up one folder"))
-                            .disabled(self.prefix.is_empty())
-                            .on_click(cx.listener(|v, _, _, cx| v.up(cx))),
-                    )
-                    .child(crumbs),
-            )
-            .child(
-                h_flex()
-                    .w_full()
-                    .px_4()
-                    .h(px(28.))
-                    .items_center()
-                    .gap_4()
-                    .bg(cx.theme().muted.opacity(0.5))
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(div().flex_1().min_w_0().pl(px(28.)).child(tr("Name")))
-                    .child(
-                        div()
-                            .w(px(100.))
-                            .flex_shrink_0()
-                            .text_right()
-                            .child(tr("Uncompressed size")),
-                    )
-                    .child(div().w(px(20.)).flex_shrink_0()),
-            )
-            .child(
-                uniform_list(
-                    "archive-entries",
-                    self.rows.len(),
-                    cx.processor(|v, range: std::ops::Range<usize>, _, cx| {
-                        range
-                            .map(|i| {
-                                let DirectoryEntry {
-                                    name,
-                                    directory: dir,
-                                    bytes: size,
-                                } = v.rows[i].clone();
-                                h_flex()
-                                    .id(i)
-                                    .w_full()
-                                    .h(px(36.))
-                                    .px_4()
-                                    .gap_4()
-                                    .items_center()
-                                    .text_sm()
-                                    .when(v.selected == Some(i), |el| el.bg(cx.theme().secondary))
-                                    .hover(|s| s.bg(cx.theme().muted))
-                                    .child(
-                                        h_flex()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .gap_3()
-                                            .items_center()
-                                            .child(if dir {
-                                                Icon::new(IconName::Folder)
-                                                    .size(px(16.))
-                                                    .text_color(cx.theme().primary)
-                                                    .into_any_element()
-                                            } else {
-                                                crate::views::file_icons::file_icon(
-                                                    std::path::Path::new(&name),
-                                                    cx,
-                                                )
-                                                .into_any_element()
-                                            })
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .min_w_0()
-                                                    .truncate()
-                                                    .child(name.clone()),
-                                            ),
-                                    )
-                                    .child(
-                                        div()
-                                            .w(px(100.))
-                                            .flex_shrink_0()
-                                            .text_right()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(bytes(size)),
-                                    )
-                                    .child(div().w(px(20.)).flex_shrink_0().child(if dir {
-                                        Icon::new(IconName::ChevronRight)
-                                            .size(px(12.))
-                                            .text_color(cx.theme().muted_foreground)
-                                            .into_any_element()
-                                    } else {
-                                        div().into_any_element()
-                                    }))
-                                    .on_click(cx.listener(move |v, _, window, cx| {
-                                        window.focus(&v.focus, cx);
-                                        v.selected = Some(i);
-                                        if dir {
-                                            v.navigate(format!("{}{name}/", v.prefix), cx);
-                                        } else {
-                                            cx.notify();
-                                        }
-                                    }))
-                            })
-                            .collect()
-                    }),
-                )
-                .w_full()
-                .flex_1()
-                .min_h_0()
-                .track_scroll(&self.scroll),
-            )
-            .when(self.rows.is_empty(), |el| {
-                el.child(
-                    div()
-                        .w_full()
-                        .py_6()
-                        .text_center()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(tr("This folder is empty")),
-                )
-            })
-            .child(
-                h_flex()
-                    .w_full()
-                    .px_4()
-                    .py_2()
-                    .gap_3()
-                    .border_t_1()
-                    .border_color(cx.theme().border)
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(div().flex_1().child(format!(
-                        "{} {}",
-                        self.rows.len(),
-                        tr("Archive entries")
-                    )))
-                    .child(tr("Extract to a new workspace")),
-            )
+        let Some(prefix) = self.pending.clone() else {
+            return;
+        };
+        self.view
+            .update(cx, |view, cx| view.loading(prefix.clone(), cx));
+        let archive = self.archive.clone();
+        let (cancel, guard) = Cancellation::task();
+        let work = reader_jobs::run_with_scheduler(
+            cx.background_executor().clone(),
+            reader_jobs::document_scheduler(cx),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel.clone(),
+            move |cancel| archive.directory_entries(&prefix, || cancel.check()),
+        );
+        let task = cx.spawn(async move |reader, cx| {
+            let Ok(rows) = work.await else {
+                return;
+            };
+            if cancel.check().is_err() {
+                return;
+            }
+            let _ = reader.update(cx, |reader, cx| {
+                reader.task = None;
+                reader.pending = None;
+                reader.view.update(cx, |view, cx| view.publish(rows, cx));
+            });
+        });
+        self.task = Some((guard, task));
     }
 }
 
@@ -358,8 +92,11 @@ impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntit
     fn kind(&self) -> &'static str {
         "zip"
     }
-    fn render(&mut self, _cx: &mut App) -> AnyElement {
-        self.0.clone().into_any_element()
+    fn render(&mut self, cx: &mut App) -> AnyElement {
+        self.read(cx).view.clone().into_any_element()
+    }
+    fn set_active(&self, active: bool, cx: &mut App) {
+        self.update(cx, |reader, cx| reader.set_active(active, cx));
     }
     fn operations(&self) -> crate::views::reader::contract::ReaderOperations<'_> {
         crate::views::reader::contract::ReaderOperations {
@@ -373,6 +110,77 @@ impl crate::views::reader::contract::ArchiveControls
     for super::surface::SurfaceEntity<ArchiveReader>
 {
     fn set_extract_action(&self, label: String, action: super::ArchiveAction, cx: &mut App) {
-        self.update(cx, |view, _| view.extract = Some((label, action)));
+        self.read(cx).view.clone().update(cx, |view, _| {
+            view.extract = Some((label, action));
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ArchiveReader, Navigate};
+    use crate::{
+        app::reader_jobs,
+        views::reader::{contract::ReaderView, surface::SurfaceEntity},
+    };
+    use glim_core::archive::{Archive, Entry};
+    use gpui_kit::{AppContext, TestAppContext};
+    use std::path::Path;
+
+    #[gpui_kit::test]
+    fn replacing_and_hiding_directory_queries_only_publish_the_latest_target(
+        cx: &mut TestAppContext,
+    ) {
+        let entries = ["first/inner/a.txt", "second/b.txt"]
+            .into_iter()
+            .map(|name| Entry {
+                name: name.into(),
+                size: 1,
+                directory: false,
+            })
+            .collect();
+        let archive = Archive::new(Path::new("fixture.zip"), "ZIP".into(), entries);
+        let (reader, view) = cx.update(|cx| {
+            reader_jobs::isolate_document_scheduler(cx);
+            let reader = cx.new(|cx| ArchiveReader::new(archive, cx));
+            let view = reader.read(cx).view.clone();
+            (SurfaceEntity(reader), view)
+        });
+
+        cx.update(|cx| reader.set_active(true, cx));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let (prefix, rows) = view.read(cx).directory();
+            assert_eq!(prefix, "");
+            assert_eq!(rows.unwrap().len(), 2);
+            view.update(cx, |_, cx| cx.emit(Navigate("first/inner/".into())));
+        });
+        cx.update(|cx| {
+            assert_eq!(view.read(cx).directory(), ("first/inner/", None));
+            view.update(cx, |view, cx| view.up(cx));
+        });
+        cx.update(|cx| {
+            assert_eq!(view.read(cx).directory(), ("first/", None));
+            view.update(cx, |view, cx| view.up(cx));
+        });
+        cx.update(|cx| {
+            assert_eq!(view.read(cx).directory(), ("", None));
+            view.update(cx, |_, cx| cx.emit(Navigate("second/".into())));
+        });
+        cx.update(|cx| reader.set_active(false, cx));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(view.read(cx).directory(), ("second/", None));
+            assert!(reader.read(cx).task.is_none());
+        });
+
+        cx.update(|cx| reader.set_active(true, cx));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let (prefix, rows) = view.read(cx).directory();
+            assert_eq!(prefix, "second/");
+            assert_eq!(rows.unwrap()[0].name, "b.txt");
+            assert!(reader.read(cx).pending.is_none());
+        });
     }
 }

@@ -116,9 +116,7 @@ impl Reader {
             document: DocumentSession::new(document.path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
             projection: None,
-            renderer: Renderer::entity(
-                cx.new(|cx| archive::ArchiveReader::new(document, glim_services::locale::tr, cx)),
-            ),
+            renderer: Renderer::entity(cx.new(|cx| archive::ArchiveReader::new(document, cx))),
         }
     }
     pub fn from_sqlite(path: PathBuf, window: &mut Window, cx: &mut App) -> Self {
