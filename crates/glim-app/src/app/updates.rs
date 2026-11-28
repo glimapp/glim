@@ -268,18 +268,10 @@ impl UpdateState {
             writes.push(task);
         }
         super::workspace_sessions::checkpoint_windows(cx);
-        if let Some(task) = cx
-            .global_mut::<super::workspace_sessions::SavedWorkspaces>()
-            .window_write
-            .take()
-        {
+        if let Some(task) = super::workspace_sessions::take_window_write(cx) {
             writes.push(task);
         }
-        if let Some(task) = cx
-            .global_mut::<super::workspace_sessions::SavedWorkspaces>()
-            .write
-            .take()
-        {
+        if let Some(task) = super::workspace_sessions::take_workspace_write(cx) {
             writes.push(task);
         }
 
@@ -648,28 +640,31 @@ pub(crate) fn start_application(path: Option<PathBuf>, urls: Vec<String>, cx: &m
         state.startup = Some(cx.spawn(async move |state, cx| {
             let result = work.await;
             cx.update(|cx| {
-                cx.global_mut::<super::workspace_sessions::SavedWorkspaces>()
-                    .restoring = true;
-                let mut restore_error = false;
-                let restored = match result {
-                    Ok(Some(session)) if !session.workspaces.is_empty() => {
-                        super::workspace_sessions::restore_update_windows(session.workspaces, cx);
-                        true
-                    }
-                    Ok(_) => false,
-                    Err(error) => {
-                        let _ = state.update(cx, |state, cx| {
-                            state.message =
-                                Some(format!("Cannot restore update session: {error:#}"));
-                            cx.notify();
-                        });
-                        restore_error = true;
-                        false
-                    }
-                };
-                let restored_windows = super::workspace_sessions::restore_windows(cx);
-                cx.global_mut::<super::workspace_sessions::SavedWorkspaces>()
-                    .restoring = false;
+                let (restored, restored_windows, restore_error) =
+                    super::workspace_sessions::during_restore(cx, |cx| {
+                        let mut restore_error = false;
+                        let restored = match result {
+                            Ok(Some(session)) if !session.workspaces.is_empty() => {
+                                super::workspace_sessions::restore_update_windows(
+                                    session.workspaces,
+                                    cx,
+                                );
+                                true
+                            }
+                            Ok(_) => false,
+                            Err(error) => {
+                                let _ = state.update(cx, |state, cx| {
+                                    state.message =
+                                        Some(format!("Cannot restore update session: {error:#}"));
+                                    cx.notify();
+                                });
+                                restore_error = true;
+                                false
+                            }
+                        };
+                        let restored_windows = super::workspace_sessions::restore_windows(cx);
+                        (restored, restored_windows, restore_error)
+                    });
                 if !urls.is_empty() {
                     super::file_open::open_system_files(urls, cx);
                 } else if let Some(path) = path {

@@ -470,13 +470,7 @@ fn run_workspace() -> Result<()> {
         cx.set_global(AppearanceSaveTask::default());
         cx.set_global(WorkspaceSaveTask::default());
         cx.set_global(ExplorerSaveTask::default());
-        cx.set_global(workspace_sessions::SavedWorkspaces {
-            sessions: saved_sessions,
-            write: None,
-            windows: saved_windows,
-            window_write: None,
-            restoring: false,
-        });
+        workspace_sessions::initialize(saved_sessions, saved_windows, cx);
         cx.on_app_quit(|cx| {
             crate::views::begin_native_preview_shutdown();
             log::info!("application quit requested");
@@ -488,19 +482,13 @@ fn run_workspace() -> Result<()> {
                 });
             }
             workspace_sessions::checkpoint_windows(cx);
-            let window_sessions = cx
-                .global_mut::<workspace_sessions::SavedWorkspaces>()
-                .window_write
-                .take();
+            let window_sessions = workspace_sessions::take_window_write(cx);
             let telemetry = telemetry::shutdown(cx);
             let recovery = recovery::shutdown(cx);
             let pending = cx.global_mut::<ExplorerSaveTask>().0.take();
             let workspace = cx.global_mut::<WorkspaceSaveTask>().0.take();
             let remote_connections = cx.global_mut::<remote::Connections>().write.take();
-            let sessions = cx
-                .global_mut::<workspace_sessions::SavedWorkspaces>()
-                .write
-                .take();
+            let sessions = workspace_sessions::take_workspace_write(cx);
             async move {
                 if let Some(recovery) = recovery
                     && let Err(error) = recovery.await

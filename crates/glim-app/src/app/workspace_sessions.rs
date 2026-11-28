@@ -3,14 +3,82 @@ use glim_core::session::WorkspaceSession;
 use gpui_kit::*;
 use std::collections::BTreeMap;
 
-pub(crate) struct SavedWorkspaces {
-    pub sessions: BTreeMap<String, WorkspaceSession>,
-    pub write: Option<Task<()>>,
-    pub windows: BTreeMap<String, Vec<WorkspaceSession>>,
-    pub window_write: Option<Task<()>>,
-    pub restoring: bool,
+struct SavedWorkspaces {
+    sessions: BTreeMap<String, WorkspaceSession>,
+    write: Option<Task<()>>,
+    windows: BTreeMap<String, Vec<WorkspaceSession>>,
+    window_write: Option<Task<()>>,
+    restoring: bool,
 }
 impl Global for SavedWorkspaces {}
+
+pub(super) fn initialize(
+    sessions: BTreeMap<String, WorkspaceSession>,
+    windows: BTreeMap<String, Vec<WorkspaceSession>>,
+    cx: &mut App,
+) {
+    cx.set_global(SavedWorkspaces {
+        sessions,
+        windows,
+        write: None,
+        window_write: None,
+        restoring: false,
+    });
+}
+
+pub(crate) fn is_initialized(cx: &App) -> bool {
+    cx.has_global::<SavedWorkspaces>()
+}
+
+pub(crate) fn is_restoring(cx: &App) -> bool {
+    cx.try_global::<SavedWorkspaces>()
+        .is_some_and(|saved| saved.restoring)
+}
+
+pub(super) fn during_restore<T>(cx: &mut App, restore: impl FnOnce(&mut App) -> T) -> T {
+    let saved = cx.global_mut::<SavedWorkspaces>();
+    let previous = std::mem::replace(&mut saved.restoring, true);
+    let value = restore(cx);
+    cx.global_mut::<SavedWorkspaces>().restoring = previous;
+    value
+}
+
+pub(crate) fn saved_window_session(
+    group: &str,
+    workspace_id: &str,
+    cx: &App,
+) -> Option<WorkspaceSession> {
+    cx.try_global::<SavedWorkspaces>()?
+        .windows
+        .get(group)?
+        .iter()
+        .find(|session| session.workspace_id.as_deref() == Some(workspace_id))
+        .cloned()
+}
+
+pub(super) fn take_window_write(cx: &mut App) -> Option<Task<()>> {
+    cx.global_mut::<SavedWorkspaces>().window_write.take()
+}
+
+pub(super) fn take_workspace_write(cx: &mut App) -> Option<Task<()>> {
+    cx.global_mut::<SavedWorkspaces>().write.take()
+}
+
+fn persist_after(
+    previous: Option<Task<()>>,
+    failure: &'static str,
+    save: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    cx: &mut App,
+) -> Task<()> {
+    cx.spawn(async move |cx| {
+        if let Some(previous) = previous {
+            previous.await;
+        }
+        if let Err(error) = cx.background_executor().spawn(async move { save() }).await {
+            log::error!("{failure}: {error:#}");
+        }
+    })
+}
 
 pub(crate) fn remember(mut session: WorkspaceSession, cx: &mut App) {
     let Some(id) = session.workspace_id.clone() else {
@@ -28,18 +96,12 @@ pub(crate) fn remember(mut session: WorkspaceSession, cx: &mut App) {
     saved.sessions.insert(id, session);
     let sessions = saved.sessions.clone();
     let previous = saved.write.take();
-    let task = cx.spawn(async move |cx| {
-        if let Some(previous) = previous {
-            previous.await;
-        }
-        if let Err(error) = cx
-            .background_executor()
-            .spawn(async move { glim_services::preferences::save_workspace_sessions(&sessions) })
-            .await
-        {
-            log::error!("Cannot remember workspace files: {error:#}");
-        }
-    });
+    let task = persist_after(
+        previous,
+        "Cannot remember workspace files",
+        move || glim_services::preferences::save_workspace_sessions(&sessions),
+        cx,
+    );
     cx.global_mut::<SavedWorkspaces>().write = Some(task);
 }
 
@@ -88,18 +150,12 @@ fn write_windows(cx: &mut App) {
     let saved = cx.global_mut::<SavedWorkspaces>();
     let windows = saved.windows.clone();
     let previous = saved.window_write.take();
-    let task = cx.spawn(async move |cx| {
-        if let Some(previous) = previous {
-            previous.await;
-        }
-        if let Err(error) = cx
-            .background_executor()
-            .spawn(async move { glim_services::preferences::save_window_sessions(&windows) })
-            .await
-        {
-            log::error!("Cannot remember workspace windows: {error:#}");
-        }
-    });
+    let task = persist_after(
+        previous,
+        "Cannot remember workspace windows",
+        move || glim_services::preferences::save_window_sessions(&windows),
+        cx,
+    );
     cx.global_mut::<SavedWorkspaces>().window_write = Some(task);
 }
 
@@ -125,56 +181,55 @@ pub(crate) fn restore_update_windows(sessions: Vec<WorkspaceSession>, cx: &mut A
 
 fn restore_groups(windows: BTreeMap<String, Vec<WorkspaceSession>>, cx: &mut App) -> bool {
     let restored = !windows.is_empty();
-    let was_restoring = cx.global::<SavedWorkspaces>().restoring;
-    cx.global_mut::<SavedWorkspaces>().restoring = true;
-    for (group, mut sessions) in windows {
-        let exists = super::OpenWorkspaces::windows(cx)
-            .into_iter()
-            .any(|(view, _)| {
-                view.upgrade()
-                    .and_then(|view| {
-                        view.read(cx)
-                            .workspace_window
-                            .as_ref()
-                            .and_then(|host| host.upgrade())
-                    })
-                    .is_some_and(|host| host.read(cx).group == group)
-            });
-        if exists {
-            continue;
-        }
-        if sessions.is_empty() {
-            sessions.push(WorkspaceSession {
-                show_home: true,
-                ..Default::default()
-            });
-        }
-        let active = sessions
-            .iter()
-            .position(|session| session.window_active)
-            .unwrap_or(sessions.len() - 1);
-        cx.global_mut::<SavedWorkspaces>()
-            .windows
-            .insert(group.clone(), sessions.clone());
-        for mut session in sessions {
-            session.window_group = Some(group.clone());
-            super::open_restored_workspace_with_session(session, cx);
-        }
-        for (view, handle) in super::OpenWorkspaces::windows(cx) {
-            let host = view
-                .upgrade()
-                .and_then(|view| view.read(cx).workspace_window.as_ref()?.upgrade());
-            if let Some(host) = host
-                && host.read(cx).group == group
-            {
-                let _ = handle.update(cx, |_, window, cx| {
-                    host.update(cx, |host, cx| host.restore_selection(active, window, cx));
+    during_restore(cx, |cx| {
+        for (group, mut sessions) in windows {
+            let exists = super::OpenWorkspaces::windows(cx)
+                .into_iter()
+                .any(|(view, _)| {
+                    view.upgrade()
+                        .and_then(|view| {
+                            view.read(cx)
+                                .workspace_window
+                                .as_ref()
+                                .and_then(|host| host.upgrade())
+                        })
+                        .is_some_and(|host| host.read(cx).group == group)
                 });
-                break;
+            if exists {
+                continue;
+            }
+            if sessions.is_empty() {
+                sessions.push(WorkspaceSession {
+                    show_home: true,
+                    ..Default::default()
+                });
+            }
+            let active = sessions
+                .iter()
+                .position(|session| session.window_active)
+                .unwrap_or(sessions.len() - 1);
+            cx.global_mut::<SavedWorkspaces>()
+                .windows
+                .insert(group.clone(), sessions.clone());
+            for mut session in sessions {
+                session.window_group = Some(group.clone());
+                super::open_restored_workspace_with_session(session, cx);
+            }
+            for (view, handle) in super::OpenWorkspaces::windows(cx) {
+                let host = view
+                    .upgrade()
+                    .and_then(|view| view.read(cx).workspace_window.as_ref()?.upgrade());
+                if let Some(host) = host
+                    && host.read(cx).group == group
+                {
+                    let _ = handle.update(cx, |_, window, cx| {
+                        host.update(cx, |host, cx| host.restore_selection(active, window, cx));
+                    });
+                    break;
+                }
             }
         }
-    }
-    cx.global_mut::<SavedWorkspaces>().restoring = was_restoring;
+    });
     restored
 }
 

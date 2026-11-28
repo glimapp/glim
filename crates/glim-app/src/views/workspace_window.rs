@@ -74,10 +74,7 @@ impl WorkspaceWindow {
             workspace,
         });
         self.active = self.slots.len() - 1;
-        if !cx
-            .try_global::<crate::app::workspace_sessions::SavedWorkspaces>()
-            .is_some_and(|saved| saved.restoring)
-        {
+        if !crate::app::workspace_sessions::is_restoring(cx) {
             self.reveal_navigation();
         }
         crate::app::OpenWorkspaces::register(&view, window.window_handle(), cx);
@@ -133,7 +130,7 @@ impl WorkspaceWindow {
     }
 
     pub(crate) fn remember_window(&self, cx: &mut App) {
-        if self.closed || !cx.has_global::<crate::app::workspace_sessions::SavedWorkspaces>() {
+        if self.closed || !crate::app::workspace_sessions::is_initialized(cx) {
             return;
         }
         let sessions = self
@@ -146,14 +143,11 @@ impl WorkspaceWindow {
                     .read(cx)
                     .window_session(cx)
                     .or_else(|| {
-                        cx.try_global::<crate::app::workspace_sessions::SavedWorkspaces>()
-                            .and_then(|saved| saved.windows.get(&self.group))
-                            .and_then(|sessions| {
-                                sessions.iter().find(|session| {
-                                    session.workspace_id.as_deref() == Some(&slot.workspace.id)
-                                })
-                            })
-                            .cloned()
+                        crate::app::workspace_sessions::saved_window_session(
+                            &self.group,
+                            &slot.workspace.id,
+                            cx,
+                        )
                     })
                     .unwrap_or_else(|| {
                         crate::app::workspace_sessions::restore(slot.workspace.clone(), cx)
