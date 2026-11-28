@@ -60,6 +60,7 @@ jobs:
             fi
           }
           run_contracts views::workspace::tabs::tests
+          run_contracts views::workspace::editing::tests::editing_save_refresh_and_close_keep_the_draft_safe -- --exact
           run_contracts views::reader::media::tests
           run_contracts views::reader::archive::tests
           run_contracts views::reader::csv::view::tests

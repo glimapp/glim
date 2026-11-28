@@ -258,8 +258,8 @@ impl Workspace {
                 retained_tabs += 1;
                 if let Some(editor) = reader.editor() {
                     let id = editor.entity_id();
-                    if let Some((_, pending)) = self.autosave.get_mut(&id) {
-                        *pending = None;
+                    if let Some(observed) = self.editor_observations.get_mut(&id) {
+                        observed.cancel_autosave();
                     }
                     self.save_queue.retain(|queued| *queued != id);
                 }

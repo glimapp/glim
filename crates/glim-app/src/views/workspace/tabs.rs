@@ -335,11 +335,7 @@ impl Workspace {
         let reader = self.tabs.remove(index);
         reader.deactivate(cx);
         if let Some(editor) = reader.editor() {
-            let id = editor.entity_id();
-            self.autosave.remove(&id);
-            // The destination takes over the same recovery record.
-            self.recovery_keys.remove(&id);
-            self.save_queue.retain(|queued| *queued != id);
+            self.release_editor_for_handoff(editor.entity_id());
         }
         self.active = selection_after_close(self.active, index, self.tabs.len() + 1);
         self.observe_autosave(window, cx);
@@ -1286,13 +1282,11 @@ mod tests {
             let destination = destination.read(cx);
             let editor_id = editor.entity_id();
             assert!(source.tabs.is_empty());
-            assert!(!source.recovery_keys.contains_key(&editor_id));
-            assert!(!source.autosave.contains_key(&editor_id));
+            assert_eq!(source.observed_recovery_key(editor_id), None);
             assert_eq!(
-                destination.recovery_keys.get(&editor_id),
-                Some(&recovery_key)
+                destination.observed_recovery_key(editor_id),
+                Some(Some(recovery_key.as_str()))
             );
-            assert!(destination.autosave.contains_key(&editor_id));
             let reader = destination.active_reader().unwrap();
             assert_eq!(reader.document.id(), document);
             assert_eq!(reader.document.path, path);

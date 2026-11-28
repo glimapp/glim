@@ -2,6 +2,7 @@ use super::Workspace;
 use anyhow::Context as _;
 use glim_services::workspace::FolderSnapshot;
 use gpui_kit::*;
+use std::collections::HashSet;
 
 pub(super) enum DiscardAction {
     CloseTab(usize),
@@ -15,6 +16,19 @@ pub(super) struct CloseRequest {
     action: DiscardAction,
     discarded: Vec<EntityId>,
 }
+pub(super) struct EditorObservation {
+    _subscription: Subscription,
+    pending_save: Option<Task<()>>,
+    observed_recovery_key: Option<String>,
+    reported_editing: bool,
+}
+
+impl EditorObservation {
+    pub(super) fn cancel_autosave(&mut self) {
+        self.pending_save = None;
+    }
+}
+
 enum SaveOutcome {
     Text,
     Page(glim_services::paged::PageSaved),
@@ -48,7 +62,9 @@ impl Workspace {
                 crate::app::recovery::remove(key, cx);
             }
         }
-        self.recovery_keys.clear();
+        for observed in self.editor_observations.values_mut() {
+            observed.observed_recovery_key = None;
+        }
     }
     fn cancel_close_request(&mut self, cx: &mut Context<Self>) {
         if let Some(host) = self.workspace_window.clone() {
@@ -78,9 +94,7 @@ impl Workspace {
         self.save_cancel = None;
         if let Some(id) = self.saving {
             self.save_queue.retain(|queued| *queued != id);
-            if let Some((_, pending)) = self.autosave.get_mut(&id) {
-                *pending = None;
-            }
+            self.cancel_editor_autosave(id);
         }
         cx.notify();
     }
@@ -199,84 +213,104 @@ impl Workspace {
         }
     }
 
-    pub(super) fn observe_autosave(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let keys = self
-            .tabs
-            .iter()
-            .filter_map(|reader| {
-                Some((
-                    reader.editor()?.entity_id(),
-                    reader.document.recovery_key.clone()?,
-                ))
-            })
-            .collect::<std::collections::HashMap<_, _>>();
-        for (id, key) in &self.recovery_keys {
-            if keys.get(id) != Some(key) {
-                crate::app::recovery::remove(key, cx);
-            }
+    pub(super) fn cancel_editor_autosave(&mut self, id: EntityId) {
+        if let Some(observed) = self.editor_observations.get_mut(&id) {
+            observed.cancel_autosave();
         }
-        self.recovery_keys = keys;
-        let editors = self
-            .tabs
-            .iter()
-            .filter_map(|r| r.editor())
-            .collect::<Vec<_>>();
-        self.telemetry_edited
-            .retain(|id| editors.iter().any(|editor| editor.entity_id() == *id));
-        self.autosave
-            .retain(|id, _| editors.iter().any(|e| e.entity_id() == *id));
-        for editor in editors {
+    }
+
+    pub(super) fn release_editor_for_handoff(&mut self, id: EntityId) {
+        // The destination will observe the document's existing recovery key.
+        self.editor_observations.remove(&id);
+        self.save_queue.retain(|queued| *queued != id);
+    }
+
+    #[cfg(test)]
+    pub(super) fn observed_recovery_key(&self, id: EntityId) -> Option<Option<&str>> {
+        self.editor_observations
+            .get(&id)
+            .map(|observed| observed.observed_recovery_key.as_deref())
+    }
+
+    pub(super) fn observe_autosave(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut present = HashSet::with_capacity(self.tabs.len());
+        for reader in &self.tabs {
+            let Some(editor) = reader.editor() else {
+                continue;
+            };
             let id = editor.entity_id();
-            self.autosave.entry(id).or_insert_with(|| {
+            present.insert(id);
+            let observed = self.editor_observations.entry(id).or_insert_with(|| {
                 let subscription =
                     cx.subscribe_in(&editor, window, move |view, _, event, window, cx| {
                         if matches!(event, gpui_kit::component::input::InputEvent::Change) {
-                            if view.telemetry_edited.insert(id)
-                                && let Some(reader) = view.tabs.iter().find(|reader| {
-                                    reader
-                                        .editor()
-                                        .is_some_and(|editor| editor.entity_id() == id)
-                                })
-                            {
-                                glim_services::telemetry::file_event(
-                                    "editing_started",
-                                    &reader.document.path,
-                                    [(
-                                        "untitled",
-                                        glim_services::telemetry::flag(
-                                            reader.document.draft_directory.is_some(),
-                                        ),
-                                    )],
-                                );
-                            }
-                            view.edit_revision = view.edit_revision.wrapping_add(1);
-                            if let Some(request) = &mut view.close_request {
-                                request.discarded.retain(|discarded| *discarded != id);
-                            }
-                            view.checkpoint_editor(id, cx);
-                            if view.tabs.iter().any(|reader| {
-                                !reader.document.autosave_enabled()
-                                    && reader
-                                        .editor()
-                                        .is_some_and(|editor| editor.entity_id() == id)
-                            }) {
-                                return;
-                            }
-                            let task = cx.spawn_in(window, async move |view, cx| {
-                                cx.background_executor()
-                                    .timer(std::time::Duration::from_millis(800))
-                                    .await;
-                                let _ = view.update_in(cx, |view, window, cx| {
-                                    view.save_editor(id, window, cx);
-                                });
-                            });
-                            if let Some((_, pending)) = view.autosave.get_mut(&id) {
-                                *pending = Some(task);
-                            }
+                            view.editor_changed(id, window, cx);
                         }
                     });
-                (subscription, None)
+                EditorObservation {
+                    _subscription: subscription,
+                    pending_save: None,
+                    observed_recovery_key: None,
+                    reported_editing: false,
+                }
             });
+            let recovery_key = &reader.document.recovery_key;
+            if &observed.observed_recovery_key != recovery_key {
+                if let Some(old) = &observed.observed_recovery_key {
+                    crate::app::recovery::remove(old, cx);
+                }
+                observed.observed_recovery_key.clone_from(recovery_key);
+            }
+        }
+        self.editor_observations.retain(|id, observed| {
+            let keep = present.contains(id);
+            if !keep && let Some(key) = &observed.observed_recovery_key {
+                crate::app::recovery::remove(key, cx);
+            }
+            keep
+        });
+    }
+
+    fn editor_changed(&mut self, id: EntityId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(observed) = self.editor_observations.get_mut(&id) else {
+            return;
+        };
+        let Some(reader) = self.tabs.iter().find(|reader| {
+            reader
+                .editor()
+                .is_some_and(|editor| editor.entity_id() == id)
+        }) else {
+            return;
+        };
+        if !std::mem::replace(&mut observed.reported_editing, true) {
+            glim_services::telemetry::file_event(
+                "editing_started",
+                &reader.document.path,
+                [(
+                    "untitled",
+                    glim_services::telemetry::flag(reader.document.draft_directory.is_some()),
+                )],
+            );
+        }
+        let autosave = reader.document.autosave_enabled();
+        self.edit_revision = self.edit_revision.wrapping_add(1);
+        if let Some(request) = &mut self.close_request {
+            request.discarded.retain(|discarded| *discarded != id);
+        }
+        self.checkpoint_editor(id, cx);
+        if !autosave {
+            return;
+        }
+        let task = cx.spawn_in(window, async move |view, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(800))
+                .await;
+            let _ = view.update_in(cx, |view, window, cx| {
+                view.save_editor(id, window, cx);
+            });
+        });
+        if let Some(observed) = self.editor_observations.get_mut(&id) {
+            observed.pending_save = Some(task);
         }
     }
 
@@ -927,7 +961,7 @@ impl Workspace {
     ) {
         self.discard_recovery(cx);
         self.tabs.clear();
-        self.autosave.clear();
+        self.editor_observations.clear();
         self.save_queue.clear();
         self.active = None;
         self.history.clear();
@@ -1013,9 +1047,9 @@ mod tests {
         .unwrap();
         assert!(cx.update(|cx| {
             view.read(cx)
-                .autosave
+                .editor_observations
                 .get(&editor.entity_id())
-                .is_some_and(|(_, task)| task.is_some())
+                .is_some_and(|observed| observed.pending_save.is_some())
         }));
         // A debounce callback targets the edited document even after leaving its tab.
         cx.update_window(handle, |_, _, cx| {
