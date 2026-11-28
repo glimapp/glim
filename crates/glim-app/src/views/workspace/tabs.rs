@@ -1229,7 +1229,93 @@ fn selection_after_close(active: Option<usize>, closed: usize, count: usize) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::selection_after_close;
+    use super::{Workspace, selection_after_close};
+    use gpui_kit::{AppContext, TestAppContext, WindowOptions, test::TestWindowExt};
+
+    #[gpui_kit::test]
+    fn moving_an_untitled_tab_keeps_undo_and_draft_identity(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let ((source_window, source), (destination_window, destination)) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::app::remote::init(Default::default(), cx);
+            let mut open = || {
+                gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+                    cx.new(|cx| Workspace::new(None, window, cx))
+                })
+                .unwrap()
+            };
+            (open(), open())
+        });
+        let editor = cx
+            .update_window(source_window, |_, window, cx| {
+                let editor = source.update(cx, |workspace, cx| {
+                    workspace.choose_new_file_in(directory.path().to_owned(), window, cx);
+                    workspace.active_reader().unwrap().editor().unwrap()
+                });
+                window.render_frame(cx);
+                window.input("unfinished draft", cx);
+                editor
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let (document, recovery_key, path) = cx.update(|cx| {
+            let reader = source.read(cx).active_reader().unwrap();
+            assert!(reader.is_dirty());
+            (
+                reader.document.id(),
+                reader.document.recovery_key.clone().unwrap(),
+                reader.document.path.clone(),
+            )
+        });
+        let reader = cx
+            .update_window(source_window, |_, window, cx| {
+                source.update(cx, |workspace, cx| {
+                    workspace.take_file_tab(&path, window, cx)
+                })
+            })
+            .unwrap()
+            .unwrap();
+        cx.update_window(destination_window, |_, window, cx| {
+            destination.update(cx, |workspace, cx| {
+                workspace.receive_system_tab(reader, window, cx)
+            });
+        })
+        .unwrap();
+        cx.update(|cx| {
+            let source = source.read(cx);
+            let destination = destination.read(cx);
+            let editor_id = editor.entity_id();
+            assert!(source.tabs.is_empty());
+            assert!(!source.recovery_keys.contains_key(&editor_id));
+            assert!(!source.autosave.contains_key(&editor_id));
+            assert_eq!(
+                destination.recovery_keys.get(&editor_id),
+                Some(&recovery_key)
+            );
+            assert!(destination.autosave.contains_key(&editor_id));
+            let reader = destination.active_reader().unwrap();
+            assert_eq!(reader.document.id(), document);
+            assert_eq!(reader.document.path, path);
+            assert_eq!(
+                reader.document.draft_directory.as_deref(),
+                Some(directory.path())
+            );
+            assert_eq!(
+                reader.document.recovery_key.as_deref(),
+                Some(recovery_key.as_str())
+            );
+            assert_eq!(reader.editor().unwrap().entity_id(), editor.entity_id());
+            assert_eq!(editor.read(cx).value().as_ref(), "unfinished draft");
+            assert!(reader.is_dirty());
+        });
+        cx.update_window(destination_window, |_, window, cx| {
+            window.render_frame(cx);
+            window.press("secondary-z", cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| assert!(editor.read(cx).value().is_empty()));
+    }
 
     #[test]
     fn closing_another_tab_preserves_the_selected_document() {
