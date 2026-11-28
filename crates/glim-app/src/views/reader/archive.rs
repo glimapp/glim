@@ -1,4 +1,7 @@
-use glim_services::{archive::Archive, locale::tr};
+use glim_services::{
+    archive::{Archive, DirectoryEntry},
+    locale::tr,
+};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
@@ -8,12 +11,11 @@ use gpui_kit::{
     },
     *,
 };
-use std::collections::BTreeMap;
 
 pub(super) struct ArchiveReader {
     archive: Archive,
     prefix: String,
-    rows: Vec<(String, bool, u64)>,
+    rows: Vec<DirectoryEntry>,
     scroll: UniformListScrollHandle,
     focus: FocusHandle,
     selected: Option<usize>,
@@ -21,40 +23,16 @@ pub(super) struct ArchiveReader {
 }
 impl ArchiveReader {
     pub fn new(archive: Archive, cx: &mut Context<Self>) -> Self {
-        let mut view = Self {
+        let rows = archive.directory_entries("");
+        Self {
             focus: cx.focus_handle(),
             selected: None,
             extract: None,
             archive,
             prefix: String::new(),
-            rows: Vec::new(),
+            rows,
             scroll: UniformListScrollHandle::new(),
-        };
-        view.rebuild();
-        view
-    }
-    fn rebuild(&mut self) {
-        let mut rows = BTreeMap::new();
-        for entry in &self.archive.entries {
-            if entry.name.starts_with("__MACOSX/") {
-                continue;
-            }
-            let Some(tail) = entry.name.strip_prefix(&self.prefix) else {
-                continue;
-            };
-            if tail.is_empty() {
-                continue;
-            }
-            let name = tail.split('/').next().unwrap_or_default();
-            let directory = tail.contains('/') || entry.directory;
-            let row = rows.entry(name.to_owned()).or_insert((directory, 0u64));
-            row.1 = row.1.saturating_add(entry.size);
         }
-        self.rows = rows
-            .into_iter()
-            .map(|(name, (dir, size))| (name, dir, size))
-            .collect();
-        self.rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     }
 }
 fn bytes(n: u64) -> String {
@@ -70,7 +48,7 @@ impl ArchiveReader {
     fn navigate(&mut self, prefix: String, cx: &mut Context<Self>) {
         self.prefix = prefix;
         self.selected = None;
-        self.rebuild();
+        self.rows = self.archive.directory_entries(&self.prefix);
         self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         cx.notify();
     }
@@ -156,10 +134,10 @@ impl Render for ArchiveReader {
                         cx.notify();
                     }
                     "enter" | "right" => {
-                        if let Some((name, true, _)) =
-                            v.selected.and_then(|i| v.rows.get(i)).cloned()
+                        if let Some(row) = v.selected.and_then(|i| v.rows.get(i))
+                            && row.directory
                         {
-                            v.navigate(format!("{}{name}/", v.prefix), cx);
+                            v.navigate(format!("{}{}/", v.prefix, row.name), cx);
                         }
                     }
                     "backspace" | "left" if !v.prefix.is_empty() => v.up(cx),
@@ -206,7 +184,7 @@ impl Render for ArchiveReader {
                                     .child(format!(
                                         "{} · {} {} · {}",
                                         self.archive.format,
-                                        self.archive.entries.len(),
+                                        self.archive.entries().len(),
                                         tr("Archive entries"),
                                         bytes(self.archive.bytes)
                                     )),
@@ -270,7 +248,11 @@ impl Render for ArchiveReader {
                     cx.processor(|v, range: std::ops::Range<usize>, _, cx| {
                         range
                             .map(|i| {
-                                let (name, dir, size) = v.rows[i].clone();
+                                let DirectoryEntry {
+                                    name,
+                                    directory: dir,
+                                    bytes: size,
+                                } = v.rows[i].clone();
                                 h_flex()
                                     .id(i)
                                     .w_full()

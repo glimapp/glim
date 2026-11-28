@@ -42,9 +42,9 @@
 
 ### 增量处理与性能证据
 
-- [ ] **P1：剩余全量扫描、克隆与布局。** 缩略图增量路径已实现。Markdown 局部重解析仍克隆块集合、复制源文本并修正后续源码范围，结构性编辑保留完整解析；压缩包切换目录仍在界面侧遍历全部条目并重建列表。单个大排版块的成本也需测量。
+- [ ] **P1：剩余全量扫描、克隆与布局。** 缩略图增量路径已实现。Markdown 局部重解析仍克隆块集合、复制源文本并修正后续源码范围。结构性编辑使用完整解析。压缩包目录聚合只扫描对应子树，仍同步执行。测量大子树和单个大排版块的成本。
   - 完成条件：先测量再减少这些路径的重复工作，必要时引入索引或后台准备；扩展增量范围时与完整解析对照，保留引用、列表、围栏、扩展节点及源码映射语义。报告规模、修改位置和延迟分位数。
-  - 入口：[Markdown 增量实现](../vendor/gpui-base/src/text/format/markdown/edit.rs)、[排版](../vendor/gpui-base/src/text/text_view.rs)、[压缩包列表](../crates/glim-app/src/views/reader/archive.rs)、[Markdown 基准](../crates/glim-app/benches/markdown_edit.rs)、[缩略图基准](../crates/glim-app/benches/minimap_edit.rs)。
+  - 入口：[Markdown 增量实现](../vendor/gpui-base/src/text/format/markdown/edit.rs)、[排版](../vendor/gpui-base/src/text/text_view.rs)、[压缩包列表](../crates/glim-services/src/archive.rs)、[Markdown 基准](../crates/glim-app/benches/markdown_edit.rs)、[缩略图基准](../crates/glim-app/benches/minimap_edit.rs)。
 - [ ] **P2：端到端阅读器测量。** 已有解析、像素、结构树等局部基准，以及源码阅读器真实窗口输入／滚动脚本；尚不能据此覆盖工作区保存协调、分页、异步文档／数据预览、书籍、图表和原生阅读器的完整路径。
   - 完成条件：分别记录首个可读内容、首屏、输入／滚动阻塞及排队／准备耗时，检测真实内容就绪；保留固定夹具、机器／工具链／源码信息和前后原始样本。测量产物放在仓库外。
   - 入口：[真实窗口脚本](../scripts/measure-source-reader.py)、[测量装配](../crates/glim-app/src/app/reader_measurement.rs)、[测量范围](reader-resources.zh-CN.md)。

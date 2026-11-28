@@ -45,7 +45,7 @@ pub fn run() -> Result<()> {
         (Some("hex"), [input]) => print!("{}", binary::read_preview(Path::new(input))?.text),
         (Some("archive"), [input]) => {
             let listing = archive::read(Path::new(input), &Cancellation::default())?;
-            serde_json::to_writer(std::io::stdout().lock(), &listing.entries)?;
+            serde_json::to_writer(std::io::stdout().lock(), listing.entries())?;
             println!();
         }
         (Some("extract"), [input, parent]) => {
