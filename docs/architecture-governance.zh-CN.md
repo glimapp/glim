@@ -46,6 +46,36 @@ flowchart LR
 | 离线图表、日志与遥测 | 内嵌图表资源通过 WebKit 辅助进程运行。日志保存在本地，遥测通过队列使用 Aptabase | [图表资源](../assets/markdown/README.md)、[本地日志](../crates/glim-services/src/diagnostics.rs)和[遥测政策](telemetry.zh-CN.md)各自声明输入与输出 |
 | 原生 Cargo、Swift、Python 与 Sparkle | Rust 工作区及生成脚本编译，Swift 提供静态库，签名与 Sparkle 由 macOS 打包流程处理 | [构建与发布](releasing.zh-CN.md)及[更新实现](auto-update-design.zh-CN.md)约束版本映射、签名和双架构产物 |
 
+## 公理设计分析
+
+先分析文档工作区的一轮完整使用。按独立公理，以用户可观察的功能为 FR，以当前能改变该功能的实现决策为 DP。同一编号是主要对应关系。`X` 表示源码证实该 DP 直接约束行功能的结果或可用性，`·` 表示在这组需求及入口下未纳入直接影响。该矩阵基于调用路径的定性判断。macOS 双架构、数据兼容和文件大小策略是约束。SSH 连接、设置与集成、更新和诊断仍有各自的功能需求，下面的矩阵只包含文档工作流。
+
+| 行 | 功能需求 FR | 列 | 设计参数 DP |
+| --- | --- | --- | --- |
+| FR1 | 打开、切换、关闭和跨窗口移动文档，保护未保存内容 | DP1 | 工作区拥有标签、活动选择和移动编排 |
+| FR2 | 在恰当的阅读器查看文档并切换原文与预览 | DP2 | 阅读器装配、视图生命周期和显示模式 |
+| FR3 | 编辑 UTF-8 文本、撤销、保存并处理写回冲突 | DP3 | 编辑会话、保存协调及写回版本契约 |
+| FR4 | 查找文件和内容，并定位到命中处 | DP4 | 工作区搜索、文档查找及结果导航 |
+| FR5 | 重启后恢复本地工作区、标签和阅读模式 | DP5 | 工作区会话快照、串行写入和恢复调度 |
+| FR6 | 将当前 Markdown 导出为 HTML 或 PDF | DP6 | Markdown 导出服务及资源封装 |
+
+| FR ∖ DP | DP1 | DP2 | DP3 | DP4 | DP5 | DP6 |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: |
+| FR1 | X | X | X | · | X | · |
+| FR2 | X | X | X | · | · | · |
+| FR3 | X | X | X | · | · | · |
+| FR4 | X | X | X | X | · | · |
+| FR5 | X | X | X | · | X | · |
+| FR6 | X | X | X | · | · | X |
+
+- `FR1 × DP2` 来自标签移动前的阅读器能力检查。`FR1 × DP3` 来自写入进行中的移动阻塞和关闭时的未保存保护。会话恢复期间也会阻止移动，因此 `FR1 × DP5` 非零。[标签生命周期](../crates/glim-app/src/views/workspace/tabs.rs) · [恢复会话](../crates/glim-app/src/views/workspace/session.rs)
+- `FR2 × DP1` 来自活动页对阅读器的激活与隐藏。`FR2 × DP3` 来自脏分页打开预览前的保存门槛。`FR3 × DP1` 来自工作区选择的活动编辑器和各工作区保存队列。`FR3 × DP2` 源于分页视图是否构造可编辑原文。[工作区呈现](../crates/glim-app/src/views/workspace/render.rs) · [预览切换](../crates/glim-app/src/views/reader/text.rs) · [保存协调](../crates/glim-app/src/views/workspace/editing.rs) · [分页阅读器](../crates/glim-app/src/views/reader/paged.rs)
+- 查找结果通过工作区打开目标，依阅读器类型切换到原文或文档内查找，并在编辑器或分页视图中定位。会话快照从工作区与阅读器读取活动项和显示模式。首次保存会将草稿转换为可恢复的文件标签。GUI 导出受活动标签、预览能力与当前编辑文本共同控制，CLI 从文档路径取得输入。[搜索跳转](../crates/glim-app/src/views/workspace/search.rs) · [会话快照](../crates/glim-app/src/views/workspace/session.rs) · [首次保存](../crates/glim-app/src/views/reader/editing.rs) · [导出动作](../crates/glim-app/src/views/workspace/reader_actions.rs)
+
+矩阵存在上三角项。`FR1 × DP3` 与 `FR3 × DP1` 双向非零。只要保留 FR 与主 DP 的匹配，交换编号也无法把这个子块排成下三角。现阶段仍是耦合设计。独立公理的改进方向是让文档会话公开保存与迁移所需的窄契约，工作区继续编排用户操作，阅读器继续拥有显示资源。关闭前的脏状态保护属于真实需求，矩阵应持续保留这项影响。信息公理需要各需求的验收区间和完成概率，目前缺少实机及压力数据，暂不计算信息量。
+
+Markdown 图表子问题已完成一次迁移。预览和导出共享图表与公式识别，以及表格修复使用的 AST 预处理。预览的原文选择与回写由 TextView 管理，导出的事件和资源由独立流水线管理。共享样例验证了两条链产生的图表数据及导出事件，尚缺实际预览像素与 PDF 输出的对照。可以沿这一边界继续减少重复规则，无需据此推断完整 Markdown 流程已经解耦。
+
 ## 架构决策
 
 - **搜索根目录属于工作区服务。** 本地文件名、内容搜索及 SSH 对应入口均按路径组件排序、去重和移除被父目录覆盖的子根。路径归一不需要接触磁盘或远端。缓存键的旧字节契约由固定摘要的测试覆盖。
