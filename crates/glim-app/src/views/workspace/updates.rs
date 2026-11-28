@@ -1,13 +1,15 @@
 use super::Workspace;
 use crate::app::reader_jobs::{self, JobClass, Priority};
+use crate::views::reader::{Reader, RefreshVersion};
 use glim_services::watch::{Changes, WorkspaceWatch};
+use glim_services::{documents::Content, remote::Session};
 use gpui_kit::*;
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 impl Workspace {
-    pub(super) fn refresh_failure_handler(
+    fn refresh_failure_handler(
         &self,
-        version: crate::views::reader::RefreshVersion,
+        version: RefreshVersion,
         cx: &Context<Self>,
     ) -> crate::views::reader::RefreshFailureHandler {
         let workspace = cx.entity().downgrade();
@@ -27,6 +29,57 @@ impl Workspace {
                 }
             });
         })
+    }
+
+    pub(super) fn apply_watched_content(
+        &mut self,
+        index: usize,
+        version: RefreshVersion,
+        content: Content,
+        remote: Option<(&Session, PathBuf)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let local = remote.is_none();
+        if local {
+            self.tabs[index].document.source_missing = false;
+        }
+        if !self.tabs[index].document.needs_relocation_reload {
+            let on_failure = self.refresh_failure_handler(version, cx);
+            let previous = &self.tabs[index];
+            if previous.refresh_in_place(&content, on_failure, cx) {
+                if let Some((session, path)) = remote {
+                    self.tabs[index].document.remote_version = session.loaded_version(&path);
+                    cx.notify();
+                }
+                return;
+            }
+            if local
+                && content.matches_snapshot(&previous.document.snapshot)
+                && !previous.is_unavailable()
+            {
+                return;
+            }
+        }
+
+        let mut reader = Reader::from_content(content, window, cx);
+        reader.inherit_view(&self.tabs[index], cx);
+        if let Some((session, path)) = remote {
+            reader.set_remote(session.clone(), path, cx);
+        }
+        reader.set_word_wrap(self.word_wrap, window, cx);
+        if local {
+            reader.set_editing_locked(self.editing_locked, cx);
+        } else if self.active != Some(index) {
+            reader.deactivate(cx);
+        }
+        self.tabs[index].deactivate(cx);
+        if local && self.active == Some(index) && self.is_visible_workspace(cx) {
+            reader.activate(cx);
+        }
+        self.tabs[index] = reader;
+        self.observe_autosave(window, cx);
+        cx.notify();
     }
 
     pub(super) fn start_watching(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -216,30 +269,7 @@ impl Workspace {
                                 return;
                             }
                         };
-                        view.tabs[index].document.source_missing = false;
-                        if !view.tabs[index].document.needs_relocation_reload {
-                            let on_failure = view.refresh_failure_handler(version, cx);
-                            if view.tabs[index].refresh_in_place(&content, on_failure, cx) {
-                                return;
-                            }
-                            if content.matches_snapshot(&view.tabs[index].document.snapshot)
-                                && !view.tabs[index].is_unavailable()
-                            {
-                                return;
-                            }
-                        }
-                        let mut reader =
-                            crate::views::reader::Reader::from_content(content, window, cx);
-                        reader.inherit_view(&view.tabs[index], cx);
-                        reader.set_word_wrap(view.word_wrap, window, cx);
-                        reader.set_editing_locked(view.editing_locked, cx);
-                        view.tabs[index].deactivate(cx);
-                        if view.active == Some(index) && view.is_visible_workspace(cx) {
-                            reader.activate(cx);
-                        }
-                        view.tabs[index] = reader;
-                        view.observe_autosave(window, cx);
-                        cx.notify();
+                        view.apply_watched_content(index, version, content, None, window, cx);
                     })
                     .is_err()
                 {

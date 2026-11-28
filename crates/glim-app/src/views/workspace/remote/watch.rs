@@ -116,30 +116,14 @@ impl Workspace {
                             }
                             match result {
                                 Ok(Some(content)) => {
-                                    if !view.tabs[index].document.needs_relocation_reload {
-                                        let on_failure = view.refresh_failure_handler(version, cx);
-                                        if view.tabs[index]
-                                            .refresh_in_place(&content, on_failure, cx)
-                                        {
-                                            view.tabs[index].document.remote_version =
-                                                session.loaded_version(&path);
-                                            cx.notify();
-                                            return;
-                                        }
-                                    }
-                                    let mut reader = crate::views::reader::Reader::from_content(
-                                        content, window, cx,
+                                    view.apply_watched_content(
+                                        index,
+                                        version,
+                                        content,
+                                        Some((&session, path)),
+                                        window,
+                                        cx,
                                     );
-                                    reader.inherit_view(&view.tabs[index], cx);
-                                    reader.set_remote(session.clone(), path, cx);
-                                    reader.set_word_wrap(view.word_wrap, window, cx);
-                                    if view.active != Some(index) {
-                                        reader.deactivate(cx);
-                                    }
-                                    view.tabs[index].deactivate(cx);
-                                    view.tabs[index] = reader;
-                                    view.observe_autosave(window, cx);
-                                    cx.notify();
                                 }
                                 Ok(None) => {}
                                 Err(error) => {
