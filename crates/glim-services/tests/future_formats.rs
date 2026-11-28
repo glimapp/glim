@@ -28,6 +28,11 @@ fn documents_and_structured_data_keep_source_separate() {
     let preview = text_formats::markdown(std::path::Path::new("test.adoc"), source);
     assert!(preview.starts_with("# 标题"));
     assert!(preview.contains("```\nprint('test')\n```"));
+    let rst = "中文标题\r\n============\r\n\r\nBody without a final newline";
+    assert_eq!(
+        text_formats::markdown(std::path::Path::new("test.RST"), rst),
+        "## 中文标题\n\nBody without a final newline\n"
+    );
     assert!(glim_services::json::parse_format("{name:'demo',hex:0x10,}", "json5").is_ok());
     let nodes = glim_services::json::parse_format("{\"a\":1}\n{\"a\":2}\n", "ndjson").unwrap();
     assert_eq!(nodes[0].children.len(), 2);

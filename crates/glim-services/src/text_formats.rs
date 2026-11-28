@@ -28,11 +28,20 @@ pub fn markdown(path: &Path, text: &str) -> String {
         );
         return format!("{fence}{kind}\n{text}\n{fence}\n");
     }
+    if matches!(ext.as_str(), "gpx" | "kml") {
+        // XML is shown literally, never as active HTML or a remote map.
+        return format!(
+            "# {}\n\n{}\n\n{}\n\n```xml\n{text}\n```\n",
+            ext.to_uppercase(),
+            crate::locale::tr("Geographic data · Offline coordinate preview"),
+            coordinates(text)
+        );
+    }
     let mut output = String::new();
-    let lines: Vec<_> = text.lines().collect();
+    let mut lines = text.lines().peekable();
     let mut code = false;
-    for (index, line) in lines.iter().enumerate() {
-        if ext == "adoc" && matches!(*line, "----" | "....") {
+    while let Some(line) = lines.next() {
+        if ext == "adoc" && matches!(line, "----" | "....") {
             code = !code;
             output.push_str("```\n");
         } else if code {
@@ -60,7 +69,7 @@ pub fn markdown(path: &Path, text: &str) -> String {
                 output.push('\n');
             }
         } else if ext == "rst"
-            && lines.get(index + 1).is_some_and(|next| {
+            && lines.peek().is_some_and(|next| {
                 next.len() >= line.len()
                     && !line.is_empty()
                     && next.chars().all(|c| c == '=' || c == '-')
@@ -77,15 +86,6 @@ pub fn markdown(path: &Path, text: &str) -> String {
     }
     if code {
         output.push_str("```\n");
-    }
-    if matches!(ext.as_str(), "gpx" | "kml") {
-        // XML is shown literally, never as active HTML or a remote map.
-        output = format!(
-            "# {}\n\n{}\n\n{}\n\n```xml\n{text}\n```\n",
-            ext.to_uppercase(),
-            crate::locale::tr("Geographic data · Offline coordinate preview"),
-            coordinates(text)
-        );
     }
     output
 }

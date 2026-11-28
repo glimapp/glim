@@ -37,6 +37,8 @@ jobs:
         run: cargo test --locked -p glim-services --lib drafts::tests
       - name: Verify ebook preparation contracts
         run: cargo test --locked -p glim-services --lib books::tests
+      - name: Verify converted document and structured data semantics
+        run: cargo test --locked -p glim-services --test future_formats documents_and_structured_data_keep_source_separate -- --exact
       - name: Verify JSON formatting preserves source tokens
         run: cargo test --locked -p glim-services --test reader_session_regressions formatting_preserves_duplicate_keys_and_numeric_spelling -- --exact
       - name: Verify UTF-8 reading across input buffers
