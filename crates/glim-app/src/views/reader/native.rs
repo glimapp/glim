@@ -286,7 +286,7 @@ impl NativeReader {
         true
     }
 
-    pub fn image_stamp(&self) -> Option<(u64, Option<std::time::SystemTime>)> {
+    pub fn image_stamp(&self) -> Option<glim_services::media::ImageSourceStamp> {
         self.prepared
             .as_ref()
             .and_then(|prepared| prepared.image_stamp)

@@ -102,7 +102,7 @@ fn playlist(path: &Path, folder: bool, cancel: &crate::work::Cancellation) -> Re
 
 pub struct PreparedPreview {
     _memory: crate::resources::ResourceLease,
-    pub image_stamp: Option<(u64, Option<std::time::SystemTime>)>,
+    pub image_stamp: Option<crate::media::ImageSourceStamp>,
     pub configuration: Vec<u8>,
     // The native SQLite view must close before its private snapshot is removed.
     _spreadsheet: Option<crate::spreadsheet::Spreadsheet>,
@@ -139,8 +139,7 @@ pub fn prepare_cancellable(
     cancel: &crate::work::Cancellation,
 ) -> Result<PreparedPreview> {
     let image_stamp = if !folder && is_image(path) {
-        let metadata = std::fs::metadata(path)?;
-        Some((metadata.len(), metadata.modified().ok()))
+        Some(crate::media::ImageSourceStamp::read(path)?)
     } else {
         None
     };

@@ -1,6 +1,7 @@
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use glim_services::documents::{ReadFailure, ReadFailureKind};
 use glim_services::limits as reader_limits;
+use glim_services::media::ImageSourceStamp;
 use gpui_kit::base::Disableable;
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::prelude::FluentBuilder;
@@ -278,7 +279,7 @@ pub(super) struct InlineImageReader {
     active: bool,
     task: Option<Task<()>>,
     refresh_task: Option<Task<()>>,
-    file_stamp: Option<(u64, Option<std::time::SystemTime>)>,
+    file_stamp: Option<ImageSourceStamp>,
 }
 
 impl InlineImageReader {
@@ -348,11 +349,9 @@ impl InlineImageReader {
         let Ok(path) = self.url.to_file_path() else {
             return;
         };
-        let work = cx.background_executor().spawn(async move {
-            std::fs::metadata(path)
-                .ok()
-                .map(|m| (m.len(), m.modified().ok()))
-        });
+        let work = cx
+            .background_executor()
+            .spawn(async move { ImageSourceStamp::read(&path).ok() });
         self.refresh_task = Some(cx.spawn(async move |view, cx| {
             let stamp = work.await;
             let _ = view.update(cx, |view, cx| {
@@ -376,8 +375,7 @@ impl InlineImageReader {
                 let stamp = url
                     .to_file_path()
                     .ok()
-                    .and_then(|path| std::fs::metadata(path).ok())
-                    .map(|m| (m.len(), m.modified().ok()));
+                    .and_then(|path| ImageSourceStamp::read(&path).ok());
                 let frame = match url.scheme() {
                     "file" => glim_services::inline_images::from_file_cancellable(
                         &url.to_file_path()

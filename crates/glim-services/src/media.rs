@@ -4,8 +4,9 @@ mod raster;
 use anyhow::{Context, Result, ensure};
 pub use raster::{RasterFrame, decode_png};
 use std::{
-    io::{Cursor, Read},
+    io::{self, Cursor, Read},
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 // Two lookahead batches and the displayed frame, plus canvas and restore.
@@ -18,30 +19,47 @@ pub struct ImageDocument {
     pub gif: bool,
     pub pages: Vec<Vec<u8>>,
 }
+
+/// A cheap change indicator for image previews, using source length and mtime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImageSourceStamp {
+    length: u64,
+    modified: Option<SystemTime>,
+}
+
+impl ImageSourceStamp {
+    pub fn read(path: &Path) -> io::Result<Self> {
+        let metadata = std::fs::metadata(path)?;
+        Ok(Self {
+            length: metadata.len(),
+            modified: metadata.modified().ok(),
+        })
+    }
+}
+
 pub fn supports(path: &Path) -> bool {
     glim_core::formats::FormatSet::Image.matches(path)
 }
 pub fn read_image(path: &Path) -> Result<ImageDocument> {
+    let stamp = ImageSourceStamp::read(path)?;
     if path
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("gif"))
     {
-        let stamp = std::fs::metadata(path)?;
         GifPlayback::from_file(path.to_path_buf())?;
         return Ok(ImageDocument {
             path: std::path::absolute(path)?,
             png: Vec::new(),
-            fingerprint: format!("gif:{}:{:?}", stamp.len(), stamp.modified().ok()),
+            fingerprint: format!("gif:{}:{:?}", stamp.length, stamp.modified),
             gif: true,
             pages: Vec::new(),
         });
     }
-    let stamp = std::fs::metadata(path)?;
     let png = crate::inline_images::thumbnail_png(path, reader_limits::IMAGE_PREVIEW_EDGE)?;
     Ok(ImageDocument {
         path: std::path::absolute(path)?,
         png,
-        fingerprint: format!("image:{}:{:?}", stamp.len(), stamp.modified().ok()),
+        fingerprint: format!("image:{}:{:?}", stamp.length, stamp.modified),
         gif: false,
         pages: Vec::new(),
     })
