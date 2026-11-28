@@ -21,3 +21,13 @@ jobs:
           scripts/test-native-preview.sh --request-contract-only
       - name: Verify Markdown preview and export semantics
         run: cargo test --locked -p glim-services --lib markdown_export::tests
+      - name: Verify archive and image refresh contracts
+        run: |
+          cargo test --locked -p glim-services --lib archive::tests::directory_listing_preserves_sizes_visibility_and_order -- --exact
+          cargo test --locked -p glim-services --lib documents::refresh::tests
+      - name: Verify cache compatibility and reader memory ownership
+        run: |
+          cargo test --locked -p glim-services --lib storage::cache::tests
+          cargo test --locked -p glim-services --lib markdown_preview::disk_cache::tests
+          cargo test --locked -p glim-services --lib resources::tests
+          cargo test --locked -p glim-services --lib media::raster::tests
