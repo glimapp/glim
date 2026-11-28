@@ -1,9 +1,15 @@
 import Foundation
 import CoreGraphics
 
-// ID 0 creates a working-buffer lease; a nonzero ID releases it. No pointers
-// cross this boundary, and registration is independent of telemetry consent.
-typealias ReaderResourceCallback = @convention(c) (UInt64, UInt64, Bool) -> UInt64
+// Numeric handles stay with their Swift owners across queue handoffs.
+typealias ReaderResourceCallback = @convention(c) (Int32, UInt64, UInt64) -> UInt64
+
+enum ReaderResourceOperation: Int32 {
+    case track = 0
+    case reserve = 1
+    case resize = 2
+    case release = 3
+}
 
 private enum ReaderResources {
     static let lock = NSLock()
@@ -27,17 +33,21 @@ final class NativeResourceLease {
 
     init(bytes: UInt64) {
         callback = ReaderResources.registeredCallback()
-        id = callback?(0, bytes, false) ?? 0
+        id = callback?(ReaderResourceOperation.track.rawValue, 0, bytes) ?? 0
     }
 
     init?(reservingBytes bytes: UInt64) {
         callback = ReaderResources.registeredCallback()
-        id = callback?(0, bytes, true) ?? 0
+        id = callback?(ReaderResourceOperation.reserve.rawValue, 0, bytes) ?? 0
         if id == 0 { return nil }
     }
 
+    func resize(to bytes: UInt64) -> Bool {
+        id != 0 && callback?(ReaderResourceOperation.resize.rawValue, id, bytes) == id
+    }
+
     deinit {
-        if id != 0 { _ = callback?(id, 0, false) }
+        if id != 0 { _ = callback?(ReaderResourceOperation.release.rawValue, id, 0) }
     }
 }
 
@@ -53,13 +63,22 @@ final class NativeRaster {
         let row = ceil(ceil(max(1, width)) * 4 / 64) * 64
         let bytes = row * ceil(max(1, height)) * 3
         guard bytes.isFinite, bytes < Double(UInt64.max),
-              let memory = NativeResourceLease(reservingBytes: UInt64(bytes)) else { return nil }
-        return withExtendedLifetime(memory) { decode().map(NativeRaster.init) }
+              let memory = NativeResourceLease(reservingBytes: UInt64(bytes)),
+              let image = decode(), memory.resize(to: byteCount(image)) else { return nil }
+        return NativeRaster(image, lease: memory)
     }
 
-    init(_ image: CGImage) {
+    convenience init(_ image: CGImage) {
+        self.init(image, lease: NativeResourceLease(bytes: Self.byteCount(image)))
+    }
+
+    private init(_ image: CGImage, lease: NativeResourceLease) {
         self.image = image
+        self.lease = lease
+    }
+
+    private static func byteCount(_ image: CGImage) -> UInt64 {
         let (bytes, overflow) = UInt64(image.bytesPerRow).multipliedReportingOverflow(by: UInt64(image.height))
-        lease = NativeResourceLease(bytes: overflow ? UInt64.max : bytes)
+        return overflow ? UInt64.max : bytes
     }
 }

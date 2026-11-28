@@ -80,6 +80,11 @@ struct EmbeddedPreviewTests {
         precondition(reader.pdfView.document === replaced)
     }
     static func main() throws {
+        if CommandLine.arguments.contains("--contracts-only") {
+            try requestContract()
+            readerResourceOwnership()
+            return
+        }
         if CommandLine.arguments.contains("--request-contract-only") {
             try requestContract()
             return

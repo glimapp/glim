@@ -2,9 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 case "${1:-}" in
-    ""|--build-only|--toolbar-only|--pdf-controls-only|--quicklook-lifecycle-only|--request-contract-only) ;;
+    ""|--build-only|--toolbar-only|--pdf-controls-only|--quicklook-lifecycle-only|--request-contract-only|--contracts-only) ;;
     *)
-        echo 'Usage: scripts/test-native-preview.sh [--build-only|--toolbar-only|--pdf-controls-only|--quicklook-lifecycle-only|--request-contract-only]' >&2
+        echo 'Usage: scripts/test-native-preview.sh [--build-only|--toolbar-only|--pdf-controls-only|--quicklook-lifecycle-only|--request-contract-only|--contracts-only]' >&2
         exit 1
         ;;
 esac

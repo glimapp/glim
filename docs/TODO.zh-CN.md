@@ -33,7 +33,7 @@
 - [ ] **R1：剩余可控分配准入。** JSON／JSON5 的解析器值树、结构化数据转图的输入中间表示、图布局、书籍 HTML／元数据、编码预览／SVG 中间缓冲，以及 SQLite／地理解析暂存仍未完整准入。最终树／图结果已准入，不能据此推断准备峰值也受预算约束。
   - 完成条件：可控工作缓冲在分配／扩容前取得预算，计入新旧缓冲重叠；所有者跨任务与发布交接持续持有额度。逐项替换绕过准入的工作缓冲记账，保留必要的状态记账及完整源后备，不以文件大小拒绝支持的文件。
   - 入口：[JSON](../crates/glim-services/src/json.rs)、[图准备](../crates/glim-services/src/graph.rs)、[书籍](../crates/glim-services/src/books/mod.rs)、[SVG](../crates/glim-services/src/svg_preview.rs)、[SQLite](../crates/glim-services/src/sqlite/browser.rs)、[地理表格](../crates/glim-services/src/geo.rs)。
-- [ ] **R2：原生与辅助进程资源。** 原生图片、OCR 和复制已有共享所有权与租约记账；Rust 桥接仍使用 `track`，没有字节预算准入。准备／转换中间缓冲及独立辅助进程、ImageIO、WebKit、Quick Look、GPUI 图集、SQLite 引擎的覆盖仍有限。
+- [ ] **R2：原生与辅助进程资源。** 原生图片解码和 PDF 缩略图通过 Rust 桥接预留工作内存，预留随像素对象交付。部分既有数据仍在分配后记账。准备、转换中间缓冲及独立辅助进程、ImageIO、WebKit、Quick Look、GPUI 图集、SQLite 引擎的覆盖仍有限。
   - 完成条件：为可控原生工作集接入准入和可取消交付，运行中的消费者退出前不提前释放占用；配套系统内存与辅助进程观测，明确框架内存边界，不将应用记账称作进程内存硬上限。
   - 入口：[原生所有权](../native/ReaderResources.swift)、[Rust 桥接](../crates/glim-app/src/views/reader/native_bridge.rs)、[原生资源测试](../native/tests/ReaderResourcesTests.swift)。
 - [ ] **R3：跨活动阅读器的压力恢复。** 资源池已有缓存淘汰，部分阅读器隐藏时会释放工作数据；`reserve_working` 容量不足时返回可重试错误，尚未协调活动阅读器释放可重建工作缓冲并恢复请求。
@@ -51,7 +51,7 @@
 - [ ] **P3：真实缓存收益。** 进程内和磁盘缓存已实现；现有 `diagram_cache` 基准只测准备好的 PNG 查找／发布，磁盘缓存测试覆盖重开、失效、损坏、回收和取消，仍缺包含真实渲染引擎及首屏的完整收益对照。
   - 完成条件：覆盖首次打开、关闭标签再开、退出重开、滚出／返回、失效及资源压力；分别报告展示／服务／磁盘命中、未命中、等待、回收、实际避免的准备工作及首屏延迟，包含首次环境指纹初始化成本。
   - 入口：[缓存基准](../crates/glim-services/benches/diagram_cache.rs)、[磁盘缓存及测试](../crates/glim-services/src/markdown_preview/disk_cache.rs)、[展示缓存](../crates/glim-app/src/views/reader/diagrams.rs)。
-- [ ] **P4：实机运行验收。** 发布 CI 在 Apple Silicon 执行工作区测试和原生更新器检查，两种架构都构建并校验安装包；Intel 实机交互、完整 UI 回归、多窗口和资源压力不由这些检查证明。
+- [ ] **P4：实机运行验收。** 架构 CI 执行定向服务和原生契约测试，打包工作流构建并校验两种架构的安装包。Intel 交互、完整 UI、多窗口和资源压力仍须实机验收。
   - 完成条件：按下方场景执行相关自动回归及 Apple Silicon／Intel 实机操作，记录实际覆盖；未执行或未通过的场景继续保留。
   - 入口：[发布 CI](../.github/workflows/ci.yml)、[原生预览检查](../scripts/test-native-preview.sh)、[隔离安装回归](../scripts/test-updater-install.py)。
 

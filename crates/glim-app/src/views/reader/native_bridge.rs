@@ -8,15 +8,20 @@ use std::{ffi::c_void, marker::PhantomData, ptr::NonNull, rc::Rc};
 
 // Native owners retain numeric handles, never Rust pointers. The registry may
 // be called by decode/OCR workers as well as the main-thread preview controller.
-extern "C" fn reader_resource(id: u64, bytes: u64, admit: bool) -> u64 {
+extern "C" fn reader_resource(operation: i32, id: u64, bytes: u64) -> u64 {
     use glim_services::resources::{self, ResourceClass, ResourceLease, WorkingReservation};
     use std::{
         collections::HashMap,
         sync::{Mutex, OnceLock},
     };
+    // Keep these operation codes in sync with ReaderResourceOperation in Swift.
+    const TRACK: i32 = 0;
+    const RESERVE: i32 = 1;
+    const RESIZE: i32 = 2;
+    const RELEASE: i32 = 3;
     enum NativeResource {
         Tracked { _lease: ResourceLease },
-        Admitted { _reservation: WorkingReservation },
+        Admitted(WorkingReservation),
     }
     struct Registry {
         next: u64,
@@ -32,24 +37,38 @@ extern "C" fn reader_resource(id: u64, bytes: u64, admit: bool) -> u64 {
         })
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    if id != 0 {
+    if operation == RELEASE {
         registry.leases.remove(&id);
+        return 0;
+    }
+    if operation == RESIZE {
+        let Some(NativeResource::Admitted(reservation)) = registry.leases.get_mut(&id) else {
+            return 0;
+        };
+        if bytes <= reservation.bytes() {
+            reservation.shrink_to(bytes);
+        } else if reservation.try_grow_to(bytes).is_err() {
+            return 0;
+        }
+        return id;
+    }
+    if id != 0 {
         return 0;
     }
     let Some(id) = registry.next.checked_add(1) else {
         return 0;
     };
-    let resource = if admit {
-        let Ok(reservation) = resources::pool().reserve_working(bytes, bytes) else {
-            return 0;
-        };
-        NativeResource::Admitted {
-            _reservation: reservation,
-        }
-    } else {
-        NativeResource::Tracked {
+    let resource = match operation {
+        TRACK => NativeResource::Tracked {
             _lease: resources::pool().track(bytes, ResourceClass::Working),
+        },
+        RESERVE => {
+            let Ok(reservation) = resources::pool().reserve_working(bytes, bytes) else {
+                return 0;
+            };
+            NativeResource::Admitted(reservation)
         }
+        _ => return 0,
     };
     registry.next = id;
     registry.leases.insert(id, resource);
@@ -232,7 +251,7 @@ extern "C" fn pdf_reload_complete(context: *mut c_void, status: i32) {
 
 unsafe extern "C" {
     fn glim_begin_native_preview_shutdown();
-    fn glim_set_reader_resources(callback: Option<extern "C" fn(u64, u64, bool) -> u64>);
+    fn glim_set_reader_resources(callback: Option<extern "C" fn(i32, u64, u64) -> u64>);
     fn glim_set_telemetry_consent(usage: i32, diagnostics: i32);
     fn glim_set_reader_telemetry(
         callback: Option<extern "C" fn(i32, i32, i32, i32, u64, u64, u64, u64)>,

@@ -15,10 +15,10 @@ jobs:
         run: |
           python3 scripts/check-architecture.py
           python3 scripts/check-locales.py
-      - name: Verify the native preview request contract
+      - name: Verify the native preview request and resource contracts
         run: |
           cargo test --locked -p glim-services --lib preview::request::tests::rust_encoding_matches_the_swift_contract_fixtures -- --exact
-          scripts/test-native-preview.sh --request-contract-only
+          scripts/test-native-preview.sh --contracts-only
       - name: Verify Markdown preview and export semantics
         run: cargo test --locked -p glim-services --lib markdown_export::tests
       - name: Verify archive and image refresh contracts
