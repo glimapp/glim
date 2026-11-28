@@ -8,9 +8,6 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use glim_core::{Document, DocumentKind};
 
-/// Compatibility value for the shared full-text policy; memory admission controls loading.
-pub const MAX_DOCUMENT_BYTES: u64 = reader_limits::TEXT_EDITABLE_BYTES;
-
 pub(crate) static SAVE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// A destination snapshot captured after the native save panel confirmed its
@@ -574,16 +571,22 @@ mod tests {
     fn rejects_unsupported_input() -> Result<()> {
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("input");
-        for content in [
-            vec![0, 1, 2],
-            vec![0xff],
-            vec![b'x'; MAX_DOCUMENT_BYTES as usize + 1],
-        ] {
+        for content in [[0, 1, 2].as_slice(), &[0xff]] {
             fs::write(&path, content)?;
             assert!(read_document(&path).is_err());
         }
         assert!(read_document(directory.path()).is_err());
         assert!(read_document(&directory.path().join("missing")).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn full_text_read_preserves_a_utf8_character_across_input_buffers() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("long.txt");
+        let content = "x".repeat(reader_limits::IO_BUFFER_BYTES - 1) + "界\ntail";
+        fs::write(&path, &content)?;
+        assert_eq!(read_document(&path)?.text, content);
         Ok(())
     }
 }
