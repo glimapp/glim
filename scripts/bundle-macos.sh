@@ -38,8 +38,14 @@ if [[ -n "$build_target" ]]; then
     target_dir="$target_dir/$build_target"
 fi
 bundle_dir="${GLIM_BUNDLE_DIR:-${GLIMPSE_BUNDLE_DIR:-$PWD/dist/Glim.app}}"
+# The app and helper are signed independently. Clone their executable data
+# when the filesystem supports it to leave room for signing's temporary files.
+copy_executable() {
+    /bin/cp -cf "$target_dir/$build_profile/glim" "$1" 2>/dev/null ||
+        /bin/cp -f "$target_dir/$build_profile/glim" "$1"
+}
 mkdir -p "$bundle_dir/Contents/MacOS" "$bundle_dir/Contents/Resources"
-cp "$target_dir/$build_profile/glim" "$bundle_dir/Contents/MacOS/glim"
+copy_executable "$bundle_dir/Contents/MacOS/glim"
 install -m 755 scripts/glim "$bundle_dir/Contents/Resources/glim"
 mkdir -p "$bundle_dir/Contents/Resources/skills/glim"
 install -m 644 skills/glim/SKILL.md "$bundle_dir/Contents/Resources/skills/glim/SKILL.md"
@@ -47,7 +53,7 @@ cp assets/macos/Glim.icns "$bundle_dir/Contents/Resources/Glim.icns"
 cp assets/macos/Info.plist "$bundle_dir/Contents/Info.plist"
 renderer_dir="$bundle_dir/Contents/Helpers/GlimRenderer.app"
 mkdir -p "$renderer_dir/Contents/MacOS"
-cp "$target_dir/$build_profile/glim" "$renderer_dir/Contents/MacOS/glim-renderer"
+copy_executable "$renderer_dir/Contents/MacOS/glim-renderer"
 cp assets/macos/RendererInfo.plist "$renderer_dir/Contents/Info.plist"
 if [[ "${GLIM_ENABLE_UPDATER:-0}" == 1 ]]; then
     mkdir -p "$bundle_dir/Contents/Frameworks"
