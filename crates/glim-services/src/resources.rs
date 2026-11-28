@@ -84,17 +84,25 @@ pub(crate) fn reserve_parser_with_pool(
 
 /// Read the whole input when it fits, reserving vector growth before allocation.
 pub fn read_to_end(
-    mut input: impl Read,
+    input: impl Read,
     cancel: &crate::work::Cancellation,
 ) -> anyhow::Result<Vec<u8>> {
-    read_to_end_with_pool(&mut input, cancel, pool())
+    read_reserved(input, cancel).map(|(bytes, _)| bytes)
+}
+
+/// Keep the working reservation while a parser or other consumer holds the bytes.
+pub(crate) fn read_reserved(
+    input: impl Read,
+    cancel: &crate::work::Cancellation,
+) -> anyhow::Result<(Vec<u8>, WorkingReservation)> {
+    read_to_end_with_pool(input, cancel, pool())
 }
 
 fn read_to_end_with_pool(
     mut input: impl Read,
     cancel: &crate::work::Cancellation,
     pool: &ResourcePool,
-) -> anyhow::Result<Vec<u8>> {
+) -> anyhow::Result<(Vec<u8>, WorkingReservation)> {
     let mut reservation = pool.reserve_working(0, 0)?;
     let mut bytes = Vec::new();
     let mut buffer = vec![0; crate::limits::IO_BUFFER_BYTES];
@@ -126,7 +134,7 @@ fn read_to_end_with_pool(
         }
         bytes.extend_from_slice(&buffer[..count]);
     }
-    Ok(bytes)
+    Ok((bytes, reservation))
 }
 
 pub fn pool() -> &'static ResourcePool {
@@ -148,17 +156,15 @@ mod tests {
         let bytes = vec![b'x'; crate::limits::IO_BUFFER_BYTES + 1];
         let cancel = crate::work::Cancellation::default();
         let small = ResourcePool::with_budgets(0, crate::limits::IO_BUFFER_BYTES as u64);
-        assert!(
-            read_to_end_with_pool(bytes.as_slice(), &cancel, &small)
-                .unwrap_err()
-                .is::<WorkingPressure>()
-        );
+        let failure = read_to_end_with_pool(bytes.as_slice(), &cancel, &small);
+        assert!(matches!(failure, Err(error) if error.is::<WorkingPressure>()));
         assert_eq!(small.snapshot().working_bytes, 0);
         let enough = ResourcePool::new(0);
-        assert_eq!(
-            read_to_end_with_pool(bytes.as_slice(), &cancel, &enough).unwrap(),
-            bytes
-        );
+        let (read, reservation) =
+            read_to_end_with_pool(bytes.as_slice(), &cancel, &enough).unwrap();
+        assert_eq!(read, bytes);
+        assert_eq!(enough.snapshot().working_bytes, read.capacity() as u64);
+        drop((read, reservation));
         assert_eq!(enough.snapshot().working_bytes, 0);
     }
 

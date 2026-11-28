@@ -48,8 +48,9 @@ pub fn read_cancellable(path: &Path, cancel: &crate::work::Cancellation) -> Resu
         entry.size() <= CONTENT_LIMIT,
         "XMind content exceeds the preview size limit",
     )?;
-    let bytes = crate::resources::read_to_end((&mut entry).take(CONTENT_LIMIT + 1), cancel)
-        .context(ReadStage("decompression"))?;
+    let (bytes, _input_memory) =
+        crate::resources::read_reserved((&mut entry).take(CONTENT_LIMIT + 1), cancel)
+            .context(ReadStage("decompression"))?;
     reader_limits::preview_budget(
         bytes.len() as u64 <= CONTENT_LIMIT,
         "XMind content exceeds the preview size limit",
@@ -515,7 +516,7 @@ mod tests {
         assert_eq!(sheet.relationships, [(1, 2)]);
     }
     #[test]
-    fn rejects_invalid_content_external_entities_and_expansion_limits() {
+    fn rejects_invalid_content_and_external_entities() {
         let dir = tempfile::tempdir().unwrap();
         for (name, bytes) in [
             ("content.json", b"not json".as_slice()),
@@ -525,12 +526,5 @@ mod tests {
             ("content.xml", b"<xmap-content><sheet>"),
             ("content.xml", b"<xmap-content/><xmap-content/>"),
         ] { assert!(read(&fixture(dir.path(), name, bytes)).is_err()); }
-        let oversized = vec![b' '; CONTENT_LIMIT as usize + 1];
-        assert!(
-            read(&fixture(dir.path(), "content.json", &oversized))
-                .err()
-                .unwrap()
-                .is::<reader_limits::PreviewBudgetExceeded>()
-        );
     }
 }

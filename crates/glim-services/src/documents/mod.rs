@@ -226,7 +226,10 @@ fn mind_map(path: &Path, cancel: &crate::work::Cancellation) -> anyhow::Result<C
 fn vector(path: &Path, cancel: &crate::work::Cancellation) -> anyhow::Result<Content> {
     match crate::vector_formats::read_preview(path) {
         Ok(image) => Ok(Content::Image(image)),
-        Err(error) if error.is::<reader_limits::PreviewBudgetExceeded>() => {
+        Err(error)
+            if error.is::<reader_limits::PreviewBudgetExceeded>()
+                || crate::resources::is_memory_pressure(&error) =>
+        {
             source_fallback(path, cancel, error)
         }
         Err(error) => Err(error),

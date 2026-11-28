@@ -62,7 +62,7 @@ fn decode_page(node: Node<'_, '_>, cancel: &Cancellation) -> Result<String> {
             .collect::<String>(),
     )?;
     let decoder = flate2::read::DeflateDecoder::new(compressed.as_slice());
-    let data = crate::resources::read_to_end(decoder, cancel)?;
+    let (data, _input_memory) = crate::resources::read_reserved(decoder, cancel)?;
     ensure!(
         data.len() <= limits::DRAWIO_XML_BYTES,
         "Draw.io page exceeds preview XML budget"
@@ -448,10 +448,9 @@ fn raster(svg: &str, remaining: u64) -> Result<(Vec<u8>, u64)> {
     Ok((pixmap.encode_png()?, decoded))
 }
 pub fn read(path: &Path, cancel: &Cancellation) -> Result<ImageDocument> {
-    let source = String::from_utf8(crate::resources::read_to_end(
-        std::fs::File::open(path)?,
-        cancel,
-    )?)?;
+    let (bytes, _input_memory) =
+        crate::resources::read_reserved(std::fs::File::open(path)?, cancel)?;
+    let source = String::from_utf8(bytes)?;
     let _parser_memory = crate::resources::reserve_parser(source.len())?;
     ensure!(
         source.len() <= limits::DRAWIO_XML_BYTES,

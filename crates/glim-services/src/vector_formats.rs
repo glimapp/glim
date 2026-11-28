@@ -7,7 +7,7 @@ pub fn supports(path: &Path) -> bool {
     glim_core::formats::FormatSet::Vector.matches(path)
 }
 pub fn read_preview(path: &Path) -> Result<ImageDocument> {
-    let bytes = crate::resources::read_to_end(
+    let (bytes, _input_memory) = crate::resources::read_reserved(
         std::fs::File::open(path)?,
         &crate::work::Cancellation::default(),
     )?;

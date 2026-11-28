@@ -11,18 +11,19 @@ pub fn supports(path: &Path) -> bool {
 }
 pub fn read(path: &Path, text: Option<String>, cancel: &Cancellation) -> Result<PreparedGraph> {
     cancel.check()?;
-    let text = match text {
-        Some(text) => text,
+    let (source, input_memory) = match text {
+        Some(text) => (text, None),
         None => {
             let input = crate::work::Reader {
                 inner: std::fs::File::open(path)?,
                 cancel: cancel.clone(),
             };
-            String::from_utf8(crate::resources::read_to_end(input, cancel)?)?
+            let (bytes, reservation) = crate::resources::read_reserved(input, cancel)?;
+            (String::from_utf8(bytes)?, Some(reservation))
         }
     };
     ensure!(
-        text.len() <= limits::JSON_INPUT_BYTES,
+        source.len() <= limits::JSON_INPUT_BYTES,
         "Graph input exceeds the preview budget; use Source."
     );
     let format = path
@@ -30,7 +31,7 @@ pub fn read(path: &Path, text: Option<String>, cancel: &Cancellation) -> Result<
         .and_then(|s| s.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
-    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let text = source.strip_prefix('\u{feff}').unwrap_or(&source);
     let nodes = match format.as_str() {
         "yaml" | "yml" => {
             let mut documents = Vec::new();
@@ -80,6 +81,7 @@ pub fn read(path: &Path, text: Option<String>, cancel: &Cancellation) -> Result<
             crate::json::parse_format_cancellable(text, &format, cancel, crate::resources::pool())?
         }
     };
+    drop((source, input_memory));
     projection::prepare(path, &nodes, cancel, crate::resources::pool())
 }
 

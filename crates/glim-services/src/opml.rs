@@ -13,7 +13,8 @@ fn web_url(value: Option<&str>) -> Option<String> {
     matches!(url.scheme(), "http" | "https").then(|| value.to_string())
 }
 pub fn read(path: &Path, cancel: &Cancellation) -> Result<Document> {
-    let bytes = crate::resources::read_to_end(std::fs::File::open(path)?, cancel)?;
+    let (bytes, _input_memory) =
+        crate::resources::read_reserved(std::fs::File::open(path)?, cancel)?;
     let _parser_memory = crate::resources::reserve_parser(bytes.len())?;
     ensure!(
         bytes.len() <= limits::OPML_XML_BYTES,
