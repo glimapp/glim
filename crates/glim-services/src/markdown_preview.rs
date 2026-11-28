@@ -674,15 +674,13 @@ fn rasterize(
         .min(reader_limits::DIAGRAM_MAX_UPSCALE as f32);
     let width = (size.width() * scale).ceil().clamp(1.0, edge as f32) as u32;
     let height = (size.height() * scale).ceil().clamp(1.0, edge as f32) as u32;
-    let mut pixmap =
-        resvg::tiny_skia::Pixmap::new(width, height).context("Invalid diagram dimensions")?;
-    resvg::render(
-        &tree,
-        resvg::tiny_skia::Transform::from_scale(scale, scale),
-        &mut pixmap.as_mut(),
-    );
     Ok(DiagramImage {
-        png: pixmap.encode_png()?,
+        png: crate::media::render_svg_png(
+            &tree,
+            width,
+            height,
+            resvg::tiny_skia::Transform::from_scale(scale, scale),
+        )?,
         width,
         height,
         baseline: baseline

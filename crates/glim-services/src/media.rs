@@ -2,6 +2,7 @@
 use crate::limits as reader_limits;
 mod raster;
 use anyhow::{Context, Result, ensure};
+pub(crate) use raster::render_svg_png;
 pub use raster::{RasterFrame, decode_png};
 use std::{
     io::{self, Cursor, Read},

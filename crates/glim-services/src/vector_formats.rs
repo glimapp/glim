@@ -30,18 +30,17 @@ pub fn read_preview(path: &Path) -> Result<ImageDocument> {
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"900\" height=\"700\" viewBox=\"0 0 900 700\"><rect width=\"900\" height=\"700\" fill=\"#f5f7fb\"/>{body}</svg>"
     );
     let tree = resvg::usvg::Tree::from_str(&svg, &resvg::usvg::Options::default())?;
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(900, 700).context("Invalid preview size")?;
-    resvg::render(
-        &tree,
-        resvg::tiny_skia::Transform::identity(),
-        &mut pixmap.as_mut(),
-    );
     use std::hash::{Hash, Hasher};
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut hash);
     Ok(ImageDocument {
         path: std::path::absolute(path)?,
-        png: pixmap.encode_png()?,
+        png: crate::media::render_svg_png(
+            &tree,
+            900,
+            700,
+            resvg::tiny_skia::Transform::identity(),
+        )?,
         fingerprint: format!("vector:{:x}", hash.finish()),
         gif: false,
         pages: Vec::new(),

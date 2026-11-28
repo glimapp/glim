@@ -1,6 +1,6 @@
 //! Local draw.io XML decoding and basic SVG/raster rendering; no scripts or remote resources.
 use crate::{limits, media::ImageDocument, resources::WorkingReservation, work::Cancellation};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 use base64::Engine;
 use roxmltree::Node;
 use std::{
@@ -447,14 +447,13 @@ fn raster(svg: &str, remaining: u64) -> Result<(Vec<u8>, u64)> {
         decoded <= remaining,
         "Draw.io pages exceed decoded image budget"
     );
-    let mut pixmap =
-        resvg::tiny_skia::Pixmap::new(width, height).context("Cannot allocate draw.io preview")?;
-    resvg::render(
+    let png = crate::media::render_svg_png(
         &tree,
+        width,
+        height,
         resvg::tiny_skia::Transform::from_scale(scale, scale),
-        &mut pixmap.as_mut(),
-    );
-    Ok((pixmap.encode_png()?, decoded))
+    )?;
+    Ok((png, decoded))
 }
 pub fn read(path: &Path, cancel: &Cancellation) -> Result<ImageDocument> {
     let (bytes, _input_memory) =

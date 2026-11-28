@@ -4,6 +4,7 @@ use crate::{
     work::Cancellation,
 };
 use anyhow::{Result, ensure};
+use resvg::{tiny_skia, usvg};
 use std::{io::Cursor, ops::Deref};
 
 pub struct RasterFrame {
@@ -35,6 +36,33 @@ impl Deref for RasterFrame {
 
 pub fn decode_png(bytes: &[u8], cancel: &Cancellation) -> Result<RasterFrame> {
     decode_png_with_pool(bytes, cancel, crate::resources::pool())
+}
+
+pub(crate) fn render_svg_png(
+    tree: &usvg::Tree,
+    width: u32,
+    height: u32,
+    transform: tiny_skia::Transform,
+) -> Result<Vec<u8>> {
+    render_svg_png_with_pool(tree, width, height, transform, crate::resources::pool())
+}
+
+fn render_svg_png_with_pool(
+    tree: &usvg::Tree,
+    width: u32,
+    height: u32,
+    transform: tiny_skia::Transform,
+    pool: &ResourcePool,
+) -> Result<Vec<u8>> {
+    // tiny-skia keeps the canvas alive while it copies and demultiplies the pixels for PNG.
+    let bytes = (u64::from(width) * u64::from(height))
+        .checked_mul(2 * std::mem::size_of::<tiny_skia::PremultipliedColorU8>() as u64)
+        .ok_or_else(|| anyhow::anyhow!("SVG preview dimensions overflow"))?;
+    let _memory = pool.reserve_working(bytes, bytes)?;
+    let mut pixmap = tiny_skia::Pixmap::new(width, height)
+        .ok_or_else(|| anyhow::anyhow!("Invalid SVG preview dimensions"))?;
+    resvg::render(tree, transform, &mut pixmap.as_mut());
+    Ok(pixmap.encode_png()?)
 }
 
 fn decode_png_with_pool(
@@ -117,6 +145,26 @@ pub(super) fn sample_nearest(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn svg_preview_admits_the_canvas_and_png_pixel_copy() -> Result<()> {
+        let source = r##"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8"><rect x="1" y="1" width="6" height="4" fill="#5440a0" opacity=".5"/></svg>"##;
+        let tree = usvg::Tree::from_str(source, &usvg::Options::default())?;
+        let transform = tiny_skia::Transform::from_scale(2., 2.);
+        let mut baseline = tiny_skia::Pixmap::new(24, 16).unwrap();
+        resvg::render(&tree, transform, &mut baseline.as_mut());
+        let canvas_bytes = baseline.data().len() as u64;
+        let expected = baseline.encode_png()?;
+        let denied = ResourcePool::with_budgets(0, canvas_bytes);
+        let result = render_svg_png_with_pool(&tree, 24, 16, transform, &denied);
+        assert!(matches!(result, Err(error) if crate::resources::is_memory_pressure(&error)));
+        assert_eq!(denied.snapshot().working_bytes, 0);
+        let admitted = ResourcePool::with_budgets(0, 2 * canvas_bytes);
+        let result = render_svg_png_with_pool(&tree, 24, 16, transform, &admitted)?;
+        assert_eq!(result, expected);
+        assert_eq!(admitted.snapshot().working_bytes, 0);
+        Ok(())
+    }
 
     #[test]
     fn thin_images_fit_the_grant_without_zero_dimensions() {
