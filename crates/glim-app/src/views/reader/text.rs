@@ -306,21 +306,17 @@ impl Reader {
     pub(crate) fn markdown_export_snapshot(
         &self,
         cx: &App,
-    ) -> Option<(
-        gpui_kit::component::input::Rope,
-        url::Url,
-        Option<std::path::PathBuf>,
-    )> {
+    ) -> Option<crate::app::markdown_export::MarkdownExportSnapshot> {
         let Renderer::Markup(markup) = &self.renderer else {
             return None;
         };
-        self.can_export_markdown().then(|| {
-            (
-                markup.source.edit.editor().read(cx).text().clone(),
-                markup.base.clone(),
-                markup.format_path.clone(),
-            )
-        })
+        self.can_export_markdown()
+            .then(|| crate::app::markdown_export::MarkdownExportSnapshot {
+                source: markup.source.edit.editor().read(cx).text().clone(),
+                base: markup.base.clone(),
+                format_path: markup.format_path.clone(),
+                title: self.title.to_string(),
+            })
     }
     pub fn reveal_content_offset(&mut self, offset: u64, window: &mut Window, cx: &mut App) {
         self.set_preview(false, cx);

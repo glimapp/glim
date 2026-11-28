@@ -227,7 +227,7 @@ impl super::Workspace {
         let Some(reader) = self.active_reader() else {
             return;
         };
-        let Some((source, base, format)) = reader.markdown_export_snapshot(cx) else {
+        let Some(snapshot) = reader.markdown_export_snapshot(cx) else {
             return;
         };
         let path = &reader.document.path;
@@ -242,7 +242,6 @@ impl super::Workspace {
                 .unwrap_or_else(|| std::path::Path::new("/"))
                 .to_owned()
         };
-        let title = reader.title.to_string();
         let selection = cx.prompt_for_new_path(&directory, Some(&name));
         self.picking = true;
         let (cancel, guard) = Cancellation::task();
@@ -274,18 +273,7 @@ impl super::Workspace {
                     );
                     let destination =
                         glim_services::files::prepare_save_destination(&path, &open, cancel)?;
-                    let text = source.to_string();
-                    let text = format
-                        .as_ref()
-                        .map(|path| glim_services::text_formats::markdown(path, &text))
-                        .unwrap_or(text);
-                    glim_services::markdown_export::export_pdf(
-                        &text,
-                        &base,
-                        &title,
-                        &destination,
-                        cancel,
-                    )
+                    snapshot.pdf(&destination, cancel)
                 },
             )
             .await;
@@ -318,10 +306,9 @@ impl super::Workspace {
         let Some(reader) = self.active_reader() else {
             return;
         };
-        let Some((source, base, format)) = reader.markdown_export_snapshot(cx) else {
+        let Some(snapshot) = reader.markdown_export_snapshot(cx) else {
             return;
         };
-        let title = reader.title.to_string();
         let (cancel, guard) = Cancellation::task();
         self.markdown_browser_task = Some(cx.spawn_in(window, async move |view, cx| {
             let _guard = guard;
@@ -330,14 +317,7 @@ impl super::Workspace {
                 JobClass::Native,
                 Priority::Interactive,
                 cancel,
-                move |cancel| {
-                    let text = source.to_string();
-                    let text = format
-                        .as_ref()
-                        .map(|path| glim_services::text_formats::markdown(path, &text))
-                        .unwrap_or(text);
-                    glim_services::markdown_export::export_html(&text, &base, &title, cancel)
-                },
+                move |cancel| snapshot.html(cancel),
             )
             .await;
             let result = match exported {
@@ -716,10 +696,9 @@ impl super::Workspace {
         let title = reader.title.to_string();
         let result = match content {
             PrintContent::Pdf => {
-                let Some((source, base, format)) = reader.markdown_export_snapshot(cx) else {
+                let Some(snapshot) = reader.markdown_export_snapshot(cx) else {
                     return;
                 };
-                let job_title = title.clone();
                 let (cancel, guard) = Cancellation::task();
                 self.print_task = Some(cx.spawn_in(window, async move |view, cx| {
                     let _guard = guard;
@@ -733,14 +712,7 @@ impl super::Workspace {
                             let path = directory.path().join("document.pdf");
                             let output =
                                 glim_services::files::prepare_save_destination(&path, &[], cancel)?;
-                            let text = source.to_string();
-                            let text = format
-                                .as_ref()
-                                .map(|path| glim_services::text_formats::markdown(path, &text))
-                                .unwrap_or(text);
-                            let missing = glim_services::markdown_export::export_pdf(
-                                &text, &base, &job_title, &output, cancel,
-                            )?;
+                            let missing = snapshot.pdf(&output, cancel)?;
                             Ok((directory, path, missing))
                         },
                     )

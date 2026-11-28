@@ -3,11 +3,53 @@
 
 use anyhow::{Context, Result, ensure};
 use futures_channel::oneshot;
+use glim_services::{files::DraftDestination, work::Cancellation};
+use gpui_kit::component::input::Rope;
 use std::{
     ffi::{CString, c_void},
     os::unix::ffi::OsStrExt,
-    path::Path,
+    path::{Path, PathBuf},
 };
+
+pub(crate) struct MarkdownExportSnapshot {
+    pub(crate) source: Rope,
+    pub(crate) base: url::Url,
+    pub(crate) format_path: Option<PathBuf>,
+    pub(crate) title: String,
+}
+
+impl MarkdownExportSnapshot {
+    fn markdown(&self) -> String {
+        let text = self.source.to_string();
+        match &self.format_path {
+            Some(path) => glim_services::text_formats::markdown(path, &text),
+            None => text,
+        }
+    }
+
+    pub(crate) fn html(self, cancel: &Cancellation) -> Result<(PathBuf, usize)> {
+        glim_services::markdown_export::export_html(
+            &self.markdown(),
+            &self.base,
+            &self.title,
+            cancel,
+        )
+    }
+
+    pub(crate) fn pdf(
+        self,
+        destination: &DraftDestination,
+        cancel: &Cancellation,
+    ) -> Result<usize> {
+        glim_services::markdown_export::export_pdf(
+            &self.markdown(),
+            &self.base,
+            &self.title,
+            destination,
+            cancel,
+        )
+    }
+}
 
 unsafe extern "C" {
     fn glim_print_markdown_pdf(
@@ -109,4 +151,23 @@ pub(crate) fn show_print_panel(
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn export_snapshot_preserves_markdown_and_converts_other_markup() {
+        let mut snapshot = MarkdownExportSnapshot {
+            source: Rope::from("= 中文 title\n"),
+            base: url::Url::parse("file:///tmp/document.adoc").unwrap(),
+            format_path: None,
+            title: "Document".into(),
+        };
+        assert_eq!(snapshot.markdown(), "= 中文 title\n");
+
+        snapshot.format_path = Some(PathBuf::from("document.adoc"));
+        assert_eq!(snapshot.markdown(), "# 中文 title\n");
+    }
 }
