@@ -39,6 +39,24 @@ fn string_lengths(node: &Node, nodes: &[Node]) -> (usize, usize) {
     (title, notes)
 }
 
+fn validate_nesting(
+    node: &Node,
+    nodes: &[Node],
+    depth: usize,
+    cancel: &Cancellation,
+) -> Result<()> {
+    cancel.check()?;
+    // Check before visiting any children, bounding the call stack by the nesting policy.
+    ensure!(
+        depth <= limits::XMIND_NESTING,
+        "Graph nesting budget exceeded; use Source."
+    );
+    for &child in &node.children {
+        validate_nesting(&nodes[child], nodes, depth + 1, cancel)?;
+    }
+    Ok(())
+}
+
 pub(super) fn prepare(
     path: &Path,
     nodes: &Tree,
@@ -51,27 +69,7 @@ pub(super) fn prepare(
         nodes.len() <= limits::XMIND_TOPICS,
         "Graph node budget exceeded; use Source."
     );
-    {
-        // TreeBuilder produces a forest with at most one earlier parent per
-        // node, so the traversal stack cannot exceed the total node count.
-        let bytes = (nodes.len() * size_of::<(usize, usize)>()) as u64;
-        let _memory = pool.reserve_working(bytes, bytes)?;
-        let mut pending = Vec::with_capacity(nodes.len());
-        pending.push((0usize, 0usize));
-        while let Some((index, depth)) = pending.pop() {
-            cancel.check()?;
-            ensure!(
-                depth <= limits::XMIND_NESTING,
-                "Graph nesting budget exceeded; use Source."
-            );
-            pending.extend(
-                nodes[index]
-                    .children
-                    .iter()
-                    .map(|&child| (child, depth + 1)),
-            );
-        }
-    }
+    validate_nesting(&nodes[0], nodes, 0, cancel)?;
     let mut bytes = path.as_os_str().len() as u64
         + size_of::<Sheet>() as u64
         + "Graph".len() as u64
@@ -217,6 +215,33 @@ mod tests {
         assert_eq!(pool.snapshot().working_bytes, retained);
         drop(graph);
         assert_eq!(pool.snapshot().working_bytes, 0);
+    }
+
+    #[test]
+    fn graph_accepts_the_nesting_limit_and_rejects_one_more_level() {
+        let pool = ResourcePool::new(0);
+        let cancel = Cancellation::default();
+        let path = Path::new("data.json");
+        let make_chain = |depth| {
+            let mut builder = glim_core::structured::TreeBuilder::new(&pool);
+            let mut parent = None;
+            for _ in 0..=depth {
+                parent = Some(builder.push("", "", "", None, "array", parent).unwrap());
+            }
+            builder.finish()
+        };
+        let accepted = make_chain(limits::XMIND_NESTING);
+        let graph = prepare(path, &accepted, &cancel, &pool).unwrap();
+        assert_eq!(graph.sheets[0].topics.len(), limits::XMIND_NESTING + 1);
+
+        let rejected = make_chain(limits::XMIND_NESTING + 1);
+        let before = pool.snapshot().working_bytes;
+        let error = prepare(path, &rejected, &cancel, &pool).err().unwrap();
+        assert_eq!(
+            error.to_string(),
+            "Graph nesting budget exceeded; use Source."
+        );
+        assert_eq!(pool.snapshot().working_bytes, before);
     }
 
     #[test]
