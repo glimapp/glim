@@ -74,9 +74,10 @@ final class OpenAPIResources: NSObject, WKURLSchemeHandler {
     COALESCE((SELECT value FROM nodes WHERE parent=n.id AND name='in' LIMIT 1),'') AS location,
     COALESCE((SELECT value FROM nodes WHERE parent=n.id AND name='required' AND kind='scalar' LIMIT 1),'') AS required
     """
+    private static let queryWorkingBytes = UInt64(
+        ReaderLimits.OPENAPI_FIELD_BYTES * ReaderLimits.OPENAPI_PAGE_NODES * 16 + ReaderLimits.SQLITE_CACHE_KIB * 1024
+    )
     private func query(_ url: URL, job: APIResourceJob) throws -> Data {
-        let lease = NativeResourceLease(bytes: UInt64(ReaderLimits.OPENAPI_FIELD_BYTES * ReaderLimits.OPENAPI_PAGE_NODES * 16 + ReaderLimits.SQLITE_CACHE_KIB * 1024))
-        defer { withExtendedLifetime(lease) {} }
         let db = try job.open(database); defer { job.close() }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func argument(_ name: String) -> String { items.first { $0.name == name }?.value ?? "" }
@@ -160,10 +161,28 @@ final class OpenAPIResources: NSObject, WKURLSchemeHandler {
             guard let self = self, !job.cancelled else { return }
             do {
                 let main = url.path == self.document.path
-                let data = try main ? Data(OpenAPIAssets.html.utf8) : (config ?? self.query(url, job: job))
+                let data: Data
+                let lease: NativeResourceLease?
+                if main {
+                    data = Data(OpenAPIAssets.html.utf8)
+                    lease = nil
+                } else if let config = config {
+                    data = config
+                    lease = nil
+                } else {
+                    let message = "Cannot load API reference."
+                    let pressure = CocoaError(.fileReadUnknown, userInfo: [
+                        NSLocalizedDescriptionKey: self.translations[message] ?? message
+                    ])
+                    guard let reservation = NativeResourceLease(reservingBytes: Self.queryWorkingBytes) else { throw pressure }
+                    data = try self.query(url, job: job)
+                    guard reservation.resize(to: UInt64(data.count)) else { throw pressure }
+                    lease = reservation
+                }
                 guard !job.cancelled else { return }
                 let mime = main ? "text/html" : "application/json"
                 DispatchQueue.main.async {
+                    defer { withExtendedLifetime(lease) {} }
                     guard let (task, _) = self.active.removeValue(forKey: id) else { return }
                     let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
                         headerFields: ["Content-Type": "\(mime); charset=utf-8", "Content-Length": String(data.count)])
