@@ -17,6 +17,7 @@ use std::{collections::VecDeque, path::Path, sync::Arc};
 pub(super) struct ImageReader {
     pages: Vec<Entity<PreparedImage>>,
     page: Entity<usize>,
+    rendered_page: Option<usize>,
     _subscriptions: Vec<Subscription>,
 }
 impl ImageReader {
@@ -32,15 +33,16 @@ impl ImageReader {
         Self {
             pages,
             page: cx.new(|_| 0),
+            rendered_page: None,
             _subscriptions: subscriptions,
         }
     }
-    pub fn render(&self, cx: &mut App) -> AnyElement {
+    pub fn render(&mut self, cx: &mut App) -> AnyElement {
         let page = *self.page.read(cx);
-        for (index, image) in self.pages.iter().enumerate() {
-            if index != page {
-                image.update(cx, |image, cx| image.suspend(cx));
-            }
+        if let Some(previous) = self.rendered_page.replace(page)
+            && previous != page
+        {
+            self.pages[previous].update(cx, |image, cx| image.suspend(cx));
         }
         let previous = self.page.clone();
         let next = self.page.clone();
@@ -884,10 +886,8 @@ impl crate::views::reader::contract::ReaderView for ImageReader {
         }
     }
     fn set_active(&self, active: bool, cx: &mut App) {
-        if !active {
-            for image in &self.pages {
-                image.update(cx, |image, cx| image.suspend(cx));
-            }
+        if !active && let Some(page) = self.rendered_page {
+            self.pages[page].update(cx, |image, cx| image.suspend(cx));
         }
     }
 }
@@ -930,7 +930,30 @@ impl super::surface::ReaderSurface for UnavailableReader {}
 
 #[cfg(test)]
 mod tests {
-    use super::UnavailableReader;
+    use super::{ImageReader, UnavailableReader};
+    use crate::views::reader::contract::ReaderView;
+    use gpui_kit::TestAppContext;
+
+    #[gpui_kit::test]
+    fn changing_page_and_hiding_clear_the_previous_preview_attempt(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut reader = ImageReader::new(vec![Vec::new(); 3], cx);
+            let _ = reader.render(cx);
+            reader.pages[0].update(cx, |image, _| image.error = Some("first page".into()));
+            let _ = reader.render(cx);
+            assert!(reader.pages[0].read(cx).error.is_some());
+
+            reader.page.update(cx, |page, _| *page = 2);
+            let _ = reader.render(cx);
+            assert!(reader.pages[0].read(cx).error.is_none());
+            reader.pages[2].update(cx, |image, _| image.error = Some("last page".into()));
+            reader.page.update(cx, |page, _| *page = 1);
+            reader.set_active(false, cx);
+            assert!(reader.pages[2].read(cx).error.is_none());
+        });
+    }
+
     #[test]
     fn dotfiles_and_extensionless_files_use_their_actual_names() {
         for name in [".DS_Store", ".env", "README"] {
