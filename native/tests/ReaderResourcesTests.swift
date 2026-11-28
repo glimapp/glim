@@ -43,7 +43,7 @@ func readerResourceOwnership() {
         precondition(ResourceLedger.bytes > expected)
         return image
     }
-    weak let observed = raster
+    weak var observed = raster
     precondition(ResourceLedger.next == firstHandle)
     precondition(ResourceLedger.bytes == expected)
 
