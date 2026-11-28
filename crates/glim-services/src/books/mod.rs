@@ -1,15 +1,15 @@
 //! Offline ebook structure and chapter resources. All reads/decoding run in the background.
-use crate::limits as reader_limits;
+use crate::{limits as reader_limits, resources::WorkingReservation};
 pub mod preferences;
 
 use anyhow::{Context, Result, ensure};
+use glim_core::resources::ResourcePool;
 use roxmltree::{Document, Node};
 use sha2::{Digest, Sha256};
 use std::{
-    borrow::Cow,
     collections::HashMap,
     io::{Cursor, Read},
-    ops::Range,
+    ops::{Deref, Range},
     path::{Path, PathBuf},
 };
 
@@ -78,13 +78,13 @@ fn read_xml_text(
     reader: impl Read,
     limit: u64,
     cancel: &crate::work::Cancellation,
-) -> Result<String> {
-    let (bytes, _input_memory) = crate::resources::read_reserved(reader.take(limit + 1), cancel)?;
+) -> Result<XmlText> {
+    let input = crate::resources::read_reserved(reader.take(limit + 1), cancel)?;
     reader_limits::preview_budget(
-        bytes.len() as u64 <= limit,
+        input.0.len() as u64 <= limit,
         "Ebook content exceeds reading limit",
     )?;
-    decode(&bytes)
+    decode_xml(input, crate::resources::pool())
 }
 fn archive(path: &Path) -> Result<zip::ZipArchive<std::fs::File>> {
     let archive = zip::ZipArchive::new(std::fs::File::open(path)?)
@@ -96,7 +96,7 @@ fn read_xml_entry(
     name: &str,
     limit: u64,
     cancel: &crate::work::Cancellation,
-) -> Result<String> {
+) -> Result<XmlText> {
     let file = archive
         .by_name(name)
         .with_context(|| format!("Missing ebook resource: {name}"))?;
@@ -129,11 +129,45 @@ fn xml_encoding(bytes: &[u8]) -> &'static encoding_rs::Encoding {
         probe.encoding.unwrap_or(encoding_rs::UTF_8)
     }
 }
-fn decode(bytes: &[u8]) -> Result<String> {
-    let encoding = xml_encoding(bytes);
-    let (text, _, errors) = encoding.decode(bytes);
-    ensure!(!errors, "Ebook text encoding is invalid");
-    let mut text = text.into_owned();
+struct XmlText {
+    text: String,
+    _memory: WorkingReservation,
+}
+
+impl Deref for XmlText {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.text
+    }
+}
+
+fn decode_xml(input: (Vec<u8>, WorkingReservation), pool: &ResourcePool) -> Result<XmlText> {
+    let encoding = xml_encoding(&input.0);
+    let is_ascii = encoding.is_ascii_compatible() && input.0.is_ascii();
+    let (mut text, mut memory) = if encoding == encoding_rs::UTF_8 || is_ascii {
+        let (mut bytes, memory) = input;
+        if bytes.starts_with(b"\xef\xbb\xbf") {
+            bytes.drain(..3);
+        }
+        let text = String::from_utf8(bytes)
+            .map_err(|_| anyhow::anyhow!("Ebook text encoding is invalid"))?;
+        (text, memory)
+    } else {
+        let bytes = &input.0;
+        let mut decoder = encoding.new_decoder_with_bom_removal();
+        let capacity = decoder
+            .max_utf8_buffer_length_without_replacement(bytes.len())
+            .context("Ebook decoded text capacity overflow")?;
+        let memory = pool.reserve_working(capacity as u64, capacity as u64)?;
+        let mut text = String::with_capacity(capacity);
+        let (result, _) = decoder.decode_to_string_without_replacement(bytes, &mut text, true);
+        ensure!(
+            result == encoding_rs::DecoderResult::InputEmpty,
+            "Ebook text encoding is invalid"
+        );
+        drop(input);
+        (text, memory)
+    };
     while let Some(start) = text.find("<!DOCTYPE") {
         let end = text[start..].find('>').context("Truncated ebook doctype")? + start + 1;
         ensure!(
@@ -162,6 +196,10 @@ fn decode(bytes: &[u8]) -> Result<String> {
         else {
             continue;
         };
+        if normalized.is_none() {
+            // Numeric replacements are no longer than the named references.
+            memory.try_grow_to(text.capacity() as u64 + text.len() as u64)?;
+        }
         let output = normalized.get_or_insert_with(|| String::with_capacity(text.len()));
         output.push_str(&text[copied..start]);
         output.push_str(replacement);
@@ -169,10 +207,13 @@ fn decode(bytes: &[u8]) -> Result<String> {
     }
     if let Some(mut output) = normalized {
         output.push_str(&text[copied..]);
-        Ok(output)
-    } else {
-        Ok(text)
+        text = output;
     }
+    memory.shrink_to(text.capacity() as u64);
+    Ok(XmlText {
+        text,
+        _memory: memory,
+    })
 }
 struct AdmittedXml<'a> {
     document: Document<'a>,
@@ -779,19 +820,6 @@ fn chapter_structured(
             page: None,
         });
     }
-    let raw = match &chapter.html {
-        Some(html) => Cow::Borrowed(html.as_str()),
-        None => Cow::Owned(read_xml_entry(
-            &mut archive(&book.path)?,
-            &chapter.href,
-            CHAPTER_LIMIT,
-            cancel,
-        )?),
-    };
-    let doc = xml(&raw)?;
-    let body = named(doc.root(), "body")
-        .next()
-        .unwrap_or(doc.root_element());
     let mut output = ChapterContent {
         html: String::new(),
         images: HashMap::new(),
@@ -799,9 +827,25 @@ fn chapter_structured(
         comic: None,
         page: None,
     };
-    sanitize(body, &mut output, 0)?;
-    drop(doc);
-    drop(raw);
+    {
+        let loaded;
+        let raw = if let Some(html) = &chapter.html {
+            html.as_str()
+        } else {
+            loaded = read_xml_entry(
+                &mut archive(&book.path)?,
+                &chapter.href,
+                CHAPTER_LIMIT,
+                cancel,
+            )?;
+            &loaded
+        };
+        let doc = xml(raw)?;
+        let body = named(doc.root(), "body")
+            .next()
+            .unwrap_or(doc.root_element());
+        sanitize(body, &mut output, 0)?;
+    }
     let refs = output.images.keys().cloned().collect::<Vec<_>>();
     let mut decoded_total = 0;
     let mut preview_total = 0;
@@ -1235,6 +1279,14 @@ mod tests {
         }
         archive.finish().unwrap();
     }
+    fn decode(input: &[u8]) -> Result<XmlText> {
+        read_xml_text(
+            input,
+            input.len() as u64,
+            &crate::work::Cancellation::default(),
+        )
+    }
+
     fn png() -> Vec<u8> {
         let image = image::DynamicImage::new_rgb8(8, 8);
         let mut output = Cursor::new(Vec::new());
@@ -1333,16 +1385,72 @@ mod tests {
     fn book_xml_normalizes_only_supported_named_entities() {
         let source = "<!DOCTYPE book><book a='&nbsp;'>中文&mdash;&ndash;&ldquo;&rdquo;&lsquo;&rsquo;&hellip;&copy;&amp;nbsp;&#160;</book>";
         let normalized = "<book a='&#160;'>中文&#8212;&#8211;&#8220;&#8221;&#8216;&#8217;&#8230;&#169;&amp;nbsp;&#160;</book>";
-        assert_eq!(decode(source.as_bytes()).unwrap(), normalized);
+        assert_eq!(&*decode(source.as_bytes()).unwrap(), normalized);
         let mut utf16 = vec![0xff, 0xfe];
         utf16.extend(source.encode_utf16().flat_map(u16::to_le_bytes));
-        assert_eq!(decode(&utf16).unwrap(), normalized);
+        assert_eq!(&*decode(&utf16).unwrap(), normalized);
         assert_eq!(
-            decode(b"<book>&unknown;&NBSP;</book>").unwrap(),
+            &*decode(b"<book>&unknown;&NBSP;</book>").unwrap(),
             "<book>&unknown;&NBSP;</book>"
         );
-        assert_eq!(decode(b"<book>&amp;</book>").unwrap(), "<book>&amp;</book>");
+        assert_eq!(
+            &*decode(b"<book>&amp;</book>").unwrap(),
+            "<book>&amp;</book>"
+        );
         assert!(decode(b"<!DOCTYPE book").is_err());
+    }
+
+    #[test]
+    fn utf8_and_ascii_xml_reuse_the_input_buffer_and_its_reservation() {
+        let ascii = "<?xml version='1.0' encoding='windows-1252'?><book>ASCII</book>";
+        for (source, expected) in [
+            ("\u{feff}<book>中文</book>", "<book>中文</book>"),
+            (ascii, ascii),
+        ] {
+            let bytes = source.as_bytes().to_vec();
+            let capacity = bytes.capacity() as u64;
+            let pointer = bytes.as_ptr();
+            let pool = ResourcePool::with_budgets(0, capacity);
+            let reserved = pool.reserve_working(capacity, capacity).unwrap();
+
+            let text = decode_xml((bytes, reserved), &pool).unwrap();
+            assert_eq!(&*text, expected);
+            assert_eq!(text.as_ptr(), pointer);
+            assert_eq!(pool.snapshot().working_bytes, capacity);
+            drop(text);
+            assert_eq!(pool.snapshot().working_bytes, 0);
+        }
+    }
+
+    #[test]
+    fn xml_conversion_holds_the_output_and_admits_overlapping_buffers() {
+        let legacy = b"<?xml version='1.0' encoding='windows-1252'?><book>\x80</book>";
+        let normalized = b"<book>&nbsp;</book>";
+        for (input, expected) in [
+            (
+                legacy.as_slice(),
+                "<?xml version='1.0' encoding='windows-1252'?><book>€</book>",
+            ),
+            (normalized.as_slice(), "<book>&#160;</book>"),
+        ] {
+            let bytes = input.to_vec();
+            let capacity = bytes.capacity() as u64;
+            let tight = ResourcePool::with_budgets(0, capacity);
+            let reserved = tight.reserve_working(capacity, capacity).unwrap();
+            let error = decode_xml((bytes, reserved), &tight).err().unwrap();
+            assert!(crate::resources::is_memory_pressure(&error));
+            assert_eq!(tight.snapshot().working_bytes, 0);
+
+            let pool = ResourcePool::new(0);
+            let bytes = input.to_vec();
+            let capacity = bytes.capacity() as u64;
+            let reserved = pool.reserve_working(capacity, capacity).unwrap();
+            let text = decode_xml((bytes, reserved), &pool).unwrap();
+            assert_eq!(&*text, expected);
+            assert_eq!(pool.snapshot().working_bytes, text.text.capacity() as u64);
+            drop(text);
+            assert_eq!(pool.snapshot().working_bytes, 0);
+        }
     }
 
     #[test]
@@ -1350,14 +1458,14 @@ mod tests {
         let cancel = crate::work::Cancellation::default();
         let xml = b"<book/>";
         assert_eq!(
-            read_xml_text(xml.as_slice(), 7, &cancel).unwrap(),
+            &*read_xml_text(xml.as_slice(), 7, &cancel).unwrap(),
             "<book/>"
         );
 
         let invalid = b"<book>\xff";
-        let too_long = read_xml_text(invalid.as_slice(), 6, &cancel).unwrap_err();
+        let too_long = read_xml_text(invalid.as_slice(), 6, &cancel).err().unwrap();
         assert!(too_long.is::<reader_limits::PreviewBudgetExceeded>());
-        let invalid_text = read_xml_text(invalid.as_slice(), 7, &cancel).unwrap_err();
+        let invalid_text = read_xml_text(invalid.as_slice(), 7, &cancel).err().unwrap();
         assert_eq!(invalid_text.to_string(), "Ebook text encoding is invalid");
     }
 

@@ -30,7 +30,7 @@
 
 ### 资源覆盖与压力恢复
 
-- [ ] **R1：剩余可控分配准入。** JSON／JSON5 的解析器值树、结构化数据转图的输入中间表示、图布局、书籍 HTML／元数据、编码预览／SVG 中间缓冲，以及 SQLite／地理解析暂存仍未完整准入。最终树／图结果已准入，不能据此推断准备峰值也受预算约束。
+- [ ] **R1：剩余可控分配准入。** JSON／JSON5 的解析器值树、结构化数据转图的输入中间表示、图布局、书籍生成的 HTML／元数据、编码预览／SVG 中间缓冲，以及 SQLite／地理解析暂存仍未完整准入。最终树／图结果已准入，不能据此推断准备峰值也受预算约束。
   - 完成条件：可控工作缓冲在分配／扩容前取得预算，计入新旧缓冲重叠；所有者跨任务与发布交接持续持有额度。逐项替换绕过准入的工作缓冲记账，保留必要的状态记账及完整源后备，不以文件大小拒绝支持的文件。
   - 入口：[JSON](../crates/glim-services/src/json.rs)、[图准备](../crates/glim-services/src/graph.rs)、[书籍](../crates/glim-services/src/books/mod.rs)、[SVG](../crates/glim-services/src/svg_preview.rs)、[SQLite](../crates/glim-services/src/sqlite/browser.rs)、[地理表格](../crates/glim-services/src/geo.rs)。
 - [ ] **R2：原生与辅助进程资源。** 原生图片解码和 PDF 缩略图通过 Rust 桥接预留工作内存，预留随像素对象交付。部分既有数据仍在分配后记账。准备、转换中间缓冲及独立辅助进程、ImageIO、WebKit、Quick Look、GPUI 图集、SQLite 引擎的覆盖仍有限。
