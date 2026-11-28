@@ -47,7 +47,7 @@ impl From<String> for ReadFailure {
 
 pub enum Content {
     OpenApi(Box<Content>),
-    Archive(crate::archive::Archive),
+    Archive(glim_core::archive::Archive),
     File(Document),
     Page(crate::paged::TextPage),
     Image(crate::media::ImageDocument),

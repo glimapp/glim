@@ -109,14 +109,16 @@ impl Reader {
         reader.restore_csv_preview(cx);
         reader
     }
-    pub fn from_archive(document: glim_services::archive::Archive, cx: &mut App) -> Self {
+    pub fn from_archive(document: glim_core::archive::Archive, cx: &mut App) -> Self {
         Self {
             active: std::cell::Cell::new(None),
             title: document.path.display().to_string().into(),
             document: DocumentSession::new(document.path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
             projection: None,
-            renderer: Renderer::entity(cx.new(|cx| archive::ArchiveReader::new(document, cx))),
+            renderer: Renderer::entity(
+                cx.new(|cx| archive::ArchiveReader::new(document, glim_services::locale::tr, cx)),
+            ),
         }
     }
     pub fn from_sqlite(path: PathBuf, window: &mut Window, cx: &mut App) -> Self {

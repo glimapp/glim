@@ -1,7 +1,4 @@
-use glim_services::{
-    archive::{Archive, DirectoryEntry},
-    locale::tr,
-};
+use glim_core::archive::{Archive, DirectoryEntry};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
@@ -14,6 +11,7 @@ use gpui_kit::{
 
 pub(super) struct ArchiveReader {
     archive: Archive,
+    translate: fn(&str) -> String,
     prefix: String,
     rows: Vec<DirectoryEntry>,
     scroll: UniformListScrollHandle,
@@ -22,13 +20,14 @@ pub(super) struct ArchiveReader {
     pub(super) extract: Option<(String, super::ArchiveAction)>,
 }
 impl ArchiveReader {
-    pub fn new(archive: Archive, cx: &mut Context<Self>) -> Self {
+    pub fn new(archive: Archive, translate: fn(&str) -> String, cx: &mut Context<Self>) -> Self {
         let rows = archive.directory_entries("");
         Self {
             focus: cx.focus_handle(),
             selected: None,
             extract: None,
             archive,
+            translate,
             prefix: String::new(),
             rows,
             scroll: UniformListScrollHandle::new(),
@@ -68,6 +67,7 @@ impl Focusable for ArchiveReader {
 impl Render for ArchiveReader {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use gpui_kit::assets::IconName;
+        let tr = self.translate;
         let title = self
             .archive
             .path
@@ -186,7 +186,7 @@ impl Render for ArchiveReader {
                                         self.archive.format,
                                         self.archive.entries().len(),
                                         tr("Archive entries"),
-                                        bytes(self.archive.bytes)
+                                        bytes(self.archive.total_bytes())
                                     )),
                             ),
                     )

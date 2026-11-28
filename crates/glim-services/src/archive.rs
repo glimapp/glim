@@ -1,142 +1,13 @@
 //! Archive browsing and cancellable extraction into a new, isolated directory.
 use crate::work::Cancellation;
 use anyhow::{Context, Result, ensure};
+pub use glim_core::archive::{Archive, DirectoryEntry, Entry};
 use std::{
-    collections::BTreeMap,
     fs::{self, File},
     io::{BufRead, BufReader, Read},
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
 };
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct Entry {
-    pub name: String,
-    pub size: u64,
-    pub directory: bool,
-}
-pub struct Archive {
-    pub path: PathBuf,
-    pub format: String,
-    entries: Vec<Entry>,
-    pub bytes: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DirectoryEntry {
-    pub name: String,
-    pub directory: bool,
-    pub bytes: u64,
-}
-
-impl Archive {
-    fn new(path: &Path, format: String, mut entries: Vec<Entry>, bytes: u64) -> Self {
-        entries.sort_by(|a, b| a.name.cmp(&b.name));
-        Self {
-            path: path.to_path_buf(),
-            format,
-            entries,
-            bytes,
-        }
-    }
-
-    pub fn entries(&self) -> &[Entry] {
-        &self.entries
-    }
-
-    /// List immediate children of an archive path prefix, including sizes of
-    /// directory descendants. The root is empty; other prefixes end in `/`.
-    pub fn directory_entries(&self, prefix: &str) -> Vec<DirectoryEntry> {
-        let start = self
-            .entries
-            .partition_point(|entry| entry.name.as_str() < prefix);
-        let mut children = BTreeMap::new();
-        for entry in &self.entries[start..] {
-            let Some(tail) = entry.name.strip_prefix(prefix) else {
-                break;
-            };
-            if tail.is_empty() || entry.name.starts_with("__MACOSX/") {
-                continue;
-            }
-            let name = tail.split('/').next().unwrap_or_default();
-            let directory = tail.contains('/') || entry.directory;
-            let row = children.entry(name).or_insert((directory, 0u64));
-            row.1 = row.1.saturating_add(entry.size);
-        }
-        let mut rows = children
-            .into_iter()
-            .map(|(name, (directory, bytes))| DirectoryEntry {
-                name: name.to_owned(),
-                directory,
-                bytes,
-            })
-            .collect::<Vec<_>>();
-        rows.sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.name.cmp(&b.name)));
-        rows
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn directory_listing_preserves_sizes_visibility_and_order() {
-        let entries = [
-            ("docs/nested/a", false, 7),
-            ("docs-old/first", false, 12),
-            ("docs/", true, 0),
-            ("docs/β", false, 7),
-            ("__MACOSX/docs/ignored", false, 900),
-            ("docs/nested/", true, 0),
-            ("docs/a", false, 7),
-            ("docs/nested/b", false, 6),
-            ("docs0", false, 28),
-            ("notes", false, 2),
-            ("notes/child", false, 3),
-        ]
-        .into_iter()
-        .map(|(name, directory, size)| Entry {
-            name: name.to_owned(),
-            size,
-            directory,
-        })
-        .collect();
-        let archive = Archive::new(Path::new("example.zip"), "ZIP".into(), entries, 0);
-        let rows = |prefix| {
-            archive
-                .directory_entries(prefix)
-                .into_iter()
-                .map(|row| (row.name, row.directory, row.bytes))
-                .collect::<Vec<_>>()
-        };
-        let expected = |entries: &[(&str, bool, u64)]| {
-            entries
-                .iter()
-                .map(|&(name, dir, size)| (name.to_owned(), dir, size))
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            rows(""),
-            expected(&[
-                ("docs0", false, 28),
-                ("docs", true, 27),
-                ("docs-old", true, 12),
-                ("notes", false, 5),
-            ])
-        );
-        assert_eq!(
-            rows("docs/"),
-            expected(&[("nested", true, 13), ("a", false, 7), ("β", false, 7),])
-        );
-        assert_eq!(
-            rows("docs/nested/"),
-            expected(&[("a", false, 7), ("b", false, 6)])
-        );
-        assert!(rows("__MACOSX/").is_empty());
-        assert!(rows("missing/").is_empty());
-    }
-}
 
 pub fn supports(path: &Path) -> bool {
     glim_core::formats::FormatSet::Archive.matches(path)
@@ -263,7 +134,6 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<Archive> {
     {
         let index = native(path, None, cancel)?;
         let mut entries = Vec::new();
-        let mut bytes = 0u64;
         for line in BufReader::new(index.reopen()?).lines() {
             cancel.check()?;
             let mut entry: Entry = serde_json::from_str(&line?)?;
@@ -274,7 +144,6 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<Archive> {
             if entry.directory && !entry.name.ends_with('/') {
                 entry.name.push('/');
             }
-            bytes = bytes.saturating_add(entry.size);
             entries.push(entry);
         }
         let filename = path.file_name().unwrap_or_default().to_string_lossy();
@@ -284,23 +153,21 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<Archive> {
             .unwrap_or_default()
             .trim_start_matches('.')
             .to_uppercase();
-        return Ok(Archive::new(path, format, entries, bytes));
+        return Ok(Archive::new(path, format, entries));
     }
     let mut zip = zip::ZipArchive::new(File::open(path)?)?;
     let mut entries = Vec::new();
-    let mut bytes = 0u64;
     for i in 0..zip.len() {
         cancel.check()?;
         let entry = zip.by_index(i)?;
         let name = entry.name()?.into_owned();
-        bytes = bytes.saturating_add(entry.size());
         entries.push(Entry {
             directory: name.ends_with('/'),
             name,
             size: entry.size(),
         });
     }
-    Ok(Archive::new(path, "ZIP".to_owned(), entries, bytes))
+    Ok(Archive::new(path, "ZIP".to_owned(), entries))
 }
 pub fn extract(path: &Path, parent: &Path, cancel: &Cancellation) -> Result<PathBuf> {
     let stage = tempfile::Builder::new()

@@ -76,7 +76,7 @@ Deleting an open local file keeps its live reader and editor. `DocumentSession` 
 
 `Reader` uses one activation transition to coordinate the minimap, projections and renderer. The paged HTML adapter owns its selected mode and retained browser. Rendering and find use that mode to choose the preview or source surface. Tab deactivation suspends eligible pages and hides the browser, while the paged editor keeps unsaved content and requires a save before returning to preview.
 
-The archive service owns the sorted entry catalog and the directory listing contract. The workspace archive reader queries the contiguous range for a directory and retains only its current rows and navigation state. The CLI serializes the complete sorted catalog, including metadata entries hidden in the reader.
+Core owns the sorted archive catalog and directory queries. Services build the catalog from the source archive and perform extraction. The workspace archive reader queries the contiguous range for a directory and retains only its current rows and navigation state. The CLI serializes the complete sorted catalog, including metadata entries hidden in the reader.
 
 Workspace search owns complete result rows. Each row is a file path or a content occurrence with its line, snippet and byte offset. Rendering and opening use the same row, so removing one path preserves locations on the surviving rows. Workspace moves invalidate content locations when they change the search scope.
 

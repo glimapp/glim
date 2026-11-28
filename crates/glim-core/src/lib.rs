@@ -2,6 +2,7 @@
 
 pub const VERSION: &str = env!("GLIM_VERSION");
 
+pub mod archive;
 pub mod books;
 mod document;
 pub mod formats;
