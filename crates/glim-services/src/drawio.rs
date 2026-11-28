@@ -1,9 +1,10 @@
 //! Local draw.io XML decoding and basic SVG/raster rendering; no scripts or remote resources.
-use crate::{limits, media::ImageDocument, work::Cancellation};
+use crate::{limits, media::ImageDocument, resources::WorkingReservation, work::Cancellation};
 use anyhow::{Context, Result, ensure};
 use base64::Engine;
 use roxmltree::Node;
 use std::{
+    borrow::Cow,
     collections::HashMap,
     path::Path,
     sync::{Arc, OnceLock},
@@ -35,26 +36,34 @@ fn number(node: Node<'_, '_>, name: &str, default: f64) -> f64 {
 fn escape(text: &str) -> String {
     quick_xml::escape::escape(text).into_owned()
 }
-fn percent_decode(text: &[u8]) -> Result<String> {
-    let mut bytes = Vec::with_capacity(text.len());
+fn percent_decode(mut bytes: Vec<u8>) -> Result<String> {
     let mut index = 0;
-    while index < text.len() {
-        if text[index] == b'%' {
-            ensure!(index + 2 < text.len(), "Invalid draw.io URL encoding");
-            let value = std::str::from_utf8(&text[index + 1..index + 3])?;
-            bytes.push(u8::from_str_radix(value, 16)?);
+    let mut written = 0;
+    while index < bytes.len() {
+        let byte = if bytes[index] == b'%' {
+            ensure!(index + 2 < bytes.len(), "Invalid draw.io URL encoding");
+            let value = std::str::from_utf8(&bytes[index + 1..index + 3])?;
+            let decoded = u8::from_str_radix(value, 16)?;
             index += 3;
+            decoded
         } else {
-            bytes.push(text[index]);
+            let byte = bytes[index];
             index += 1;
-        }
+            byte
+        };
+        bytes[written] = byte;
+        written += 1;
     }
-    Ok(String::from_utf8(bytes)?)
+    bytes.truncate(written);
+    Ok(String::from_utf8(bytes).map_err(|error| error.utf8_error())?)
 }
-fn decode_page(node: Node<'_, '_>, cancel: &Cancellation) -> Result<String> {
+fn decode_page<'a>(
+    node: Node<'a, '_>,
+    cancel: &Cancellation,
+) -> Result<(Cow<'a, str>, Option<WorkingReservation>)> {
     let text = node.text().unwrap_or("").trim();
     if text.starts_with('<') {
-        return Ok(text.to_string());
+        return Ok((Cow::Borrowed(text), None));
     }
     let compressed = base64::engine::general_purpose::STANDARD.decode(
         text.chars()
@@ -62,12 +71,12 @@ fn decode_page(node: Node<'_, '_>, cancel: &Cancellation) -> Result<String> {
             .collect::<String>(),
     )?;
     let decoder = flate2::read::DeflateDecoder::new(compressed.as_slice());
-    let (data, _input_memory) = crate::resources::read_reserved(decoder, cancel)?;
+    let (data, memory) = crate::resources::read_reserved(decoder, cancel)?;
     ensure!(
         data.len() <= limits::DRAWIO_XML_BYTES,
         "Draw.io page exceeds preview XML budget"
     );
-    percent_decode(&data)
+    Ok((Cow::Owned(percent_decode(data)?), Some(memory)))
 }
 fn label(cell: &Cell<'_>) -> String {
     let value = cell
@@ -450,7 +459,7 @@ fn raster(svg: &str, remaining: u64) -> Result<(Vec<u8>, u64)> {
 pub fn read(path: &Path, cancel: &Cancellation) -> Result<ImageDocument> {
     let (bytes, _input_memory) =
         crate::resources::read_reserved(std::fs::File::open(path)?, cancel)?;
-    let source = String::from_utf8(bytes)?;
+    let source = String::from_utf8(bytes).map_err(|error| error.utf8_error())?;
     let _parser_memory = crate::resources::reserve_parser(source.len())?;
     ensure!(
         source.len() <= limits::DRAWIO_XML_BYTES,
@@ -479,7 +488,7 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<ImageDocument> {
             model
         } else {
             generated = decode_page(page, cancel)?;
-            parsed = roxmltree::Document::parse(&generated)?;
+            parsed = roxmltree::Document::parse(&generated.0)?;
             parsed.root_element()
         };
         let output = svg(model, cancel)?;

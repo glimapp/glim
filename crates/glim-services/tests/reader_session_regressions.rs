@@ -138,16 +138,23 @@ fn drawio_decodes_compressed_pages_and_produces_raster_output() -> Result<()> {
     let model = r#"<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="Box" vertex="1" parent="1"><mxGeometry x="10" y="20" width="120" height="60" as="geometry"/></mxCell></root></mxGraphModel>"#;
     let mut encoder =
         flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
-    encoder.write_all(model.as_bytes())?;
+    let escaped = model
+        .replace('<', "%3C")
+        .replace('>', "%3E")
+        .replace(' ', "%20");
+    encoder.write_all(escaped.as_bytes())?;
     let compressed = base64::engine::general_purpose::STANDARD.encode(encoder.finish()?);
     fs::write(
         &path,
-        format!("<mxfile><diagram>{model}</diagram><diagram>{compressed}</diagram></mxfile>"),
+        format!(
+            "<mxfile><diagram>{model}</diagram><diagram><![CDATA[{model}]]></diagram><diagram>{compressed}</diagram></mxfile>"
+        ),
     )?;
     let document = glim_services::drawio::read(&path, &Cancellation::default())?;
-    assert_eq!(document.pages.len(), 2);
-    for page in document.pages {
+    assert_eq!(document.pages.len(), 3);
+    for page in &document.pages {
         assert!(page.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert_eq!(page, &document.pages[0]);
     }
     Ok(())
 }
