@@ -44,9 +44,7 @@ pub(crate) use open_workspaces::OpenWorkspaces;
 
 pub struct ReaderPreferences {
     pub word_wrap: bool,
-    pub html_preview: bool,
-    pub markdown_preview: bool,
-    pub csv_preview: bool,
+    pub reading_modes: glim_services::preferences::ReadingModes,
     pub preview_save_task: Option<Task<()>>,
 }
 impl Global for ReaderPreferences {}
@@ -409,9 +407,7 @@ fn run_workspace() -> Result<()> {
     });
     let word_wrap = glim_services::preferences::word_wrap();
     let appearance = glim_services::preferences::appearance();
-    let html_preview = glim_services::preferences::preview_mode("html");
-    let markdown_preview = glim_services::preferences::preview_mode("markdown");
-    let csv_preview = glim_services::preferences::preview_mode("csv");
+    let reading_modes = glim_services::preferences::ReadingModes::load();
     let git_preferences = glim_services::preferences::git_preferences();
     let telemetry_consent = glim_services::telemetry::Consent::load();
     let application = gpui_kit::application().with_assets(assets::Assets);
@@ -513,9 +509,7 @@ fn run_workspace() -> Result<()> {
         languages::init();
         cx.set_global(ReaderPreferences {
             word_wrap,
-            html_preview,
-            markdown_preview,
-            csv_preview,
+            reading_modes,
             preview_save_task: None,
         });
         cx.set_global(OpenWorkspaces::default());

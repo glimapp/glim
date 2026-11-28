@@ -170,7 +170,14 @@ impl Reader {
         let html = (presentation.markup == Some(MarkupFormat::Html)).then(|| {
             let active = cx
                 .try_global::<crate::app::ReaderPreferences>()
-                .is_none_or(|prefs| prefs.html_preview);
+                .map_or_else(
+                    || glim_services::preferences::PreviewPreference::Html.default_preview(),
+                    |prefs| {
+                        prefs
+                            .reading_modes
+                            .preview(glim_services::preferences::PreviewPreference::Html)
+                    },
+                );
             (
                 cx.new(|cx| native::NativeReader::html(path.clone(), None, window, cx)),
                 active,

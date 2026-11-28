@@ -44,15 +44,18 @@ impl MarkupReader {
         let scroll = ScrollHandle::new();
         use glim_services::documents::presentation::MarkupFormat;
         let html = format == MarkupFormat::Html;
+        use glim_services::preferences::PreviewPreference;
+        let kind = if html {
+            PreviewPreference::Html
+        } else {
+            PreviewPreference::Markdown
+        };
         let preview = cx
             .try_global::<crate::app::ReaderPreferences>()
-            .is_none_or(|preferences| {
-                if html {
-                    preferences.html_preview
-                } else {
-                    preferences.markdown_preview
-                }
-            });
+            .map_or_else(
+                || kind.default_preview(),
+                |prefs| prefs.reading_modes.preview(kind),
+            );
         let format_path = (format == MarkupFormat::Converted).then(|| path.to_path_buf());
         let projected = format_path
             .as_ref()

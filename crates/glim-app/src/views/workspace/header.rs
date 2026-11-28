@@ -356,11 +356,7 @@ impl Workspace {
         }
         if let Some(kind) = preference {
             let prefs = cx.global_mut::<crate::app::ReaderPreferences>();
-            match kind {
-                "html" => prefs.html_preview = preview,
-                "csv" => prefs.csv_preview = preview,
-                _ => prefs.markdown_preview = preview,
-            }
+            prefs.reading_modes.set_preview(kind, preview);
             let previous = prefs.preview_save_task.take();
             let task = cx.spawn(async move |view, cx| {
                 if let Some(previous) = previous {
@@ -368,9 +364,7 @@ impl Workspace {
                 }
                 let result = cx
                     .background_executor()
-                    .spawn(
-                        async move { glim_services::preferences::save_preview_mode(kind, preview) },
-                    )
+                    .spawn(async move { kind.save(preview) })
                     .await;
                 if let Err(error) = result {
                     let _ = view.update(cx, |v, cx| {

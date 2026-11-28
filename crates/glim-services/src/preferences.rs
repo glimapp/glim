@@ -163,25 +163,65 @@ pub fn save_appearance(value: Appearance) -> Result<()> {
         },
     )
 }
-fn preview_key(kind: &str) -> Result<String> {
-    anyhow::ensure!(
-        matches!(kind, "html" | "markdown" | "csv"),
-        "Unknown preview preference"
-    );
-    Ok(format!("{kind}-view"))
+#[derive(Clone, Copy)]
+pub enum PreviewPreference {
+    Html,
+    Markdown,
+    Csv,
 }
-pub fn preview_mode(kind: &str) -> bool {
-    preview_key(kind)
-        .ok()
-        .and_then(|key| get(&key).ok().flatten())
-        .map_or(kind != "csv", |v| v.trim() != "source")
+
+impl PreviewPreference {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Html => "html-view",
+            Self::Markdown => "markdown-view",
+            Self::Csv => "csv-view",
+        }
+    }
+
+    pub fn default_preview(self) -> bool {
+        !matches!(self, Self::Csv)
+    }
+
+    fn load_from(self, db: &rusqlite::Connection) -> bool {
+        storage::setting(db, self.key())
+            .ok()
+            .flatten()
+            .map_or_else(|| self.default_preview(), |value| value.trim() != "source")
+    }
+
+    pub fn save(self, preview: bool) -> Result<()> {
+        set(self.key(), if preview { "preview" } else { "source" })
+    }
 }
-pub fn save_preview_mode(kind: &str, preview: bool) -> Result<()> {
-    set(
-        &preview_key(kind)?,
-        if preview { "preview" } else { "source" },
-    )
+
+pub struct ReadingModes([bool; 3]);
+
+impl ReadingModes {
+    pub fn load() -> Self {
+        let db = storage::open().ok();
+        Self(
+            [
+                PreviewPreference::Html,
+                PreviewPreference::Markdown,
+                PreviewPreference::Csv,
+            ]
+            .map(|kind| {
+                db.as_ref()
+                    .map_or_else(|| kind.default_preview(), |db| kind.load_from(db))
+            }),
+        )
+    }
+
+    pub fn preview(&self, kind: PreviewPreference) -> bool {
+        self.0[kind as usize]
+    }
+
+    pub fn set_preview(&mut self, kind: PreviewPreference, preview: bool) {
+        self.0[kind as usize] = preview;
+    }
 }
+
 pub fn language() -> Option<String> {
     get("language")
         .ok()
@@ -232,6 +272,22 @@ fn save_groups(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_preferences_preserve_existing_keys_and_format_defaults() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let db = storage::open_at(directory.path())?;
+        assert!(PreviewPreference::Html.load_from(&db));
+        assert!(PreviewPreference::Markdown.load_from(&db));
+        assert!(!PreviewPreference::Csv.load_from(&db));
+
+        set_setting(&db, "html-view", " source ")?;
+        set_setting(&db, "csv-view", "preview")?;
+        assert!(!PreviewPreference::Html.load_from(&db));
+        assert!(PreviewPreference::Markdown.load_from(&db));
+        assert!(PreviewPreference::Csv.load_from(&db));
+        Ok(())
+    }
 
     #[test]
     fn local_roots_and_recent_workspaces_commit_together() -> Result<()> {

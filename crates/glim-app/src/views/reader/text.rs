@@ -1,4 +1,5 @@
 use super::*;
+use glim_services::preferences::PreviewPreference;
 
 impl Reader {
     pub fn can_find(&self, cx: &App) -> bool {
@@ -212,33 +213,33 @@ impl Reader {
         self.projection.as_ref().is_some_and(Projection::is_openapi)
     }
     pub(super) fn restore_csv_preview(&mut self, cx: &mut App) {
-        if self.table_format().is_some()
-            && cx.try_global::<crate::app::ReaderPreferences>().map_or(
-                self.geo_format().is_some(),
-                |prefs| {
-                    if self.geo_format().is_some() {
-                        prefs.markdown_preview
-                    } else {
-                        prefs.csv_preview
-                    }
-                },
-            )
+        if let Some(kind) = self.table_format().and_then(|_| self.preview_preference())
+            && cx
+                .try_global::<crate::app::ReaderPreferences>()
+                .map_or_else(
+                    || kind.default_preview(),
+                    |prefs| prefs.reading_modes.preview(kind),
+                )
         {
             self.set_preview(true, cx);
         }
     }
-    pub fn preview_preference(&self) -> Option<&'static str> {
+    pub fn preview_preference(&self) -> Option<PreviewPreference> {
         if matches!(&self.renderer, Renderer::Paged { html: Some(_), .. }) {
-            return Some("html");
+            return Some(PreviewPreference::Html);
         }
         if self.is_csv() {
-            return Some("csv");
+            return Some(PreviewPreference::Csv);
         }
         if self.geo_format().is_some() {
-            return Some("markdown");
+            return Some(PreviewPreference::Markdown);
         }
         match &self.renderer {
-            Renderer::Markup(m) => Some(if m.html { "html" } else { "markdown" }),
+            Renderer::Markup(m) => Some(if m.html {
+                PreviewPreference::Html
+            } else {
+                PreviewPreference::Markdown
+            }),
             _ => None,
         }
     }
