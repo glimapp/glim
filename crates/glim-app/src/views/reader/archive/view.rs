@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use glim_core::archive::{Archive, DirectoryEntry};
+use glim_core::archive::{Archive, DirectoryEntry, DirectoryRows};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
@@ -15,13 +15,18 @@ pub(super) struct ArchiveView {
     archive: Arc<Archive>,
     translate: fn(&str) -> String,
     prefix: String,
-    rows: Vec<DirectoryEntry>,
+    status: DirectoryStatus,
     scroll: UniformListScrollHandle,
     focus: FocusHandle,
     selected: Option<usize>,
     pub(super) extract: Option<(String, super::super::ArchiveAction)>,
-    loading: bool,
 }
+enum DirectoryStatus {
+    Loading,
+    Ready(DirectoryRows),
+    Failed(String),
+}
+
 impl ArchiveView {
     pub fn new(
         archive: Arc<Archive>,
@@ -35,8 +40,7 @@ impl ArchiveView {
             archive,
             translate,
             prefix: String::new(),
-            rows: Vec::new(),
-            loading: true,
+            status: DirectoryStatus::Loading,
             scroll: UniformListScrollHandle::new(),
         }
     }
@@ -57,23 +61,39 @@ impl ArchiveView {
     pub(super) fn loading(&mut self, prefix: String, cx: &mut Context<Self>) {
         self.prefix = prefix;
         self.selected = None;
-        self.loading = true;
+        self.status = DirectoryStatus::Loading;
         cx.notify();
     }
 
-    pub(super) fn publish(&mut self, rows: Vec<DirectoryEntry>, cx: &mut Context<Self>) {
-        self.rows = rows;
-        self.loading = false;
+    pub(super) fn publish(&mut self, rows: DirectoryRows, cx: &mut Context<Self>) {
+        self.status = DirectoryStatus::Ready(rows);
         self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         cx.notify();
+    }
+
+    pub(super) fn fail(&mut self, error: String, cx: &mut Context<Self>) {
+        self.status = DirectoryStatus::Failed(error);
+        cx.notify();
+    }
+
+    fn rows(&self) -> &[DirectoryEntry] {
+        match &self.status {
+            DirectoryStatus::Ready(rows) => rows,
+            _ => &[],
+        }
     }
 
     #[cfg(test)]
     pub(super) fn directory(&self) -> (&str, Option<&[DirectoryEntry]>) {
         (
             &self.prefix,
-            (!self.loading).then_some(self.rows.as_slice()),
+            matches!(self.status, DirectoryStatus::Ready(_)).then(|| self.rows()),
         )
+    }
+
+    #[cfg(test)]
+    pub(super) fn has_failed(&self) -> bool {
+        matches!(self.status, DirectoryStatus::Failed(_))
     }
 
     fn navigate(&mut self, prefix: String, cx: &mut Context<Self>) {
@@ -96,7 +116,7 @@ impl Render for ArchiveView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use gpui_kit::assets::IconName;
         let tr = self.translate;
-        let ready = !self.loading;
+        let ready = matches!(self.status, DirectoryStatus::Ready(_));
         let title = self
             .archive
             .path
@@ -151,11 +171,11 @@ impl Render for ArchiveView {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .on_key_down(cx.listener(|v, event: &KeyDownEvent, _, cx| {
-                let ready = !v.loading;
+                let ready = matches!(v.status, DirectoryStatus::Ready(_));
                 match event.keystroke.key.as_str() {
-                    "up" | "down" if ready && !v.rows.is_empty() => {
+                    "up" | "down" if ready && !v.rows().is_empty() => {
                         let index = if event.keystroke.key == "down" {
-                            v.selected.map_or(0, |i| (i + 1).min(v.rows.len() - 1))
+                            v.selected.map_or(0, |i| (i + 1).min(v.rows().len() - 1))
                         } else {
                             v.selected.unwrap_or(0).saturating_sub(1)
                         };
@@ -164,7 +184,7 @@ impl Render for ArchiveView {
                         cx.notify();
                     }
                     "enter" | "right" if ready => {
-                        if let Some(row) = v.selected.and_then(|i| v.rows.get(i))
+                        if let Some(row) = v.selected.and_then(|i| v.rows().get(i))
                             && row.directory
                         {
                             v.navigate(format!("{}{}/", v.prefix, row.name), cx);
@@ -275,7 +295,7 @@ impl Render for ArchiveView {
                 content.child(
                     uniform_list(
                         "archive-entries",
-                        self.rows.len(),
+                        self.rows().len(),
                         cx.processor(|v, range: std::ops::Range<usize>, _, cx| {
                             range
                                 .map(|i| {
@@ -283,7 +303,7 @@ impl Render for ArchiveView {
                                         name,
                                         directory: dir,
                                         bytes: size,
-                                    } = v.rows[i].clone();
+                                    } = v.rows()[i].clone();
                                     h_flex()
                                         .id(i)
                                         .w_full()
@@ -357,7 +377,7 @@ impl Render for ArchiveView {
                     .track_scroll(&self.scroll),
                 )
             })
-            .when(ready && self.rows.is_empty(), |el| {
+            .when(ready && self.rows().is_empty(), |el| {
                 el.child(
                     div()
                         .w_full()
@@ -368,7 +388,7 @@ impl Render for ArchiveView {
                         .child(tr("This folder is empty")),
                 )
             })
-            .when(self.loading, |content| {
+            .when(matches!(self.status, DirectoryStatus::Loading), |content| {
                 content.child(
                     div()
                         .flex_1()
@@ -376,6 +396,32 @@ impl Render for ArchiveView {
                         .child(super::super::controls::loading(tr("Loading preview…"), cx)),
                 )
             })
+            .when_some(
+                match &self.status {
+                    DirectoryStatus::Failed(error) => Some(error.clone()),
+                    _ => None,
+                },
+                |content, message| {
+                    content.child(
+                        v_flex()
+                            .flex_1()
+                            .min_h_0()
+                            .items_center()
+                            .justify_center()
+                            .gap_2()
+                            .px_3()
+                            .child(div().max_w_full().text_center().text_sm().child(message))
+                            .child(
+                                Button::new("archive-retry")
+                                    .small()
+                                    .label(tr("Retry"))
+                                    .on_click(cx.listener(|view, _, _, cx| {
+                                        view.navigate(view.prefix.clone(), cx);
+                                    })),
+                            ),
+                    )
+                },
+            )
             .child(
                 h_flex()
                     .w_full()
@@ -387,7 +433,7 @@ impl Render for ArchiveView {
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
                     .child(div().flex_1().when(ready, |label| {
-                        label.child(format!("{} {}", self.rows.len(), tr("Archive entries")))
+                        label.child(format!("{} {}", self.rows().len(), tr("Archive entries")))
                     }))
                     .child(tr("Extract to a new workspace")),
             )

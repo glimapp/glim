@@ -1,6 +1,8 @@
 //! Prepared archive entries and directory queries.
+use crate::resources::{ResourcePool, WorkingPressure, WorkingReservation};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, hash_map::Entry as MapEntry},
+    ops::Deref,
     path::{Path, PathBuf},
 };
 
@@ -22,6 +24,19 @@ pub struct DirectoryEntry {
     pub name: String,
     pub directory: bool,
     pub bytes: u64,
+}
+
+/// Directory rows retain their output allocation through worker/view handoff.
+pub struct DirectoryRows {
+    rows: Vec<DirectoryEntry>,
+    _memory: WorkingReservation,
+}
+
+impl Deref for DirectoryRows {
+    type Target = [DirectoryEntry];
+    fn deref(&self) -> &Self::Target {
+        &self.rows
+    }
 }
 
 impl Archive {
@@ -48,16 +63,18 @@ impl Archive {
 
     /// List immediate children of an archive path prefix, including sizes of
     /// directory descendants. The root is empty; other prefixes end in `/`.
-    pub fn directory_entries<E>(
+    pub fn directory_entries<E: From<WorkingPressure>>(
         &self,
         prefix: &str,
+        pool: &ResourcePool,
         mut checkpoint: impl FnMut() -> Result<(), E>,
-    ) -> Result<Vec<DirectoryEntry>, E> {
+    ) -> Result<DirectoryRows, E> {
         checkpoint()?;
         let start = self
             .entries
             .partition_point(|entry| entry.name.as_str() < prefix);
-        let mut children = HashMap::new();
+        let mut children = HashMap::<&str, (bool, u64)>::new();
+        let mut name_bytes = 0u64;
         for entry in &self.entries[start..] {
             checkpoint()?;
             let Some(tail) = entry.name.strip_prefix(prefix) else {
@@ -69,9 +86,19 @@ impl Archive {
             let (name, directory) = tail
                 .split_once('/')
                 .map_or((tail, entry.directory), |(name, _)| (name, true));
-            let row = children.entry(name).or_insert((directory, 0u64));
-            row.1 = row.1.saturating_add(entry.size);
+            match children.entry(name) {
+                MapEntry::Occupied(mut row) => {
+                    let bytes = &mut row.get_mut().1;
+                    *bytes = bytes.saturating_add(entry.size);
+                }
+                MapEntry::Vacant(row) => {
+                    name_bytes += name.len() as u64;
+                    row.insert((directory, entry.size));
+                }
+            }
         }
+        let bytes = name_bytes + (children.len() * size_of::<DirectoryEntry>()) as u64;
+        let memory = pool.reserve_working(bytes, bytes)?;
         let mut rows = Vec::with_capacity(children.len());
         for (name, (directory, bytes)) in children {
             checkpoint()?;
@@ -83,13 +110,27 @@ impl Archive {
         }
         rows.sort_unstable_by(|a, b| b.bytes.cmp(&a.bytes).then(a.name.cmp(&b.name)));
         checkpoint()?;
-        Ok(rows)
+        Ok(DirectoryRows {
+            rows,
+            _memory: memory,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, PartialEq)]
+    enum QueryError {
+        Cancelled,
+        Pressure,
+    }
+    impl From<WorkingPressure> for QueryError {
+        fn from(_: WorkingPressure) -> Self {
+            Self::Pressure
+        }
+    }
 
     #[test]
     fn directory_queries_stop_without_publishing_partial_rows() {
@@ -103,16 +144,43 @@ mod tests {
             .collect();
         let archive = Archive::new(Path::new("test.zip"), "ZIP".into(), entries);
         let mut checks = 0;
-        let result = archive.directory_entries("first/", || {
+        let result = archive.directory_entries("first/", &ResourcePool::new(0), || {
             checks += 1;
             if checks == 3 {
-                Err("cancelled")
+                Err(QueryError::Cancelled)
             } else {
                 Ok(())
             }
         });
-        assert_eq!(result, Err("cancelled"));
+        assert!(matches!(result, Err(QueryError::Cancelled)));
         assert_eq!(checks, 3);
+    }
+
+    #[test]
+    fn directory_rows_hold_exact_output_admission_through_handoff() {
+        let entries = ["folder/中文", "folder/second", "one"]
+            .into_iter()
+            .map(|name| Entry {
+                name: name.into(),
+                size: 1,
+                directory: false,
+            })
+            .collect();
+        let archive = Archive::new(Path::new("test.zip"), "ZIP".into(), entries);
+        let bytes = (2 * size_of::<DirectoryEntry>() + "folderone".len()) as u64;
+        let pool = ResourcePool::with_budgets(0, bytes - 1);
+        let query = archive.directory_entries("", &pool, || Ok::<_, WorkingPressure>(()));
+        assert!(query.is_err());
+        assert_eq!(pool.snapshot().working_bytes, 0);
+
+        let pool = ResourcePool::with_budgets(0, bytes);
+        let rows = archive
+            .directory_entries("", &pool, || Ok::<_, WorkingPressure>(()))
+            .unwrap();
+        assert_eq!((rows[0].name.as_str(), rows[0].bytes), ("folder", 2));
+        assert_eq!(pool.snapshot().working_bytes, bytes);
+        drop(rows);
+        assert_eq!(pool.snapshot().working_bytes, 0);
     }
 
     #[test]
@@ -140,12 +208,13 @@ mod tests {
         .collect();
         let archive = Archive::new(Path::new("example.zip"), "ZIP".into(), entries);
         assert_eq!(archive.total_bytes(), 977);
+        let pool = ResourcePool::new(0);
         let rows = |prefix| {
             archive
-                .directory_entries(prefix, || Ok::<_, std::convert::Infallible>(()))
+                .directory_entries(prefix, &pool, || Ok::<_, WorkingPressure>(()))
                 .unwrap()
-                .into_iter()
-                .map(|row| (row.name, row.directory, row.bytes))
+                .iter()
+                .map(|row| (row.name.clone(), row.directory, row.bytes))
                 .collect::<Vec<_>>()
         };
         let expected = |entries: &[(&str, bool, u64)]| {
