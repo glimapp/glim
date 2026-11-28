@@ -65,10 +65,7 @@ impl Workspace {
         self.loading_path = None;
         let (cancel, guard) = glim_services::work::Cancellation::task();
         let work = cx.background_executor().spawn(async move {
-            let paths = glim_services::preferences::workspace_folders()?;
-            let recent = glim_services::preferences::recent_workspaces()?
-                .into_iter()
-                .find(|workspace| workspace.folders == paths);
+            let (paths, recent) = glim_services::preferences::workspace_restore()?;
             let expanded = glim_services::preferences::explorer_expansion(&paths);
             let folders = paths
                 .into_iter()

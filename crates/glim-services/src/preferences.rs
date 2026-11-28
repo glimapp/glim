@@ -4,15 +4,20 @@ use anyhow::Result;
 use glim_core::{ExplorerExpansion, RecentWorkspace};
 use std::{collections::BTreeMap, path::PathBuf};
 
-pub fn workspace_folders() -> Result<Vec<PathBuf>> {
-    storage::paths(&storage::open()?, "workspace", "")
+pub fn workspace_restore() -> Result<(Vec<PathBuf>, Option<RecentWorkspace>)> {
+    workspace_restore_in(&mut storage::open()?)
 }
-pub fn save_workspace_folders(folders: &[PathBuf]) -> Result<()> {
-    let mut db = storage::open()?;
-    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    storage::save_paths(&tx, "workspace", "", folders)?;
+
+fn workspace_restore_in(
+    db: &mut rusqlite::Connection,
+) -> Result<(Vec<PathBuf>, Option<RecentWorkspace>)> {
+    let tx = db.transaction()?;
+    let roots = storage::paths(&tx, "workspace", "")?;
+    let recent = storage::sessions::recent_at(&tx)?
+        .into_iter()
+        .find(|workspace| workspace.folders == roots);
     tx.commit()?;
-    Ok(())
+    Ok((roots, recent))
 }
 pub fn explorer_expansion(roots: &[PathBuf]) -> Result<ExplorerExpansion> {
     let db = storage::open()?;
@@ -49,8 +54,16 @@ pub fn recent_workspaces() -> Result<Vec<RecentWorkspace>> {
     tx.commit()?;
     Ok(recent)
 }
-pub fn remember_recent_workspace(mut workspace: RecentWorkspace) -> Result<Vec<RecentWorkspace>> {
-    let mut db = storage::open()?;
+pub fn remember_recent_workspace(workspace: RecentWorkspace) -> Result<Vec<RecentWorkspace>> {
+    remember_recent_in(&mut storage::open()?, workspace)
+}
+
+fn remember_recent_in(
+    db: &mut rusqlite::Connection,
+    mut workspace: RecentWorkspace,
+) -> Result<Vec<RecentWorkspace>> {
+    let remote = crate::remote::is_remote_id(&workspace.id);
+    let local_folders = (!remote).then(|| workspace.folders.clone());
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let mut recent = storage::sessions::recent_at(&tx)?;
     if workspace.name.is_none() {
@@ -58,7 +71,7 @@ pub fn remember_recent_workspace(mut workspace: RecentWorkspace) -> Result<Vec<R
             .iter()
             .find(|e| {
                 e.id == workspace.id
-                    || (!crate::remote::is_remote_id(&workspace.id)
+                    || (!remote
                         && !crate::remote::is_remote_id(&e.id)
                         && e.folders == workspace.folders)
             })
@@ -66,7 +79,7 @@ pub fn remember_recent_workspace(mut workspace: RecentWorkspace) -> Result<Vec<R
     }
     recent.retain(|e| {
         e.id != workspace.id
-            && (crate::remote::is_remote_id(&workspace.id)
+            && (remote
                 || crate::remote::is_remote_id(&e.id)
                 || workspace.folders.is_empty()
                 || e.folders != workspace.folders)
@@ -75,6 +88,9 @@ pub fn remember_recent_workspace(mut workspace: RecentWorkspace) -> Result<Vec<R
         recent.insert(0, workspace);
     }
     storage::sessions::save_recent_at(&tx, &recent)?;
+    if let Some(folders) = local_folders {
+        storage::save_paths(&tx, "workspace", "", &folders)?;
+    }
     tx.commit()?;
     Ok(recent)
 }
@@ -211,4 +227,46 @@ fn save_groups(
     storage::sessions::save(&tx, scope, groups)?;
     tx.commit()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_roots_and_recent_workspaces_commit_together() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let mut db = storage::open_at(directory.path())?;
+        let workspace = |id: &str, root: &str| RecentWorkspace {
+            id: id.into(),
+            folders: vec![root.into()],
+            name: None,
+        };
+        remember_recent_in(&mut db, workspace("first", "/first"))?;
+        remember_recent_in(&mut db, workspace("ssh-workspace-test", "/remote"))?;
+        assert_eq!(
+            storage::paths(&db, "workspace", "")?,
+            [PathBuf::from("/first")]
+        );
+
+        db.execute_batch(
+            "CREATE TEMP TRIGGER reject_roots BEFORE INSERT ON paths
+               WHEN NEW.scope = 'workspace'
+               BEGIN SELECT RAISE(ABORT, 'test: root update rejected'); END;",
+        )?;
+        assert!(remember_recent_in(&mut db, workspace("second", "/second")).is_err());
+        assert_eq!(
+            storage::paths(&db, "workspace", "")?,
+            [PathBuf::from("/first")]
+        );
+        let ids = storage::sessions::recent_at(&db)?
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>();
+        assert_eq!(ids, ["ssh-workspace-test", "first"]);
+        let (roots, recent) = workspace_restore_in(&mut db)?;
+        assert_eq!(roots, [PathBuf::from("/first")]);
+        assert_eq!(recent.unwrap().id, "first");
+        Ok(())
+    }
 }

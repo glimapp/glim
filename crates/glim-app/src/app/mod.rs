@@ -122,15 +122,7 @@ pub(crate) fn remember_named_workspace(workspace: glim_core::RecentWorkspace, cx
         }
         let result = cx
             .background_executor()
-            .spawn(async move {
-                let folders = workspace.folders.clone();
-                let remote = glim_services::remote::is_remote_id(&workspace.id);
-                let recent = glim_services::preferences::remember_recent_workspace(workspace)?;
-                if !remote {
-                    glim_services::preferences::save_workspace_folders(&folders)?;
-                }
-                anyhow::Ok(recent)
-            })
+            .spawn(async move { glim_services::preferences::remember_recent_workspace(workspace) })
             .await;
         match result {
             Ok(recent) => cx.update(|cx| {
