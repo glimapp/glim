@@ -33,3 +33,27 @@ jobs:
           cargo test --locked -p glim-services --lib media::raster::tests
       - name: Verify UTF-8 reading across input buffers
         run: cargo test --locked -p glim-services --lib files::tests::full_text_read_preserves_a_utf8_character_across_input_buffers -- --exact
+  reader-lifecycle:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.99.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: reader-lifecycle
+          cache-bin: false
+      - name: Verify tab and preview lifecycle contracts
+        shell: bash
+        run: |
+          run_contracts() {
+            cargo test --locked -p glim-app --bin glim "$@" | tee "$RUNNER_TEMP/glim-lifecycle-tests.log"
+            if grep -Fq 'running 0 tests' "$RUNNER_TEMP/glim-lifecycle-tests.log"; then
+              echo "::error::No tests matched $1"
+              return 1
+            fi
+          }
+          run_contracts views::workspace::tabs::tests
+          run_contracts views::reader::media::tests
+          run_contracts views::reader::editing::editing_tests::paged_html_retains_source_editor_and_blocks_preview_for_unsaved_edits -- --exact
+          run_contracts views::reader::paged::tests::cancelled_restoration_preserves_generated_source_and_position -- --exact
