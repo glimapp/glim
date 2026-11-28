@@ -5,9 +5,19 @@ import UniformTypeIdentifiers
 // Serve the current editor snapshot at the document's URL, with streamed local
 // resources. No temporary HTML files are written into the user's project.
 private final class HTMLResources: NSObject, WKURLSchemeHandler {
+    private struct Snapshot {
+        let data: Data
+        let lease: NativeResourceLease
+
+        init(_ text: String) {
+            data = Data(text.utf8)
+            lease = NativeResourceLease(bytes: UInt64(data.count))
+        }
+    }
+
     let document: URL
     private let directory: URL
-    private let contents: Data?
+    private let snapshot: Snapshot?
     // Accessed only by the serial resource worker.
     private var readDirectory: URL?
     private let worker = DispatchQueue(label: "glim.html.resources", qos: .userInitiated)
@@ -15,7 +25,7 @@ private final class HTMLResources: NSObject, WKURLSchemeHandler {
     init(document: URL, contents: String?) {
         self.document = document
         directory = document.deletingLastPathComponent()
-        self.contents = contents.map { Data($0.utf8) }
+        snapshot = contents.map(Snapshot.init)
     }
     private func resourceDirectory() -> URL {
         if let directory = readDirectory { return directory }
@@ -42,9 +52,10 @@ private final class HTMLResources: NSObject, WKURLSchemeHandler {
                 guard let url = requestedURL else { throw URLError(.badURL) }
                 let path = URL(fileURLWithPath: url.path).standardizedFileURL
                 let mainDocument = path.path == self.document.standardizedFileURL.path
+                let contents = mainDocument ? self.snapshot?.data : nil
                 let file: FileHandle?
                 let length: Int
-                if mainDocument, let contents = self.contents {
+                if let contents = contents {
                     file = nil; length = contents.count
                 } else {
                     let resolved = path.resolvingSymlinksInPath()
@@ -57,6 +68,9 @@ private final class HTMLResources: NSObject, WKURLSchemeHandler {
                     try file!.seek(toOffset: 0)
                 }
                 defer { try? file?.close() }
+                // The serial worker hands off one fixed-size file chunk at a time.
+                let bufferLease = file.map { _ in NativeResourceLease(bytes: UInt64(ReaderLimits.IO_BUFFER_BYTES)) }
+                defer { withExtendedLifetime(bufferLease) {} }
                 let mime = mainDocument ? "text/html" : (UTType(filenameExtension: path.pathExtension)?.preferredMIMEType ?? "application/octet-stream")
                 let response = URLResponse(url: url, mimeType: mime, expectedContentLength: length,
                     textEncodingName: mime.hasPrefix("text/") ? "utf-8" : nil)
@@ -72,10 +86,11 @@ private final class HTMLResources: NSObject, WKURLSchemeHandler {
                     let data: Data
                     if let file = file {
                         data = try file.read(upToCount: ReaderLimits.IO_BUFFER_BYTES) ?? Data()
-                    } else {
-                        let contents = self.contents ?? Data()
+                    } else if let contents = contents {
                         let end = min(contents.count, offset + ReaderLimits.IO_BUFFER_BYTES)
-                        data = contents.subdata(in: offset..<end); offset = end
+                        data = contents[offset..<end]; offset = end
+                    } else {
+                        break
                     }
                     if data.isEmpty { break }
                     // Deliver one chunk at a time so queued callbacks cannot retain
