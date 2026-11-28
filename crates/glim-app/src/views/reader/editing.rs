@@ -153,16 +153,12 @@ impl Reader {
         saved: glim_services::paged::PageSaved,
         cx: &mut App,
     ) {
-        if let Renderer::Paged { view, .. } = &self.renderer {
+        if let Renderer::Paged { view, html, .. } = &self.renderer {
             self.document
                 .mark_saved(ContentSnapshot::Fingerprint(saved.fingerprint()));
             view.update(cx, |page, cx| page.saved(text, saved, cx));
-            if let Renderer::Paged {
-                html: Some((browser, _)),
-                ..
-            } = &self.renderer
-            {
-                browser.update(cx, |browser, cx| browser.reload_html_file(cx));
+            if let Some(html) = html {
+                html.reload(cx);
             }
         }
     }
@@ -184,7 +180,7 @@ impl Reader {
 mod editing_tests {
     use super::SourceReader;
     use super::{Reader, Renderer};
-    use glim_core::{Document, DocumentKind};
+    use glim_core::{Document, DocumentKind, ReaderMode};
     use gpui_kit::ScrollHandle;
     use gpui_kit::{
         App, AppContext, Bounds, Context, Entity, IntoElement, Point, Render, TestAppContext,
@@ -217,6 +213,43 @@ mod editing_tests {
             .unwrap()
         })
     }
+    #[gpui_kit::test]
+    fn paged_html_retains_source_editor_and_blocks_preview_for_unsaved_edits(
+        cx: &mut TestAppContext,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("paged.html");
+        std::fs::write(&path, "<p>saved</p>\n").unwrap();
+        let page = glim_services::paged::read_page(&path, 0, false).unwrap();
+        let (handle, view) = open(cx, |window, cx| {
+            let mut reader = Reader::from_page(page, window, cx);
+            assert!(reader.can_preview());
+            assert_eq!(reader.mode(), ReaderMode::Preview);
+            reader.set_preview(false, cx);
+            reader
+        });
+        let editor = cx.update(|cx| view.read(cx).0.editor().unwrap());
+        cx.update_window(handle, |_, window, cx| {
+            editor.update(cx, |editor, cx| {
+                editor.replace_all("<p>pending</p>\n", window, cx);
+            });
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| {
+            view.update(cx, |view, cx| {
+                let reader = &mut view.0;
+                assert!(reader.is_dirty());
+                reader.deactivate(cx);
+                reader.activate(cx);
+                reader.set_preview(true, cx);
+                assert_eq!(reader.mode(), ReaderMode::Source);
+                assert_eq!(reader.editor().unwrap().entity_id(), editor.entity_id());
+                assert_eq!(editor.read(cx).value().as_ref(), "<p>pending</p>\n");
+            });
+        });
+    }
+
     #[gpui_kit::test]
     fn edit_tracking_outlives_its_source_view(cx: &mut TestAppContext) {
         let (handle, _) = open(cx, |window, cx| {

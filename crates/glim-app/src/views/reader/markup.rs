@@ -50,12 +50,7 @@ impl MarkupReader {
         } else {
             PreviewPreference::Markdown
         };
-        let preview = cx
-            .try_global::<crate::app::ReaderPreferences>()
-            .map_or_else(
-                || kind.default_preview(),
-                |prefs| prefs.reading_modes.preview(kind),
-            );
+        let preview = super::preview_enabled(kind, cx);
         let format_path = (format == MarkupFormat::Converted).then(|| path.to_path_buf());
         let projected = format_path
             .as_ref()

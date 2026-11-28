@@ -1,5 +1,4 @@
 use super::*;
-use glim_services::preferences::PreviewPreference;
 
 impl Reader {
     pub fn can_find(&self, cx: &App) -> bool {
@@ -15,11 +14,12 @@ impl Reader {
                 .browser
                 .as_ref()
                 .is_some_and(|view| view.read(cx).find(false)),
-            Renderer::Paged {
-                html: Some((view, true)),
-                ..
-            } => view.read(cx).find(false),
-            Renderer::Paged { view, .. } => view.read(cx).source_editor.is_some(),
+            Renderer::Paged { view, html, .. } => {
+                match html.as_ref().and_then(PagedHtml::preview) {
+                    Some(browser) => browser.read(cx).find(false),
+                    None => view.read(cx).source_editor.is_some(),
+                }
+            }
             _ => self.source().is_some(),
         }
     }
@@ -72,19 +72,14 @@ impl Reader {
                 }
                 return;
             }
-            Renderer::Paged {
-                html: Some((view, true)),
-                ..
-            } => {
-                if toggle {
-                    view.read(cx).toggle_find();
-                } else {
-                    view.read(cx).find(true);
-                }
-                return;
-            }
-            Renderer::Paged { view, .. } => {
-                if let Some(editor) = &view.read(cx).source_editor {
+            Renderer::Paged { view, html, .. } => {
+                if let Some(browser) = html.as_ref().and_then(PagedHtml::preview) {
+                    if toggle {
+                        browser.read(cx).toggle_find();
+                    } else {
+                        browser.read(cx).find(true);
+                    }
+                } else if let Some(editor) = &view.read(cx).source_editor {
                     let find = editor.find.clone();
                     find.update(cx, |find, cx| {
                         if toggle {
@@ -214,12 +209,7 @@ impl Reader {
     }
     pub(super) fn restore_csv_preview(&mut self, cx: &mut App) {
         if let Some(kind) = self.table_format().and_then(|_| self.preview_preference())
-            && cx
-                .try_global::<crate::app::ReaderPreferences>()
-                .map_or_else(
-                    || kind.default_preview(),
-                    |prefs| prefs.reading_modes.preview(kind),
-                )
+            && preview_enabled(kind, cx)
         {
             self.set_preview(true, cx);
         }
@@ -262,16 +252,15 @@ impl Reader {
             return;
         }
         if let Renderer::Paged {
-            html: Some((browser, visible)),
-            ..
+            html: Some(html), ..
         } = &mut self.renderer
         {
-            *visible = preview;
-            if preview {
-                browser.update(cx, |browser, cx| browser.open(cx));
+            let mode = if preview {
+                ReaderMode::Preview
             } else {
-                browser.update(cx, |browser, _| browser.hide());
-            }
+                ReaderMode::Source
+            };
+            html.set_mode(mode, cx);
         }
         let text = if preview {
             self.projection.as_ref().and_then(|projection| {
@@ -299,10 +288,7 @@ impl Reader {
         if self.projection.as_ref().is_some_and(Projection::visible)
             || matches!(
                 &self.renderer,
-                Renderer::Paged {
-                    html: Some((_, true)),
-                    ..
-                }
+                Renderer::Paged { html: Some(html), .. } if html.preview().is_some()
             )
             || matches!(&self.renderer, Renderer::Markup(m) if m.preview)
         {
@@ -350,11 +336,10 @@ impl Reader {
     }
     pub fn reveal_anchor(&mut self, anchor: &str, cx: &mut App) {
         if let Renderer::Paged {
-            html: Some((browser, _)),
-            ..
+            html: Some(html), ..
         } = &self.renderer
         {
-            browser.update(cx, |browser, _| browser.reveal_html_anchor(anchor));
+            html.reveal_anchor(anchor, cx);
             self.set_preview(true, cx);
             return;
         }

@@ -41,6 +41,7 @@ mod xmind;
 use crate::app::document_session::DocumentSession;
 use glim_core::{ContentSnapshot, Document, DocumentKind, ReaderMode, language_for_path};
 use glim_services::documents::presentation::{MarkupFormat, TableFormat, TextPresentation};
+use glim_services::preferences::PreviewPreference;
 use gpui_kit::*;
 use markup::MarkupReader;
 use projection::Projection;
@@ -69,6 +70,14 @@ pub(super) fn editor_menu(
     .menu(glim_services::locale::tr("Select All"), Box::new(SelectAll))
 }
 
+fn preview_enabled(kind: PreviewPreference, cx: &App) -> bool {
+    cx.try_global::<crate::app::ReaderPreferences>()
+        .map_or_else(
+            || kind.default_preview(),
+            |prefs| prefs.reading_modes.preview(kind),
+        )
+}
+
 pub(super) fn preview_loading(cx: &App) -> AnyElement {
     controls::loading(glim_services::locale::tr("Loading preview…"), cx)
 }
@@ -87,12 +96,63 @@ enum Renderer {
     Source(SourceReader),
     Paged {
         view: Entity<paged::PagedReader>,
-        html: Option<(Entity<native::NativeReader>, bool)>,
+        html: Option<PagedHtml>,
         saving: std::rc::Rc<std::cell::Cell<bool>>,
     },
     Markup(Box<MarkupReader>),
     Surface(Box<dyn surface::ReaderSurface>),
 }
+
+struct PagedHtml {
+    browser: Entity<native::NativeReader>,
+    mode: ReaderMode,
+}
+
+impl PagedHtml {
+    fn new(path: PathBuf, window: &mut Window, cx: &mut App) -> Self {
+        let mode = if preview_enabled(PreviewPreference::Html, cx) {
+            ReaderMode::Preview
+        } else {
+            ReaderMode::Source
+        };
+        Self {
+            browser: cx.new(|cx| native::NativeReader::html(path, None, window, cx)),
+            mode,
+        }
+    }
+
+    fn preview(&self) -> Option<&Entity<native::NativeReader>> {
+        (self.mode == ReaderMode::Preview).then_some(&self.browser)
+    }
+
+    fn set_mode(&mut self, mode: ReaderMode, cx: &mut App) {
+        self.mode = mode;
+        self.browser.update(cx, |browser, cx| match mode {
+            ReaderMode::Preview => browser.open(cx),
+            ReaderMode::Source => browser.hide(),
+        });
+    }
+
+    fn set_active(&self, active: bool, cx: &mut App) {
+        if !active {
+            self.browser
+                .update(cx, |browser, cx| browser.set_active(false, cx));
+        } else if let Some(browser) = self.preview() {
+            browser.update(cx, |browser, cx| browser.open(cx));
+        }
+    }
+
+    fn reload(&self, cx: &mut App) {
+        self.browser
+            .update(cx, |browser, cx| browser.reload_html_file(cx));
+    }
+
+    fn reveal_anchor(&self, anchor: &str, cx: &mut App) {
+        self.browser
+            .update(cx, |browser, _| browser.reveal_html_anchor(anchor));
+    }
+}
+
 impl Renderer {
     fn entity<T: 'static>(view: Entity<T>) -> Self
     where
@@ -237,60 +297,39 @@ impl Reader {
     }
 
     pub fn deactivate(&self, cx: &mut App) {
-        if self.active.replace(Some(false)) == Some(false) {
-            return;
-        }
-        if let Some(source) = self.source() {
-            source
-                .minimap
-                .update(cx, |map, cx| map.set_active(false, cx));
-        }
-        if let Some(projection) = &self.projection {
-            projection.set_active(false, cx);
-        }
-        if let Renderer::Paged { view, .. } = &self.renderer {
-            view.update(cx, |view, _| view.suspend());
-        }
-        if let Renderer::Paged {
-            html: Some((view, _)),
-            ..
-        } = &self.renderer
-        {
-            view.update(cx, |view, cx| view.set_active(false, cx));
-        }
-        if let Renderer::Markup(view) = &self.renderer {
-            view.set_images_active(false, cx);
-        }
-        if let Renderer::Surface(view) = &self.renderer {
-            view.set_active(false, cx);
-        }
+        self.set_active(false, cx);
     }
 
     pub fn activate(&self, cx: &mut App) {
-        if self.active.replace(Some(true)) == Some(true) {
+        self.set_active(true, cx);
+    }
+
+    fn set_active(&self, active: bool, cx: &mut App) {
+        if self.active.replace(Some(active)) == Some(active) {
             return;
         }
         if let Some(source) = self.source() {
             source
                 .minimap
-                .update(cx, |map, cx| map.set_active(true, cx));
+                .update(cx, |map, cx| map.set_active(active, cx));
         }
         if let Some(projection) = &self.projection {
-            projection.set_active(true, cx);
+            projection.set_active(active, cx);
         }
-        if let Renderer::Paged { view, .. } = &self.renderer {
-            view.update(cx, |view, cx| view.resume(cx));
-        }
-        if let Renderer::Paged {
-            html: Some((view, true)),
-            ..
-        } = &self.renderer
-        {
-            view.update(cx, |view, cx| view.open(cx));
-            return;
-        }
-        if let Renderer::Surface(view) = &self.renderer {
-            view.set_active(true, cx);
+        match &self.renderer {
+            Renderer::Paged { view, html, .. } => {
+                if active {
+                    view.update(cx, |view, cx| view.resume(cx));
+                } else {
+                    view.update(cx, |view, _| view.suspend());
+                }
+                if let Some(html) = html {
+                    html.set_active(active, cx);
+                }
+            }
+            Renderer::Markup(view) if !active => view.set_images_active(false, cx),
+            Renderer::Surface(view) => view.set_active(active, cx),
+            _ => {}
         }
     }
     pub fn is_unavailable(&self) -> bool {
@@ -344,17 +383,17 @@ impl Reader {
             Renderer::Source(s) => s.render(cx),
             Renderer::Markup(m) => m.render(open, cx),
             Renderer::Surface(view) => view.render(cx),
-            Renderer::Paged {
-                html: Some((browser, true)),
-                ..
-            } => {
-                browser.update(cx, |browser, cx| {
-                    browser.set_html_open(open);
-                    browser.open(cx);
-                });
-                browser.clone().into_any_element()
+            Renderer::Paged { view, html, .. } => {
+                if let Some(browser) = html.as_ref().and_then(PagedHtml::preview) {
+                    browser.update(cx, |browser, cx| {
+                        browser.set_html_open(open);
+                        browser.open(cx);
+                    });
+                    browser.clone().into_any_element()
+                } else {
+                    view.clone().into_any_element()
+                }
             }
-            Renderer::Paged { view, .. } => view.clone().into_any_element(),
         }
     }
 }
