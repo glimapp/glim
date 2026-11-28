@@ -32,6 +32,7 @@ fn layout(sheet: &Sheet, collapsed: &HashSet<usize>) -> Layout {
         sheet: &Sheet,
         collapsed: &HashSet<usize>,
         result: &mut Layout,
+        placed: &mut Vec<Position>,
     ) -> Position {
         let start = *cursor;
         let children = if collapsed.contains(&index) {
@@ -39,11 +40,13 @@ fn layout(sheet: &Sheet, collapsed: &HashSet<usize>) -> Layout {
         } else {
             &sheet.topics[index].children[..]
         };
-        let mut placed = Vec::new();
+        let child_start = placed.len();
         for &child in children {
-            placed.push(place(child, depth + 1, cursor, sheet, collapsed, result));
+            let child = place(child, depth + 1, cursor, sheet, collapsed, result, placed);
+            placed.push(child);
         }
-        let y = if let (Some(first), Some(last)) = (placed.first(), placed.last()) {
+        let siblings = &placed[child_start..];
+        let y = if let (Some(first), Some(last)) = (siblings.first(), siblings.last()) {
             (first.y + last.y) / 2.
         } else {
             *cursor += 128.;
@@ -57,9 +60,9 @@ fn layout(sheet: &Sheet, collapsed: &HashSet<usize>) -> Layout {
         };
         result.width = result.width.max(position.x + 272.);
         result.nodes.push(position);
-        for child in placed {
-            result.edges.push((position, child));
-        }
+        result
+            .edges
+            .extend(placed.drain(child_start..).map(|child| (position, child)));
         position
     }
     let mut result = Layout {
@@ -69,8 +72,18 @@ fn layout(sheet: &Sheet, collapsed: &HashSet<usize>) -> Layout {
         height: 0.,
     };
     let mut cursor = 32.;
+    // Child positions for the current parent share one suffix with nested calls.
+    let mut placed = Vec::new();
     for &root in &sheet.roots {
-        place(root, 0, &mut cursor, sheet, collapsed, &mut result);
+        place(
+            root,
+            0,
+            &mut cursor,
+            sheet,
+            collapsed,
+            &mut result,
+            &mut placed,
+        );
         cursor += 48.;
     }
     result.height = cursor + 32.;
@@ -705,7 +718,28 @@ mod tests {
             expanded.nodes.iter().map(|p| p.index).collect::<Vec<_>>(),
             [2, 1, 3, 0]
         );
-        assert_eq!(expanded.edges.len(), 3);
+        assert_eq!(
+            expanded
+                .edges
+                .iter()
+                .map(|(parent, child)| (parent.index, child.index))
+                .collect::<Vec<_>>(),
+            [(1, 2), (0, 1), (0, 3)]
+        );
+        assert_eq!(
+            expanded
+                .nodes
+                .iter()
+                .map(|position| (position.index, position.x, position.y))
+                .collect::<Vec<_>>(),
+            [
+                (2, 672., 32.),
+                (1, 352., 32.),
+                (3, 352., 160.),
+                (0, 32., 96.)
+            ]
+        );
+        assert_eq!((expanded.width, expanded.height), (944., 368.));
         let folded = layout(sheet, &HashSet::from([1]));
         assert_eq!(
             folded.nodes.iter().map(|p| p.index).collect::<Vec<_>>(),

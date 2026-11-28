@@ -73,5 +73,6 @@ jobs:
           run_contracts views::reader::sqlite::tests
           run_contracts views::reader::books::tests
           run_contracts views::reader::books::view::tests
+          run_contracts views::reader::xmind::tests
           run_contracts views::reader::editing::editing_tests::paged_html_retains_source_editor_and_blocks_preview_for_unsaved_edits -- --exact
           run_contracts views::reader::paged::tests::cancelled_restoration_preserves_generated_source_and_position -- --exact
