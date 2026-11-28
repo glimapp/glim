@@ -98,7 +98,7 @@ pub(crate) fn persist(cx: &mut App) {
         }
         let result = cx
             .background_executor()
-            .spawn(async move { glim_services::preferences::save_telemetry_consent(consent) })
+            .spawn(async move { consent.save() })
             .await;
         if let Err(error) = &result {
             log::warn!("Cannot save telemetry preferences: {error:#}");

@@ -177,36 +177,6 @@ pub fn save_language(language: &str) -> Result<()> {
     anyhow::ensure!(crate::locale::supported(language), "Unknown language");
     set("language", language)
 }
-/// A missing choice lets the app apply its defaults; unreadable data fails closed.
-pub fn telemetry_consent() -> Result<Option<crate::telemetry::Consent>> {
-    telemetry_consent_in(&storage::open()?)
-}
-fn telemetry_consent_in(db: &rusqlite::Connection) -> Result<Option<crate::telemetry::Consent>> {
-    if let Some(value) = setting(db, "telemetry-consent")? {
-        return Ok(Some(serde_json::from_str(&value)?));
-    }
-    Ok(setting(db, "telemetry")?.map(|value| {
-        let enabled = value.trim() == "true";
-        crate::telemetry::Consent {
-            usage: enabled,
-            diagnostics: enabled,
-        }
-    }))
-}
-pub fn save_telemetry_consent(consent: crate::telemetry::Consent) -> Result<()> {
-    let mut db = storage::open()?;
-    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    set_setting(&tx, "telemetry-consent", &serde_json::to_string(&consent)?)?;
-    // Older builds have one switch. Downgrading must not re-enable a channel
-    // that was explicitly disabled with the split controls.
-    set_setting(
-        &tx,
-        "telemetry",
-        &(consent.usage && consent.diagnostics).to_string(),
-    )?;
-    tx.commit()?;
-    Ok(())
-}
 pub fn workspace_sessions() -> Result<BTreeMap<String, glim_core::session::WorkspaceSession>> {
     Ok(storage::sessions::load(&storage::open()?, "workspace")?
         .into_iter()

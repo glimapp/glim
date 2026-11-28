@@ -421,7 +421,7 @@ fn run_workspace() -> Result<()> {
     let markdown_preview = glim_services::preferences::preview_mode("markdown");
     let csv_preview = glim_services::preferences::preview_mode("csv");
     let git_preferences = glim_services::preferences::git_preferences();
-    let telemetry_consent = glim_services::preferences::telemetry_consent();
+    let telemetry_consent = glim_services::telemetry::Consent::load();
     let application = gpui_kit::application().with_assets(assets::Assets);
     let image_client = image_http::ImageHttpClient::new(application.background_executor());
     let application = application.with_http_client(std::sync::Arc::new(image_client));

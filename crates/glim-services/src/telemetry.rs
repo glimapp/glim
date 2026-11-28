@@ -34,6 +34,41 @@ pub struct Consent {
     pub diagnostics: bool,
 }
 impl Consent {
+    /// Missing consent lets startup apply its defaults; invalid data is an error.
+    pub fn load() -> Result<Option<Self>> {
+        Self::load_from(&crate::storage::open()?)
+    }
+
+    fn load_from(db: &rusqlite::Connection) -> Result<Option<Self>> {
+        if let Some(value) = crate::storage::setting(db, "telemetry-consent")? {
+            return Ok(Some(serde_json::from_str(&value)?));
+        }
+        Ok(crate::storage::setting(db, "telemetry")?.map(|value| {
+            let enabled = value.trim() == "true";
+            Self {
+                usage: enabled,
+                diagnostics: enabled,
+            }
+        }))
+    }
+
+    pub fn save(self) -> Result<()> {
+        self.save_to(&mut crate::storage::open()?)
+    }
+
+    fn save_to(self, db: &mut rusqlite::Connection) -> Result<()> {
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        crate::storage::set_setting(&tx, "telemetry-consent", &serde_json::to_string(&self)?)?;
+        // Older builds use one switch. It is on only if both channels are on.
+        crate::storage::set_setting(
+            &tx,
+            "telemetry",
+            &(self.usage && self.diagnostics).to_string(),
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn any(self) -> bool {
         self.usage || self.diagnostics
     }
@@ -1441,6 +1476,37 @@ mod distribution_policy;
 mod tests {
     use super::installation_id_in;
     use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn consent_preserves_legacy_compatibility_and_rejects_corrupt_state() -> anyhow::Result<()> {
+        use super::Consent;
+        use crate::storage::{open_at, set_setting, setting};
+
+        let directory = tempfile::tempdir()?;
+        let mut db = open_at(directory.path())?;
+        assert_eq!(Consent::load_from(&db)?, None);
+        set_setting(&db, "telemetry", "true\n")?;
+        assert_eq!(
+            Consent::load_from(&db)?,
+            Some(Consent {
+                usage: true,
+                diagnostics: true
+            })
+        );
+
+        let split = Consent {
+            usage: true,
+            diagnostics: false,
+        };
+        split.save_to(&mut db)?;
+        assert_eq!(Consent::load_from(&db)?, Some(split));
+        assert_eq!(setting(&db, "telemetry")?.as_deref(), Some("false"));
+
+        set_setting(&db, "telemetry-consent", "{invalid")?;
+        set_setting(&db, "telemetry", "true")?;
+        assert!(Consent::load_from(&db).is_err());
+        Ok(())
+    }
 
     #[test]
     fn shortcut_contract_distinguishes_new_commands_and_scrubs_input() {
