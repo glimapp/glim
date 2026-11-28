@@ -222,7 +222,13 @@ impl Workspace {
     ) {
         self.incoming_files
             .retain(|queued| !queued.starts_with(path));
-        self.results.retain(|result| !result.starts_with(path));
+        self.search_results
+            .retain(|result| !result.path().starts_with(path));
+        if !self.search.read(cx).value().trim().is_empty() {
+            self.search_selected = self
+                .search_selected
+                .min(self.search_results.len().saturating_sub(1));
+        }
         self.refresh_task = None;
         if self
             .loading_path
@@ -235,6 +241,7 @@ impl Workspace {
         }
         self.incoming_file_task = None;
         self.search_task = None;
+        self.search_loading = false;
         let mut retained_tabs = 0;
         for reader in &mut self.tabs {
             if reader.document.draft_directory.is_none()

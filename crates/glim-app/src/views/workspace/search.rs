@@ -1,5 +1,5 @@
 use super::Workspace;
-use glim_services::{limits, locale::tr};
+use glim_services::{content_search::Match, limits, locale::tr};
 use gpui_kit::{
     assets::IconName,
     component::{
@@ -12,7 +12,88 @@ use gpui_kit::{
     prelude::FluentBuilder,
     *,
 };
-use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
+
+pub(super) enum SearchResult {
+    File(PathBuf),
+    Content(Match),
+}
+
+impl SearchResult {
+    pub(super) fn path(&self) -> &Path {
+        match self {
+            Self::File(path) => path,
+            Self::Content(hit) => &hit.path,
+        }
+    }
+
+    pub(super) fn relocate(&mut self, source: &Path, destination: &Path, invalidate_content: bool) {
+        let path = crate::app::file_move::relocated_path(self.path(), source, destination);
+        if invalidate_content || path != self.path() {
+            *self = Self::File(path);
+        }
+    }
+
+    fn row(&self) -> (&Path, Option<&Match>) {
+        match self {
+            Self::File(path) => (path, None),
+            Self::Content(hit) => (&hit.path, Some(hit)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Match, Path, SearchResult};
+
+    fn hit(path: &str, line: u64, offset: u64) -> SearchResult {
+        SearchResult::Content(Match {
+            path: path.into(),
+            line,
+            offset,
+            snippet: format!("match {line}"),
+        })
+    }
+
+    #[test]
+    fn removing_a_path_keeps_each_remaining_occurrence_with_its_offset() {
+        let mut results = vec![
+            hit("alpha.txt", 2, 7),
+            hit("beta.txt", 8, 51),
+            hit("beta.txt", 9, 67),
+        ];
+        results.retain(|result| !result.path().starts_with("alpha.txt"));
+        let occurrences = results
+            .iter()
+            .map(|result| {
+                let (path, hit) = result.row();
+                let hit = hit.unwrap();
+                (path, hit.line, hit.offset, hit.snippet.as_str())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            occurrences,
+            [
+                (Path::new("beta.txt"), 8, 51, "match 8"),
+                (Path::new("beta.txt"), 9, 67, "match 9"),
+            ]
+        );
+    }
+
+    #[test]
+    fn relocating_a_search_result_can_keep_the_path_and_drop_stale_locations() {
+        let mut result = hit("current/beta.txt", 8, 51);
+        result.relocate(Path::new("other"), Path::new("outside"), false);
+        assert_eq!(result.row().1.unwrap().offset, 51);
+        result.relocate(Path::new("current"), Path::new("moved"), true);
+        assert!(matches!(result.row(), (path, None) if path == Path::new("moved/beta.txt")));
+    }
+}
 
 impl Workspace {
     pub(super) fn load_content_search(
@@ -86,8 +167,11 @@ impl Workspace {
                 view.search_loading = false;
                 match result {
                     Ok(page) => {
-                        view.results = page.matches.iter().map(|hit| hit.path.clone()).collect();
-                        view.content_results = page.matches;
+                        view.search_results = page
+                            .matches
+                            .into_iter()
+                            .map(SearchResult::Content)
+                            .collect();
                         view.search_more = page.more;
                         view.search_error = page.warning.map(Into::into);
                     }
@@ -421,8 +505,7 @@ impl Workspace {
         self.search_task = None;
         self.search_loading = false;
         self.search_error = None;
-        self.results.clear();
-        self.content_results.clear();
+        self.search_results.clear();
         self.search_offset = 0;
         self.search_more = false;
         if let Some(focus) = self.search_previous_focus.take() {
@@ -433,9 +516,9 @@ impl Workspace {
         cx.notify();
     }
 
-    fn search_paths(&self, cx: &App) -> Vec<PathBuf> {
+    fn search_rows(&self, cx: &App) -> Vec<(&Path, Option<&Match>)> {
         if !self.search.read(cx).value().trim().is_empty() {
-            return self.results.clone();
+            return self.search_results.iter().map(SearchResult::row).collect();
         }
         let mut seen = HashSet::new();
         self.history
@@ -449,21 +532,19 @@ impl Workspace {
                     .filter(|reader| reader.document.draft_directory.is_none())
                     .map(|reader| &reader.document.path),
             )
-            .filter(|path| seen.insert((*path).clone()))
+            .filter(|path| seen.insert(path.as_path()))
             .take(limits::WORKSPACE_SEARCH_RESULTS)
-            .cloned()
+            .map(|path| (path.as_path(), None))
             .collect()
     }
 
     fn open_search_result(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(path) = self.search_paths(cx).get(index).cloned() else {
+        let rows = self.search_rows(cx);
+        let Some(&(path, hit)) = rows.get(index) else {
             return;
         };
-        let location = self
-            .content_results
-            .get(index)
-            .filter(|hit| hit.path == path)
-            .map(|hit| hit.offset);
+        let path = path.to_path_buf();
+        let location = hit.map(|hit| hit.offset);
         self.record_workspace_action(
             "open_search_result",
             [
@@ -541,13 +622,13 @@ impl Workspace {
         if !input_focused || event.keystroke.modifiers.modified() {
             return;
         }
-        let paths = self.search_paths(cx);
+        let results = self.search_rows(cx).len();
         match key {
-            "up" | "down" if !paths.is_empty() => {
+            "up" | "down" if results != 0 => {
                 self.search_selected = if key == "up" {
                     self.search_selected.saturating_sub(1)
                 } else {
-                    (self.search_selected + 1).min(paths.len() - 1)
+                    (self.search_selected + 1).min(results - 1)
                 };
                 self.search_scroll.scroll_to_item(self.search_selected);
                 cx.stop_propagation();
@@ -562,7 +643,7 @@ impl Workspace {
     }
 
     pub(super) fn search_dialog(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
-        let paths = self.search_paths(cx);
+        let rows = self.search_rows(cx);
         let empty_query = self.search.read(cx).value().trim().is_empty();
         let owner = cx.entity().downgrade();
         let mut list = v_flex()
@@ -577,7 +658,7 @@ impl Workspace {
         if let Some(error) = self
             .search_error
             .as_ref()
-            .filter(|_| paths.is_empty() && !empty_query)
+            .filter(|_| rows.is_empty() && !empty_query)
         {
             let detail = error.clone();
             list = list.child(
@@ -610,7 +691,7 @@ impl Workspace {
                             ),
                     ),
             );
-        } else if paths.is_empty() {
+        } else if rows.is_empty() {
             let message = if self.search_loading {
                 if self.search_filename_fallback {
                     "Searching files…"
@@ -651,11 +732,7 @@ impl Workspace {
                     }),
             );
         } else {
-            list = list.children(paths.iter().enumerate().map(|(index, path)| {
-                let hit = self
-                    .content_results
-                    .get(index)
-                    .filter(|hit| &hit.path == path);
+            list = list.children(rows.into_iter().enumerate().map(|(index, (path, hit))| {
                 let mut name = path
                     .file_name()
                     .unwrap_or(path.as_os_str())

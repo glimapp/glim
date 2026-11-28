@@ -488,8 +488,7 @@ impl Workspace {
             }
         }
         self.search_task = None;
-        self.results.clear();
-        self.content_results.clear();
+        self.search_results.clear();
         self.remember_session(cx);
         self.refresh(window, cx);
         if source.is_none()

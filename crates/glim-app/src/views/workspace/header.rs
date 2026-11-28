@@ -120,8 +120,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let query = self.search.read(cx).value().to_string();
-        self.results.clear();
-        self.content_results.clear();
+        self.search_results.clear();
         self.search_task = None;
         self.search_more = false;
         self.search_loading = false;
@@ -228,15 +227,26 @@ impl Workspace {
                                         ],
                                     );
                                 }
-                                let selected = view.results.get(view.search_selected).cloned();
+                                let selected = view
+                                    .search_results
+                                    .get(view.search_selected)
+                                    .map(|result| result.path().to_path_buf());
                                 let previous_selection = view.search_selected;
-                                view.results = page.paths;
+                                view.search_results = page
+                                    .paths
+                                    .into_iter()
+                                    .map(super::search::SearchResult::File)
+                                    .collect();
                                 view.search_selected = selected
                                     .as_ref()
-                                    .and_then(|path| view.results.iter().position(|p| p == path))
+                                    .and_then(|path| {
+                                        view.search_results
+                                            .iter()
+                                            .position(|result| result.path() == path)
+                                    })
                                     .unwrap_or(
                                         view.search_selected
-                                            .min(view.results.len().saturating_sub(1)),
+                                            .min(view.search_results.len().saturating_sub(1)),
                                     );
                                 if previous_selection != view.search_selected {
                                     view.search_scroll.scroll_to_item(view.search_selected);

@@ -166,17 +166,16 @@ impl Workspace {
         if let Some((path, _)) = &mut self.pending_search_location {
             *path = relocate(path);
         }
-        self.results
-            .iter_mut()
-            .for_each(|path| *path = relocate(path));
-        if self
+        let search_scope_changed = self
             .roots
             .iter()
             .any(|root| source.starts_with(root) || destination.starts_with(root))
-            || roots_changed
-        {
+            || roots_changed;
+        for result in &mut self.search_results {
+            result.relocate(source, destination, search_scope_changed);
+        }
+        if search_scope_changed {
             self.search_task = None;
-            self.content_results.clear();
             self.search_loading = false;
         }
         if let Some(explorer) = &self.explorer {

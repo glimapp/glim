@@ -74,7 +74,6 @@ pub struct Workspace {
     search: Entity<InputState>,
     search_visible: bool,
     search_filename_fallback: bool,
-    content_results: Vec<glim_services::content_search::Match>,
     pending_search_location: Option<(PathBuf, u64)>,
     search_focus: FocusHandle,
     search_previous_focus: Option<FocusHandle>,
@@ -101,7 +100,7 @@ pub struct Workspace {
     word_wrap: bool,
     preference_task: Option<Task<()>>,
     watch_scan_task: Option<Task<()>>,
-    results: Vec<PathBuf>,
+    search_results: Vec<search::SearchResult>,
     search_offset: usize,
     search_more: bool,
     recent_visible: usize,
@@ -209,7 +208,7 @@ impl Workspace {
         glim_services::telemetry::track("settings_opened", []);
         self.page = Page::Settings;
         self.integrations.update(cx, |view, cx| view.reload(cx));
-        self.results.clear();
+        self.search_results.clear();
         self.search_task = None;
         window.focus(&self.focus, cx);
         cx.notify();
@@ -334,7 +333,6 @@ impl Workspace {
             search,
             search_visible: false,
             search_filename_fallback: false,
-            content_results: Vec::new(),
             pending_search_location: None,
             search_focus: cx.focus_handle(),
             search_previous_focus: None,
@@ -350,7 +348,7 @@ impl Workspace {
             remote_index_progress_task: None,
             remote_index_scope: None,
             remote_index_task: None,
-            results: Vec::new(),
+            search_results: Vec::new(),
             search_offset: 0,
             search_more: false,
             recent_visible: glim_services::limits::WORKSPACE_RECENT_WORKSPACES,

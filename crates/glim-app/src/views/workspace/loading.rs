@@ -258,7 +258,7 @@ impl Workspace {
         if crate::app::updates::busy(cx) {
             return;
         }
-        self.results.clear();
+        self.search_results.clear();
         self.search_task = None;
         self.pending_anchor = None;
         if let Some(index) = self.tabs.iter().position(|t| t.document.owns_path(&path)) {
@@ -471,7 +471,7 @@ impl Workspace {
         self.remember_remote(cx);
         self.root = self.roots.first().cloned();
         self.restoring_roots = None;
-        self.results.clear();
+        self.search_results.clear();
         self.search_task = None;
         self.pending_anchor = None;
         if cx.try_global::<crate::app::RecentWorkspaces>().is_some() {

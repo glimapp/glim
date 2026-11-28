@@ -648,7 +648,7 @@ impl super::Workspace {
             ToolbarAction::FileFullscreen => {
                 if self.page == Page::Document && self.active_reader().is_some() {
                     self.set_file_fullscreen(!self.file_fullscreen, window);
-                    self.results.clear();
+                    self.search_results.clear();
                     self.search_task = None;
                     self.history_swipe = None;
                     // Keep the existing reader and its editing/preview state alive.
