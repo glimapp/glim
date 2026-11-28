@@ -1,6 +1,6 @@
 //! Prepared archive entries and directory queries.
 use std::{
-    collections::BTreeMap,
+    collections::HashMap,
     path::{Path, PathBuf},
 };
 
@@ -52,7 +52,7 @@ impl Archive {
         let start = self
             .entries
             .partition_point(|entry| entry.name.as_str() < prefix);
-        let mut children = BTreeMap::new();
+        let mut children = HashMap::new();
         for entry in &self.entries[start..] {
             let Some(tail) = entry.name.strip_prefix(prefix) else {
                 break;
@@ -60,8 +60,9 @@ impl Archive {
             if tail.is_empty() || entry.name.starts_with("__MACOSX/") {
                 continue;
             }
-            let name = tail.split('/').next().unwrap_or_default();
-            let directory = tail.contains('/') || entry.directory;
+            let (name, directory) = tail
+                .split_once('/')
+                .map_or((tail, entry.directory), |(name, _)| (name, true));
             let row = children.entry(name).or_insert((directory, 0u64));
             row.1 = row.1.saturating_add(entry.size);
         }
@@ -73,7 +74,7 @@ impl Archive {
                 bytes,
             })
             .collect::<Vec<_>>();
-        rows.sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.name.cmp(&b.name)));
+        rows.sort_unstable_by(|a, b| b.bytes.cmp(&a.bytes).then(a.name.cmp(&b.name)));
         rows
     }
 }
@@ -95,6 +96,7 @@ mod tests {
             ("docs/nested/b", false, 6),
             ("docs0", false, 28),
             ("notes", false, 2),
+            ("notes-old", false, 5),
             ("notes/child", false, 3),
         ]
         .into_iter()
@@ -105,7 +107,7 @@ mod tests {
         })
         .collect();
         let archive = Archive::new(Path::new("example.zip"), "ZIP".into(), entries);
-        assert_eq!(archive.total_bytes(), 972);
+        assert_eq!(archive.total_bytes(), 977);
         let rows = |prefix| {
             archive
                 .directory_entries(prefix)
@@ -126,6 +128,7 @@ mod tests {
                 ("docs", true, 27),
                 ("docs-old", true, 12),
                 ("notes", false, 5),
+                ("notes-old", false, 5),
             ])
         );
         assert_eq!(
